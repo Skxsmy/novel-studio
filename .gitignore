@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.vite/
+coverage/
+*.log
+data/library/
+data/backups/
+data/app-config.json
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.env
+.env.*
+!.env.example
+
