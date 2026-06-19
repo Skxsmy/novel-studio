@@ -3,6 +3,7 @@ dist/
 .vite/
 coverage/
 *.log
+*.tsbuildinfo
 data/library/
 data/backups/
 data/app-config.json
@@ -12,4 +13,3 @@ data/app-config.json
 .env
 .env.*
 !.env.example
-
