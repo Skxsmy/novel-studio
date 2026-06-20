@@ -68,6 +68,35 @@ describe("local API", () => {
     });
     expect(secondBookResponse.statusCode).toBe(201);
     expect(secondBookResponse.json()).toMatchObject({ title: "第二部", order: 2 });
+    const secondBook = secondBookResponse.json();
+    const secondBookActs = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/books/${secondBook.id}/acts`,
+    });
+    const secondBookAct = secondBookActs.json()[0];
+    const secondBookChapters = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/acts/${secondBookAct.id}/chapters`,
+    });
+    const secondBookChapter = secondBookChapters.json()[0];
+    const secondBookScene = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/scenes`,
+      payload: {
+        title: "第二部场景",
+        content: "这个场景必须落在第二部。",
+        bookId: secondBook.id,
+        actId: secondBookAct.id,
+        chapterId: secondBookChapter.id,
+      },
+    });
+    expect(secondBookScene.statusCode).toBe(201);
+    expect(secondBookScene.json().metadata).toMatchObject({
+      bookId: secondBook.id,
+      actId: secondBookAct.id,
+      chapterId: secondBookChapter.id,
+      title: "第二部场景",
+    });
     const firstActs = await app.inject({
       method: "GET",
       url: `/api/v1/series/${series.manifest.id}/books/${book.id}/acts`,
@@ -92,7 +121,7 @@ describe("local API", () => {
       url: `/api/v1/series/${series.manifest.id}/hierarchy/validate`,
     });
     expect(validation.statusCode).toBe(200);
-    expect(validation.json()).toMatchObject({ valid: true, bookCount: 2, actCount: 3 });
+    expect(validation.json()).toMatchObject({ valid: true, bookCount: 2, actCount: 3, sceneCount: 2 });
     await app.close();
   });
 

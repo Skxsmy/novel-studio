@@ -23,6 +23,11 @@ import {
 
 type SaveState = "saved" | "dirty" | "saving" | "conflict" | "error";
 type InspectorTab = "context" | "sections" | "anchors";
+interface SceneCreateLocation {
+  bookId: string;
+  actId: string;
+  chapterId: string;
+}
 
 const sectionKindLabels: Record<SceneSectionKind, string> = {
   "author-note": "作者备注",
@@ -55,7 +60,7 @@ interface WriteViewProps {
   activeScene: SceneDocument;
   onSelectScene: (sceneId: string) => void;
   onSceneUpdated: (scene: SceneDocument) => void;
-  onCreateScene: () => Promise<void>;
+  onCreateScene: (location?: SceneCreateLocation) => Promise<void>;
   onCreateBook: () => Promise<void>;
   onCreateAct: (bookId: string) => Promise<void>;
   onCreateChapter: (actId: string) => Promise<void>;
@@ -238,6 +243,11 @@ export function WriteView({
   const activeAct = acts.find((act) => activeChapter ? act.chapterIds.includes(activeChapter.id) : false);
   const activeBook = detail.books.find((book) => book.id === activeScene.metadata.bookId);
   const bookTitle = activeBook?.title ?? detail.books[0]?.title ?? "第一部";
+  const activeLocation = {
+    bookId: activeScene.metadata.bookId,
+    actId: activeScene.metadata.actId,
+    chapterId: activeScene.metadata.chapterId,
+  };
   const chapterGroups = useMemo(() => {
     const groups = new Map<string, SceneDocument[]>();
     for (const chapter of chapters) groups.set(chapter.id, []);
@@ -335,10 +345,13 @@ export function WriteView({
     <section className={`write-workspace ${rightOpen ? "with-inspector" : ""}`}>
       <aside className="scene-drawer">
         <div className="drawer-heading">
-          <span>作品结构</span>
+          <div>
+            <span>作品结构</span>
+            <small>{detail.books.length} 部 · {detail.scenes.length} 场景</small>
+          </div>
           <div className="drawer-actions">
-            <button onClick={() => void onCreateScene()} title="添加场景">新场景</button>
-            <button onClick={() => void onCreateBook()} title="添加部">新部</button>
+            <button className="drawer-action-primary" onClick={() => void onCreateScene(activeLocation)} title="在当前章节添加场景">本章新场景</button>
+            <button className="drawer-action-secondary" onClick={() => void onCreateBook()} title="添加部">新部</button>
           </div>
         </div>
         {[...detail.books].sort((left, right) => left.order - right.order).map((book) => (
@@ -364,14 +377,22 @@ export function WriteView({
                     const scenes = [...(chapterGroups.get(chapterId) ?? [])].sort(
                       (left, right) => left.metadata.order - right.metadata.order,
                     );
+                    const chapterLocation = { bookId: book.id, actId: act.id, chapterId: chapter.id };
                     return (
-                      <div key={chapterId}>
-                        <p className="chapter-label">{chapter.title}</p>
+                      <div className="chapter-drawer-block" key={chapterId}>
+                        <div className="chapter-drawer-heading">
+                          <div>
+                            <p className="chapter-label">{chapter.title}</p>
+                            <small>{scenes.length} 场景</small>
+                          </div>
+                          <button onClick={() => void onCreateScene(chapterLocation)}>新场景</button>
+                        </div>
                         {scenes.map((scene, index) => (
                           <button className={`scene-nav-item ${scene.metadata.id === activeScene.metadata.id ? "active" : ""}`} onClick={() => onSelectScene(scene.metadata.id)} key={scene.metadata.id}>
                             <span>{String(index + 1).padStart(2, "0")}</span><div><strong>{scene.metadata.title}</strong><small>{scene.characterCount} 字</small></div>
                           </button>
                         ))}
+                        {!scenes.length && <button className="empty-chapter-action" onClick={() => void onCreateScene(chapterLocation)}>给这一章添加第一个场景</button>}
                       </div>
                     );
                   })}

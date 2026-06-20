@@ -5,8 +5,8 @@
 ## 仓库状态
 
 - 分支：`main`
-- 最近相关提交：查看 `git log -3 --oneline`；应包含 NS-400 的 web 拆分、烟测覆盖和 M4 契约提交。
-- 当前任务：`NS-400` 已完成；下一任务是 `NS-401`，目标是模型连接、上下文装配、权限边界、提示词版本和调用日志的最小纵向闭环。
+- 最近相关提交：查看 `git log -4 --oneline`；应包含 NS-400 收口和 NS-307 写作页布局 / 定向新建场景提交。
+- 当前任务：`NS-307` 已完成；下一任务仍是 `NS-401`，目标是模型连接、上下文装配、权限边界、提示词版本和调用日志的最小纵向闭环。
 - 预期脏文件：无。接手时运行 `git status --short` 核实；如不为空，先判断是否为用户未提交改动。
 
 ## 已完成
@@ -66,6 +66,7 @@
   - 已将 `CodexView.tsx` 拆为顶层列表视图、`CodexEntryEditor.tsx` 和 `CodexEntryPanels.tsx`，顶层视图从约 692 行降到 162 行；
   - 已新增 `packages/storage/test/smoke.test.ts` 和 `npm.cmd run test:smoke`，覆盖创建写作恢复、层级创建校验、设定库提及/资料范围/未来事实隔离；
   - 已在 `packages/contracts/src/index.ts` 定义 `ContextBundle`、`ContextItem`、`PromptTemplate`、`ModelCallLog`、`Proposal` 与 `ProposalPatch` 最小契约，并写入架构/API/数据模型文档；
+  - NS-307：写作页结构栏已改为更清晰的部 / 幕 / 章 / 场景布局；`CreateSceneInput` 支持 `bookId`、`actId`、`chapterId`，第二部章节内可以直接新建场景；
   - server typecheck、server test、storage typecheck、storage test、web typecheck、web test 和全量 `npm.cmd run check` 通过。
 
 ## 验证
@@ -73,6 +74,7 @@
 - `npm.cmd run check`：退出码 0。
 - Server 6/6，Web 14/14，Storage 39/39。
 - `npm.cmd run test:smoke`：1 个文件、3 条烟测通过。
+- NS-307 后 `npm.cmd run check`：通过；Server 6/6，Web 14/14，Storage 39/39，生产构建通过。
 - `scripts/start.ps1 -NoBrowser`：已有健康服务存在时复用当前服务，没有启动新的监听进程。
 - 浏览器中文 fixture：已确认设定与参考笔记独立保存、自定义类别、同名歧义不误分配、有向关系、`on-mention`/`never` 资料范围预览、归档恢复和追踪表名称解析通过。
 - 浏览器文案抽样：主导航、首页、概览、规划、写作抽屉、设定库、编辑室、待确认均无 `Canon/Research/Section/POV/tokens/AI/钉住/手工/0 字符` 等旧界面词；控制台无 warning/error。
@@ -92,6 +94,7 @@
 - 同名同范围被记录为歧义并不分配给任一条目；人工消歧 UI 尚未实现。
 - 当前没有应用内停止服务、托盘入口或 PID 文件；启动脚本只做安全复用和防重复启动，不主动杀进程。
 - 浏览器验收留下了测试用系列、故事进展、未来隐藏记录和角色所知记录；它们位于本地示例作品库，不进入 Git。
+- 本轮 Codex 内置浏览器控制通道不可用，错误为宿主元数据缺少 `sandboxPolicy`；NS-307 已用自动化测试、API 验证和生产构建替代，后续浏览器通道恢复后应补看写作页布局。
 
 ## 唯一下一任务
 

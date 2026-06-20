@@ -1088,15 +1088,19 @@ export class ProjectRepository {
     location?: { bookId: string; actId: string; chapterId: string },
   ): Promise<SceneDocument> {
     const input = CreateSceneInputSchema.parse(rawInput);
+    const targetLocation = location ??
+      (input.bookId && input.actId && input.chapterId
+        ? { bookId: input.bookId, actId: input.actId, chapterId: input.chapterId }
+        : undefined);
     const series = await this.getSeriesWithoutScenes(seriesId);
-    const book = location
-      ? series.books.find((item) => item.id === location.bookId)
+    const book = targetLocation
+      ? series.books.find((item) => item.id === targetLocation.bookId)
       : series.books[0];
     if (!book) throw new StorageError("作品没有可用单本", "INVALID_DATA");
-    const actId = location?.actId ?? book.actIds[0];
+    const actId = targetLocation?.actId ?? book.actIds[0];
     if (!actId) throw new StorageError("单本没有可用幕", "INVALID_DATA", { bookId: book.id });
     const act = await this.readReferencedAct(path.join(series.root, "books", book.id), book, actId);
-    const chapterId = location?.chapterId ?? act.chapterIds[0];
+    const chapterId = targetLocation?.chapterId ?? act.chapterIds[0];
     if (!chapterId) throw new StorageError("幕没有可用章", "INVALID_DATA", { actId });
     const bookRoot = path.join(series.root, "books", book.id);
     const chapter = await this.readReferencedChapter(bookRoot, act, chapterId);

@@ -33,7 +33,7 @@
 - `GET /series/:seriesId/search?q=`
 - `PATCH /series/:seriesId/scenes/:sceneId/planning`
 
-场景更新必须提供 `baseRevision`。移动只接受 `targetChapterId` 与可选 `order`，祖先 ID 由服务端推导。
+场景创建默认落在第一本书的第一个可用章节；若客户端要把场景放入指定位置，`POST /series/:seriesId/scenes` 必须同时提供 `bookId`、`actId` 和 `chapterId`。场景更新必须提供 `baseRevision`。移动只接受 `targetChapterId` 与可选 `order`，祖先 ID 由服务端推导。
 
 ## Act 与 Chapter
 

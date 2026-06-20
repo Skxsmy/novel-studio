@@ -7,6 +7,11 @@ import { PlanView } from "./PlanView";
 import { WriteView } from "./WriteView";
 
 type WorkspaceView = "overview" | "plan" | "write" | "codex" | "workshop" | "review";
+interface SceneCreateLocation {
+  bookId: string;
+  actId: string;
+  chapterId: string;
+}
 
 const navigation: Array<{ id: WorkspaceView; icon: string; label: string }> = [
   { id: "overview", icon: "⌂", label: "概览" },
@@ -321,9 +326,20 @@ export function App() {
     setPlanningBoard(board);
   }, [detail?.manifest.id, loadHierarchy]);
 
-  async function createScene() {
+  async function createScene(location?: SceneCreateLocation) {
     if (!detail) return;
-    const scene = await api.createScene(detail.manifest.id, { title: `场景 ${detail.scenes.length + 1}`, content: "" });
+    const fallbackLocation = activeScene
+      ? {
+          bookId: activeScene.metadata.bookId,
+          actId: activeScene.metadata.actId,
+          chapterId: activeScene.metadata.chapterId,
+        }
+      : undefined;
+    const scene = await api.createScene(detail.manifest.id, {
+      title: `场景 ${detail.scenes.length + 1}`,
+      content: "",
+      ...(location ?? fallbackLocation),
+    });
     await reloadProject();
     setActiveSceneId(scene.metadata.id);
     setActiveView("write");

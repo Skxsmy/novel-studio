@@ -391,6 +391,18 @@ export type CreateSeriesInput = z.input<typeof CreateSeriesInputSchema>;
 export const CreateSceneInputSchema = z.object({
   title: z.string().trim().min(1).max(160).default("新场景"),
   content: z.string().default(""),
+  bookId: z.string().uuid().optional(),
+  actId: z.string().uuid().optional(),
+  chapterId: z.string().uuid().optional(),
+}).superRefine((input, context) => {
+  const provided = [input.bookId, input.actId, input.chapterId].filter(Boolean).length;
+  if (provided > 0 && provided < 3) {
+    context.addIssue({
+      code: "custom",
+      message: "指定场景位置时必须同时提供 bookId、actId 和 chapterId",
+      path: ["chapterId"],
+    });
+  }
 });
 export type CreateSceneInput = z.input<typeof CreateSceneInputSchema>;
 
