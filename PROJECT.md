@@ -4,6 +4,17 @@
 
 为单个中文小说作者提供一个本地优先、文件透明、可长期维护的小说写作应用：规划、正文、Codex、编辑会审、资料分析、版本和 Word 往返形成闭环。
 
+## 权威产品规格
+
+本文件只提供入口，不是完整需求。任何开发者或 AI 在修改代码前必须阅读：
+
+- `docs/product/PRODUCT_SPEC.md`：完整愿景与功能行为。
+- `docs/product/REQUIREMENTS_TRACEABILITY.md`：里程碑与完成标准。
+- `docs/product/USER_EXPERIENCE_SPEC.md`：最终使用体验。
+- 与任务相关的 AI、资料库或导入导出领域规格。
+
+完整导航和冲突处理规则见 `docs/product/README.md`。不得仅依据 `STATUS.md`、`TASKS.md` 或当前界面推测产品目标。
+
 ## 核心原则
 
 1. **作者拥有最终决定权**：AI 只能生成候选变更。
@@ -29,4 +40,3 @@
 - **Proposal**：AI 或导入流程提出、尚未应用的变更。
 - **Evidence**：建议或矛盾判断所依据的正文、设定或资料位置。
 - **Context Bundle**：一次模型调用实际装配的可审计上下文。
-
