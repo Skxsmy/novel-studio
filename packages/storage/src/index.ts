@@ -19,14 +19,23 @@ import {
   CreateChapterInputSchema,
   CreateSceneInputSchema,
   CreateSeriesInputSchema,
+  CreateTimelineEventInputSchema,
+  DeleteTimelineEventInputSchema,
   MoveSceneInputSchema,
+  PlanningBoardSchema,
+  PlanningSceneSchema,
   ReorderInputSchema,
   SceneDocumentSchema,
   SceneFrontmatterSchema,
   SeriesManifestSchema,
+  TimelineEventDocumentSchema,
+  TimelineEventSchema,
+  TimelineManifestSchema,
   UpdateActInputSchema,
   UpdateChapterInputSchema,
+  UpdateScenePlanningInputSchema,
   UpdateSceneInputSchema,
+  UpdateTimelineEventInputSchema,
   type ActManifest,
   type BookManifest,
   type ChapterManifest,
@@ -34,9 +43,16 @@ import {
   type CreateChapterInput,
   type CreateSceneInput,
   type CreateSeriesInput,
+  type CreateTimelineEventInput,
+  type DeleteTimelineEventInput,
   type HierarchyIssue,
   type HierarchyValidationResult,
   type MoveSceneInput,
+  type PlanningBoard,
+  type PlanningAct,
+  type PlanningBook,
+  type PlanningChapter,
+  type PlanningScene,
   type ReorderInput,
   type SceneDocument,
   type SceneFrontmatter,
@@ -44,9 +60,14 @@ import {
   type SeriesDetail,
   type SeriesManifest,
   type SeriesSummary,
+  type TimelineEvent,
+  type TimelineEventDocument,
+  type TimelineManifest,
   type UpdateActInput,
   type UpdateChapterInput,
+  type UpdateScenePlanningInput,
   type UpdateSceneInput,
+  type UpdateTimelineEventInput,
 } from "@novel-studio/contracts";
 
 const FRONTMATTER_MARKER = "---";
@@ -54,6 +75,9 @@ const SERIES_FILE = "series.yaml";
 const BOOK_FILE = "book.yaml";
 const ACTS_DIR = "acts";
 const CHAPTERS_DIR = "chapters";
+const PLANNING_DIR = "planning";
+const TIMELINE_FILE = "timeline.yaml";
+const TIMELINE_EVENTS_DIR = "events";
 
 function toChineseOrdinal(value: number): string {
   const digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
@@ -335,6 +359,14 @@ function chapterPath(bookRoot: string, chapterId: string): string {
   return path.join(bookRoot, CHAPTERS_DIR, `${chapterId}.yaml`);
 }
 
+function timelineManifestPath(seriesRoot: string): string {
+  return path.join(seriesRoot, PLANNING_DIR, TIMELINE_FILE);
+}
+
+function timelineEventPath(seriesRoot: string, eventId: string): string {
+  return path.join(seriesRoot, PLANNING_DIR, TIMELINE_EVENTS_DIR, `${eventId}.yaml`);
+}
+
 async function readActManifest(bookRoot: string, actId: string): Promise<ActManifest> {
   return readYaml(actPath(bookRoot, actId), (value) => ActManifestSchema.parse(value));
 }
@@ -447,6 +479,11 @@ export class ProjectRepository {
       createdAt: now,
       updatedAt: now,
     });
+    const timeline: TimelineManifest = TimelineManifestSchema.parse({
+      schemaVersion: 1,
+      eventIds: [],
+      updatedAt: now,
+    });
 
     await mkdir(sceneDirectory, { recursive: true });
     const requiredDirectories = [
@@ -462,6 +499,7 @@ export class ProjectRepository {
       "styles",
       "agents",
       "workshop",
+      "planning/events",
       ".studio/inbox",
       ".studio/history",
       ".studio/cache",
@@ -475,6 +513,7 @@ export class ProjectRepository {
       { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeYaml(book) },
       { targetPath: actPath(bookRoot, act.id), content: serializeYaml(act) },
       { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(chapter) },
+      { targetPath: timelineManifestPath(seriesRoot), content: serializeYaml(timeline) },
     ]);
     await this.createScene(seriesId, { title: "开篇场景", content: "" }, {
       bookId,
@@ -643,6 +682,39 @@ export class ProjectRepository {
     return updated;
   }
 
+  async updateScenePlanning(
+    seriesId: string,
+    sceneId: string,
+    rawInput: UpdateScenePlanningInput,
+  ): Promise<SceneDocument> {
+    const input = UpdateScenePlanningInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const filePath = await this.findScenePath(seriesRoot, sceneId);
+    const current = parseSceneText(
+      await readFile(filePath, "utf8"),
+      path.relative(seriesRoot, filePath),
+    );
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("场景规划已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+        scene: current,
+      });
+    }
+    const { baseRevision: _baseRevision, ...changes } = input;
+    const metadata = SceneFrontmatterSchema.parse({
+      ...current.metadata,
+      ...changes,
+      updatedAt: new Date().toISOString(),
+    });
+    await atomicWrite(filePath, serializeScene(metadata, current.content));
+    const updated = parseSceneText(
+      await readFile(filePath, "utf8"),
+      path.relative(seriesRoot, filePath),
+    );
+    await this.indexScene(seriesRoot, updated);
+    return updated;
+  }
+
   async rebuildIndex(seriesId: string): Promise<{ indexedScenes: number }> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const database = this.openIndex(seriesRoot);
@@ -684,6 +756,214 @@ export class ProjectRepository {
     } finally {
       database.close();
     }
+  }
+
+  async getPlanningBoard(seriesId: string): Promise<PlanningBoard> {
+    const series = await this.getSeries(seriesId);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const scenesById = new Map(series.scenes.map((scene) => [scene.metadata.id, scene]));
+    const narrativeScenes: PlanningScene[] = [];
+    let narrativeIndex = 0;
+    const books: PlanningBook[] = [];
+
+    for (const book of [...series.books].sort((a, b) => a.order - b.order)) {
+      const acts: PlanningAct[] = [];
+      for (const act of await this.listActs(seriesId, book.id)) {
+        const chapters: PlanningChapter[] = [];
+        for (const chapter of await this.listChapters(seriesId, act.id)) {
+          const scenes = chapter.sceneIds.map((sceneId) => {
+            const scene = scenesById.get(sceneId);
+            if (!scene) {
+              throw new StorageError("规划查询缺少父清单引用的场景", "INVALID_DATA", { sceneId });
+            }
+            narrativeIndex++;
+            const projected = PlanningSceneSchema.parse({
+              ...scene.metadata,
+              narrativeIndex,
+              characterCount: scene.characterCount,
+              revision: scene.revision,
+            });
+            narrativeScenes.push(projected);
+            return projected;
+          });
+          chapters.push({
+            id: chapter.id,
+            actId: chapter.actId,
+            title: chapter.title,
+            order: chapter.order,
+            scenes,
+          });
+        }
+        acts.push({ id: act.id, bookId: act.bookId, title: act.title, order: act.order, chapters });
+      }
+      books.push({ id: book.id, title: book.title, order: book.order, acts });
+    }
+
+    const { manifest: timeline, events: storyEvents } = await this.loadTimeline(
+      seriesRoot,
+      series.manifest.updatedAt,
+    );
+    const knownSceneIds = new Set(narrativeScenes.map((scene) => scene.id));
+    for (const document of storyEvents) {
+      const duplicateSceneIds = document.event.sceneIds.filter(
+        (sceneId, index, values) => values.indexOf(sceneId) !== index,
+      );
+      const unknownSceneIds = document.event.sceneIds.filter((sceneId) => !knownSceneIds.has(sceneId));
+      if (duplicateSceneIds.length || unknownSceneIds.length) {
+        throw new StorageError("故事事件包含无效场景引用", "INVALID_DATA", {
+          eventId: document.event.id,
+          duplicateSceneIds: [...new Set(duplicateSceneIds)],
+          unknownSceneIds,
+        });
+      }
+    }
+    const placed = new Set(storyEvents.flatMap((document) => document.event.sceneIds));
+    const dimensions = {
+      povs: this.sortedUnique(narrativeScenes.flatMap((scene) => scene.pov ? [scene.pov] : [])),
+      characterIds: this.sortedUnique(narrativeScenes.flatMap((scene) => scene.characterIds)),
+      locationIds: this.sortedUnique(narrativeScenes.flatMap((scene) => scene.locationIds)),
+      plotThreadIds: this.sortedUnique(narrativeScenes.flatMap((scene) => scene.plotThreadIds)),
+      tags: this.sortedUnique(narrativeScenes.flatMap((scene) => scene.tags)),
+      statuses: this.sortedUnique(narrativeScenes.map((scene) => scene.status)),
+    };
+    const revision = contentRevision(JSON.stringify({
+      seriesId,
+      sceneRevisions: narrativeScenes.map((scene) => scene.revision),
+      hierarchy: books,
+      timeline,
+      eventRevisions: storyEvents.map((event) => event.revision),
+    }));
+    return PlanningBoardSchema.parse({
+      seriesId,
+      revision,
+      books,
+      narrativeScenes,
+      storyEvents,
+      unplacedSceneIds: narrativeScenes.filter((scene) => !placed.has(scene.id)).map((scene) => scene.id),
+      dimensions,
+      legacyStoryTimeSceneIds: series.scenes
+        .filter((scene) => scene.metadata.storyTime !== null)
+        .map((scene) => scene.metadata.id),
+    });
+  }
+
+  async createTimelineEvent(
+    seriesId: string,
+    rawInput: CreateTimelineEventInput,
+  ): Promise<TimelineEventDocument> {
+    const input = CreateTimelineEventInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const series = await this.getSeries(seriesId);
+    this.assertTimelineSceneIds(series.scenes, input.sceneIds ?? []);
+    const { manifest } = await this.loadTimeline(seriesRoot, series.manifest.updatedAt);
+    const now = new Date().toISOString();
+    const event = TimelineEventSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      title: input.title,
+      timeKind: input.timeKind ?? "unknown",
+      timeLabel: input.timeLabel ?? "时间未定",
+      startsAt: input.startsAt ?? null,
+      precision: input.precision ?? "custom",
+      durationMinutes: input.durationMinutes ?? null,
+      sceneIds: input.sceneIds ?? [],
+      description: input.description ?? "",
+      tags: input.tags ?? [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    const updatedManifest = TimelineManifestSchema.parse({
+      ...manifest,
+      eventIds: [...manifest.eventIds, event.id],
+      updatedAt: now,
+    });
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: timelineEventPath(seriesRoot, event.id), content: serializeYaml(event) },
+      { targetPath: timelineManifestPath(seriesRoot), content: serializeYaml(updatedManifest) },
+    ]);
+    return this.readTimelineEventDocument(seriesRoot, event.id, updatedManifest.eventIds.length);
+  }
+
+  async updateTimelineEvent(
+    seriesId: string,
+    eventId: string,
+    rawInput: UpdateTimelineEventInput,
+  ): Promise<TimelineEventDocument> {
+    const input = UpdateTimelineEventInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const series = await this.getSeries(seriesId);
+    const { manifest } = await this.loadTimeline(seriesRoot, series.manifest.updatedAt);
+    const storyIndex = manifest.eventIds.indexOf(eventId) + 1;
+    if (storyIndex === 0) throw new StorageError("故事事件不存在", "NOT_FOUND", { eventId });
+    const current = await this.readTimelineEventDocument(seriesRoot, eventId, storyIndex);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("故事事件已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+        event: current,
+      });
+    }
+    const { baseRevision: _baseRevision, ...changes } = input;
+    this.assertTimelineSceneIds(series.scenes, changes.sceneIds ?? current.event.sceneIds);
+    const event = TimelineEventSchema.parse({
+      ...current.event,
+      ...changes,
+      updatedAt: new Date().toISOString(),
+    });
+    await atomicWrite(timelineEventPath(seriesRoot, event.id), serializeYaml(event));
+    return this.readTimelineEventDocument(seriesRoot, event.id, storyIndex);
+  }
+
+  async deleteTimelineEvent(
+    seriesId: string,
+    eventId: string,
+    rawInput: DeleteTimelineEventInput,
+  ): Promise<{ deletedId: string }> {
+    const input = DeleteTimelineEventInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const series = await this.getSeries(seriesId);
+    const { manifest } = await this.loadTimeline(seriesRoot, series.manifest.updatedAt);
+    const storyIndex = manifest.eventIds.indexOf(eventId) + 1;
+    if (storyIndex === 0) throw new StorageError("故事事件不存在", "NOT_FOUND", { eventId });
+    const current = await this.readTimelineEventDocument(seriesRoot, eventId, storyIndex);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("故事事件已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+    const updatedManifest = TimelineManifestSchema.parse({
+      ...manifest,
+      eventIds: manifest.eventIds.filter((id) => id !== eventId),
+      updatedAt: new Date().toISOString(),
+    });
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: timelineEventPath(seriesRoot, eventId), delete: true },
+      { targetPath: timelineManifestPath(seriesRoot), content: serializeYaml(updatedManifest) },
+    ]);
+    return { deletedId: eventId };
+  }
+
+  async reorderTimelineEvents(
+    seriesId: string,
+    rawInput: ReorderInput,
+  ): Promise<TimelineEventDocument[]> {
+    const input = ReorderInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const series = await this.getSeries(seriesId);
+    const { manifest } = await this.loadTimeline(seriesRoot, series.manifest.updatedAt);
+    assertExactPermutation(manifest.eventIds, input.orderedIds, "故事事件");
+    const updatedManifest = TimelineManifestSchema.parse({
+      ...manifest,
+      eventIds: input.orderedIds,
+      updatedAt: new Date().toISOString(),
+    });
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: timelineManifestPath(seriesRoot), content: serializeYaml(updatedManifest) },
+    ]);
+    return Promise.all(
+      input.orderedIds.map((eventId, index) =>
+        this.readTimelineEventDocument(seriesRoot, eventId, index + 1),
+      ),
+    );
   }
 
   async getAct(seriesId: string, actId: string): Promise<ActManifest> {
@@ -1454,6 +1734,98 @@ export class ProjectRepository {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
     }
+  }
+
+  private async loadTimeline(
+    seriesRoot: string,
+    fallbackUpdatedAt: string,
+  ): Promise<{ manifest: TimelineManifest; events: TimelineEventDocument[] }> {
+    let manifest: TimelineManifest;
+    try {
+      manifest = await readYaml(timelineManifestPath(seriesRoot), (value) =>
+        TimelineManifestSchema.parse(value),
+      );
+    } catch (error) {
+      if (!(error instanceof StorageError && error.code === "NOT_FOUND")) throw error;
+      manifest = TimelineManifestSchema.parse({
+        schemaVersion: 1,
+        eventIds: [],
+        updatedAt: fallbackUpdatedAt,
+      });
+    }
+    if (new Set(manifest.eventIds).size !== manifest.eventIds.length) {
+      throw new StorageError("故事时间线包含重复事件 ID", "INVALID_DATA");
+    }
+    const events: TimelineEventDocument[] = [];
+    for (let index = 0; index < manifest.eventIds.length; index++) {
+      const eventId = manifest.eventIds[index]!;
+      try {
+        events.push(await this.readTimelineEventDocument(seriesRoot, eventId, index + 1));
+      } catch (error) {
+        if (error instanceof StorageError && error.code === "NOT_FOUND") {
+          throw new StorageError("时间线引用的事件文件不存在", "INVALID_DATA", { eventId });
+        }
+        throw error;
+      }
+    }
+    const actualEventIds = await this.listManifestIds(
+      path.join(seriesRoot, PLANNING_DIR, TIMELINE_EVENTS_DIR),
+    );
+    const orphanEventIds = actualEventIds.filter((eventId) => !manifest.eventIds.includes(eventId));
+    if (orphanEventIds.length) {
+      throw new StorageError("存在未被时间线引用的故事事件文件", "INVALID_DATA", { orphanEventIds });
+    }
+    return { manifest, events };
+  }
+
+  private async readTimelineEventDocument(
+    seriesRoot: string,
+    eventId: string,
+    storyIndex: number,
+  ): Promise<TimelineEventDocument> {
+    const filePath = timelineEventPath(seriesRoot, eventId);
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("故事事件不存在", "NOT_FOUND", { eventId });
+      }
+      throw error;
+    }
+    let event: TimelineEvent;
+    try {
+      event = TimelineEventSchema.parse(YAML.parse(raw));
+    } catch (error) {
+      throw new StorageError("故事事件 YAML 无效", "INVALID_DATA", {
+        eventId,
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (event.id !== eventId) {
+      throw new StorageError("故事事件文件名与 ID 不一致", "INVALID_DATA", { eventId, actualId: event.id });
+    }
+    return TimelineEventDocumentSchema.parse({
+      event,
+      revision: contentRevision(raw),
+      storyIndex,
+    });
+  }
+
+  private assertTimelineSceneIds(scenes: SceneDocument[], sceneIds: string[]): void {
+    const known = new Set(scenes.map((scene) => scene.metadata.id));
+    const duplicateSceneIds = sceneIds.filter((sceneId, index) => sceneIds.indexOf(sceneId) !== index);
+    const unknownSceneIds = sceneIds.filter((sceneId) => !known.has(sceneId));
+    if (duplicateSceneIds.length || unknownSceneIds.length) {
+      throw new StorageError("故事事件场景引用无效", "INVALID_DATA", {
+        duplicateSceneIds: [...new Set(duplicateSceneIds)],
+        unknownSceneIds,
+      });
+    }
+  }
+
+  private sortedUnique<T extends string>(values: T[]): T[] {
+    return [...new Set(values)].sort((left, right) => left.localeCompare(right, "zh-CN"));
   }
 
   private async copyDir(source: string, destination: string): Promise<void> {

@@ -5,16 +5,21 @@ import type {
   CreateChapterInput,
   CreateSceneInput,
   CreateSeriesInput,
+  CreateTimelineEventInput,
   MoveSceneInput,
   HierarchyValidationResult,
+  PlanningBoard,
   ReorderInput,
   SceneDocument,
   SearchResult,
   SeriesDetail,
   SeriesSummary,
+  TimelineEventDocument,
   UpdateActInput,
   UpdateChapterInput,
   UpdateSceneInput,
+  UpdateScenePlanningInput,
+  UpdateTimelineEventInput,
 } from "@novel-studio/contracts";
 
 export class ApiError extends Error {
@@ -52,6 +57,8 @@ export const api = {
       body: JSON.stringify(input),
     }),
   getSeries: (seriesId: string) => request<SeriesDetail>(`/api/v1/series/${seriesId}`),
+  getPlanningBoard: (seriesId: string) =>
+    request<PlanningBoard>(`/api/v1/series/${seriesId}/planning`),
   validateHierarchy: (seriesId: string) =>
     request<HierarchyValidationResult>(`/api/v1/series/${seriesId}/hierarchy/validate`),
   createScene: (seriesId: string, input: CreateSceneInput) =>
@@ -62,6 +69,31 @@ export const api = {
   updateScene: (seriesId: string, sceneId: string, input: UpdateSceneInput) =>
     request<SceneDocument>(`/api/v1/series/${seriesId}/scenes/${sceneId}`, {
       method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  updateScenePlanning: (seriesId: string, sceneId: string, input: UpdateScenePlanningInput) =>
+    request<SceneDocument>(`/api/v1/series/${seriesId}/scenes/${sceneId}/planning`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  createTimelineEvent: (seriesId: string, input: CreateTimelineEventInput) =>
+    request<TimelineEventDocument>(`/api/v1/series/${seriesId}/timeline/events`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateTimelineEvent: (seriesId: string, eventId: string, input: UpdateTimelineEventInput) =>
+    request<TimelineEventDocument>(`/api/v1/series/${seriesId}/timeline/events/${eventId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  deleteTimelineEvent: (seriesId: string, eventId: string, baseRevision: string) =>
+    request<{ deletedId: string }>(`/api/v1/series/${seriesId}/timeline/events/${eventId}`, {
+      method: "DELETE",
+      body: JSON.stringify({ baseRevision }),
+    }),
+  reorderTimelineEvents: (seriesId: string, input: ReorderInput) =>
+    request<TimelineEventDocument[]>(`/api/v1/series/${seriesId}/timeline/events/reorder`, {
+      method: "POST",
       body: JSON.stringify(input),
     }),
   search: (seriesId: string, query: string) =>

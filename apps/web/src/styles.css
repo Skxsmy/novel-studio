@@ -123,3 +123,77 @@ button { color: inherit; }
   .welcome-copy h2 { font-size: 42px; }
 }
 
+/* NS-302 planning workspace */
+.planning-page { padding-bottom: 56px; }
+.planning-toolbar { display: flex; align-items: center; gap: 10px; margin: -8px 0 18px; min-height: 32px; color: var(--muted); font-size: 12px; }
+.planning-toolbar .planning-revision { margin-left: auto; font-family: ui-monospace, monospace; }
+.filter-chip { border: 1px solid #d49a5b; border-radius: 999px; background: #fff8ee; color: #865322; padding: 5px 10px; cursor: pointer; }
+.planning-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; align-items: start; }
+.planning-canvas { min-width: 0; }
+.planning-canvas[aria-busy="true"] { opacity: .66; pointer-events: none; }
+.planning-book > h3 { margin: 0 0 12px; font-family: Georgia, "Songti SC", serif; font-size: 22px; }
+.planning-act { margin-bottom: 24px; }
+.planning-chapter { margin: 12px 0 20px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.58); }
+.planning-chapter > h4 { display: flex; justify-content: space-between; margin: 0 0 12px; font-size: 13px; }
+.planning-chapter > h4 small { color: var(--muted); font-weight: 400; }
+.planning-scene-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+.planning-scene-card { position: relative; min-height: 172px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: 0 5px 16px rgba(66,49,30,.05); cursor: grab; }
+.planning-scene-card.selected { border-color: var(--ink); box-shadow: 0 0 0 2px rgba(35,31,26,.08); }
+.planning-scene-card h4 { margin: 13px 0 7px; font: 18px Georgia, "Songti SC", serif; }
+.planning-scene-card > p { min-height: 40px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.planning-card-meta { display: flex; justify-content: space-between; margin-top: 14px; color: var(--muted); font-size: 11px; }
+.planning-card-actions { position: absolute; right: 8px; bottom: 7px; display: flex; gap: 4px; }
+.planning-card-actions button, .story-event button { width: 25px; height: 25px; border: 1px solid var(--line); border-radius: 6px; background: white; cursor: pointer; }
+.divergence-chip { position: absolute; left: 10px; bottom: 9px; color: #9c482d; font-size: 10px; }
+.empty-chapter-drop { padding: 28px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); text-align: center; }
+.planning-inspector { position: sticky; top: 76px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: white; box-shadow: var(--shadow); }
+.planning-inspector h3 { margin: 6px 0 16px; font: 20px Georgia, "Songti SC", serif; }
+.planning-inspector label { display: grid; gap: 6px; margin: 12px 0; color: var(--muted); font-size: 11px; }
+.planning-inspector textarea { min-height: 72px; resize: vertical; border: 1px solid var(--line); border-radius: 8px; padding: 9px; font: inherit; }
+.planning-inspector > button { width: 100%; border: 0; border-radius: 8px; padding: 10px; background: var(--ink); color: white; cursor: pointer; }
+.divergence-actions { display: grid; gap: 6px; margin-top: 12px; }
+.divergence-actions button { border: 1px solid var(--line); border-radius: 7px; padding: 7px; background: var(--paper); cursor: pointer; font-size: 11px; }
+.outline-view { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: white; }
+.outline-row { display: grid; grid-template-columns: 32px minmax(120px, 240px) 1fr; width: 100%; min-height: 42px; align-items: center; gap: 8px; border: 0; border-bottom: 1px solid var(--line); background: white; text-align: left; cursor: default; }
+.outline-row.scene { cursor: pointer; }
+.outline-row.scene.selected { background: #fff8ee; }
+.outline-row small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.dimension-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.dimension-tabs button { padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; background: white; cursor: pointer; }
+.dimension-tabs button.active { background: var(--ink); color: white; }
+.matrix-scroll { overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: white; }
+.matrix-scroll table { min-width: 700px; width: 100%; border-collapse: collapse; }
+.matrix-scroll th, .matrix-scroll td { min-width: 96px; padding: 11px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: center; font-size: 11px; }
+.matrix-scroll th:first-child { position: sticky; left: 0; z-index: 1; background: var(--paper); }
+.matrix-scroll th button { border: 0; background: transparent; color: #875624; cursor: pointer; font-weight: 700; }
+.matrix-scroll td.present { background: #f7e6cd; color: #a55d25; }
+.matrix-note { color: var(--muted); font-size: 11px; }
+.timeline-view { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.timeline-view > section { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+.timeline-view h3 { display: flex; justify-content: space-between; margin: 0 0 12px; font: 18px Georgia, "Songti SC", serif; }
+.timeline-view h3 small { color: var(--muted); font: 10px Arial, sans-serif; }
+.timeline-view section > button, .story-event { display: flex; width: 100%; align-items: center; gap: 10px; margin: 7px 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: white; text-align: left; }
+.timeline-view section > button.selected { border-color: var(--ink); }
+.timeline-view section > button > span, .story-event > span { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; background: var(--paper-deep); }
+.timeline-view section > button div, .story-event > div:nth-child(2) { display: grid; flex: 1; gap: 3px; }
+.timeline-view small { color: var(--muted); }
+.story-event > div:last-child { display: flex; gap: 3px; }
+.unplaced-scenes, .event-composer { grid-column: 1 / -1; }
+.unplaced-scenes > button { display: inline-flex !important; width: auto !important; margin-right: 7px !important; }
+.event-composer { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; }
+.event-composer h3 { grid-column: 1 / -1; }
+.event-composer input { border: 1px solid var(--line); border-radius: 8px; padding: 9px; }
+.event-composer > button { width: auto !important; margin: 0 !important; border: 0 !important; background: var(--ink) !important; color: white; cursor: pointer; }
+.milestone-notice.error { border-color: #c47a65; color: #8f3e2d; }
+
+@media (max-width: 1100px) {
+  .planning-layout { grid-template-columns: 1fr; }
+  .planning-inspector { position: static; }
+}
+
+@media (max-width: 760px) {
+  .timeline-view { grid-template-columns: 1fr; }
+  .event-composer, .unplaced-scenes { grid-column: 1; }
+  .event-composer { grid-template-columns: 1fr; }
+  .event-composer h3 { grid-column: 1; }
+}

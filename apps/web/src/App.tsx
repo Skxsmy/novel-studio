@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ActManifest, ChapterManifest, SceneDocument, SearchResult, SeriesDetail, SeriesSummary } from "@novel-studio/contracts";
+import type { ActManifest, ChapterManifest, PlanningBoard, SceneDocument, SearchResult, SeriesDetail, SeriesSummary } from "@novel-studio/contracts";
 import { ApiError, api } from "./api";
+import { PlanView } from "./PlanView";
 
 type WorkspaceView = "overview" | "plan" | "write" | "codex" | "workshop" | "review";
 type SaveState = "saved" | "dirty" | "saving" | "conflict" | "error";
@@ -124,33 +125,6 @@ function Overview({ detail }: { detail: SeriesDetail }) {
           <div className="quote-line">“大纲允许被人物说服。”</div>
         </article>
       </div>
-    </section>
-  );
-}
-
-function PlanView({ detail }: { detail: SeriesDetail }) {
-  const [mode, setMode] = useState("卡片");
-  return (
-    <section className="content-page">
-      <div className="page-heading compact">
-        <div><p className="eyebrow">STORY ARCHITECTURE</p><h2>故事规划</h2></div>
-        <div className="segmented">
-          {["卡片", "大纲", "矩阵", "时间线"].map((item) => <button className={mode === item ? "active" : ""} onClick={() => setMode(item)} key={item}>{item}</button>)}
-        </div>
-      </div>
-      <div className="act-heading"><span>第一幕</span><small>建立承诺与失衡</small></div>
-      <div className="scene-grid">
-        {detail.scenes.map((scene, index) => (
-          <article className="scene-card" key={scene.metadata.id}>
-            <div className="scene-card-top"><span>{String(index + 1).padStart(2, "0")}</span><span className="draft-dot">{scene.metadata.status}</span></div>
-            <h3>{scene.metadata.title}</h3>
-            <p>{scene.metadata.summary || "尚未填写摘要。正文完成后，摘要会作为候选事实等待确认。"}</p>
-            <footer><span>{scene.metadata.pov || "未设 POV"}</span><span>{scene.characterCount} 字</span></footer>
-          </article>
-        ))}
-        <article className="scene-card ghost-card"><span className="plus">＋</span><p>添加场景</p><small>通过写作页创建</small></article>
-      </div>
-      {mode !== "卡片" && <div className="milestone-notice">{mode}视图将在 M3 接入真实故事数据；当前用此入口验证信息架构。</div>}
     </section>
   );
 }
@@ -312,6 +286,7 @@ export function App() {
   const [detail, setDetail] = useState<SeriesDetail | null>(null);
   const [acts, setActs] = useState<ActManifest[]>([]);
   const [chapters, setChapters] = useState<ChapterManifest[]>([]);
+  const [planningBoard, setPlanningBoard] = useState<PlanningBoard | null>(null);
   const [activeView, setActiveView] = useState<WorkspaceView>("overview");
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -344,8 +319,12 @@ export function App() {
     setLoading(true);
     try {
       const loaded = await api.getSeries(seriesId);
-      await loadHierarchy(loaded);
+      const [, board] = await Promise.all([
+        loadHierarchy(loaded),
+        api.getPlanningBoard(seriesId),
+      ]);
       setDetail(loaded);
+      setPlanningBoard(board);
       setActiveSceneId(loaded.scenes[0]?.metadata.id ?? null);
       setActiveView("overview");
     } catch (error) {
@@ -357,8 +336,12 @@ export function App() {
 
   async function acceptCreatedSeries(created: SeriesDetail) {
     try {
-      await loadHierarchy(created);
+      const [, board] = await Promise.all([
+        loadHierarchy(created),
+        api.getPlanningBoard(created.manifest.id),
+      ]);
       setDetail(created);
+      setPlanningBoard(board);
       setSeriesList([{ id: created.manifest.id, title: created.manifest.title, description: created.manifest.description, updatedAt: created.manifest.updatedAt, archived: false, bookCount: created.books.length, sceneCount: created.scenes.length, directoryName: "" }]);
       setActiveSceneId(created.scenes[0]?.metadata.id ?? null);
     } catch (error) {
@@ -368,16 +351,28 @@ export function App() {
 
   const activeScene = useMemo(() => detail?.scenes.find((scene) => scene.metadata.id === activeSceneId) ?? detail?.scenes[0] ?? null, [activeSceneId, detail]);
 
+  const reloadProject = useCallback(async () => {
+    if (!detail) return;
+    const loaded = await api.getSeries(detail.manifest.id);
+    const [, board] = await Promise.all([
+      loadHierarchy(loaded),
+      api.getPlanningBoard(detail.manifest.id),
+    ]);
+    setDetail(loaded);
+    setPlanningBoard(board);
+  }, [detail?.manifest.id, loadHierarchy]);
+
   async function createScene() {
     if (!detail) return;
     const scene = await api.createScene(detail.manifest.id, { title: `场景 ${detail.scenes.length + 1}`, content: "" });
-    setDetail({ ...detail, scenes: [...detail.scenes, scene] });
+    await reloadProject();
     setActiveSceneId(scene.metadata.id);
     setActiveView("write");
   }
 
   function sceneUpdated(scene: SceneDocument) {
     setDetail((current) => current ? { ...current, scenes: current.scenes.map((item) => item.metadata.id === scene.metadata.id ? scene : item) } : current);
+    if (detail) void api.getPlanningBoard(detail.manifest.id).then(setPlanningBoard);
   }
 
   useEffect(() => {
@@ -397,7 +392,7 @@ export function App() {
     <div className={`app-shell ${focusMode ? "focus-mode" : ""} ${sidebarOpen ? "sidebar-open" : "sidebar-collapsed"}`}>
       <aside className="app-sidebar">
         <div className="sidebar-brand"><div className="brand-mark small">NS</div><div><strong>Novel Studio</strong><small>本地写作室</small></div></div>
-        <button className="series-switcher" onClick={() => { setDetail(null); setActs([]); setChapters([]); }}><span>{detail.manifest.title.slice(0, 1)}</span><div><strong>{detail.manifest.title}</strong><small>切换作品</small></div><b>⌄</b></button>
+        <button className="series-switcher" onClick={() => { setDetail(null); setActs([]); setChapters([]); setPlanningBoard(null); }}><span>{detail.manifest.title.slice(0, 1)}</span><div><strong>{detail.manifest.title}</strong><small>切换作品</small></div><b>⌄</b></button>
         <nav>{navigation.map((item) => <button className={activeView === item.id ? "active" : ""} onClick={() => setActiveView(item.id)} key={item.id}><span>{item.icon}</span><b>{item.label}</b>{item.id === "review" && <i>0</i>}</button>)}</nav>
         <div className="sidebar-footer"><button><span>⚙</span><b>设置</b></button><div className="local-status"><span /> 本地数据已连接</div></div>
       </aside>
@@ -413,7 +408,11 @@ export function App() {
         </header>
 
         {activeView === "overview" && <Overview detail={detail} />}
-        {activeView === "plan" && <PlanView detail={detail} />}
+        {activeView === "plan" && planningBoard && <PlanView
+          board={planningBoard}
+          onReload={reloadProject}
+          onOpenScene={(sceneId) => { setActiveSceneId(sceneId); setActiveView("write"); }}
+        />}
         {activeView === "write" && activeScene && <WriteView detail={detail} acts={acts} chapters={chapters} activeScene={activeScene} onSelectScene={setActiveSceneId} onSceneUpdated={sceneUpdated} onCreateScene={createScene} rightOpen={rightOpen} />}
         {activeView === "codex" && <CodexView />}
         {activeView === "workshop" && <WorkshopView />}

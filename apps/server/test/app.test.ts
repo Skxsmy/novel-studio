@@ -88,4 +88,67 @@ describe("local API", () => {
     expect(validation.json()).toMatchObject({ valid: true, actCount: 2 });
     await app.close();
   });
+
+  it("serves one planning board and persists timeline and divergence commands", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
+    roots.push(root);
+    const app = await buildApp({ libraryRoot: root });
+    const createdResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "规划 API" },
+    });
+    const series = createdResponse.json();
+    const scene = series.scenes[0];
+
+    const planningResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/planning`,
+    });
+    expect(planningResponse.statusCode).toBe(200);
+    expect(planningResponse.json()).toMatchObject({
+      seriesId: series.manifest.id,
+      unplacedSceneIds: [scene.metadata.id],
+    });
+
+    const divergenceResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/planning`,
+      payload: {
+        baseRevision: scene.revision,
+        planningState: "review-needed",
+        divergenceNote: "人物改变了行动。",
+      },
+    });
+    expect(divergenceResponse.statusCode).toBe(200);
+    expect(divergenceResponse.json().metadata.planningState).toBe("review-needed");
+
+    const eventResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/timeline/events`,
+      payload: {
+        title: "世界事件",
+        timeKind: "relative",
+        timeLabel: "十年前",
+        sceneIds: [scene.metadata.id],
+      },
+    });
+    expect(eventResponse.statusCode).toBe(201);
+    const event = eventResponse.json();
+
+    const staleResponse = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/timeline/events/${event.event.id}`,
+      payload: { baseRevision: "0".repeat(64), title: "过期事件" },
+    });
+    expect(staleResponse.statusCode).toBe(409);
+
+    const updatedBoard = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/planning`,
+    });
+    expect(updatedBoard.json().storyEvents[0].event.title).toBe("世界事件");
+    expect(updatedBoard.json().unplacedSceneIds).toEqual([]);
+    await app.close();
+  });
 });

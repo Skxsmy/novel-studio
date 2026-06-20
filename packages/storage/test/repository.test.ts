@@ -325,4 +325,154 @@ describe("ProjectRepository", () => {
     );
     expect(await store.validateHierarchy(series.manifest.id)).toMatchObject({ valid: true });
   });
+
+  it("builds one planning board with matching hierarchy and narrative order", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "规划投影" });
+    const first = series.scenes[0]!;
+    const second = await store.createScene(series.manifest.id, { title: "第二场", content: "正文" });
+    const characterId = "00000000-0000-4000-8000-000000000101";
+    const threadId = "00000000-0000-4000-8000-000000000102";
+    await store.updateScenePlanning(series.manifest.id, second.metadata.id, {
+      baseRevision: second.revision,
+      pov: "林岚",
+      characterIds: [characterId],
+      plotThreadIds: [threadId],
+      tags: ["主线"],
+      conflict: "她必须决定是否公开证据。",
+      outcome: "她暂时隐瞒证据。",
+      plannedCharacters: 1200,
+    });
+
+    const board = await store.getPlanningBoard(series.manifest.id);
+    expect(board.narrativeScenes.map((scene) => scene.id)).toEqual([
+      first.metadata.id,
+      second.metadata.id,
+    ]);
+    expect(board.books[0]!.acts[0]!.chapters[0]!.scenes.map((scene) => scene.id)).toEqual([
+      first.metadata.id,
+      second.metadata.id,
+    ]);
+    expect(board.dimensions).toMatchObject({
+      povs: ["林岚"],
+      characterIds: [characterId],
+      plotThreadIds: [threadId],
+      tags: ["主线"],
+    });
+    expect(board.unplacedSceneIds).toEqual([first.metadata.id, second.metadata.id]);
+  });
+
+  it("keeps narrative order independent from explicit story event order", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "倒叙时间线" });
+    const nowScene = series.scenes[0]!;
+    const flashbackScene = await store.createScene(series.manifest.id, { title: "十年前", content: "" });
+    const nowEvent = await store.createTimelineEvent(series.manifest.id, {
+      title: "调查开始",
+      timeKind: "relative",
+      timeLabel: "现在",
+      sceneIds: [nowScene.metadata.id],
+    });
+    const pastEvent = await store.createTimelineEvent(series.manifest.id, {
+      title: "旧案发生",
+      timeKind: "relative",
+      timeLabel: "十年前",
+      sceneIds: [flashbackScene.metadata.id],
+    });
+    await store.reorderTimelineEvents(series.manifest.id, {
+      orderedIds: [pastEvent.event.id, nowEvent.event.id],
+    });
+
+    const board = await store.getPlanningBoard(series.manifest.id);
+    expect(board.narrativeScenes.map((scene) => scene.title)).toEqual(["开篇场景", "十年前"]);
+    expect(board.storyEvents.map((event) => event.event.title)).toEqual(["旧案发生", "调查开始"]);
+    expect(board.unplacedSceneIds).toEqual([]);
+  });
+
+  it("creates, updates, rejects stale updates, reorders and deletes timeline events", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "事件文件" });
+    const sceneId = series.scenes[0]!.metadata.id;
+    const first = await store.createTimelineEvent(series.manifest.id, {
+      title: "第一事件",
+      sceneIds: [sceneId],
+    });
+    const second = await store.createTimelineEvent(series.manifest.id, { title: "第二事件" });
+    await expect(
+      store.createTimelineEvent(series.manifest.id, {
+        title: "坏引用",
+        sceneIds: ["00000000-0000-4000-8000-000000000999"],
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(
+      store.reorderTimelineEvents(series.manifest.id, { orderedIds: [first.event.id] }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    const updated = await store.updateTimelineEvent(series.manifest.id, first.event.id, {
+      baseRevision: first.revision,
+      title: "第一事件（修订）",
+      timeKind: "approximate",
+      timeLabel: "深秋",
+    });
+    await expect(
+      store.updateTimelineEvent(series.manifest.id, first.event.id, {
+        baseRevision: first.revision,
+        title: "过期写入",
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    expect((await store.reorderTimelineEvents(series.manifest.id, {
+      orderedIds: [second.event.id, first.event.id],
+    })).map((event) => event.event.id)).toEqual([second.event.id, first.event.id]);
+    expect(await store.deleteTimelineEvent(series.manifest.id, first.event.id, {
+      baseRevision: updated.revision,
+    })).toEqual({ deletedId: first.event.id });
+    expect((await store.getPlanningBoard(series.manifest.id)).storyEvents.map((event) => event.event.id))
+      .toEqual([second.event.id]);
+  });
+
+  it("reads a legacy project without timeline files without writing one", async () => {
+    const store = await repository();
+    const title = "旧规划项目";
+    const series = await store.createSeries({ title });
+    const root = seriesRoot(store, title, series.manifest.id);
+    const timelineFile = path.join(root, "planning", "timeline.yaml");
+    await rm(timelineFile);
+
+    const board = await store.getPlanningBoard(series.manifest.id);
+    expect(board.storyEvents).toEqual([]);
+    expect(board.unplacedSceneIds).toEqual([series.scenes[0]!.metadata.id]);
+    await expect(readFile(timelineFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("persists all three manual planning divergence decisions with revision protection", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "计划分叉" });
+    const original = series.scenes[0]!;
+    const flagged = await store.updateScenePlanning(series.manifest.id, original.metadata.id, {
+      baseRevision: original.revision,
+      planningState: "review-needed",
+      divergenceNote: "人物拒绝按原计划离开。",
+    });
+    const intentional = await store.updateScenePlanning(series.manifest.id, original.metadata.id, {
+      baseRevision: flagged.revision,
+      planningState: "intentional-deviation",
+    });
+    const revise = await store.updateScenePlanning(series.manifest.id, original.metadata.id, {
+      baseRevision: intentional.revision,
+      planningState: "revise-prose",
+    });
+    const aligned = await store.updateScenePlanning(series.manifest.id, original.metadata.id, {
+      baseRevision: revise.revision,
+      planningState: "aligned",
+      summary: "接受人物留下后的新方向。",
+    });
+
+    expect([flagged, intentional, revise, aligned].map((scene) => scene.metadata.planningState))
+      .toEqual(["review-needed", "intentional-deviation", "revise-prose", "aligned"]);
+    await expect(
+      store.updateScenePlanning(series.manifest.id, original.metadata.id, {
+        baseRevision: original.revision,
+        planningState: "aligned",
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+  });
 });

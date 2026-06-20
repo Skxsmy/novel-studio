@@ -31,6 +31,7 @@
 - `POST /series/:seriesId/chapters/:chapterId/scenes/reorder`
 - `POST /series/:seriesId/index/rebuild`
 - `GET /series/:seriesId/search?q=`
+- `PATCH /series/:seriesId/scenes/:sceneId/planning`
 
 场景更新必须提供 `baseRevision`。移动只接受 `targetChapterId` 与可选 `order`，祖先 ID 由服务端推导。
 
@@ -49,6 +50,15 @@
 
 - `GET /series/:seriesId/hierarchy/validate`：只读报告缺失、孤儿、父链、顺序和路径问题。
 - `POST /series/:seriesId/migrate`：为 M2 旧作品建立快照并补齐 Act/Chapter 清单。
+
+## 规划与故事时间线
+
+- `GET /series/:seriesId/planning`：返回四种规划视图共享的 `PlanningBoard`。
+- `POST /series/:seriesId/timeline/events`
+- `PUT|DELETE /series/:seriesId/timeline/events/:eventId`
+- `POST /series/:seriesId/timeline/events/reorder`
+
+TimelineEvent 更新与删除要求 `baseRevision`；重排要求当前事件 ID 的完整无重复排列。叙事结构移动继续复用 NS-301 API。
 
 ## 后续长任务
 

@@ -7,11 +7,15 @@ import {
   CreateChapterInputSchema,
   CreateSceneInputSchema,
   CreateSeriesInputSchema,
+  CreateTimelineEventInputSchema,
+  DeleteTimelineEventInputSchema,
   MoveSceneInputSchema,
   ReorderInputSchema,
   UpdateActInputSchema,
   UpdateChapterInputSchema,
+  UpdateScenePlanningInputSchema,
   UpdateSceneInputSchema,
+  UpdateTimelineEventInputSchema,
 } from "@novel-studio/contracts";
 import { ProjectRepository, StorageError } from "@novel-studio/storage";
 
@@ -90,6 +94,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     async (request) => repository.validateHierarchy(request.params.seriesId),
   );
 
+  app.get<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId/planning",
+    async (request) => repository.getPlanningBoard(request.params.seriesId),
+  );
+
   app.post<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/scenes",
     async (request, reply) => {
@@ -109,6 +118,56 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     async (request) => {
       const input = UpdateSceneInputSchema.parse(request.body);
       return repository.updateScene(request.params.seriesId, request.params.sceneId, input);
+    },
+  );
+
+  app.patch<{ Params: { seriesId: string; sceneId: string } }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId/planning",
+    async (request) => {
+      const input = UpdateScenePlanningInputSchema.parse(request.body);
+      return repository.updateScenePlanning(request.params.seriesId, request.params.sceneId, input);
+    },
+  );
+
+  app.post<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId/timeline/events",
+    async (request, reply) => {
+      const input = CreateTimelineEventInputSchema.parse(request.body);
+      return reply.status(201).send(
+        await repository.createTimelineEvent(request.params.seriesId, input),
+      );
+    },
+  );
+
+  app.put<{ Params: { seriesId: string; eventId: string } }>(
+    "/api/v1/series/:seriesId/timeline/events/:eventId",
+    async (request) => {
+      const input = UpdateTimelineEventInputSchema.parse(request.body);
+      return repository.updateTimelineEvent(
+        request.params.seriesId,
+        request.params.eventId,
+        input,
+      );
+    },
+  );
+
+  app.delete<{ Params: { seriesId: string; eventId: string } }>(
+    "/api/v1/series/:seriesId/timeline/events/:eventId",
+    async (request) => {
+      const input = DeleteTimelineEventInputSchema.parse(request.body);
+      return repository.deleteTimelineEvent(
+        request.params.seriesId,
+        request.params.eventId,
+        input,
+      );
+    },
+  );
+
+  app.post<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId/timeline/events/reorder",
+    async (request) => {
+      const input = ReorderInputSchema.parse(request.body);
+      return repository.reorderTimelineEvents(request.params.seriesId, input);
     },
   );
 

@@ -13,6 +13,32 @@ export const SceneStatusSchema = z.enum([
 ]);
 export type SceneStatus = z.infer<typeof SceneStatusSchema>;
 
+export const PlanningStateSchema = z.enum([
+  "aligned",
+  "review-needed",
+  "intentional-deviation",
+  "revise-prose",
+]);
+export type PlanningState = z.infer<typeof PlanningStateSchema>;
+
+export const TimelineTimeKindSchema = z.enum([
+  "exact",
+  "approximate",
+  "relative",
+  "unknown",
+]);
+export type TimelineTimeKind = z.infer<typeof TimelineTimeKindSchema>;
+
+export const TimelinePrecisionSchema = z.enum([
+  "minute",
+  "hour",
+  "day",
+  "month",
+  "year",
+  "custom",
+]);
+export type TimelinePrecision = z.infer<typeof TimelinePrecisionSchema>;
+
 export const SeriesManifestSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string().uuid(),
@@ -138,13 +164,186 @@ export const SceneFrontmatterSchema = z.object({
   plotThreadIds: z.array(z.string().uuid()).default([]),
   tags: z.array(z.string()).default([]),
   goal: z.string().default(""),
+  conflict: z.string().default(""),
+  outcome: z.string().default(""),
   summary: z.string().default(""),
   beats: z.array(z.string()).default([]),
+  plannedCharacters: z.number().int().nonnegative().default(0),
+  durationMinutes: z.number().int().nonnegative().nullable().default(null),
+  planningState: PlanningStateSchema.default("aligned"),
+  divergenceNote: z.string().default(""),
   storyTime: z.string().nullable().default(null),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 export type SceneFrontmatter = z.infer<typeof SceneFrontmatterSchema>;
+
+export const UpdateScenePlanningInputSchema = z
+  .object({
+    baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+    status: SceneStatusSchema.optional(),
+    pov: z.string().trim().max(160).nullable().optional(),
+    locationIds: z.array(z.string().uuid()).optional(),
+    characterIds: z.array(z.string().uuid()).optional(),
+    plotThreadIds: z.array(z.string().uuid()).optional(),
+    tags: z.array(z.string().trim().min(1).max(80)).optional(),
+    goal: z.string().max(8000).optional(),
+    conflict: z.string().max(8000).optional(),
+    outcome: z.string().max(8000).optional(),
+    summary: z.string().max(16000).optional(),
+    beats: z.array(z.string().max(2000)).optional(),
+    plannedCharacters: z.number().int().nonnegative().optional(),
+    durationMinutes: z.number().int().nonnegative().nullable().optional(),
+    planningState: PlanningStateSchema.optional(),
+    divergenceNote: z.string().max(8000).optional(),
+  })
+  .superRefine((input, context) => {
+    if (Object.keys(input).every((key) => key === "baseRevision")) {
+      context.addIssue({ code: "custom", message: "至少提供一个规划字段" });
+    }
+  });
+export type UpdateScenePlanningInput = z.infer<typeof UpdateScenePlanningInputSchema>;
+
+export const TimelineManifestSchema = z.object({
+  schemaVersion: z.literal(1),
+  eventIds: z.array(z.string().uuid()).default([]),
+  updatedAt: z.string().datetime(),
+});
+export type TimelineManifest = z.infer<typeof TimelineManifestSchema>;
+
+export const TimelineEventSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  title: z.string().trim().min(1).max(240),
+  timeKind: TimelineTimeKindSchema,
+  timeLabel: z.string().max(240).default("时间未定"),
+  startsAt: z.string().datetime().nullable().default(null),
+  precision: TimelinePrecisionSchema.default("custom"),
+  durationMinutes: z.number().int().nonnegative().nullable().default(null),
+  sceneIds: z.array(z.string().uuid()).default([]),
+  description: z.string().max(16000).default(""),
+  tags: z.array(z.string().trim().min(1).max(80)).default([]),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type TimelineEvent = z.infer<typeof TimelineEventSchema>;
+
+export const TimelineEventDocumentSchema = z.object({
+  event: TimelineEventSchema,
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  storyIndex: z.number().int().positive(),
+});
+export type TimelineEventDocument = z.infer<typeof TimelineEventDocumentSchema>;
+
+export const CreateTimelineEventInputSchema = TimelineEventSchema.pick({
+  title: true,
+  timeKind: true,
+  timeLabel: true,
+  startsAt: true,
+  precision: true,
+  durationMinutes: true,
+  sceneIds: true,
+  description: true,
+  tags: true,
+}).partial({
+  timeKind: true,
+  timeLabel: true,
+  startsAt: true,
+  precision: true,
+  durationMinutes: true,
+  sceneIds: true,
+  description: true,
+  tags: true,
+});
+export type CreateTimelineEventInput = z.input<typeof CreateTimelineEventInputSchema>;
+
+export const UpdateTimelineEventInputSchema = CreateTimelineEventInputSchema.partial()
+  .extend({ baseRevision: z.string().regex(/^[a-f0-9]{64}$/) })
+  .superRefine((input, context) => {
+    if (Object.keys(input).every((key) => key === "baseRevision")) {
+      context.addIssue({ code: "custom", message: "至少提供一个事件字段" });
+    }
+  });
+export type UpdateTimelineEventInput = z.infer<typeof UpdateTimelineEventInputSchema>;
+
+export const DeleteTimelineEventInputSchema = z.object({
+  baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type DeleteTimelineEventInput = z.infer<typeof DeleteTimelineEventInputSchema>;
+
+export const PlanningSceneSchema = SceneFrontmatterSchema.pick({
+  id: true,
+  bookId: true,
+  actId: true,
+  chapterId: true,
+  title: true,
+  status: true,
+  pov: true,
+  locationIds: true,
+  characterIds: true,
+  plotThreadIds: true,
+  tags: true,
+  goal: true,
+  conflict: true,
+  outcome: true,
+  summary: true,
+  beats: true,
+  plannedCharacters: true,
+  durationMinutes: true,
+  planningState: true,
+  divergenceNote: true,
+}).extend({
+  order: z.number().int().positive(),
+  narrativeIndex: z.number().int().positive(),
+  characterCount: z.number().int().nonnegative(),
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type PlanningScene = z.infer<typeof PlanningSceneSchema>;
+
+export const PlanningChapterSchema = ChapterManifestSchema.pick({
+  id: true,
+  actId: true,
+  title: true,
+  order: true,
+}).extend({ scenes: z.array(PlanningSceneSchema) });
+export type PlanningChapter = z.infer<typeof PlanningChapterSchema>;
+
+export const PlanningActSchema = ActManifestSchema.pick({
+  id: true,
+  bookId: true,
+  title: true,
+  order: true,
+}).extend({ chapters: z.array(PlanningChapterSchema) });
+export type PlanningAct = z.infer<typeof PlanningActSchema>;
+
+export const PlanningBookSchema = BookManifestSchema.pick({
+  id: true,
+  title: true,
+  order: true,
+}).extend({ acts: z.array(PlanningActSchema) });
+export type PlanningBook = z.infer<typeof PlanningBookSchema>;
+
+export const PlanningDimensionsSchema = z.object({
+  povs: z.array(z.string()),
+  characterIds: z.array(z.string().uuid()),
+  locationIds: z.array(z.string().uuid()),
+  plotThreadIds: z.array(z.string().uuid()),
+  tags: z.array(z.string()),
+  statuses: z.array(SceneStatusSchema),
+});
+export type PlanningDimensions = z.infer<typeof PlanningDimensionsSchema>;
+
+export const PlanningBoardSchema = z.object({
+  seriesId: z.string().uuid(),
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  books: z.array(PlanningBookSchema),
+  narrativeScenes: z.array(PlanningSceneSchema),
+  storyEvents: z.array(TimelineEventDocumentSchema),
+  unplacedSceneIds: z.array(z.string().uuid()),
+  dimensions: PlanningDimensionsSchema,
+  legacyStoryTimeSceneIds: z.array(z.string().uuid()),
+});
+export type PlanningBoard = z.infer<typeof PlanningBoardSchema>;
 
 export const SceneDocumentSchema = z.object({
   metadata: SceneFrontmatterSchema,

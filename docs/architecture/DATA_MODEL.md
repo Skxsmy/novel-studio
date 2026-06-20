@@ -18,6 +18,9 @@ series-slug-id/
 ├─ styles/
 ├─ agents/
 ├─ workshop/
+├─ planning/
+│  ├─ timeline.yaml
+│  └─ events/<event-id>.yaml
 └─ .studio/{index.sqlite,inbox,history,cache,logs,transactions,snapshots}/
 ```
 
@@ -63,6 +66,12 @@ updatedAt: 2026-06-20T00:00:00.000Z
 ```
 
 `revision` 不写入文件，由规范化后的完整文件内容计算 SHA-256，防止版本字段自身引起循环变化。
+
+## 规划与双时间线
+
+叙事顺序来自父清单。`planning/timeline.yaml.eventIds` 保存世界内事件顺序，事件详情位于 `planning/events/<eventId>.yaml`，包含时间类型、标签、精度、持续时长、关联场景、说明和标签。
+
+Scene frontmatter 的规划字段包括目标、冲突、结果、摘要、节拍、POV、人物/地点/情节线引用、计划字数、持续时长和分叉状态。`storyTime` 是旧格式兼容字段，不作为 NS-302 时间线来源。
 
 ## 文件事务
 
