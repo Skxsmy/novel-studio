@@ -864,6 +864,25 @@ describe("ProjectRepository", () => {
     expect(chapters[0]!.title).toBe("第一章");
   });
 
+  it("creates a new book with its own first act and chapter", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "多部系列" });
+    const secondBook = await store.createBook(series.manifest.id, { title: "第二部" });
+
+    expect(secondBook.order).toBe(2);
+    expect(secondBook.title).toBe("第二部");
+    const detail = await store.getSeries(series.manifest.id);
+    expect(detail.manifest.bookIds).toContain(secondBook.id);
+    expect(detail.books.map((book) => book.title)).toEqual(["第一部", "第二部"]);
+    const acts = await store.listActs(series.manifest.id, secondBook.id);
+    expect(acts).toHaveLength(1);
+    expect(acts[0]!.title).toBe("第一幕");
+    const chapters = await store.listChapters(series.manifest.id, acts[0]!.id);
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0]!.title).toBe("第一章");
+    expect((await store.validateHierarchy(series.manifest.id)).valid).toBe(true);
+  });
+
   it("preserves entity IDs when renaming an act", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "测试重命名" });

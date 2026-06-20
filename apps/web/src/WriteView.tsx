@@ -56,6 +56,9 @@ interface WriteViewProps {
   onSelectScene: (sceneId: string) => void;
   onSceneUpdated: (scene: SceneDocument) => void;
   onCreateScene: () => Promise<void>;
+  onCreateBook: () => Promise<void>;
+  onCreateAct: (bookId: string) => Promise<void>;
+  onCreateChapter: (actId: string) => Promise<void>;
   rightOpen: boolean;
   focusMode: boolean;
   onExitFocus: () => void;
@@ -74,6 +77,9 @@ export function WriteView({
   onSelectScene,
   onSceneUpdated,
   onCreateScene,
+  onCreateBook,
+  onCreateAct,
+  onCreateChapter,
   rightOpen,
   focusMode,
   onExitFocus,
@@ -230,7 +236,8 @@ export function WriteView({
   const paragraphCount = content.trim() ? content.trim().split(/\n\s*\n/u).length : 0;
   const activeChapter = chapters.find((chapter) => chapter.id === activeScene.metadata.chapterId);
   const activeAct = acts.find((act) => activeChapter ? act.chapterIds.includes(activeChapter.id) : false);
-  const bookTitle = detail.books[0]?.title ?? "第一部";
+  const activeBook = detail.books.find((book) => book.id === activeScene.metadata.bookId);
+  const bookTitle = activeBook?.title ?? detail.books[0]?.title ?? "第一部";
   const chapterGroups = useMemo(() => {
     const groups = new Map<string, SceneDocument[]>();
     for (const chapter of chapters) groups.set(chapter.id, []);
@@ -240,6 +247,10 @@ export function WriteView({
   const chaptersById = useMemo(
     () => new Map(chapters.map((chapter) => [chapter.id, chapter])),
     [chapters],
+  );
+  const actsById = useMemo(
+    () => new Map(acts.map((act) => [act.id, act])),
+    [acts],
   );
 
   async function createSection(kind: SceneSectionKind) {
@@ -323,28 +334,51 @@ export function WriteView({
   return (
     <section className={`write-workspace ${rightOpen ? "with-inspector" : ""}`}>
       <aside className="scene-drawer">
-        <div className="drawer-heading"><span>{bookTitle}</span><button onClick={() => void onCreateScene()} title="添加场景">＋</button></div>
-        {[...acts].sort((left, right) => left.order - right.order).map((act) => (
-          <div key={act.id}>
-            <p className="eyebrow">{act.title}</p>
-            {act.chapterIds.map((chapterId) => {
-              const chapter = chaptersById.get(chapterId);
-              if (!chapter) return null;
-              const scenes = [...(chapterGroups.get(chapterId) ?? [])].sort(
-                (left, right) => left.metadata.order - right.metadata.order,
-              );
+        <div className="drawer-heading">
+          <span>作品结构</span>
+          <div className="drawer-actions">
+            <button onClick={() => void onCreateScene()} title="添加场景">新场景</button>
+            <button onClick={() => void onCreateBook()} title="添加部">新部</button>
+          </div>
+        </div>
+        {[...detail.books].sort((left, right) => left.order - right.order).map((book) => (
+          <section className="book-drawer-section" key={book.id}>
+            <div className="book-drawer-heading">
+              <strong>{book.title}</strong>
+              <button onClick={() => void onCreateAct(book.id)}>新幕</button>
+            </div>
+            {!book.actIds.length && <button className="empty-chapter-action" onClick={() => void onCreateAct(book.id)}>给这一部添加第一幕</button>}
+            {book.actIds.map((actId) => {
+              const act = actsById.get(actId);
+              if (!act) return null;
               return (
-                <div key={chapterId}>
-                  <p className="chapter-label">{chapter.title}</p>
-                  {scenes.map((scene, index) => (
-                    <button className={`scene-nav-item ${scene.metadata.id === activeScene.metadata.id ? "active" : ""}`} onClick={() => onSelectScene(scene.metadata.id)} key={scene.metadata.id}>
-                      <span>{String(index + 1).padStart(2, "0")}</span><div><strong>{scene.metadata.title}</strong><small>{scene.characterCount} 字</small></div>
-                    </button>
-                  ))}
+                <div key={act.id}>
+                  <div className="act-drawer-heading">
+                    <p className="eyebrow">{act.title}</p>
+                    <button onClick={() => void onCreateChapter(act.id)}>新章</button>
+                  </div>
+                  {!act.chapterIds.length && <button className="empty-chapter-action" onClick={() => void onCreateChapter(act.id)}>给这一幕添加第一章</button>}
+                  {act.chapterIds.map((chapterId) => {
+                    const chapter = chaptersById.get(chapterId);
+                    if (!chapter) return null;
+                    const scenes = [...(chapterGroups.get(chapterId) ?? [])].sort(
+                      (left, right) => left.metadata.order - right.metadata.order,
+                    );
+                    return (
+                      <div key={chapterId}>
+                        <p className="chapter-label">{chapter.title}</p>
+                        {scenes.map((scene, index) => (
+                          <button className={`scene-nav-item ${scene.metadata.id === activeScene.metadata.id ? "active" : ""}`} onClick={() => onSelectScene(scene.metadata.id)} key={scene.metadata.id}>
+                            <span>{String(index + 1).padStart(2, "0")}</span><div><strong>{scene.metadata.title}</strong><small>{scene.characterCount} 字</small></div>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
-          </div>
+          </section>
         ))}
       </aside>
       <article className="editor-shell">

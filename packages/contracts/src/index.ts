@@ -66,6 +66,12 @@ export const BookManifestSchema = z.object({
 });
 export type BookManifest = z.infer<typeof BookManifestSchema>;
 
+export const CreateBookInputSchema = z.object({
+  title: z.string().trim().min(1).max(160).default("新部"),
+  targetCharacters: z.number().int().nonnegative().default(0),
+});
+export type CreateBookInput = z.input<typeof CreateBookInputSchema>;
+
 export const ActManifestSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string().uuid(),

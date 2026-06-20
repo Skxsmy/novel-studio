@@ -37,6 +37,7 @@ import {
   CodexResearchDocumentSchema,
   CodexResearchMetadataSchema,
   CodexSearchResultSchema,
+  CreateBookInputSchema,
   CreateCodexCategoryInputSchema,
   CreateCodexEntryInputSchema,
   CreateCodexKnowledgeInputSchema,
@@ -104,6 +105,7 @@ import {
   type CodexResearchDocument,
   type CodexResearchMetadata,
   type CodexSearchResult,
+  type CreateBookInput,
   type CreateCodexCategoryInput,
   type CreateCodexEntryInput,
   type CreateCodexKnowledgeInput,
@@ -1109,6 +1111,62 @@ export class ProjectRepository {
     });
     await this.rebuildIndex(seriesId);
     return this.getSeries(seriesId);
+  }
+
+  async createBook(seriesId: string, rawInput: CreateBookInput): Promise<BookManifest> {
+    const input = CreateBookInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+      SeriesManifestSchema.parse(value),
+    );
+    const now = new Date().toISOString();
+    const bookId = randomUUID();
+    const actId = randomUUID();
+    const chapterId = randomUUID();
+    const bookRoot = assertInside(seriesRoot, path.join(seriesRoot, "books", bookId));
+    const book = BookManifestSchema.parse({
+      schemaVersion: 1,
+      id: bookId,
+      seriesId,
+      title: input.title,
+      order: manifest.bookIds.length + 1,
+      targetCharacters: input.targetCharacters,
+      actIds: [actId],
+      createdAt: now,
+      updatedAt: now,
+    });
+    const act = ActManifestSchema.parse({
+      schemaVersion: 1,
+      id: actId,
+      bookId,
+      title: "第一幕",
+      order: 1,
+      chapterIds: [chapterId],
+      createdAt: now,
+      updatedAt: now,
+    });
+    const chapter = ChapterManifestSchema.parse({
+      schemaVersion: 1,
+      id: chapterId,
+      actId,
+      title: "第一章",
+      order: 1,
+      sceneIds: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    const updatedManifest = SeriesManifestSchema.parse({
+      ...manifest,
+      bookIds: [...manifest.bookIds, bookId],
+      updatedAt: now,
+    });
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: path.join(seriesRoot, SERIES_FILE), content: serializeYaml(updatedManifest) },
+      { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeYaml(book) },
+      { targetPath: actPath(bookRoot, act.id), content: serializeYaml(act) },
+      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(chapter) },
+    ]);
+    return book;
   }
 
   async listSeries(): Promise<SeriesSummary[]> {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ActManifest, ChapterManifest, PlanningBoard, SceneDocument, SearchResult, SeriesDetail, SeriesSummary } from "@novel-studio/contracts";
+import type { ActManifest, BookManifest, ChapterManifest, PlanningBoard, SceneDocument, SearchResult, SeriesDetail, SeriesSummary } from "@novel-studio/contracts";
 import { api } from "./api";
 import { CodexView } from "./CodexView";
 import { appName, readableSceneStatus } from "./copy";
@@ -21,7 +21,63 @@ function formatDate(value: string): string {
   return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(new Date(value));
 }
 
-function EmptyLibrary({ onCreated }: { onCreated: (series: SeriesDetail) => void }) {
+export function seriesDetailToSummary(detail: SeriesDetail): SeriesSummary {
+  return {
+    id: detail.manifest.id,
+    title: detail.manifest.title,
+    description: detail.manifest.description,
+    updatedAt: detail.manifest.updatedAt,
+    archived: detail.manifest.archivedAt !== null,
+    bookCount: detail.books.length,
+    sceneCount: detail.scenes.length,
+    directoryName: "",
+  };
+}
+
+export function nextActTitle(acts: ActManifest[]): string {
+  return `第${toChineseNumber(acts.length + 1)}幕`;
+}
+
+export function nextBookTitle(books: BookManifest[]): string {
+  return `第${toChineseNumber(books.length + 1)}部`;
+}
+
+export function nextChapterTitle(act: ActManifest | undefined, chapters: ChapterManifest[]): string {
+  const count = act ? chapters.filter((chapter) => chapter.actId === act.id).length : 0;
+  return `第${toChineseNumber(count + 1)}章`;
+}
+
+function toChineseNumber(value: number): string {
+  if (!Number.isInteger(value) || value <= 0 || value >= 10000) return String(value);
+  const digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+  const units = ["", "十", "百", "千"];
+  const parts = String(value).split("").map(Number);
+  let result = "";
+  let pendingZero = false;
+  for (let index = 0; index < parts.length; index += 1) {
+    const digit = parts[index]!;
+    const unitIndex = parts.length - index - 1;
+    if (digit === 0) {
+      if (result) pendingZero = true;
+      continue;
+    }
+    if (pendingZero) {
+      result += "零";
+      pendingZero = false;
+    }
+    if (!(digit === 1 && unitIndex === 1 && result === "")) result += digits[digit];
+    result += units[unitIndex];
+  }
+  return result;
+}
+
+function CreateSeriesForm({
+  onCreated,
+  compact = false,
+}: {
+  onCreated: (series: SeriesDetail) => void;
+  compact?: boolean;
+}) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
@@ -41,6 +97,28 @@ function EmptyLibrary({ onCreated }: { onCreated: (series: SeriesDetail) => void
     }
   }
 
+  return (
+    <form className={`create-card ${compact ? "library-create-card" : ""}`} onSubmit={submit}>
+      <div className="card-number">{compact ? "＋" : "01"}</div>
+      <p className="eyebrow">{compact ? "新建系列" : "开始一个系列"}</p>
+      <label>
+        系列名称
+        <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：雾港纪事" autoFocus={!compact} />
+      </label>
+      <label>
+        一句话说明 <span className="optional">可选</span>
+        <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="这个故事最令你着迷的是什么？" />
+      </label>
+      {error && <p className="form-error">{error}</p>}
+      <button className="primary-button" disabled={creating || !title.trim()}>
+        {creating ? "正在建立作品目录…" : compact ? "创建并打开" : "进入写作室"}
+      </button>
+      <p className="fine-print">会同时创建一部书和一个空白开篇场景。</p>
+    </form>
+  );
+}
+
+function EmptyLibrary({ onCreated }: { onCreated: (series: SeriesDetail) => void }) {
   return (
     <main className="welcome-shell">
       <header className="welcome-header">
@@ -64,24 +142,37 @@ function EmptyLibrary({ onCreated }: { onCreated: (series: SeriesDetail) => void
           </div>
         </div>
 
-        <form className="create-card" onSubmit={submit}>
-          <div className="card-number">01</div>
-          <p className="eyebrow">开始一个系列</p>
-          <label>
-            系列名称
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：雾港纪事" autoFocus />
-          </label>
-          <label>
-            一句话说明 <span className="optional">可选</span>
-            <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="这个故事最令你着迷的是什么？" />
-          </label>
-          {error && <p className="form-error">{error}</p>}
-          <button className="primary-button" disabled={creating || !title.trim()}>
-            {creating ? "正在建立作品目录…" : "进入写作室"}
-          </button>
-          <p className="fine-print">会同时创建一部书和一个空白开篇场景。</p>
-        </form>
+        <CreateSeriesForm onCreated={onCreated} />
       </section>
+    </main>
+  );
+}
+
+function LibraryPicker({
+  seriesList,
+  onOpen,
+  onCreated,
+}: {
+  seriesList: SeriesSummary[];
+  onOpen: (seriesId: string) => void;
+  onCreated: (series: SeriesDetail) => void;
+}) {
+  return (
+    <main className="library-picker">
+      <section className="library-list-card">
+        <div className="brand-mark">书</div>
+        <p className="eyebrow">作品库</p>
+        <h1>选择一个系列</h1>
+        <div className="series-list-grid">
+          {seriesList.map((series) => (
+            <button onClick={() => onOpen(series.id)} key={series.id}>
+              <strong>{series.title}</strong>
+              <span>{series.sceneCount} 个场景 · 更新于 {formatDate(series.updatedAt)}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+      <CreateSeriesForm compact onCreated={onCreated} />
     </main>
   );
 }
@@ -209,7 +300,8 @@ export function App() {
       ]);
       setDetail(created);
       setPlanningBoard(board);
-      setSeriesList([{ id: created.manifest.id, title: created.manifest.title, description: created.manifest.description, updatedAt: created.manifest.updatedAt, archived: false, bookCount: created.books.length, sceneCount: created.scenes.length, directoryName: "" }]);
+      const summary = seriesDetailToSummary(created);
+      setSeriesList((current) => [summary, ...current.filter((item) => item.id !== summary.id)]);
       setActiveSceneId(created.scenes[0]?.metadata.id ?? null);
     } catch (error) {
       setFatalError(error instanceof Error ? error.message : "读取新作品层级失败");
@@ -237,6 +329,29 @@ export function App() {
     setActiveView("write");
   }
 
+  async function createBook() {
+    if (!detail) return;
+    await api.createBook(detail.manifest.id, { title: nextBookTitle(detail.books) });
+    await reloadProject();
+    setActiveView("write");
+  }
+
+  async function createAct(bookId: string) {
+    if (!detail) return;
+    const bookActs = acts.filter((act) => act.bookId === bookId);
+    await api.createAct(detail.manifest.id, bookId, { title: nextActTitle(bookActs) });
+    await reloadProject();
+    setActiveView("write");
+  }
+
+  async function createChapter(actId: string) {
+    if (!detail) return;
+    const act = acts.find((item) => item.id === actId);
+    await api.createChapter(detail.manifest.id, actId, { title: nextChapterTitle(act, chapters) });
+    await reloadProject();
+    setActiveView("write");
+  }
+
   function sceneUpdated(scene: SceneDocument) {
     setDetail((current) => current ? { ...current, scenes: current.scenes.map((item) => item.metadata.id === scene.metadata.id ? scene : item) } : current);
     if (detail) void api.getPlanningBoard(detail.manifest.id).then(setPlanningBoard);
@@ -252,7 +367,11 @@ export function App() {
   if (fatalError) return <div className="fatal-screen"><h1>本地服务没有准备好</h1><p>{fatalError}</p><button onClick={() => window.location.reload()}>重新连接</button></div>;
   if (!detail) {
     if (seriesList.length === 0) return <EmptyLibrary onCreated={(created) => void acceptCreatedSeries(created)} />;
-    return <main className="library-picker"><div className="brand-mark">书</div><p className="eyebrow">作品库</p><h1>选择一个系列</h1><div>{seriesList.map((series) => <button onClick={() => void openSeries(series.id)} key={series.id}><strong>{series.title}</strong><span>{series.sceneCount} 个场景 · 更新于 {formatDate(series.updatedAt)}</span></button>)}</div></main>;
+    return <LibraryPicker
+      seriesList={seriesList}
+      onOpen={(seriesId) => void openSeries(seriesId)}
+      onCreated={(created) => void acceptCreatedSeries(created)}
+    />;
   }
 
   return (
@@ -280,7 +399,7 @@ export function App() {
           onReload={reloadProject}
           onOpenScene={(sceneId) => { setActiveSceneId(sceneId); setActiveView("write"); }}
         />}
-        {activeView === "write" && activeScene && <WriteView detail={detail} acts={acts} chapters={chapters} activeScene={activeScene} onSelectScene={setActiveSceneId} onSceneUpdated={sceneUpdated} onCreateScene={createScene} rightOpen={rightOpen} focusMode={focusMode} onExitFocus={() => setFocusMode(false)} />}
+        {activeView === "write" && activeScene && <WriteView detail={detail} acts={acts} chapters={chapters} activeScene={activeScene} onSelectScene={setActiveSceneId} onSceneUpdated={sceneUpdated} onCreateScene={createScene} onCreateBook={createBook} onCreateAct={createAct} onCreateChapter={createChapter} rightOpen={rightOpen} focusMode={focusMode} onExitFocus={() => setFocusMode(false)} />}
         {activeView === "codex" && <CodexView
           seriesId={detail.manifest.id}
           scenes={detail.scenes}

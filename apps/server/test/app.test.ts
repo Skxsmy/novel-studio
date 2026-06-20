@@ -61,6 +61,13 @@ describe("local API", () => {
     });
     const series = created.json();
     const book = series.books[0];
+    const secondBookResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/books`,
+      payload: { title: "第二部" },
+    });
+    expect(secondBookResponse.statusCode).toBe(201);
+    expect(secondBookResponse.json()).toMatchObject({ title: "第二部", order: 2 });
     const firstActs = await app.inject({
       method: "GET",
       url: `/api/v1/series/${series.manifest.id}/books/${book.id}/acts`,
@@ -85,7 +92,7 @@ describe("local API", () => {
       url: `/api/v1/series/${series.manifest.id}/hierarchy/validate`,
     });
     expect(validation.statusCode).toBe(200);
-    expect(validation.json()).toMatchObject({ valid: true, actCount: 2 });
+    expect(validation.json()).toMatchObject({ valid: true, bookCount: 2, actCount: 3 });
     await app.close();
   });
 

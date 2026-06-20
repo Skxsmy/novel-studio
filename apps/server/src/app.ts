@@ -6,6 +6,7 @@ import {
   ArchiveCodexDocumentInputSchema,
   ArchiveSceneSectionInputSchema,
   CodexCategoryIdSchema,
+  CreateBookInputSchema,
   CreateCodexCategoryInputSchema,
   CreateCodexEntryInputSchema,
   CreateCodexKnowledgeInputSchema,
@@ -105,6 +106,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   app.get<{ Params: { seriesId: string } }>("/api/v1/series/:seriesId", async (request) =>
     repository.getSeries(request.params.seriesId),
+  );
+
+  app.post<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId/books",
+    async (request, reply) => {
+      const input = CreateBookInputSchema.parse(request.body);
+      const book = await repository.createBook(request.params.seriesId, input);
+      return reply.status(201).send(book);
+    },
   );
 
   app.get<{ Params: { seriesId: string } }>(

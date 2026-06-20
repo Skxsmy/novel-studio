@@ -37,6 +37,7 @@
 
 ## Act 与 Chapter
 
+- `POST /series/:seriesId/books`
 - `GET|POST /series/:seriesId/books/:bookId/acts`
 - `GET|PUT /series/:seriesId/acts/:actId`
 - `POST /series/:seriesId/books/:bookId/acts/reorder`
@@ -44,7 +45,7 @@
 - `GET|PUT /series/:seriesId/chapters/:chapterId`
 - `POST /series/:seriesId/acts/:actId/chapters/reorder`
 
-改名输入不包含 `order`。重排接收当前成员的完整、无重复排列。
+创建新部会同步建立第一幕和第一章，正文场景仍由显式场景创建接口产生。改名输入不包含 `order`。重排接收当前成员的完整、无重复排列。
 
 ## 校验与迁移
 

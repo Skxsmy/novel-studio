@@ -1,9 +1,11 @@
 import type {
   ActManifest,
   ArchiveCodexDocumentInput,
+  BookManifest,
   ChapterManifest,
   ArchiveSceneSectionInput,
   CreateActInput,
+  CreateBookInput,
   CodexCategoryDocument,
   CodexCategoryId,
   CodexContextPreview,
@@ -87,6 +89,11 @@ export const api = {
       body: JSON.stringify(input),
     }),
   getSeries: (seriesId: string) => request<SeriesDetail>(`/api/v1/series/${seriesId}`),
+  createBook: (seriesId: string, input: CreateBookInput) =>
+    request<BookManifest>(`/api/v1/series/${seriesId}/books`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   getScene: (seriesId: string, sceneId: string) =>
     request<SceneDocument>(`/api/v1/series/${seriesId}/scenes/${sceneId}`),
   getPlanningBoard: (seriesId: string) =>
