@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ActManifest, ChapterManifest, PlanningBoard, SceneDocument, SearchResult, SeriesDetail, SeriesSummary } from "@novel-studio/contracts";
 import { api } from "./api";
+import { CodexView } from "./CodexView";
 import { PlanView } from "./PlanView";
 import { WriteView } from "./WriteView";
 
@@ -115,21 +116,6 @@ function Overview({ detail }: { detail: SeriesDetail }) {
           <div className="quote-line">“大纲允许被人物说服。”</div>
         </article>
       </div>
-    </section>
-  );
-}
-
-function CodexView() {
-  const types = [
-    ["人物", "记录动机、知识与随剧情变化的状态", "林"],
-    ["地点", "让环境规则在每次出现时保持一致", "港"],
-    ["情节线", "追踪承诺、推进和仍未回收的伏笔", "线"],
-  ];
-  return (
-    <section className="content-page">
-      <div className="page-heading"><div><p className="eyebrow">STORY MEMORY</p><h2>Codex</h2></div><span className="phase-chip">计划于 M3</span></div>
-      <div className="codex-intro"><h3>故事事实应该有出处，也应该有生效时间。</h3><p>这里将容纳人物、地点、物件、世界设定与情节线。当前页面用于验证入口和信息密度，尚未写入真实 Codex 文件。</p></div>
-      <div className="codex-grid">{types.map(([title, copy, mark]) => <article key={title}><span>{mark}</span><h3>{title}</h3><p>{copy}</p><button disabled>新建{title}</button></article>)}</div>
     </section>
   );
 }
@@ -294,7 +280,12 @@ export function App() {
           onOpenScene={(sceneId) => { setActiveSceneId(sceneId); setActiveView("write"); }}
         />}
         {activeView === "write" && activeScene && <WriteView detail={detail} acts={acts} chapters={chapters} activeScene={activeScene} onSelectScene={setActiveSceneId} onSceneUpdated={sceneUpdated} onCreateScene={createScene} rightOpen={rightOpen} focusMode={focusMode} onExitFocus={() => setFocusMode(false)} />}
-        {activeView === "codex" && <CodexView />}
+        {activeView === "codex" && <CodexView
+          seriesId={detail.manifest.id}
+          scenes={detail.scenes}
+          activeSceneId={activeSceneId}
+          onCodexChanged={reloadProject}
+        />}
         {activeView === "workshop" && <WorkshopView />}
         {activeView === "review" && <ReviewView />}
       </div>

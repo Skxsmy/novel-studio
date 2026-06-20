@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  codexContextEligibility,
+  findCodexMentionsInContent,
   isSceneSectionEligibleForContext,
   ProjectRepository,
   resolveReviewAnchor,
@@ -172,6 +174,376 @@ describe("ProjectRepository", () => {
     expect(resolveReviewAnchor(anchor, `${quote}\n\n${quote}`).status).toBe("orphaned");
     expect(isSceneSectionEligibleForContext("never", "local")).toBe(false);
     expect(isSceneSectionEligibleForContext("local-only", "cloud")).toBe(false);
+  });
+
+  it("stores Codex Canon and Research separately with revision-protected custom categories", async () => {
+    const store = await repository();
+    const title = "人物档案";
+    const series = await store.createSeries({ title });
+    const category = await store.createCodexCategory(series.manifest.id, {
+      name: "神话生物",
+      icon: "兽",
+    });
+    const updatedCategory = await store.updateCodexCategory(
+      series.manifest.id,
+      category.category.id,
+      {
+        baseRevision: category.revision!,
+        name: "异兽",
+      },
+    );
+    await expect(
+      store.updateCodexCategory(series.manifest.id, category.category.id, {
+        baseRevision: category.revision!,
+        name: "过期改名",
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: updatedCategory.category.id,
+      name: "白泽",
+      aliases: ["泽兽"],
+      tags: ["传说"],
+      description: "能言，通万物之情。",
+      research: "现实资料尚待核实。",
+    });
+    const root = seriesRoot(store, title, series.manifest.id);
+    const entryFile = path.join(
+      root,
+      "codex",
+      "custom",
+      updatedCategory.category.id,
+      `${entry.metadata.id}.md`,
+    );
+    const researchFile = path.join(
+      root,
+      "codex",
+      "entry-research",
+      `${entry.metadata.id}.md`,
+    );
+    expect(await readFile(entryFile, "utf8")).toContain("能言，通万物之情。");
+    expect(await readFile(entryFile, "utf8")).not.toContain("现实资料尚待核实。");
+    expect(await readFile(researchFile, "utf8")).toContain("现实资料尚待核实。");
+
+    const updated = await store.updateCodexEntry(series.manifest.id, entry.metadata.id, {
+      baseRevision: entry.revision,
+      baseResearchRevision: entry.research.revision,
+      description: "能言，知天下万物。",
+      research: "参考《山海经》相关记载。",
+    });
+    await expect(
+      store.updateCodexEntry(series.manifest.id, entry.metadata.id, {
+        baseResearchRevision: entry.research.revision,
+        research: "过期研究",
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    expect((await store.getCodexEntry(series.manifest.id, entry.metadata.id)).description).toBe(
+      "能言，知天下万物。",
+    );
+
+    await expect(
+      store.archiveCodexCategory(series.manifest.id, category.category.id, {
+        baseRevision: updatedCategory.revision!,
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    const archivedEntry = await store.archiveCodexEntry(
+      series.manifest.id,
+      entry.metadata.id,
+      { baseRevision: updated.revision },
+    );
+    const archivedCategory = await store.archiveCodexCategory(
+      series.manifest.id,
+      category.category.id,
+      { baseRevision: updatedCategory.revision! },
+    );
+    expect(archivedEntry.metadata.archivedAt).not.toBeNull();
+    expect(archivedCategory.category.archivedAt).not.toBeNull();
+    const restoredCategory = await store.restoreCodexCategory(
+      series.manifest.id,
+      category.category.id,
+      { baseRevision: archivedCategory.revision! },
+    );
+    const restoredEntry = await store.restoreCodexEntry(
+      series.manifest.id,
+      entry.metadata.id,
+      { baseRevision: archivedEntry.revision },
+    );
+    expect(restoredCategory.category.archivedAt).toBeNull();
+    expect(restoredEntry.metadata.archivedAt).toBeNull();
+  });
+
+  it("indexes aliases, exclusions, English plurals and same-range ambiguity without changing scenes", async () => {
+    const store = await repository();
+    const title = "名称索引";
+    const series = await store.createSeries({ title });
+    const initial = series.scenes[0]!;
+    const scene = await store.updateScene(series.manifest.id, initial.metadata.id, {
+      baseRevision: initial.revision,
+      title: "名字",
+      content: "林岚和阿岚走过林岚港。A fox watches two foxes。夜鸦落在窗边。",
+    });
+    const beforeScene = await readFile(
+      path.join(seriesRoot(store, title, series.manifest.id), scene.relativePath),
+      "utf8",
+    );
+    const lin = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "林岚",
+      aliases: ["阿岚"],
+      mention: {
+        caseSensitive: false,
+        matchAliases: true,
+        automaticPlural: false,
+        excludedTerms: ["林岚港"],
+      },
+    });
+    const fox = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "object",
+      name: "fox",
+      mention: {
+        caseSensitive: false,
+        matchAliases: false,
+        automaticPlural: true,
+        excludedTerms: [],
+      },
+    });
+    const ravenA = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "夜鸦",
+    });
+    const ravenB = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "organization",
+      name: "夜鸦",
+    });
+    const shortLin = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "organization",
+      name: "林",
+      mention: {
+        caseSensitive: false,
+        matchAliases: true,
+        automaticPlural: false,
+        excludedTerms: ["林岚港"],
+      },
+    });
+
+    const indexed = await store.listCodexMentionsForScene(
+      series.manifest.id,
+      scene.metadata.id,
+    );
+    expect(indexed.mentions.filter((mention) => mention.entryId === lin.metadata.id))
+      .toHaveLength(2);
+    expect(indexed.mentions.filter((mention) => mention.entryId === fox.metadata.id))
+      .toHaveLength(2);
+    expect(indexed.mentions.some((mention) => mention.matchedText === "林岚港")).toBe(false);
+    expect(indexed.mentions.some((mention) => mention.entryId === ravenA.metadata.id)).toBe(false);
+    expect(indexed.mentions.some((mention) => mention.entryId === ravenB.metadata.id)).toBe(false);
+    expect(indexed.ambiguities).toHaveLength(1);
+    expect(indexed.ambiguities[0]!.candidateEntryIds.sort()).toEqual(
+      [ravenA.metadata.id, ravenB.metadata.id].sort(),
+    );
+    expect(
+      await readFile(
+        path.join(seriesRoot(store, title, series.manifest.id), scene.relativePath),
+        "utf8",
+      ),
+    ).toBe(beforeScene);
+
+    const pure = findCodexMentionsInContent(
+      scene.metadata.id,
+      "林岚港 林岚",
+      [lin, shortLin],
+    );
+    expect(pure.mentions.map((mention) => mention.matchedText)).toEqual(["林岚"]);
+    expect(pure.mentions[0]!.entryId).toBe(lin.metadata.id);
+
+    await store.updateScene(series.manifest.id, scene.metadata.id, {
+      baseRevision: scene.revision,
+      title: scene.metadata.title,
+      content: "林岚和阿岚离开了港口。",
+    });
+    expect((await store.listCodexMentionsForEntry(series.manifest.id, fox.metadata.id)))
+      .toHaveLength(0);
+    expect((await store.listCodexMentionsForEntry(series.manifest.id, lin.metadata.id)))
+      .toHaveLength(2);
+
+    const archived = await store.archiveCodexEntry(series.manifest.id, lin.metadata.id, {
+      baseRevision: lin.revision,
+    });
+    expect((await store.listCodexMentionsForEntry(series.manifest.id, lin.metadata.id)))
+      .toHaveLength(0);
+    await store.restoreCodexEntry(series.manifest.id, lin.metadata.id, {
+      baseRevision: archived.revision,
+    });
+    expect((await store.listCodexMentionsForEntry(series.manifest.id, lin.metadata.id)))
+      .toHaveLength(2);
+  });
+
+  it("keeps relation direction and conservatively previews Codex context policies", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "关系图" });
+    const initial = series.scenes[0]!;
+    const scene = await store.updateScene(series.manifest.id, initial.metadata.id, {
+      baseRevision: initial.revision,
+      title: "相遇",
+      content: "林岚见到了周野。",
+    });
+    const lin = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "林岚",
+      aiContextPolicy: "on-mention",
+    });
+    const zhou = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "周野",
+      aiContextPolicy: "never",
+    });
+    const always = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "lore",
+      name: "雾港法则",
+      aiContextPolicy: "always",
+    });
+    const manual = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "object",
+      name: "旧钥匙",
+      aiContextPolicy: "manual",
+    });
+    const directed = await store.createCodexRelation(series.manifest.id, {
+      sourceEntryId: lin.metadata.id,
+      targetEntryId: zhou.metadata.id,
+      type: "信任",
+      directed: true,
+    });
+    const updatedDirected = await store.updateCodexRelation(
+      series.manifest.id,
+      directed.relation.id,
+      {
+        baseRevision: directed.revision,
+        description: "林岚单方面信任周野。",
+      },
+    );
+    await expect(
+      store.updateCodexRelation(series.manifest.id, directed.relation.id, {
+        baseRevision: directed.revision,
+        description: "过期关系",
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    const undirected = await store.createCodexRelation(series.manifest.id, {
+      sourceEntryId: lin.metadata.id,
+      targetEntryId: manual.metadata.id,
+      type: "共同持有",
+      directed: false,
+    });
+    const fromZhou = await store.listCodexRelations(series.manifest.id, {
+      entryId: zhou.metadata.id,
+    });
+    expect(fromZhou[0]!.relation).toMatchObject({
+      id: updatedDirected.relation.id,
+      sourceEntryId: lin.metadata.id,
+      targetEntryId: zhou.metadata.id,
+      directed: true,
+    });
+    const fromManual = await store.listCodexRelations(series.manifest.id, {
+      entryId: manual.metadata.id,
+    });
+    expect(fromManual[0]!.relation.id).toBe(undirected.relation.id);
+
+    const automatic = await store.previewCodexContext(
+      series.manifest.id,
+      scene.metadata.id,
+    );
+    expect(automatic.included.map((entry) => entry.metadata.id)).toEqual(
+      expect.arrayContaining([lin.metadata.id, always.metadata.id]),
+    );
+    expect(automatic.included.map((entry) => entry.metadata.id)).not.toContain(
+      zhou.metadata.id,
+    );
+    expect(automatic.included.map((entry) => entry.metadata.id)).not.toContain(
+      manual.metadata.id,
+    );
+    const pinned = await store.previewCodexContext(
+      series.manifest.id,
+      scene.metadata.id,
+      [manual.metadata.id, zhou.metadata.id],
+    );
+    expect(pinned.included.map((entry) => entry.metadata.id)).toContain(manual.metadata.id);
+    expect(pinned.included.map((entry) => entry.metadata.id)).not.toContain(zhou.metadata.id);
+    expect(codexContextEligibility("unknown", {
+      mentioned: true,
+      pinned: true,
+      archived: false,
+    })).toMatchObject({ eligible: false, reason: "never" });
+    await expect(
+      store.createCodexRelation(series.manifest.id, {
+        sourceEntryId: lin.metadata.id,
+        targetEntryId: "00000000-0000-4000-8000-000000000999",
+        type: "不存在",
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+  });
+
+  it("rejects Codex files whose file name, frontmatter ID or category directory disagree", async () => {
+    const store = await repository();
+    const title = "损坏档案";
+    const series = await store.createSeries({ title });
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "林岚",
+    });
+    const root = seriesRoot(store, title, series.manifest.id);
+    const entryFile = path.join(
+      root,
+      "codex",
+      "characters",
+      `${entry.metadata.id}.md`,
+    );
+    const raw = await readFile(entryFile, "utf8");
+    await writeFile(
+      entryFile,
+      raw.replace("categoryId: character", "categoryId: location"),
+      "utf8",
+    );
+    await expect(store.listCodexEntries(series.manifest.id)).rejects.toMatchObject<
+      Partial<StorageError>
+    >({ code: "INVALID_DATA" });
+  });
+
+  it("physically rebuilds Codex search, mentions and ambiguity after deleting SQLite", async () => {
+    const store = await repository();
+    const title = "重建故事记忆";
+    const series = await store.createSeries({ title });
+    const initial = series.scenes[0]!;
+    const scene = await store.updateScene(series.manifest.id, initial.metadata.id, {
+      baseRevision: initial.revision,
+      title: "港口",
+      content: "守门人站在潮门前。",
+    });
+    await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "守门人",
+      description: "潮门最后的看守者。",
+    });
+    await store.createCodexEntry(series.manifest.id, {
+      categoryId: "organization",
+      name: "守门人",
+      research: "名称可能同时指一个秘密组织。",
+    });
+    const root = seriesRoot(store, title, series.manifest.id);
+    await rm(path.join(root, ".studio", "index.sqlite"));
+    expect(await store.searchCodex(series.manifest.id, "看守者")).toEqual([]);
+
+    const rebuilt = await store.rebuildIndex(series.manifest.id);
+    expect(rebuilt).toMatchObject({
+      indexedScenes: 1,
+      indexedCodexEntries: 2,
+      indexedMentions: 0,
+      ambiguousMentions: 1,
+    });
+    expect((await store.search(series.manifest.id, "潮门"))[0]!.sceneId).toBe(
+      scene.metadata.id,
+    );
+    expect((await store.searchCodex(series.manifest.id, "看守者"))).toHaveLength(1);
+    expect((await store.listCodexMentionsForScene(series.manifest.id, scene.metadata.id))
+      .ambiguities).toHaveLength(1);
   });
 
   it("saves a 200,000-character Chinese scene without changing its text", async () => {

@@ -341,6 +341,7 @@ export const PlanningBoardSchema = z.object({
   storyEvents: z.array(TimelineEventDocumentSchema),
   unplacedSceneIds: z.array(z.string().uuid()),
   dimensions: PlanningDimensionsSchema,
+  codexLabels: z.record(z.string(), z.string()),
   legacyStoryTimeSceneIds: z.array(z.string().uuid()),
 });
 export type PlanningBoard = z.infer<typeof PlanningBoardSchema>;
@@ -510,6 +511,301 @@ export const CreateReviewAnchorInputSchema = z
     path: ["end"],
   });
 export type CreateReviewAnchorInput = z.infer<typeof CreateReviewAnchorInputSchema>;
+
+export const CodexBuiltInCategoryIdSchema = z.enum([
+  "character",
+  "location",
+  "object",
+  "lore",
+  "organization",
+  "plot-thread",
+]);
+export type CodexBuiltInCategoryId = z.infer<typeof CodexBuiltInCategoryIdSchema>;
+
+export const CodexCategoryIdSchema = z.union([
+  CodexBuiltInCategoryIdSchema,
+  z.string().uuid(),
+]);
+export type CodexCategoryId = z.infer<typeof CodexCategoryIdSchema>;
+
+export const CodexCustomCategorySchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(80),
+  icon: z.string().trim().min(1).max(12).default("◇"),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  archivedAt: z.string().datetime().nullable().default(null),
+});
+export type CodexCustomCategory = z.infer<typeof CodexCustomCategorySchema>;
+
+export const CodexCategorySchema = z.object({
+  id: CodexCategoryIdSchema,
+  name: z.string(),
+  icon: z.string(),
+  builtIn: z.boolean(),
+  archivedAt: z.string().datetime().nullable(),
+});
+export type CodexCategory = z.infer<typeof CodexCategorySchema>;
+
+export const CodexCategoryDocumentSchema = z.object({
+  category: CodexCategorySchema,
+  revision: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+});
+export type CodexCategoryDocument = z.infer<typeof CodexCategoryDocumentSchema>;
+
+export const CreateCodexCategoryInputSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  icon: z.string().trim().min(1).max(12).default("◇"),
+});
+export type CreateCodexCategoryInput = z.input<typeof CreateCodexCategoryInputSchema>;
+
+export const UpdateCodexCategoryInputSchema = z
+  .object({
+    baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+    name: z.string().trim().min(1).max(80).optional(),
+    icon: z.string().trim().min(1).max(12).optional(),
+  })
+  .superRefine((input, context) => {
+    if (input.name === undefined && input.icon === undefined) {
+      context.addIssue({ code: "custom", message: "至少提供一个类别字段" });
+    }
+  });
+export type UpdateCodexCategoryInput = z.infer<typeof UpdateCodexCategoryInputSchema>;
+
+export const CodexAiContextPolicySchema = z.enum([
+  "always",
+  "on-mention",
+  "manual",
+  "never",
+]);
+export type CodexAiContextPolicy = z.infer<typeof CodexAiContextPolicySchema>;
+
+export const CodexMentionRulesSchema = z.object({
+  caseSensitive: z.boolean().default(false),
+  matchAliases: z.boolean().default(true),
+  automaticPlural: z.boolean().default(false),
+  excludedTerms: z.array(z.string().trim().min(1).max(160)).default([]),
+});
+export type CodexMentionRules = z.infer<typeof CodexMentionRulesSchema>;
+
+export const CodexEntryMetadataSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  categoryId: CodexCategoryIdSchema,
+  name: z.string().trim().min(1).max(160),
+  aliases: z.array(z.string().trim().min(1).max(160)).default([]),
+  tags: z.array(z.string().trim().min(1).max(80)).default([]),
+  thumbnail: z.string().max(500).nullable().default(null),
+  details: z.record(z.string(), z.string().max(16000)).default({}),
+  aiContextPolicy: CodexAiContextPolicySchema.default("on-mention"),
+  mention: CodexMentionRulesSchema.default({
+    caseSensitive: false,
+    matchAliases: true,
+    automaticPlural: false,
+    excludedTerms: [],
+  }),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  archivedAt: z.string().datetime().nullable().default(null),
+});
+export type CodexEntryMetadata = z.infer<typeof CodexEntryMetadataSchema>;
+
+export const CodexResearchMetadataSchema = z.object({
+  schemaVersion: z.literal(1),
+  entryId: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type CodexResearchMetadata = z.infer<typeof CodexResearchMetadataSchema>;
+
+export const CodexResearchDocumentSchema = z.object({
+  metadata: CodexResearchMetadataSchema,
+  content: z.string(),
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  relativePath: z.string(),
+});
+export type CodexResearchDocument = z.infer<typeof CodexResearchDocumentSchema>;
+
+export const CodexEntryDocumentSchema = z.object({
+  metadata: CodexEntryMetadataSchema,
+  description: z.string(),
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  relativePath: z.string(),
+  research: CodexResearchDocumentSchema,
+});
+export type CodexEntryDocument = z.infer<typeof CodexEntryDocumentSchema>;
+
+export const CreateCodexEntryInputSchema = z.object({
+  categoryId: CodexCategoryIdSchema,
+  name: z.string().trim().min(1).max(160),
+  aliases: z.array(z.string().trim().min(1).max(160)).default([]),
+  tags: z.array(z.string().trim().min(1).max(80)).default([]),
+  thumbnail: z.string().max(500).nullable().default(null),
+  details: z.record(z.string(), z.string().max(16000)).default({}),
+  aiContextPolicy: CodexAiContextPolicySchema.default("on-mention"),
+  mention: CodexMentionRulesSchema.default({
+    caseSensitive: false,
+    matchAliases: true,
+    automaticPlural: false,
+    excludedTerms: [],
+  }),
+  description: z.string().default(""),
+  research: z.string().default(""),
+});
+export type CreateCodexEntryInput = z.input<typeof CreateCodexEntryInputSchema>;
+
+export const UpdateCodexEntryInputSchema = z
+  .object({
+    baseRevision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    baseResearchRevision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    name: z.string().trim().min(1).max(160).optional(),
+    aliases: z.array(z.string().trim().min(1).max(160)).optional(),
+    tags: z.array(z.string().trim().min(1).max(80)).optional(),
+    thumbnail: z.string().max(500).nullable().optional(),
+    details: z.record(z.string(), z.string().max(16000)).optional(),
+    aiContextPolicy: CodexAiContextPolicySchema.optional(),
+    mention: CodexMentionRulesSchema.optional(),
+    description: z.string().optional(),
+    research: z.string().optional(),
+  })
+  .superRefine((input, context) => {
+    const entryFields = [
+      input.name,
+      input.aliases,
+      input.tags,
+      input.thumbnail,
+      input.details,
+      input.aiContextPolicy,
+      input.mention,
+      input.description,
+    ];
+    const changesEntry = entryFields.some((value) => value !== undefined);
+    const changesResearch = input.research !== undefined;
+    if (!changesEntry && !changesResearch) {
+      context.addIssue({ code: "custom", message: "至少提供一个 Codex 字段" });
+    }
+    if (changesEntry && !input.baseRevision) {
+      context.addIssue({ code: "custom", message: "修改 Canon 或元数据需要 baseRevision" });
+    }
+    if (changesResearch && !input.baseResearchRevision) {
+      context.addIssue({ code: "custom", message: "修改 Research 需要 baseResearchRevision" });
+    }
+  });
+export type UpdateCodexEntryInput = z.infer<typeof UpdateCodexEntryInputSchema>;
+
+export const ArchiveCodexDocumentInputSchema = z.object({
+  baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type ArchiveCodexDocumentInput = z.infer<typeof ArchiveCodexDocumentInputSchema>;
+
+export const CodexRelationSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  sourceEntryId: z.string().uuid(),
+  targetEntryId: z.string().uuid(),
+  type: z.string().trim().min(1).max(120),
+  directed: z.boolean().default(true),
+  description: z.string().max(16000).default(""),
+  evidence: z.string().max(16000).default(""),
+  validFromSceneId: z.string().uuid().nullable().default(null),
+  validToSceneId: z.string().uuid().nullable().default(null),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  archivedAt: z.string().datetime().nullable().default(null),
+});
+export type CodexRelation = z.infer<typeof CodexRelationSchema>;
+
+export const CodexRelationDocumentSchema = z.object({
+  relation: CodexRelationSchema,
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type CodexRelationDocument = z.infer<typeof CodexRelationDocumentSchema>;
+
+export const CreateCodexRelationInputSchema = CodexRelationSchema.pick({
+  sourceEntryId: true,
+  targetEntryId: true,
+  type: true,
+  directed: true,
+  description: true,
+  evidence: true,
+  validFromSceneId: true,
+  validToSceneId: true,
+}).partial({
+  directed: true,
+  description: true,
+  evidence: true,
+  validFromSceneId: true,
+  validToSceneId: true,
+});
+export type CreateCodexRelationInput = z.input<typeof CreateCodexRelationInputSchema>;
+
+export const UpdateCodexRelationInputSchema = CreateCodexRelationInputSchema.partial()
+  .omit({ sourceEntryId: true, targetEntryId: true })
+  .extend({ baseRevision: z.string().regex(/^[a-f0-9]{64}$/) })
+  .superRefine((input, context) => {
+    if (Object.keys(input).every((key) => key === "baseRevision")) {
+      context.addIssue({ code: "custom", message: "至少提供一个关系字段" });
+    }
+  });
+export type UpdateCodexRelationInput = z.infer<typeof UpdateCodexRelationInputSchema>;
+
+export const CodexMentionSchema = z.object({
+  sceneId: z.string().uuid(),
+  entryId: z.string().uuid(),
+  start: z.number().int().nonnegative(),
+  end: z.number().int().positive(),
+  matchedText: z.string(),
+  term: z.string(),
+  isAlias: z.boolean(),
+});
+export type CodexMention = z.infer<typeof CodexMentionSchema>;
+
+export const CodexAmbiguousMentionSchema = z.object({
+  sceneId: z.string().uuid(),
+  start: z.number().int().nonnegative(),
+  end: z.number().int().positive(),
+  matchedText: z.string(),
+  candidateEntryIds: z.array(z.string().uuid()).min(2),
+});
+export type CodexAmbiguousMention = z.infer<typeof CodexAmbiguousMentionSchema>;
+
+export const SceneCodexMentionsSchema = z.object({
+  sceneId: z.string().uuid(),
+  mentions: z.array(CodexMentionSchema),
+  ambiguities: z.array(CodexAmbiguousMentionSchema),
+});
+export type SceneCodexMentions = z.infer<typeof SceneCodexMentionsSchema>;
+
+export const CodexContextExclusionReasonSchema = z.enum([
+  "not-mentioned",
+  "manual-only",
+  "never",
+  "archived",
+]);
+export type CodexContextExclusionReason = z.infer<typeof CodexContextExclusionReasonSchema>;
+
+export const CodexContextExclusionSchema = z.object({
+  entryId: z.string().uuid(),
+  name: z.string(),
+  reason: CodexContextExclusionReasonSchema,
+});
+export type CodexContextExclusion = z.infer<typeof CodexContextExclusionSchema>;
+
+export const CodexContextPreviewSchema = z.object({
+  sceneId: z.string().uuid(),
+  included: z.array(CodexEntryDocumentSchema),
+  excluded: z.array(CodexContextExclusionSchema),
+});
+export type CodexContextPreview = z.infer<typeof CodexContextPreviewSchema>;
+
+export const CodexSearchResultSchema = z.object({
+  entryId: z.string().uuid(),
+  name: z.string(),
+  categoryId: CodexCategoryIdSchema,
+  excerpt: z.string(),
+});
+export type CodexSearchResult = z.infer<typeof CodexSearchResultSchema>;
 
 export const SearchResultSchema = z.object({
   sceneId: z.string().uuid(),

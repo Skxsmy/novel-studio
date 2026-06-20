@@ -121,9 +121,13 @@ function dimensionValues(board: PlanningBoard, dimension: MatrixDimension): stri
   }
 }
 
-export function dimensionLabel(dimension: MatrixDimension, value: string): string {
+export function dimensionLabel(
+  dimension: MatrixDimension,
+  value: string,
+  codexLabels: Record<string, string> = {},
+): string {
   if (["character", "location", "plot-thread"].includes(dimension)) {
-    return `#${value.slice(0, 8)}`;
+    return codexLabels[value] ?? `#${value.slice(0, 8)}`;
   }
   return value;
 }
@@ -131,7 +135,7 @@ export function dimensionLabel(dimension: MatrixDimension, value: string): strin
 export function projectMatrix(board: PlanningBoard, dimension: MatrixDimension): MatrixRow[] {
   return dimensionValues(board, dimension).map((value) => ({
     value,
-    label: dimensionLabel(dimension, value),
+    label: dimensionLabel(dimension, value, board.codexLabels),
     sceneIds: board.narrativeScenes
       .filter((scene) => valuesForScene(scene, dimension).includes(value))
       .map((scene) => scene.id),

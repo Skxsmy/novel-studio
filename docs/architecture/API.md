@@ -71,6 +71,26 @@ TimelineEvent 更新与删除要求 `baseRevision`；重排要求当前事件 ID
 
 Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revision 相互独立。上下文资格接口只返回当前目标允许读取且未归档的 Section，不调用模型。创建锚点要求当前场景 revision、精确引用和字符范围；服务端验证正文切片，不接受客户端单方面声明。锚点查询只计算 `attached/relocated/orphaned`，不得在读取时改写文件。
 
+## Codex
+
+- `GET|POST /series/:seriesId/codex/categories`
+- `PUT /series/:seriesId/codex/categories/:categoryId`
+- `POST /series/:seriesId/codex/categories/:categoryId/archive`
+- `POST /series/:seriesId/codex/categories/:categoryId/restore`
+- `GET|POST /series/:seriesId/codex/entries`
+- `GET|PUT /series/:seriesId/codex/entries/:entryId`
+- `POST /series/:seriesId/codex/entries/:entryId/archive`
+- `POST /series/:seriesId/codex/entries/:entryId/restore`
+- `GET /series/:seriesId/codex/entries/:entryId/mentions`
+- `GET /series/:seriesId/codex/scenes/:sceneId/mentions`
+- `GET|POST /series/:seriesId/codex/relations`
+- `PUT /series/:seriesId/codex/relations/:relationId`
+- `POST /series/:seriesId/codex/relations/:relationId/archive`
+- `POST /series/:seriesId/codex/relations/:relationId/restore`
+- `GET /series/:seriesId/codex/context?sceneId=&pinnedIds=`
+
+条目更新分别检查条目 `baseRevision` 和 Research `baseResearchRevision`；只修改其中一类时只要求对应 revision。内置类别不能更新或归档。自动提及与上下文预览是派生查询，不写回正文、Scene 关联或 Canon。`never` 条目即使出现在 `pinnedIds` 中也必须排除。
+
 ## 后续长任务
 
 M4 以后需要长时间运行的 AI、导入和分析任务返回 job ID，并通过 `/jobs/:jobId/events` 的 SSE 输出状态。该接口尚未实现，不得在客户端假装可用。

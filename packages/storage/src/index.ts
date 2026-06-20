@@ -13,9 +13,28 @@ import Database from "better-sqlite3";
 import YAML from "yaml";
 import {
   ActManifestSchema,
+  ArchiveCodexDocumentInputSchema,
   ArchiveSceneSectionInputSchema,
   BookManifestSchema,
   ChapterManifestSchema,
+  CodexAiContextPolicySchema,
+  CodexAmbiguousMentionSchema,
+  CodexBuiltInCategoryIdSchema,
+  CodexCategoryDocumentSchema,
+  CodexCategoryIdSchema,
+  CodexContextPreviewSchema,
+  CodexCustomCategorySchema,
+  CodexEntryDocumentSchema,
+  CodexEntryMetadataSchema,
+  CodexMentionSchema,
+  CodexRelationDocumentSchema,
+  CodexRelationSchema,
+  CodexResearchDocumentSchema,
+  CodexResearchMetadataSchema,
+  CodexSearchResultSchema,
+  CreateCodexCategoryInputSchema,
+  CreateCodexEntryInputSchema,
+  CreateCodexRelationInputSchema,
   CreateActInputSchema,
   CreateChapterInputSchema,
   CreateReviewAnchorInputSchema,
@@ -33,6 +52,7 @@ import {
   SceneFrontmatterSchema,
   SceneSectionDocumentSchema,
   SceneSectionMetadataSchema,
+  SceneCodexMentionsSchema,
   SectionContextTargetSchema,
   SeriesManifestSchema,
   ResolvedReviewAnchorSchema,
@@ -40,6 +60,9 @@ import {
   TimelineEventDocumentSchema,
   TimelineEventSchema,
   TimelineManifestSchema,
+  UpdateCodexCategoryInputSchema,
+  UpdateCodexEntryInputSchema,
+  UpdateCodexRelationInputSchema,
   UpdateActInputSchema,
   UpdateChapterInputSchema,
   UpdateScenePlanningInputSchema,
@@ -47,9 +70,29 @@ import {
   UpdateSceneSectionInputSchema,
   UpdateTimelineEventInputSchema,
   type ActManifest,
+  type ArchiveCodexDocumentInput,
   type ArchiveSceneSectionInput,
   type BookManifest,
   type ChapterManifest,
+  type CodexAiContextPolicy,
+  type CodexAmbiguousMention,
+  type CodexBuiltInCategoryId,
+  type CodexCategoryDocument,
+  type CodexCategoryId,
+  type CodexContextExclusionReason,
+  type CodexContextPreview,
+  type CodexCustomCategory,
+  type CodexEntryDocument,
+  type CodexEntryMetadata,
+  type CodexMention,
+  type CodexRelation,
+  type CodexRelationDocument,
+  type CodexResearchDocument,
+  type CodexResearchMetadata,
+  type CodexSearchResult,
+  type CreateCodexCategoryInput,
+  type CreateCodexEntryInput,
+  type CreateCodexRelationInput,
   type CreateActInput,
   type CreateChapterInput,
   type CreateReviewAnchorInput,
@@ -69,6 +112,7 @@ import {
   type ReorderInput,
   type RestoreSceneSectionInput,
   type SceneDocument,
+  type SceneCodexMentions,
   type SceneFrontmatter,
   type SceneSectionAiPolicy,
   type SceneSectionDocument,
@@ -85,6 +129,9 @@ import {
   type TimelineEventDocument,
   type TimelineManifest,
   type UpdateActInput,
+  type UpdateCodexCategoryInput,
+  type UpdateCodexEntryInput,
+  type UpdateCodexRelationInput,
   type UpdateChapterInput,
   type UpdateScenePlanningInput,
   type UpdateSceneInput,
@@ -103,6 +150,25 @@ const TIMELINE_EVENTS_DIR = "events";
 const SECTIONS_DIR = "sections";
 const REVIEW_DIR = "review";
 const ANCHORS_DIR = "anchors";
+const CODEX_DIR = "codex";
+const CODEX_CATEGORIES_DIR = "categories";
+const CODEX_CUSTOM_DIR = "custom";
+const CODEX_RESEARCH_DIR = "entry-research";
+const CODEX_RELATIONS_DIR = "relations";
+
+const BUILT_IN_CODEX_CATEGORIES: ReadonlyArray<{
+  id: CodexBuiltInCategoryId;
+  name: string;
+  icon: string;
+  directory: string;
+}> = [
+  { id: "character", name: "人物", icon: "人", directory: "characters" },
+  { id: "location", name: "地点", icon: "地", directory: "locations" },
+  { id: "object", name: "物件", icon: "物", directory: "objects" },
+  { id: "lore", name: "世界设定", icon: "界", directory: "lore" },
+  { id: "organization", name: "组织", icon: "组", directory: "organizations" },
+  { id: "plot-thread", name: "情节线", icon: "线", directory: "plot-threads" },
+];
 
 function toChineseOrdinal(value: number): string {
   const digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
@@ -386,6 +452,217 @@ function parseSceneSectionText(value: string, relativePath: string): SceneSectio
   });
 }
 
+function serializeMarkdownDocument(metadata: unknown, content: string): string {
+  const normalizedContent = content.replace(/\r\n/gu, "\n").replace(/^\n+/u, "");
+  return `${FRONTMATTER_MARKER}\n${serializeYaml(metadata)}${FRONTMATTER_MARKER}\n\n${normalizedContent}`;
+}
+
+function splitMarkdownDocument(
+  value: string,
+  relativePath: string,
+  label: string,
+): { normalized: string; metadata: unknown; content: string } {
+  const normalized = value.replace(/\r\n/gu, "\n");
+  if (!normalized.startsWith(`${FRONTMATTER_MARKER}\n`)) {
+    throw new StorageError(`${label}缺少 YAML frontmatter`, "INVALID_DATA", { relativePath });
+  }
+  const end = normalized.indexOf(`\n${FRONTMATTER_MARKER}\n`, 4);
+  if (end < 0) {
+    throw new StorageError(`${label} frontmatter 未闭合`, "INVALID_DATA", { relativePath });
+  }
+  return {
+    normalized,
+    metadata: YAML.parse(normalized.slice(4, end)),
+    content: normalized.slice(end + 5).replace(/^\n/u, ""),
+  };
+}
+
+function parseCodexResearchText(value: string, relativePath: string): CodexResearchDocument {
+  const parsed = splitMarkdownDocument(value, relativePath, "Codex Research 文件");
+  return CodexResearchDocumentSchema.parse({
+    metadata: CodexResearchMetadataSchema.parse(parsed.metadata),
+    content: parsed.content,
+    revision: contentRevision(parsed.normalized),
+    relativePath: relativePath.replace(/\\/gu, "/"),
+  });
+}
+
+function parseCodexEntryText(
+  value: string,
+  relativePath: string,
+  research: CodexResearchDocument,
+): CodexEntryDocument {
+  const parsed = splitMarkdownDocument(value, relativePath, "Codex 条目文件");
+  return CodexEntryDocumentSchema.parse({
+    metadata: CodexEntryMetadataSchema.parse(parsed.metadata),
+    description: parsed.content,
+    revision: contentRevision(parsed.normalized),
+    relativePath: relativePath.replace(/\\/gu, "/"),
+    research,
+  });
+}
+
+function normalizeUniqueStrings(values: string[]): string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values.map((item) => item.trim()).filter(Boolean)) {
+    const key = value.toLocaleLowerCase("und");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
+function pluralVariants(term: string): string[] {
+  if (!/^[A-Za-z][A-Za-z'-]*$/u.test(term)) return [];
+  if (/[^aeiou]y$/iu.test(term)) return [`${term.slice(0, -1)}ies`];
+  if (/(?:s|x|z|ch|sh)$/iu.test(term)) return [`${term}es`];
+  return [`${term}s`];
+}
+
+function regexStarts(content: string, term: string, caseSensitive: boolean): number[] {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const regex = new RegExp(escaped, caseSensitive ? "gu" : "giu");
+  const starts: number[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(content)) !== null) {
+    starts.push(match.index);
+    regex.lastIndex = match.index + Math.max(match[0].length, 1);
+  }
+  return starts;
+}
+
+function rangeInside(
+  range: { start: number; end: number },
+  blockers: Array<{ start: number; end: number }>,
+): boolean {
+  return blockers.some((blocker) => range.start >= blocker.start && range.end <= blocker.end);
+}
+
+export function findCodexMentionsInContent(
+  sceneId: string,
+  content: string,
+  entries: CodexEntryDocument[],
+): SceneCodexMentions {
+  const hits: Array<CodexMention> = [];
+  for (const entry of entries.filter((item) => item.metadata.archivedAt === null)) {
+    const { mention } = entry.metadata;
+    const excludedTerms = normalizeUniqueStrings(mention.excludedTerms);
+    const blockers = excludedTerms.flatMap((term) =>
+      regexStarts(content, term, mention.caseSensitive).map((start) => ({
+        start,
+        end: start + term.length,
+      })),
+    );
+    const baseTerms = [
+      { term: entry.metadata.name, isAlias: false },
+      ...(mention.matchAliases
+        ? entry.metadata.aliases.map((term) => ({ term, isAlias: true }))
+        : []),
+    ];
+    const excludedKeys = new Set(
+      excludedTerms.map((term) =>
+        mention.caseSensitive ? term : term.toLocaleLowerCase("und"),
+      ),
+    );
+    const candidates = baseTerms.flatMap((candidate) => {
+      const values = [
+        candidate.term,
+        ...(mention.automaticPlural ? pluralVariants(candidate.term) : []),
+      ];
+      return values.map((term) => ({ ...candidate, term }));
+    });
+    const seen = new Set<string>();
+    for (const candidate of candidates) {
+      const term = candidate.term.trim();
+      if (!term) continue;
+      const normalized = mention.caseSensitive ? term : term.toLocaleLowerCase("und");
+      if (excludedKeys.has(normalized)) continue;
+      const candidateKey = `${normalized}:${candidate.isAlias ? "alias" : "name"}`;
+      if (seen.has(candidateKey)) continue;
+      seen.add(candidateKey);
+      for (const start of regexStarts(content, term, mention.caseSensitive)) {
+        const end = start + term.length;
+        if (rangeInside({ start, end }, blockers)) continue;
+        hits.push(
+          CodexMentionSchema.parse({
+            sceneId,
+            entryId: entry.metadata.id,
+            start,
+            end,
+            matchedText: content.slice(start, end),
+            term,
+            isAlias: candidate.isAlias,
+          }),
+        );
+      }
+    }
+  }
+
+  const longestAtStart = new Map<number, number>();
+  for (const hit of hits) {
+    longestAtStart.set(hit.start, Math.max(longestAtStart.get(hit.start) ?? 0, hit.end - hit.start));
+  }
+  const longestHits = hits.filter(
+    (hit) => hit.end - hit.start === longestAtStart.get(hit.start),
+  );
+  const groups = new Map<string, CodexMention[]>();
+  for (const hit of longestHits) {
+    const key = `${hit.start}:${hit.end}`;
+    const group = groups.get(key) ?? [];
+    if (!group.some((item) => item.entryId === hit.entryId)) group.push(hit);
+    groups.set(key, group);
+  }
+
+  const mentions: CodexMention[] = [];
+  const ambiguities: CodexAmbiguousMention[] = [];
+  let occupiedUntil = -1;
+  for (const group of [...groups.values()].sort(
+    (left, right) =>
+      left[0]!.start - right[0]!.start ||
+      (right[0]!.end - right[0]!.start) - (left[0]!.end - left[0]!.start),
+  )) {
+    const first = group[0]!;
+    if (first.start < occupiedUntil) continue;
+    occupiedUntil = first.end;
+    if (group.length > 1) {
+      ambiguities.push(
+        CodexAmbiguousMentionSchema.parse({
+          sceneId,
+          start: first.start,
+          end: first.end,
+          matchedText: first.matchedText,
+          candidateEntryIds: group.map((item) => item.entryId).sort(),
+        }),
+      );
+    } else {
+      mentions.push(first);
+    }
+  }
+  return SceneCodexMentionsSchema.parse({ sceneId, mentions, ambiguities });
+}
+
+export function codexContextEligibility(
+  policy: CodexAiContextPolicy | string,
+  input: { mentioned: boolean; pinned: boolean; archived: boolean },
+): { eligible: boolean; reason?: CodexContextExclusionReason } {
+  if (input.archived) return { eligible: false, reason: "archived" };
+  const parsed = CodexAiContextPolicySchema.safeParse(policy);
+  if (!parsed.success || parsed.data === "never") {
+    return { eligible: false, reason: "never" };
+  }
+  if (parsed.data === "always") return { eligible: true };
+  if (parsed.data === "on-mention") {
+    return input.mentioned || input.pinned
+      ? { eligible: true }
+      : { eligible: false, reason: "not-mentioned" };
+  }
+  return input.pinned
+    ? { eligible: true }
+    : { eligible: false, reason: "manual-only" };
+}
+
 export function isSceneSectionEligibleForContext(
   policy: SceneSectionAiPolicy,
   target: SectionContextTarget,
@@ -510,6 +787,33 @@ function sectionPath(seriesRoot: string, sceneId: string, sectionId: string): st
 
 function reviewAnchorPath(seriesRoot: string, anchorId: string): string {
   return path.join(seriesRoot, REVIEW_DIR, ANCHORS_DIR, `${anchorId}.yaml`);
+}
+
+function codexCategoryPath(seriesRoot: string, categoryId: string): string {
+  return path.join(seriesRoot, CODEX_DIR, CODEX_CATEGORIES_DIR, `${categoryId}.yaml`);
+}
+
+function builtInCodexDirectory(categoryId: CodexCategoryId): string | null {
+  return BUILT_IN_CODEX_CATEGORIES.find((category) => category.id === categoryId)?.directory ?? null;
+}
+
+function codexEntryPath(
+  seriesRoot: string,
+  categoryId: CodexCategoryId,
+  entryId: string,
+): string {
+  const builtInDirectory = builtInCodexDirectory(categoryId);
+  return builtInDirectory
+    ? path.join(seriesRoot, CODEX_DIR, builtInDirectory, `${entryId}.md`)
+    : path.join(seriesRoot, CODEX_DIR, CODEX_CUSTOM_DIR, categoryId, `${entryId}.md`);
+}
+
+function codexResearchPath(seriesRoot: string, entryId: string): string {
+  return path.join(seriesRoot, CODEX_DIR, CODEX_RESEARCH_DIR, `${entryId}.md`);
+}
+
+function codexRelationPath(seriesRoot: string, relationId: string): string {
+  return path.join(seriesRoot, CODEX_DIR, CODEX_RELATIONS_DIR, `${relationId}.yaml`);
 }
 
 async function readActManifest(bookRoot: string, actId: string): Promise<ActManifest> {
@@ -638,6 +942,10 @@ export class ProjectRepository {
       "codex/lore",
       "codex/organizations",
       "codex/plot-threads",
+      "codex/categories",
+      "codex/custom",
+      "codex/entry-research",
+      "codex/relations",
       "research/sources",
       "research/notes",
       "snippets",
@@ -1115,17 +1423,660 @@ export class ProjectRepository {
     });
   }
 
-  async rebuildIndex(seriesId: string): Promise<{ indexedScenes: number }> {
+  async listCodexCategories(
+    seriesId: string,
+    includeArchived = false,
+  ): Promise<CodexCategoryDocument[]> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const builtIn = BUILT_IN_CODEX_CATEGORIES.map((category) =>
+      CodexCategoryDocumentSchema.parse({
+        category: {
+          id: category.id,
+          name: category.name,
+          icon: category.icon,
+          builtIn: true,
+          archivedAt: null,
+        },
+        revision: null,
+      }),
+    );
+    const directory = path.join(seriesRoot, CODEX_DIR, CODEX_CATEGORIES_DIR);
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return builtIn;
+      throw error;
+    }
+    const custom: CodexCategoryDocument[] = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".yaml")) continue;
+      const filePath = assertInside(seriesRoot, path.join(directory, entry.name));
+      const raw = await readFile(filePath, "utf8");
+      let category: CodexCustomCategory;
+      try {
+        category = CodexCustomCategorySchema.parse(YAML.parse(raw));
+      } catch (error) {
+        throw new StorageError("Codex 自定义类别 YAML 无效", "INVALID_DATA", {
+          relativePath: path.relative(seriesRoot, filePath),
+          cause: error instanceof Error ? error.message : String(error),
+        });
+      }
+      if (category.id !== path.basename(entry.name, ".yaml")) {
+        throw new StorageError("Codex 类别文件名与 ID 不一致", "INVALID_DATA", {
+          categoryId: category.id,
+        });
+      }
+      if (!includeArchived && category.archivedAt) continue;
+      custom.push(
+        CodexCategoryDocumentSchema.parse({
+          category: {
+            id: category.id,
+            name: category.name,
+            icon: category.icon,
+            builtIn: false,
+            archivedAt: category.archivedAt,
+          },
+          revision: contentRevision(raw),
+        }),
+      );
+    }
+    return [
+      ...builtIn,
+      ...custom.sort((left, right) =>
+        left.category.name.localeCompare(right.category.name, "zh-CN"),
+      ),
+    ];
+  }
+
+  async createCodexCategory(
+    seriesId: string,
+    rawInput: CreateCodexCategoryInput,
+  ): Promise<CodexCategoryDocument> {
+    const input = CreateCodexCategoryInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const now = new Date().toISOString();
+    const category = CodexCustomCategorySchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      name: input.name,
+      icon: input.icon,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    });
+    const raw = serializeYaml(category);
+    await atomicWrite(codexCategoryPath(seriesRoot, category.id), raw);
+    await mkdir(path.join(seriesRoot, CODEX_DIR, CODEX_CUSTOM_DIR, category.id), {
+      recursive: true,
+    });
+    return CodexCategoryDocumentSchema.parse({
+      category: {
+        id: category.id,
+        name: category.name,
+        icon: category.icon,
+        builtIn: false,
+        archivedAt: null,
+      },
+      revision: contentRevision(raw),
+    });
+  }
+
+  async updateCodexCategory(
+    seriesId: string,
+    categoryId: string,
+    rawInput: UpdateCodexCategoryInput,
+  ): Promise<CodexCategoryDocument> {
+    const input = UpdateCodexCategoryInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.readCustomCodexCategory(seriesRoot, categoryId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("Codex 类别已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+    const category = CodexCustomCategorySchema.parse({
+      ...current.category,
+      name: input.name ?? current.category.name,
+      icon: input.icon ?? current.category.icon,
+      updatedAt: new Date().toISOString(),
+    });
+    const raw = serializeYaml(category);
+    await atomicWrite(codexCategoryPath(seriesRoot, category.id), raw);
+    return CodexCategoryDocumentSchema.parse({
+      category: {
+        id: category.id,
+        name: category.name,
+        icon: category.icon,
+        builtIn: false,
+        archivedAt: category.archivedAt,
+      },
+      revision: contentRevision(raw),
+    });
+  }
+
+  async archiveCodexCategory(
+    seriesId: string,
+    categoryId: string,
+    rawInput: ArchiveCodexDocumentInput,
+  ): Promise<CodexCategoryDocument> {
+    return this.setCodexCategoryArchived(seriesId, categoryId, rawInput, true);
+  }
+
+  async restoreCodexCategory(
+    seriesId: string,
+    categoryId: string,
+    rawInput: ArchiveCodexDocumentInput,
+  ): Promise<CodexCategoryDocument> {
+    return this.setCodexCategoryArchived(seriesId, categoryId, rawInput, false);
+  }
+
+  async listCodexEntries(
+    seriesId: string,
+    options: { categoryId?: CodexCategoryId; includeArchived?: boolean } = {},
+  ): Promise<CodexEntryDocument[]> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const entries = await this.listCodexEntriesFromRoot(seriesRoot);
+    return entries
+      .filter(
+        (entry) =>
+          (options.includeArchived || entry.metadata.archivedAt === null) &&
+          (!options.categoryId || entry.metadata.categoryId === options.categoryId),
+      )
+      .sort((left, right) =>
+        left.metadata.name.localeCompare(right.metadata.name, "zh-CN"),
+      );
+  }
+
+  async getCodexEntry(seriesId: string, entryId: string): Promise<CodexEntryDocument> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return (await this.findCodexEntry(seriesRoot, entryId)).document;
+  }
+
+  async createCodexEntry(
+    seriesId: string,
+    rawInput: CreateCodexEntryInput,
+  ): Promise<CodexEntryDocument> {
+    const input = CreateCodexEntryInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    await this.assertCodexCategoryWritable(seriesRoot, input.categoryId);
+    const now = new Date().toISOString();
+    const entryId = randomUUID();
+    const metadata = CodexEntryMetadataSchema.parse({
+      schemaVersion: 1,
+      id: entryId,
+      categoryId: input.categoryId,
+      name: input.name,
+      aliases: normalizeUniqueStrings(input.aliases),
+      tags: normalizeUniqueStrings(input.tags),
+      thumbnail: input.thumbnail,
+      details: input.details,
+      aiContextPolicy: input.aiContextPolicy,
+      mention: {
+        ...input.mention,
+        excludedTerms: normalizeUniqueStrings(input.mention.excludedTerms),
+      },
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    });
+    const researchMetadata = CodexResearchMetadataSchema.parse({
+      schemaVersion: 1,
+      entryId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const entryPath = assertInside(
+      seriesRoot,
+      codexEntryPath(seriesRoot, metadata.categoryId, entryId),
+    );
+    const researchPath = assertInside(seriesRoot, codexResearchPath(seriesRoot, entryId));
+    await applyFileTransaction(seriesRoot, [
+      {
+        targetPath: entryPath,
+        content: serializeMarkdownDocument(metadata, input.description),
+      },
+      {
+        targetPath: researchPath,
+        content: serializeMarkdownDocument(researchMetadata, input.research),
+      },
+    ]);
+    await this.rebuildCodexIndex(seriesRoot);
+    return (await this.findCodexEntry(seriesRoot, entryId)).document;
+  }
+
+  async updateCodexEntry(
+    seriesId: string,
+    entryId: string,
+    rawInput: UpdateCodexEntryInput,
+  ): Promise<CodexEntryDocument> {
+    const input = UpdateCodexEntryInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.findCodexEntry(seriesRoot, entryId);
+    if (current.document.metadata.archivedAt) {
+      throw new StorageError("已归档 Codex 条目不能直接编辑", "INVALID_DATA", { entryId });
+    }
+    const changesEntry = [
+      input.name,
+      input.aliases,
+      input.tags,
+      input.thumbnail,
+      input.details,
+      input.aiContextPolicy,
+      input.mention,
+      input.description,
+    ].some((value) => value !== undefined);
+    const changesResearch = input.research !== undefined;
+    if (changesEntry && current.document.revision !== input.baseRevision) {
+      throw new StorageError("Codex 条目已被其他修改更新", "CONFLICT", {
+        currentRevision: current.document.revision,
+        entry: current.document,
+      });
+    }
+    if (changesResearch && current.document.research.revision !== input.baseResearchRevision) {
+      throw new StorageError("Codex Research 已被其他修改更新", "CONFLICT", {
+        currentRevision: current.document.research.revision,
+        research: current.document.research,
+      });
+    }
+    const now = new Date().toISOString();
+    const mutations: FileMutation[] = [];
+    if (changesEntry) {
+      const metadata = CodexEntryMetadataSchema.parse({
+        ...current.document.metadata,
+        name: input.name ?? current.document.metadata.name,
+        aliases:
+          input.aliases === undefined
+            ? current.document.metadata.aliases
+            : normalizeUniqueStrings(input.aliases),
+        tags:
+          input.tags === undefined
+            ? current.document.metadata.tags
+            : normalizeUniqueStrings(input.tags),
+        thumbnail:
+          input.thumbnail === undefined
+            ? current.document.metadata.thumbnail
+            : input.thumbnail,
+        details: input.details ?? current.document.metadata.details,
+        aiContextPolicy:
+          input.aiContextPolicy ?? current.document.metadata.aiContextPolicy,
+        mention: input.mention
+          ? {
+              ...input.mention,
+              excludedTerms: normalizeUniqueStrings(input.mention.excludedTerms),
+            }
+          : current.document.metadata.mention,
+        updatedAt: now,
+      });
+      mutations.push({
+        targetPath: current.filePath,
+        content: serializeMarkdownDocument(
+          metadata,
+          input.description ?? current.document.description,
+        ),
+      });
+    }
+    if (changesResearch) {
+      mutations.push({
+        targetPath: current.researchPath,
+        content: serializeMarkdownDocument(
+          {
+            ...current.document.research.metadata,
+            updatedAt: now,
+          },
+          input.research!,
+        ),
+      });
+    }
+    await applyFileTransaction(seriesRoot, mutations);
+    await this.rebuildCodexIndex(seriesRoot);
+    return (await this.findCodexEntry(seriesRoot, entryId)).document;
+  }
+
+  async archiveCodexEntry(
+    seriesId: string,
+    entryId: string,
+    rawInput: ArchiveCodexDocumentInput,
+  ): Promise<CodexEntryDocument> {
+    return this.setCodexEntryArchived(seriesId, entryId, rawInput, true);
+  }
+
+  async restoreCodexEntry(
+    seriesId: string,
+    entryId: string,
+    rawInput: ArchiveCodexDocumentInput,
+  ): Promise<CodexEntryDocument> {
+    return this.setCodexEntryArchived(seriesId, entryId, rawInput, false);
+  }
+
+  async listCodexRelations(
+    seriesId: string,
+    options: { entryId?: string; includeArchived?: boolean } = {},
+  ): Promise<CodexRelationDocument[]> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const directory = path.join(seriesRoot, CODEX_DIR, CODEX_RELATIONS_DIR);
+    let files;
+    try {
+      files = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    const knownEntryIds = new Set(
+      (await this.listCodexEntriesFromRoot(seriesRoot)).map((entry) => entry.metadata.id),
+    );
+    const knownSceneIds = new Set(
+      (await this.getSeries(seriesId)).scenes.map((scene) => scene.metadata.id),
+    );
+    const relations: CodexRelationDocument[] = [];
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith(".yaml")) continue;
+      const filePath = assertInside(seriesRoot, path.join(directory, file.name));
+      const raw = await readFile(filePath, "utf8");
+      let relation: CodexRelation;
+      try {
+        relation = CodexRelationSchema.parse(YAML.parse(raw));
+      } catch (error) {
+        throw new StorageError("Codex 关系 YAML 无效", "INVALID_DATA", {
+          relativePath: path.relative(seriesRoot, filePath),
+          cause: error instanceof Error ? error.message : String(error),
+        });
+      }
+      if (relation.id !== path.basename(file.name, ".yaml")) {
+        throw new StorageError("Codex 关系文件名与 ID 不一致", "INVALID_DATA", {
+          relationId: relation.id,
+        });
+      }
+      this.assertCodexRelationReferences(relation, knownEntryIds, knownSceneIds);
+      if (!options.includeArchived && relation.archivedAt) continue;
+      if (
+        options.entryId &&
+        relation.sourceEntryId !== options.entryId &&
+        relation.targetEntryId !== options.entryId
+      ) {
+        continue;
+      }
+      relations.push(
+        CodexRelationDocumentSchema.parse({
+          relation,
+          revision: contentRevision(raw),
+        }),
+      );
+    }
+    return relations.sort((left, right) =>
+      left.relation.createdAt.localeCompare(right.relation.createdAt),
+    );
+  }
+
+  async createCodexRelation(
+    seriesId: string,
+    rawInput: CreateCodexRelationInput,
+  ): Promise<CodexRelationDocument> {
+    const input = CreateCodexRelationInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const entries = await this.listCodexEntriesFromRoot(seriesRoot);
+    const knownEntryIds = new Set(
+      entries
+        .filter((entry) => entry.metadata.archivedAt === null)
+        .map((entry) => entry.metadata.id),
+    );
+    const knownSceneIds = new Set(
+      (await this.getSeries(seriesId)).scenes.map((scene) => scene.metadata.id),
+    );
+    const now = new Date().toISOString();
+    const relation = CodexRelationSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      sourceEntryId: input.sourceEntryId,
+      targetEntryId: input.targetEntryId,
+      type: input.type,
+      directed: input.directed ?? true,
+      description: input.description ?? "",
+      evidence: input.evidence ?? "",
+      validFromSceneId: input.validFromSceneId ?? null,
+      validToSceneId: input.validToSceneId ?? null,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    });
+    this.assertCodexRelationReferences(relation, knownEntryIds, knownSceneIds);
+    const raw = serializeYaml(relation);
+    await atomicWrite(codexRelationPath(seriesRoot, relation.id), raw);
+    return CodexRelationDocumentSchema.parse({
+      relation,
+      revision: contentRevision(raw),
+    });
+  }
+
+  async updateCodexRelation(
+    seriesId: string,
+    relationId: string,
+    rawInput: UpdateCodexRelationInput,
+  ): Promise<CodexRelationDocument> {
+    const input = UpdateCodexRelationInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.readCodexRelation(seriesRoot, relationId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("Codex 关系已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+    if (current.relation.archivedAt) {
+      throw new StorageError("已归档 Codex 关系不能直接编辑", "INVALID_DATA", {
+        relationId,
+      });
+    }
+    const { baseRevision: _baseRevision, ...changes } = input;
+    const relation = CodexRelationSchema.parse({
+      ...current.relation,
+      ...changes,
+      updatedAt: new Date().toISOString(),
+    });
+    const knownEntryIds = new Set(
+      (await this.listCodexEntriesFromRoot(seriesRoot)).map(
+        (entry) => entry.metadata.id,
+      ),
+    );
+    const knownSceneIds = new Set(
+      (await this.getSeries(seriesId)).scenes.map((scene) => scene.metadata.id),
+    );
+    this.assertCodexRelationReferences(relation, knownEntryIds, knownSceneIds);
+    const raw = serializeYaml(relation);
+    await atomicWrite(codexRelationPath(seriesRoot, relation.id), raw);
+    return CodexRelationDocumentSchema.parse({
+      relation,
+      revision: contentRevision(raw),
+    });
+  }
+
+  async archiveCodexRelation(
+    seriesId: string,
+    relationId: string,
+    rawInput: ArchiveCodexDocumentInput,
+  ): Promise<CodexRelationDocument> {
+    return this.setCodexRelationArchived(seriesId, relationId, rawInput, true);
+  }
+
+  async restoreCodexRelation(
+    seriesId: string,
+    relationId: string,
+    rawInput: ArchiveCodexDocumentInput,
+  ): Promise<CodexRelationDocument> {
+    return this.setCodexRelationArchived(seriesId, relationId, rawInput, false);
+  }
+
+  async listCodexMentionsForEntry(
+    seriesId: string,
+    entryId: string,
+  ): Promise<CodexMention[]> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    await this.findCodexEntry(seriesRoot, entryId);
+    const database = this.openIndex(seriesRoot);
+    try {
+      return database
+        .prepare(
+          `SELECT scene_id AS sceneId, entry_id AS entryId, start, end,
+                  matched_text AS matchedText, term, is_alias AS isAlias
+           FROM codex_mentions WHERE entry_id = ? ORDER BY scene_id, start`,
+        )
+        .all(entryId)
+        .map((row) =>
+          CodexMentionSchema.parse({
+            ...(row as Record<string, unknown>),
+            isAlias: Boolean((row as { isAlias: number }).isAlias),
+          }),
+        );
+    } finally {
+      database.close();
+    }
+  }
+
+  async listCodexMentionsForScene(
+    seriesId: string,
+    sceneId: string,
+  ): Promise<SceneCodexMentions> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    await this.getScene(seriesId, sceneId);
+    const database = this.openIndex(seriesRoot);
+    try {
+      const mentions = database
+        .prepare(
+          `SELECT scene_id AS sceneId, entry_id AS entryId, start, end,
+                  matched_text AS matchedText, term, is_alias AS isAlias
+           FROM codex_mentions WHERE scene_id = ? ORDER BY start`,
+        )
+        .all(sceneId)
+        .map((row) =>
+          CodexMentionSchema.parse({
+            ...(row as Record<string, unknown>),
+            isAlias: Boolean((row as { isAlias: number }).isAlias),
+          }),
+        );
+      const ambiguities = database
+        .prepare(
+          `SELECT scene_id AS sceneId, start, end, matched_text AS matchedText,
+                  candidate_entry_ids AS candidateEntryIds
+           FROM codex_ambiguities WHERE scene_id = ? ORDER BY start`,
+        )
+        .all(sceneId)
+        .map((row) => {
+          const value = row as Record<string, unknown>;
+          return CodexAmbiguousMentionSchema.parse({
+            ...value,
+            candidateEntryIds: JSON.parse(String(value.candidateEntryIds)),
+          });
+        });
+      return SceneCodexMentionsSchema.parse({ sceneId, mentions, ambiguities });
+    } finally {
+      database.close();
+    }
+  }
+
+  async previewCodexContext(
+    seriesId: string,
+    sceneId: string,
+    pinnedIds: string[] = [],
+  ): Promise<CodexContextPreview> {
+    const scene = await this.getScene(seriesId, sceneId);
+    const entries = await this.listCodexEntries(seriesId, { includeArchived: true });
+    const indexed = await this.listCodexMentionsForScene(seriesId, sceneId);
+    const mentionedIds = new Set([
+      ...indexed.mentions.map((mention) => mention.entryId),
+      ...scene.metadata.characterIds,
+      ...scene.metadata.locationIds,
+      ...scene.metadata.plotThreadIds,
+    ]);
+    const pinned = new Set(pinnedIds);
+    const knownIds = new Set(entries.map((entry) => entry.metadata.id));
+    const unknownPinnedIds = pinnedIds.filter((entryId) => !knownIds.has(entryId));
+    if (unknownPinnedIds.length) {
+      throw new StorageError("上下文钉住了不存在的 Codex 条目", "INVALID_DATA", {
+        unknownPinnedIds,
+      });
+    }
+    const included: CodexEntryDocument[] = [];
+    const excluded: Array<{
+      entryId: string;
+      name: string;
+      reason: CodexContextExclusionReason;
+    }> = [];
+    for (const entry of entries) {
+      const eligibility = codexContextEligibility(entry.metadata.aiContextPolicy, {
+        mentioned: mentionedIds.has(entry.metadata.id),
+        pinned: pinned.has(entry.metadata.id),
+        archived: entry.metadata.archivedAt !== null,
+      });
+      if (eligibility.eligible) included.push(entry);
+      else {
+        excluded.push({
+          entryId: entry.metadata.id,
+          name: entry.metadata.name,
+          reason: eligibility.reason!,
+        });
+      }
+    }
+    return CodexContextPreviewSchema.parse({ sceneId, included, excluded });
+  }
+
+  async searchCodex(seriesId: string, query: string): Promise<CodexSearchResult[]> {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const database = this.openIndex(seriesRoot);
-    database.exec("DELETE FROM scene_fts; DELETE FROM scenes;");
+    try {
+      if (Array.from(trimmed).length < 3) {
+        return database
+          .prepare(
+            `SELECT id AS entryId, name, category_id AS categoryId,
+                    substr(description, 1, 180) AS excerpt
+             FROM codex_entries
+             WHERE name LIKE ? OR aliases LIKE ? OR description LIKE ? OR research LIKE ?
+             ORDER BY updated_at DESC LIMIT 30`,
+          )
+          .all(`%${trimmed}%`, `%${trimmed}%`, `%${trimmed}%`, `%${trimmed}%`)
+          .map((row) => CodexSearchResultSchema.parse(row));
+      }
+      const phrase = `"${trimmed.replace(/"/gu, '""')}"`;
+      return database
+        .prepare(
+          `SELECT codex_entries.id AS entryId, codex_entries.name,
+                  codex_entries.category_id AS categoryId,
+                  snippet(codex_fts, 3, '<mark>', '</mark>', '…', 24) AS excerpt
+           FROM codex_fts
+           JOIN codex_entries ON codex_entries.id = codex_fts.id
+           WHERE codex_fts MATCH ? LIMIT 30`,
+        )
+        .all(phrase)
+        .map((row) => CodexSearchResultSchema.parse(row));
+    } finally {
+      database.close();
+    }
+  }
+
+  async rebuildIndex(seriesId: string): Promise<{
+    indexedScenes: number;
+    indexedCodexEntries: number;
+    indexedMentions: number;
+    ambiguousMentions: number;
+  }> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const database = this.openIndex(seriesRoot);
+    database.exec(`
+      DELETE FROM scene_fts;
+      DELETE FROM scenes;
+      DELETE FROM codex_fts;
+      DELETE FROM codex_entries;
+      DELETE FROM codex_mentions;
+      DELETE FROM codex_ambiguities;
+    `);
     database.close();
     const sceneFiles = await walkSceneFiles(path.join(seriesRoot, "books"));
     for (const filePath of sceneFiles) {
       const scene = parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath));
-      await this.indexScene(seriesRoot, scene);
+      await this.indexScene(seriesRoot, scene, false);
     }
-    return { indexedScenes: sceneFiles.length };
+    const codex = await this.rebuildCodexIndex(seriesRoot);
+    return { indexedScenes: sceneFiles.length, ...codex };
   }
 
   async search(seriesId: string, query: string): Promise<SearchResult[]> {
@@ -1226,12 +2177,17 @@ export class ProjectRepository {
       tags: this.sortedUnique(narrativeScenes.flatMap((scene) => scene.tags)),
       statuses: this.sortedUnique(narrativeScenes.map((scene) => scene.status)),
     };
+    const codexEntries = await this.listCodexEntries(seriesId);
+    const codexLabels = Object.fromEntries(
+      codexEntries.map((entry) => [entry.metadata.id, entry.metadata.name]),
+    );
     const revision = contentRevision(JSON.stringify({
       seriesId,
       sceneRevisions: narrativeScenes.map((scene) => scene.revision),
       hierarchy: books,
       timeline,
       eventRevisions: storyEvents.map((event) => event.revision),
+      codexRevisions: codexEntries.map((entry) => entry.revision),
     }));
     return PlanningBoardSchema.parse({
       seriesId,
@@ -1241,6 +2197,7 @@ export class ProjectRepository {
       storyEvents,
       unplacedSceneIds: narrativeScenes.filter((scene) => !placed.has(scene.id)).map((scene) => scene.id),
       dimensions,
+      codexLabels,
       legacyStoryTimeSceneIds: series.scenes
         .filter((scene) => scene.metadata.storyTime !== null)
         .map((scene) => scene.metadata.id),
@@ -2310,6 +3267,565 @@ export class ProjectRepository {
     throw new StorageError("Section 不存在", "NOT_FOUND", { sectionId });
   }
 
+  private async readCustomCodexCategory(
+    seriesRoot: string,
+    categoryId: string,
+  ): Promise<{ category: CodexCustomCategory; revision: string }> {
+    if (CodexBuiltInCategoryIdSchema.safeParse(categoryId).success) {
+      throw new StorageError("内置 Codex 类别不能修改或归档", "INVALID_DATA", {
+        categoryId,
+      });
+    }
+    const parsedId = CodexCategoryIdSchema.safeParse(categoryId);
+    if (!parsedId.success) {
+      throw new StorageError("Codex 类别 ID 无效", "NOT_FOUND", { categoryId });
+    }
+    const filePath = assertInside(seriesRoot, codexCategoryPath(seriesRoot, categoryId));
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("Codex 自定义类别不存在", "NOT_FOUND", { categoryId });
+      }
+      throw error;
+    }
+    let category: CodexCustomCategory;
+    try {
+      category = CodexCustomCategorySchema.parse(YAML.parse(raw));
+    } catch (error) {
+      throw new StorageError("Codex 自定义类别 YAML 无效", "INVALID_DATA", {
+        categoryId,
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (category.id !== categoryId) {
+      throw new StorageError("Codex 类别文件名与 ID 不一致", "INVALID_DATA", {
+        categoryId,
+        actualId: category.id,
+      });
+    }
+    return { category, revision: contentRevision(raw) };
+  }
+
+  private async assertCodexCategoryWritable(
+    seriesRoot: string,
+    categoryId: CodexCategoryId,
+  ): Promise<void> {
+    if (CodexBuiltInCategoryIdSchema.safeParse(categoryId).success) return;
+    const category = await this.readCustomCodexCategory(seriesRoot, categoryId);
+    if (category.category.archivedAt) {
+      throw new StorageError("不能在已归档类别中创建 Codex 条目", "INVALID_DATA", {
+        categoryId,
+      });
+    }
+  }
+
+  private async setCodexCategoryArchived(
+    seriesId: string,
+    categoryId: string,
+    rawInput: ArchiveCodexDocumentInput,
+    archived: boolean,
+  ): Promise<CodexCategoryDocument> {
+    const input = ArchiveCodexDocumentInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.readCustomCodexCategory(seriesRoot, categoryId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("Codex 类别已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+    if (archived) {
+      const activeEntries = (await this.listCodexEntriesFromRoot(seriesRoot)).filter(
+        (entry) =>
+          entry.metadata.categoryId === categoryId && entry.metadata.archivedAt === null,
+      );
+      if (activeEntries.length) {
+        throw new StorageError("归档自定义类别前必须先归档其中条目", "INVALID_DATA", {
+          categoryId,
+          activeEntryIds: activeEntries.map((entry) => entry.metadata.id),
+        });
+      }
+    }
+    if (Boolean(current.category.archivedAt) === archived) {
+      return CodexCategoryDocumentSchema.parse({
+        category: {
+          id: current.category.id,
+          name: current.category.name,
+          icon: current.category.icon,
+          builtIn: false,
+          archivedAt: current.category.archivedAt,
+        },
+        revision: current.revision,
+      });
+    }
+    const now = new Date().toISOString();
+    const category = CodexCustomCategorySchema.parse({
+      ...current.category,
+      updatedAt: now,
+      archivedAt: archived ? now : null,
+    });
+    const raw = serializeYaml(category);
+    await atomicWrite(codexCategoryPath(seriesRoot, categoryId), raw);
+    return CodexCategoryDocumentSchema.parse({
+      category: {
+        id: category.id,
+        name: category.name,
+        icon: category.icon,
+        builtIn: false,
+        archivedAt: category.archivedAt,
+      },
+      revision: contentRevision(raw),
+    });
+  }
+
+  private async codexEntryLocations(
+    seriesRoot: string,
+  ): Promise<Array<{ filePath: string; categoryId: CodexCategoryId }>> {
+    const locations: Array<{ filePath: string; categoryId: CodexCategoryId }> = [];
+    for (const category of BUILT_IN_CODEX_CATEGORIES) {
+      const directory = path.join(seriesRoot, CODEX_DIR, category.directory);
+      let files;
+      try {
+        files = await readdir(directory, { withFileTypes: true });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      for (const file of files) {
+        if (!file.isFile() || !file.name.endsWith(".md")) continue;
+        locations.push({
+          filePath: assertInside(seriesRoot, path.join(directory, file.name)),
+          categoryId: category.id,
+        });
+      }
+    }
+
+    const customRoot = path.join(seriesRoot, CODEX_DIR, CODEX_CUSTOM_DIR);
+    let categoryDirectories;
+    try {
+      categoryDirectories = await readdir(customRoot, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return locations;
+      throw error;
+    }
+    for (const categoryDirectory of categoryDirectories) {
+      if (!categoryDirectory.isDirectory()) continue;
+      const parsedCategoryId = zCodexCategoryId(categoryDirectory.name);
+      if (CodexBuiltInCategoryIdSchema.safeParse(parsedCategoryId).success) {
+        throw new StorageError("自定义 Codex 目录不能使用内置类别 ID", "INVALID_DATA", {
+          categoryId: categoryDirectory.name,
+        });
+      }
+      await this.readCustomCodexCategory(seriesRoot, parsedCategoryId);
+      const directory = path.join(customRoot, categoryDirectory.name);
+      const files = await readdir(directory, { withFileTypes: true });
+      for (const file of files) {
+        if (!file.isFile() || !file.name.endsWith(".md")) continue;
+        locations.push({
+          filePath: assertInside(seriesRoot, path.join(directory, file.name)),
+          categoryId: parsedCategoryId,
+        });
+      }
+    }
+    return locations;
+  }
+
+  private async readCodexEntryAt(
+    seriesRoot: string,
+    filePath: string,
+    expectedCategoryId: CodexCategoryId,
+  ): Promise<{
+    filePath: string;
+    researchPath: string;
+    document: CodexEntryDocument;
+  }> {
+    const raw = await readFile(filePath, "utf8");
+    const split = splitMarkdownDocument(
+      raw,
+      path.relative(seriesRoot, filePath),
+      "Codex 条目文件",
+    );
+    let metadata: CodexEntryMetadata;
+    try {
+      metadata = CodexEntryMetadataSchema.parse(split.metadata);
+    } catch (error) {
+      throw new StorageError("Codex 条目 frontmatter 无效", "INVALID_DATA", {
+        relativePath: path.relative(seriesRoot, filePath),
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (
+      metadata.id !== path.basename(filePath, ".md") ||
+      metadata.categoryId !== expectedCategoryId
+    ) {
+      throw new StorageError("Codex 条目文件名、类别目录或 frontmatter 不一致", "INVALID_DATA", {
+        entryId: metadata.id,
+        expectedCategoryId,
+        actualCategoryId: metadata.categoryId,
+      });
+    }
+    const researchPath = assertInside(seriesRoot, codexResearchPath(seriesRoot, metadata.id));
+    let researchRaw: string;
+    try {
+      researchRaw = await readFile(researchPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("Codex 条目缺少独立 Research 文件", "INVALID_DATA", {
+          entryId: metadata.id,
+        });
+      }
+      throw error;
+    }
+    const research = parseCodexResearchText(
+      researchRaw,
+      path.relative(seriesRoot, researchPath),
+    );
+    if (research.metadata.entryId !== metadata.id) {
+      throw new StorageError("Codex Research 与条目 ID 不一致", "INVALID_DATA", {
+        entryId: metadata.id,
+        researchEntryId: research.metadata.entryId,
+      });
+    }
+    return {
+      filePath,
+      researchPath,
+      document: parseCodexEntryText(
+        raw,
+        path.relative(seriesRoot, filePath),
+        research,
+      ),
+    };
+  }
+
+  private async listCodexEntriesFromRoot(
+    seriesRoot: string,
+  ): Promise<CodexEntryDocument[]> {
+    const locations = await this.codexEntryLocations(seriesRoot);
+    const documents: CodexEntryDocument[] = [];
+    const seen = new Set<string>();
+    for (const location of locations) {
+      const stored = await this.readCodexEntryAt(
+        seriesRoot,
+        location.filePath,
+        location.categoryId,
+      );
+      if (seen.has(stored.document.metadata.id)) {
+        throw new StorageError("多个 Codex 条目文件使用同一 ID", "INVALID_DATA", {
+          entryId: stored.document.metadata.id,
+        });
+      }
+      seen.add(stored.document.metadata.id);
+      documents.push(stored.document);
+    }
+    return documents;
+  }
+
+  private async findCodexEntry(
+    seriesRoot: string,
+    entryId: string,
+  ): Promise<{
+    filePath: string;
+    researchPath: string;
+    document: CodexEntryDocument;
+  }> {
+    for (const location of await this.codexEntryLocations(seriesRoot)) {
+      if (path.basename(location.filePath, ".md") !== entryId) continue;
+      return this.readCodexEntryAt(seriesRoot, location.filePath, location.categoryId);
+    }
+    throw new StorageError("Codex 条目不存在", "NOT_FOUND", { entryId });
+  }
+
+  private async setCodexEntryArchived(
+    seriesId: string,
+    entryId: string,
+    rawInput: ArchiveCodexDocumentInput,
+    archived: boolean,
+  ): Promise<CodexEntryDocument> {
+    const input = ArchiveCodexDocumentInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.findCodexEntry(seriesRoot, entryId);
+    if (current.document.revision !== input.baseRevision) {
+      throw new StorageError("Codex 条目已被其他修改更新", "CONFLICT", {
+        currentRevision: current.document.revision,
+      });
+    }
+    if (Boolean(current.document.metadata.archivedAt) === archived) {
+      return current.document;
+    }
+    const now = new Date().toISOString();
+    const metadata = CodexEntryMetadataSchema.parse({
+      ...current.document.metadata,
+      updatedAt: now,
+      archivedAt: archived ? now : null,
+    });
+    await atomicWrite(
+      current.filePath,
+      serializeMarkdownDocument(metadata, current.document.description),
+    );
+    await this.rebuildCodexIndex(seriesRoot);
+    return (await this.findCodexEntry(seriesRoot, entryId)).document;
+  }
+
+  private async readCodexRelation(
+    seriesRoot: string,
+    relationId: string,
+  ): Promise<CodexRelationDocument> {
+    const filePath = assertInside(seriesRoot, codexRelationPath(seriesRoot, relationId));
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("Codex 关系不存在", "NOT_FOUND", { relationId });
+      }
+      throw error;
+    }
+    let relation: CodexRelation;
+    try {
+      relation = CodexRelationSchema.parse(YAML.parse(raw));
+    } catch (error) {
+      throw new StorageError("Codex 关系 YAML 无效", "INVALID_DATA", {
+        relationId,
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (relation.id !== relationId) {
+      throw new StorageError("Codex 关系文件名与 ID 不一致", "INVALID_DATA", {
+        relationId,
+        actualId: relation.id,
+      });
+    }
+    return CodexRelationDocumentSchema.parse({
+      relation,
+      revision: contentRevision(raw),
+    });
+  }
+
+  private assertCodexRelationReferences(
+    relation: CodexRelation,
+    knownEntryIds: Set<string>,
+    knownSceneIds: Set<string>,
+  ): void {
+    const unknownEntryIds = [relation.sourceEntryId, relation.targetEntryId].filter(
+      (entryId) => !knownEntryIds.has(entryId),
+    );
+    const unknownSceneIds = [
+      relation.validFromSceneId,
+      relation.validToSceneId,
+    ].filter((sceneId): sceneId is string => Boolean(sceneId) && !knownSceneIds.has(sceneId!));
+    if (unknownEntryIds.length || unknownSceneIds.length) {
+      throw new StorageError("Codex 关系包含未知引用", "INVALID_DATA", {
+        unknownEntryIds: [...new Set(unknownEntryIds)],
+        unknownSceneIds: [...new Set(unknownSceneIds)],
+      });
+    }
+  }
+
+  private async setCodexRelationArchived(
+    seriesId: string,
+    relationId: string,
+    rawInput: ArchiveCodexDocumentInput,
+    archived: boolean,
+  ): Promise<CodexRelationDocument> {
+    const input = ArchiveCodexDocumentInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.readCodexRelation(seriesRoot, relationId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("Codex 关系已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+    if (Boolean(current.relation.archivedAt) === archived) return current;
+    const now = new Date().toISOString();
+    const relation = CodexRelationSchema.parse({
+      ...current.relation,
+      updatedAt: now,
+      archivedAt: archived ? now : null,
+    });
+    const raw = serializeYaml(relation);
+    await atomicWrite(codexRelationPath(seriesRoot, relation.id), raw);
+    return CodexRelationDocumentSchema.parse({
+      relation,
+      revision: contentRevision(raw),
+    });
+  }
+
+  private async reindexSceneCodexMentions(
+    seriesRoot: string,
+    scene: SceneDocument,
+  ): Promise<void> {
+    const entries = (await this.listCodexEntriesFromRoot(seriesRoot)).filter(
+      (entry) => entry.metadata.archivedAt === null,
+    );
+    const result = findCodexMentionsInContent(
+      scene.metadata.id,
+      scene.content,
+      entries,
+    );
+    const database = this.openIndex(seriesRoot);
+    const transaction = database.transaction(() => {
+      database.prepare("DELETE FROM codex_mentions WHERE scene_id = ?").run(
+        scene.metadata.id,
+      );
+      database.prepare("DELETE FROM codex_ambiguities WHERE scene_id = ?").run(
+        scene.metadata.id,
+      );
+      const insertMention = database.prepare(
+        `INSERT INTO codex_mentions
+         (scene_id, entry_id, start, end, matched_text, term, is_alias)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const mention of result.mentions) {
+        insertMention.run(
+          mention.sceneId,
+          mention.entryId,
+          mention.start,
+          mention.end,
+          mention.matchedText,
+          mention.term,
+          mention.isAlias ? 1 : 0,
+        );
+      }
+      const insertAmbiguity = database.prepare(
+        `INSERT INTO codex_ambiguities
+         (scene_id, start, end, matched_text, candidate_entry_ids)
+         VALUES (?, ?, ?, ?, ?)`,
+      );
+      for (const ambiguity of result.ambiguities) {
+        insertAmbiguity.run(
+          ambiguity.sceneId,
+          ambiguity.start,
+          ambiguity.end,
+          ambiguity.matchedText,
+          JSON.stringify(ambiguity.candidateEntryIds),
+        );
+      }
+    });
+    try {
+      transaction();
+    } finally {
+      database.close();
+    }
+  }
+
+  private async rebuildCodexIndex(seriesRoot: string): Promise<{
+    indexedCodexEntries: number;
+    indexedMentions: number;
+    ambiguousMentions: number;
+  }> {
+    const entries = (await this.listCodexEntriesFromRoot(seriesRoot)).filter(
+      (entry) => entry.metadata.archivedAt === null,
+    );
+    const sceneFiles = await walkSceneFiles(path.join(seriesRoot, "books"));
+    const scenes = await Promise.all(
+      sceneFiles.map(async (filePath) =>
+        parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath)),
+      ),
+    );
+    const database = this.openIndex(seriesRoot);
+    const transaction = database.transaction(() => {
+      database.exec(`
+        DELETE FROM codex_fts;
+        DELETE FROM codex_entries;
+        DELETE FROM codex_mentions;
+        DELETE FROM codex_ambiguities;
+      `);
+      const insertEntry = database.prepare(
+        `INSERT INTO codex_entries
+         (id, category_id, name, aliases, description, research, details, relative_path, updated_at, revision)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      const insertFts = database.prepare(
+        `INSERT INTO codex_fts (id, name, aliases, description, research, details)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+      for (const entry of entries) {
+        const aliases = entry.metadata.aliases.join(" ");
+        const details = Object.entries(entry.metadata.details)
+          .map(([key, value]) => `${key} ${value}`)
+          .join("\n");
+        insertEntry.run(
+          entry.metadata.id,
+          entry.metadata.categoryId,
+          entry.metadata.name,
+          aliases,
+          entry.description,
+          entry.research.content,
+          details,
+          entry.relativePath,
+          entry.metadata.updatedAt,
+          entry.revision,
+        );
+        insertFts.run(
+          entry.metadata.id,
+          entry.metadata.name,
+          aliases,
+          entry.description,
+          entry.research.content,
+          details,
+        );
+      }
+      const insertMention = database.prepare(
+        `INSERT INTO codex_mentions
+         (scene_id, entry_id, start, end, matched_text, term, is_alias)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      const insertAmbiguity = database.prepare(
+        `INSERT INTO codex_ambiguities
+         (scene_id, start, end, matched_text, candidate_entry_ids)
+         VALUES (?, ?, ?, ?, ?)`,
+      );
+      for (const scene of scenes) {
+        const result = findCodexMentionsInContent(
+          scene.metadata.id,
+          scene.content,
+          entries,
+        );
+        for (const mention of result.mentions) {
+          insertMention.run(
+            mention.sceneId,
+            mention.entryId,
+            mention.start,
+            mention.end,
+            mention.matchedText,
+            mention.term,
+            mention.isAlias ? 1 : 0,
+          );
+        }
+        for (const ambiguity of result.ambiguities) {
+          insertAmbiguity.run(
+            ambiguity.sceneId,
+            ambiguity.start,
+            ambiguity.end,
+            ambiguity.matchedText,
+            JSON.stringify(ambiguity.candidateEntryIds),
+          );
+        }
+      }
+    });
+    try {
+      transaction();
+      const indexedMentions = (
+        database.prepare("SELECT count(*) AS count FROM codex_mentions").get() as {
+          count: number;
+        }
+      ).count;
+      const ambiguousMentions = (
+        database.prepare("SELECT count(*) AS count FROM codex_ambiguities").get() as {
+          count: number;
+        }
+      ).count;
+      return {
+        indexedCodexEntries: entries.length,
+        indexedMentions,
+        ambiguousMentions,
+      };
+    } finally {
+      database.close();
+    }
+  }
+
   private openIndex(seriesRoot: string): Database.Database {
     const databasePath = assertInside(seriesRoot, path.join(seriesRoot, ".studio", "index.sqlite"));
     const database = new Database(databasePath);
@@ -2329,11 +3845,56 @@ export class ProjectRepository {
         content,
         tokenize='trigram'
       );
+      CREATE TABLE IF NOT EXISTS codex_entries (
+        id TEXT PRIMARY KEY,
+        category_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        aliases TEXT NOT NULL,
+        description TEXT NOT NULL,
+        research TEXT NOT NULL,
+        details TEXT NOT NULL,
+        relative_path TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        revision TEXT NOT NULL
+      );
+      CREATE VIRTUAL TABLE IF NOT EXISTS codex_fts USING fts5(
+        id UNINDEXED,
+        name,
+        aliases,
+        description,
+        research,
+        details,
+        tokenize='trigram'
+      );
+      CREATE TABLE IF NOT EXISTS codex_mentions (
+        scene_id TEXT NOT NULL,
+        entry_id TEXT NOT NULL,
+        start INTEGER NOT NULL,
+        end INTEGER NOT NULL,
+        matched_text TEXT NOT NULL,
+        term TEXT NOT NULL,
+        is_alias INTEGER NOT NULL,
+        PRIMARY KEY (scene_id, entry_id, start, end)
+      );
+      CREATE INDEX IF NOT EXISTS codex_mentions_entry_idx
+        ON codex_mentions(entry_id, scene_id, start);
+      CREATE TABLE IF NOT EXISTS codex_ambiguities (
+        scene_id TEXT NOT NULL,
+        start INTEGER NOT NULL,
+        end INTEGER NOT NULL,
+        matched_text TEXT NOT NULL,
+        candidate_entry_ids TEXT NOT NULL,
+        PRIMARY KEY (scene_id, start, end)
+      );
     `);
     return database;
   }
 
-  private async indexScene(seriesRoot: string, scene: SceneDocument): Promise<void> {
+  private async indexScene(
+    seriesRoot: string,
+    scene: SceneDocument,
+    refreshCodex = true,
+  ): Promise<void> {
     const database = this.openIndex(seriesRoot);
     const transaction = database.transaction(() => {
       database.prepare("DELETE FROM scene_fts WHERE id = ?").run(scene.metadata.id);
@@ -2360,7 +3921,18 @@ export class ProjectRepository {
     } finally {
       database.close();
     }
+    if (refreshCodex) await this.reindexSceneCodexMentions(seriesRoot, scene);
   }
+}
+
+function zCodexCategoryId(value: string): CodexCategoryId {
+  const parsed = CodexCategoryIdSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new StorageError("自定义 Codex 类别目录名必须是 UUID", "INVALID_DATA", {
+      categoryId: value,
+    });
+  }
+  return parsed.data;
 }
 
 export async function pathExists(filePath: string): Promise<boolean> {

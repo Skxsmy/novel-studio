@@ -124,6 +124,11 @@ const board: PlanningBoard = {
     tags: ["主线", "回忆"],
     statuses: ["outlined"],
   },
+  codexLabels: {
+    [ids.character]: "林岚",
+    [ids.location]: "潮门",
+    [ids.thread]: "失踪案",
+  },
   legacyStoryTimeSceneIds: [],
 };
 
@@ -152,7 +157,9 @@ describe("planning projections", () => {
       { value: "林岚", label: "林岚", sceneIds: [ids.first] },
     ]);
     expect(projectMatrix(board, "plot-thread")[0]!.sceneIds).toEqual([ids.flashback]);
+    expect(projectMatrix(board, "plot-thread")[0]!.label).toBe("失踪案");
     expect(projectMatrix(board, "character")[0]!.sceneIds).toEqual([ids.first, ids.flashback]);
+    expect(projectMatrix(board, "character")[0]!.label).toBe("林岚");
     expect(projectMatrix(board, "location")[0]!.sceneIds).toEqual([ids.first, ids.flashback]);
     expect(projectMatrix(board, "status")[0]!.sceneIds).toEqual([ids.first, ids.flashback]);
     expect(filterPlanningScenes(board.narrativeScenes, { dimension: "tag", value: "回忆" }))

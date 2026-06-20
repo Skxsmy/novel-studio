@@ -335,7 +335,7 @@ export function PlanView({ board, onReload, onOpenScene }: PlanViewProps) {
             <div className="matrix-scroll"><table><thead><tr><th>{dimensions.find((item) => item.id === dimension)?.label}</th>{board.narrativeScenes.map((scene) => <th key={scene.id}>{scene.narrativeIndex}. {scene.title}</th>)}</tr></thead>
               <tbody>{matrix.length ? matrix.map((row) => <tr key={row.value}><th><button onClick={() => setFilter({ dimension, value: row.value })}>{row.label}</button></th>{board.narrativeScenes.map((scene) => <td className={row.sceneIds.includes(scene.id) ? "present" : ""} key={scene.id}>{row.sceneIds.includes(scene.id) ? "●" : ""}</td>)}</tr>) : <tr><td colSpan={board.narrativeScenes.length + 1}>当前维度还没有数据</td></tr>}</tbody>
             </table></div>
-            {["character", "location", "plot-thread"].includes(dimension) && <p className="matrix-note">Codex 将在 NS-304 解析名称；当前显示稳定短 ID。</p>}
+            {["character", "location", "plot-thread"].includes(dimension) && <p className="matrix-note">名称来自当前 Codex；缺失条目会保留稳定短 ID，便于诊断引用。</p>}
           </div>}
 
           {mode === "timeline" && <div className="timeline-view" data-testid="timeline-view">

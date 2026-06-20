@@ -11,3 +11,4 @@
 - **NS-301**：Act/Chapter 显式清单、完整排列重排、服务端推导父链的场景移动、层级校验 API、可恢复多文件事务和真实 M2 缺清单迁移。WriteView 按 Act→Chapter 展示，新建后立即加载层级；新增缺失引用、重复/遗漏、同章移动、跨幕移动、迁移与中断恢复对抗测试。
 - **NS-302**：共享 PlanningBoard、真实 Grid/Outline/Matrix/双时间线、显式 TimelineEvent 文件、未放置场景、POV 等六类矩阵筛选、同章/跨章结构命令和人工规划分叉决策；旧项目无时间线文件时保持只读兼容。
 - **NS-303**：Milkdown Markdown 语义编辑器、专注写作、revision 感知的崩溃草稿、五类独立 Sections 与三档 AI 权限、Section 归档/恢复、审阅锚点及只读重定位；外部修改冲突可安全重载真实磁盘版本。
+- **NS-304**：六个内置与自定义 Codex 类别、独立 Canon/Research 文档、别名和提及规则、有向/无向关系、四档 AI 上下文策略、可删除重建的 Codex/FTS5/提及/歧义索引，以及三栏真实 Codex UI；Planning Matrix 现在显示 Codex 名称，正文提及不会暗中改写场景显式关联。

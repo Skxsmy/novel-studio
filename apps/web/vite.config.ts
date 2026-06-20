@@ -1,7 +1,10 @@
+import os from "node:os";
+import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  cacheDir: path.join(os.tmpdir(), "novel-studio-vite-cache"),
   plugins: [react()],
   server: {
     host: "127.0.0.1",
@@ -11,4 +14,3 @@ export default defineConfig({
     },
   },
 });
-

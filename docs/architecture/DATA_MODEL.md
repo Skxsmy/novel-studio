@@ -1,6 +1,6 @@
 # 数据模型与磁盘格式
 
-详细产品语义见 `docs/product/PRODUCT_SPEC.md`，层级操作与写作附属文档的强制不变量见 `docs/tasks/M3.md`，决策依据见 ADR-0001、ADR-0005 与 ADR-0007。
+详细产品语义见 `docs/product/PRODUCT_SPEC.md`，层级操作、写作附属文档和 Codex 的强制不变量见 `docs/tasks/M3.md`，决策依据见 ADR-0001、ADR-0005、ADR-0007 与 ADR-0008。
 
 ## 系列目录
 
@@ -13,6 +13,10 @@ series-slug-id/
 │  ├─ chapters/<chapter-id>.yaml
 │  └─ manuscript/<act-id>/<chapter-id>/<scene-id>.md
 ├─ codex/{characters,locations,objects,lore,organizations,plot-threads}/
+├─ codex/categories/
+├─ codex/custom/<category-id>/
+├─ codex/entry-research/
+├─ codex/relations/
 ├─ research/{sources,notes}/
 ├─ snippets/
 ├─ styles/
@@ -93,4 +97,10 @@ Scene frontmatter 的规划字段包括目标、冲突、结果、摘要、节�
 
 ## SQLite
 
-SQLite 保存可重建的场景定位、正文搜索、提及与 FTS5 数据。它不得保存无法从权威文件或明确缓存源恢复的唯一 Canon。删除 SQLite 后必须能完整重建。
+SQLite 保存可重建的场景定位、正文搜索、Codex 搜索、名称候选、正文提及、歧义与 FTS5 数据。它不得保存无法从权威文件或明确缓存源恢复的唯一 Canon。删除 SQLite 后必须能完整重建。
+
+## Codex
+
+六个内置类别使用稳定字符串 ID 和固定目录；自定义类别元数据位于 `codex/categories/<categoryId>.yaml`，条目位于 `codex/custom/<categoryId>/<entryId>.md`。条目 Markdown 正文只保存 Canon Description，Research 位于独立的 `codex/entry-research/<entryId>.md`，两者 revision 独立。
+
+关系位于 `codex/relations/<relationId>.yaml`。有向关系只表达 `sourceEntryId → targetEntryId`；无向关系从两端查询同一文件，不复制第二条边。提及索引只表示名称或别名在场景正文中出现，不改变 Scene 显式关联或任何 Canon。

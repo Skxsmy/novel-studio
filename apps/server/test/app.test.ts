@@ -225,4 +225,104 @@ describe("local API", () => {
     expect(crossSeries.statusCode).toBe(404);
     await app.close();
   });
+
+  it("serves revision-protected Codex entries, relations, mentions and context previews", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
+    roots.push(root);
+    const app = await buildApp({ libraryRoot: root });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Codex 接口" },
+    });
+    const series = created.json();
+    const scene = series.scenes[0];
+    const updatedSceneResponse = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}`,
+      payload: {
+        baseRevision: scene.revision,
+        title: "会面",
+        content: "林岚在潮门见到周野。",
+      },
+    });
+    expect(updatedSceneResponse.statusCode).toBe(200);
+
+    const linResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: {
+        categoryId: "character",
+        name: "林岚",
+        aliases: ["阿岚"],
+        description: "调查员。",
+        research: "名字来源待定。",
+      },
+    });
+    const zhouResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: {
+        categoryId: "character",
+        name: "周野",
+        aiContextPolicy: "never",
+      },
+    });
+    expect(linResponse.statusCode).toBe(201);
+    expect(zhouResponse.statusCode).toBe(201);
+    const lin = linResponse.json();
+    const zhou = zhouResponse.json();
+
+    const relationResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/relations`,
+      payload: {
+        sourceEntryId: lin.metadata.id,
+        targetEntryId: zhou.metadata.id,
+        type: "信任",
+        directed: true,
+      },
+    });
+    expect(relationResponse.statusCode).toBe(201);
+    expect(relationResponse.json().relation.sourceEntryId).toBe(lin.metadata.id);
+
+    const mentions = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/scenes/${scene.metadata.id}/mentions`,
+    });
+    expect(mentions.statusCode).toBe(200);
+    expect(mentions.json().mentions).toHaveLength(2);
+
+    const context = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/context?sceneId=${scene.metadata.id}&pinnedIds=${zhou.metadata.id}`,
+    });
+    expect(context.statusCode).toBe(200);
+    expect(context.json().included.map((entry: { metadata: { id: string } }) => entry.metadata.id))
+      .toContain(lin.metadata.id);
+    expect(context.json().included.map((entry: { metadata: { id: string } }) => entry.metadata.id))
+      .not.toContain(zhou.metadata.id);
+
+    const stale = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries/${lin.metadata.id}`,
+      payload: {
+        baseRevision: "0".repeat(64),
+        description: "不应覆盖",
+      },
+    });
+    expect(stale.statusCode).toBe(409);
+
+    const otherCreated = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "其他 Codex" },
+    });
+    const crossSeries = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${otherCreated.json().manifest.id}/codex/entries/${lin.metadata.id}`,
+    });
+    expect(crossSeries.statusCode).toBe(404);
+    await app.close();
+  });
 });
