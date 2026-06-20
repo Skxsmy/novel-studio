@@ -118,6 +118,19 @@ apps/server/src/routes/codex.ts     # 设定库、进展、角色所知和上下
 
 拆分必须以行为不变为前提，不能为了行数指标改变文件格式或错误语义。
 
+## 存储层结构
+
+NS-400 已开始把所有写入共用的安全层从大仓库文件中拆出：
+
+```text
+packages/storage/src/index.ts             # ProjectRepository 和领域读写逻辑
+packages/storage/src/errors.ts            # StorageError
+packages/storage/src/fileSystem.ts        # 路径归属、原子写入、存在性检查
+packages/storage/src/fileTransactions.ts  # 多文件事务、事务恢复和 FileMutation
+```
+
+后续应继续提取层级、规划、Codex 和索引相关模块。拆分时 `index.ts` 仍可作为包的公开出口，避免破坏外部导入路径。
+
 ## 故障边界
 
 - YAML/Markdown 无法解析：返回明确错误，不静默修复。

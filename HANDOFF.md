@@ -62,7 +62,8 @@
   - 已更新当前架构文档，不再停留在 M0–M2；
   - 已将 Codex API 路由拆到 `apps/server/src/routes/codex.ts`；
   - `apps/server/src/app.ts` 从约 718 行降到 363 行，继续只负责 Fastify 创建、错误处理、领域路由注册和静态资源；
-  - server typecheck、server test 和全量 `npm.cmd run check` 通过。
+  - 已将 storage 的 `StorageError`、路径归属/原子写入/存在性检查、多文件事务拆到 `errors.ts`、`fileSystem.ts`、`fileTransactions.ts`；
+  - server typecheck、server test、storage typecheck、storage test 和全量 `npm.cmd run check` 通过。
 
 ## 验证
 
@@ -92,7 +93,7 @@
 
 `NS-400`：继续完成 M3 到 M4 的整备门。当前优先级：
 
-1. 提取 storage 领域辅助，优先选择文件事务、层级投影或 Codex 查询中边界清楚的一块。
-2. 拆分前端大视图，优先 `CodexView` 的详情/进展/角色所知面板。
-3. 建立三条可重复烟测：创建写作恢复、层级创建校验、设定库提及与资料范围。
+1. 拆分前端大视图，优先 `CodexView` 的详情/进展/角色所知面板。
+2. 建立三条可重复烟测：创建写作恢复、层级创建校验、设定库提及与资料范围。
+3. 继续提取 storage 领域逻辑，下一块可考虑层级投影或 Codex 查询。
 4. 完成后再进入 `NS-401`，不要直接把模型连接堆进现有大文件。
