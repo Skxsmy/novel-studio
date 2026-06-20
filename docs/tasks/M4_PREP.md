@@ -1,6 +1,6 @@
 # NS-400：M3 到 M4 的整备门
 
-状态：进行中。  
+状态：完成。
 位置：M3 完成之后、M4 模型连接之前。
 
 ## 目标
@@ -89,7 +89,7 @@ NS-400 的目标是把 M3 产物整理成 M4 可以安全承载 AI 能力的形�
 | NS400-C01 | 至少一个 storage 领域辅助被提取并保留测试 | 后续代码 diff |
 | NS400-D01 | 至少一个前端大视图被拆出子组件且行为不变 | 后续代码 diff + web 测试 |
 | NS400-E01 | 三条核心烟测以自动化脚本或测试形式存在 | `packages/storage/test/smoke.test.ts` + `npm.cmd run test:smoke` |
-| NS400-F01 | M4 最小 AI 契约写入 contracts/docs，且不接真实模型 | 后续契约 diff |
+| NS400-F01 | M4 最小 AI 契约写入 contracts/docs，且不接真实模型 | `packages/contracts/src/index.ts` + 架构/API/数据模型文档 |
 
 ## 完成定义
 

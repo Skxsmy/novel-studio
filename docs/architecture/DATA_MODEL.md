@@ -114,3 +114,23 @@ SQLite 保存可重建的场景定位、正文搜索、Codex 搜索、名称候�
 角色知道、相信或误解的内容位于 `codex/knowledge/<knowledgeId>.yaml`。知道者必须是人物条目；记录可指向一个涉及条目、一个关系或二者之一，并带有 `knows/believes/misunderstands` 立场、生效起止场景和证据。
 
 有效状态查询以叙事顺序为准。早期场景不会返回未来记录正文、ID 或证据；只允许返回隐藏数量，用于提醒作者后面还有变化。
+
+## M4 AI 契约文件
+
+M4 的 AI 能力以 `packages/contracts` 中的 Zod 契约为先，不先开放真实调用。当前已定义：
+
+- `ContextBundle` / `ContextItem`：一次调用实际可读上下文的审计包，记录当前场景、角色、任务、提示词版本、纳入资料、排除资料和用量估算。
+- `PromptTemplate`：声明式提示词模板，包含角色、版本、组件、输入变量和输出结构名称；模板不得执行任意 JavaScript。
+- `ModelCallLog`：一次模型调用的审计记录，必须记录 provider、model、角色、任务、上下文包、提示词版本、请求/响应哈希、状态、估算用量和实际用量。
+- `Proposal` / `ProposalPatch`：AI 只能生成候选变更。每个 patch 必须记录目标类型、目标 ID、基础 revision、字段路径、差异和证据；目标已变化时不得直接应用。
+
+建议磁盘位置如下，具体写入在 NS-401/M5 实现时落地：
+
+```text
+.studio/context/<context-bundle-id>.json
+.studio/logs/model-calls/<model-call-id>.json
+.studio/inbox/proposals/<proposal-id>.json
+agents/prompts/<prompt-template-id>.yaml
+```
+
+这些文件是审计和候选层，不是正文、设定或角色状态的权威来源。接受候选变更前，应用层必须重新读取目标文件并比较 `baseRevision`。

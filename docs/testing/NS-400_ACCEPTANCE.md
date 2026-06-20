@@ -2,7 +2,7 @@
 
 验收日期：2026-06-20
 
-状态：进行中。
+状态：完成。
 
 ## 目的
 
@@ -30,7 +30,7 @@ NS-400 是 M3 与 M4 之间的整备门。它不新增小说功能，而是降�
 | NS400-C01 | 通过 | 已提取 `errors.ts`、`fileSystem.ts`、`fileTransactions.ts`；`ProjectRepository` 公开导入保持不变 |
 | NS400-D01 | 通过 | 已将 `CodexView.tsx` 拆为 `CodexView.tsx`、`CodexEntryEditor.tsx`、`CodexEntryPanels.tsx`；顶层视图从约 692 行降到 162 行 |
 | NS400-E01 | 通过 | 已新增 `packages/storage/test/smoke.test.ts`，覆盖创建写作恢复、层级创建校验、设定库提及/资料范围/未来事实隔离；可用 `npm.cmd run test:smoke` 单独执行 |
-| NS400-F01 | 待办 | 后续写入 M4 最小 Context/Prompt/CallLog/Proposal 契约 |
+| NS400-F01 | 通过 | 已在 `packages/contracts/src/index.ts` 定义 `ContextBundle`、`ContextItem`、`PromptTemplate`、`ModelCallLog`、`Proposal` 与 `ProposalPatch`，并写入架构/API/数据模型文档 |
 
 ## 本轮命令记录
 
@@ -50,6 +50,7 @@ NS-400 是 M3 与 M4 之间的整备门。它不新增小说功能，而是降�
 - `npm.cmd run test:smoke`：通过；1 个文件、3 条 M3→M4 核心烟测通过。
 - `npm.cmd run test -w @novel-studio/storage`：通过；2 个文件、39 项测试通过。
 - 烟测落地后再次运行 `npm.cmd run check`：通过；Server 6/6、Web 14/14、Storage 39/39、生产构建通过。
+- M4 最小契约落地后再次运行 `npm.cmd run check`：通过；Server 6/6、Web 14/14、Storage 39/39、生产构建通过。
 
 ## 已知风险
 

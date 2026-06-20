@@ -103,6 +103,22 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 
 进展记录和角色所知均为权威 YAML 文件，更新、归档和恢复要求自身 `baseRevision`。有效状态查询只按当前叙事位置返回已生效记录；未来记录只返回数量，不返回摘要、证据或 ID。
 
+## M4 AI 契约
+
+当前只定义契约，不开放真实模型调用接口。`packages/contracts` 已包含：
+
+- `ContextBundle` / `ContextItem`
+- `PromptTemplate`
+- `ModelCallLog`
+- `Proposal` / `ProposalPatch`
+
+NS-401 才能新增 `/api/v1/ai/...` 或 `/api/v1/model-calls/...` 等接口。新增接口必须满足：
+
+- 调用前可预览 `ContextBundle` 和用量估算。
+- 调用后必须保存 `ModelCallLog`，包含模型、提示词版本、上下文包 ID、请求/响应哈希和用量。
+- AI 输出只能进入 `Proposal` 或候选事实收件箱；不得直接写正文、已确认设定、摘要或角色状态。
+- 应用 `Proposal` 前必须比较每个 `ProposalPatch.baseRevision`；目标已变化时返回冲突，不能静默合并。
+
 ## 后续长任务
 
 M4 以后需要长时间运行的 AI、导入和分析任务返回 job ID，并通过 `/jobs/:jobId/events` 的 SSE 输出状态。该接口尚未实现，不得在客户端假装可用。

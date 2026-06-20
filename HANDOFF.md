@@ -5,9 +5,9 @@
 ## 仓库状态
 
 - 分支：`main`
-- 最近相关提交：`NS-306 feat(structure): expose series and hierarchy creation`
-- 当前任务：`NS-400` 进行中，目标是 M3 到 M4 的整备门；三条核心烟测已落地，下一步应转向 M4 最小契约。
-- 预期脏文件：`TASKS.md`、`STATUS.md`、`HANDOFF.md`、`docs/tasks/M4_PREP.md`、`docs/testing/NS-400_ACCEPTANCE.md`，以及本轮拆分涉及的 server/storage/web 文件。提交后应无脏文件；接手时运行 `git status --short` 核实。
+- 最近相关提交：查看 `git log -3 --oneline`；应包含 NS-400 的 web 拆分、烟测覆盖和 M4 契约提交。
+- 当前任务：`NS-400` 已完成；下一任务是 `NS-401`，目标是模型连接、上下文装配、权限边界、提示词版本和调用日志的最小纵向闭环。
+- 预期脏文件：无。接手时运行 `git status --short` 核实；如不为空，先判断是否为用户未提交改动。
 
 ## 已完成
 
@@ -65,6 +65,7 @@
   - 已将 storage 的 `StorageError`、路径归属/原子写入/存在性检查、多文件事务拆到 `errors.ts`、`fileSystem.ts`、`fileTransactions.ts`；
   - 已将 `CodexView.tsx` 拆为顶层列表视图、`CodexEntryEditor.tsx` 和 `CodexEntryPanels.tsx`，顶层视图从约 692 行降到 162 行；
   - 已新增 `packages/storage/test/smoke.test.ts` 和 `npm.cmd run test:smoke`，覆盖创建写作恢复、层级创建校验、设定库提及/资料范围/未来事实隔离；
+  - 已在 `packages/contracts/src/index.ts` 定义 `ContextBundle`、`ContextItem`、`PromptTemplate`、`ModelCallLog`、`Proposal` 与 `ProposalPatch` 最小契约，并写入架构/API/数据模型文档；
   - server typecheck、server test、storage typecheck、storage test、web typecheck、web test 和全量 `npm.cmd run check` 通过。
 
 ## 验证
@@ -94,8 +95,8 @@
 
 ## 唯一下一任务
 
-`NS-400`：继续完成 M3 到 M4 的整备门。当前优先级：
+`NS-401`：开始模型连接、上下文装配、权限边界、提示词版本和调用日志的执行规格与最小纵向闭环。当前优先级：
 
-1. M4 契约先行：定义 `ContextBundle`、`ContextItem`、`PromptTemplate`、`ModelCallLog`、`Proposal` 最小形状和只读/候选变更边界。
-2. 继续提取 storage 领域逻辑，下一块可考虑层级投影或 Codex 查询。
-3. 视契约落地情况决定是否关闭 `NS-400` 并进入 `NS-401`；不要直接把模型连接堆进现有大文件。
+1. 先写 NS-401 执行规格：ProviderAdapter、上下文装配器、调用日志、提示词版本和 Proposal 入口的最小纵向闭环。
+2. 只允许做上下文预览、调用记录和候选变更；不得让 AI 直接写正文、设定、摘要或角色状态。
+3. 继续防止大文件回潮：模型连接、上下文装配和 Proposal 逻辑不得塞回 `app.ts`、`CodexView.tsx` 或单体 `ProjectRepository`。

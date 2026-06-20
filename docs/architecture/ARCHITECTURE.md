@@ -155,10 +155,10 @@ packages/storage/src/fileTransactions.ts  # 多文件事务、事务恢复和 Fi
 
 进入真实模型调用前必须先完成：
 
-- Context Bundle / Context Item 契约。
-- Prompt Template 版本契约。
-- Model Call Log 契约。
-- Proposal 契约和基础版本冲突规则。
-- 至少三条可重复烟测：创建写作恢复、层级创建校验、设定库提及与资料范围。
+- Context Bundle / Context Item 契约：已定义于 `packages/contracts/src/index.ts`。
+- Prompt Template 版本契约：已定义于 `packages/contracts/src/index.ts`。
+- Model Call Log 契约：已定义于 `packages/contracts/src/index.ts`。
+- Proposal 契约和基础版本冲突规则：已定义于 `packages/contracts/src/index.ts`，应用前必须比较目标 revision。
+- 至少三条可重复烟测：已通过 `npm.cmd run test:smoke` 覆盖创建写作恢复、层级创建校验、设定库提及与资料范围。
 
 AI、导入器和后台任务只能产生候选变更或可审计记录；不得直接改写正文、已确认设定、摘要或角色状态。
