@@ -1,6 +1,6 @@
 # 数据模型与磁盘格式
 
-详细产品语义见 `docs/product/PRODUCT_SPEC.md`，层级操作的强制不变量见 `docs/tasks/M3.md#ns-301作品层级与安全结构操作`，决策依据见 ADR-0001 与 ADR-0005。
+详细产品语义见 `docs/product/PRODUCT_SPEC.md`，层级操作与写作附属文档的强制不变量见 `docs/tasks/M3.md`，决策依据见 ADR-0001、ADR-0005 与 ADR-0007。
 
 ## 系列目录
 
@@ -18,6 +18,8 @@ series-slug-id/
 ├─ styles/
 ├─ agents/
 ├─ workshop/
+├─ sections/<scene-id>/<section-id>.md
+├─ review/anchors/<anchor-id>.yaml
 ├─ planning/
 │  ├─ timeline.yaml
 │  └─ events/<event-id>.yaml
@@ -66,6 +68,18 @@ updatedAt: 2026-06-20T00:00:00.000Z
 ```
 
 `revision` 不写入文件，由规范化后的完整文件内容计算 SHA-256，防止版本字段自身引起循环变化。
+
+## Sections
+
+Section 是与一个场景关联、但不属于小说正文的独立 Markdown 文档。路径为 `sections/<sceneId>/<sectionId>.md`，frontmatter 包含 `id`、`sceneId`、标题、类型、AI 权限、创建/更新时间和 `archivedAt`。
+
+类型为 `author-note`、`candidate`、`research`、`sensitive`、`temporary`；AI 权限为 `inherit`、`local-only`、`never`。敏感资料默认 `never`。归档只设置时间，恢复清空时间；不通过删除表达普通生命周期。Section revision 由自身完整文件计算，更新 Section 不改变正文 revision。
+
+## 审阅锚点
+
+锚点位于 `review/anchors/<anchorId>.yaml`，保存场景 ID、稳定逻辑块 ID、基础场景 revision、精确引用、前后文、原字符范围和时间。锚点不向正文注入 HTML、私有节点或编辑器 JSON。
+
+解析优先检查原范围，其次唯一精确引用，再用前后文消除重复引用歧义；证据不唯一或引用消失时返回 `orphaned`。解析是只读计算，只有未来显式“重新绑定”命令才可更新锚点文件。
 
 ## 规划与双时间线
 

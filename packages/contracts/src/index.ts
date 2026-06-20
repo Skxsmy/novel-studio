@@ -397,6 +397,120 @@ export const UpdateSceneInputSchema = z.object({
 });
 export type UpdateSceneInput = z.infer<typeof UpdateSceneInputSchema>;
 
+export const SceneSectionKindSchema = z.enum([
+  "author-note",
+  "candidate",
+  "research",
+  "sensitive",
+  "temporary",
+]);
+export type SceneSectionKind = z.infer<typeof SceneSectionKindSchema>;
+
+export const SceneSectionAiPolicySchema = z.enum(["inherit", "local-only", "never"]);
+export type SceneSectionAiPolicy = z.infer<typeof SceneSectionAiPolicySchema>;
+
+export const SceneSectionMetadataSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  sceneId: z.string().uuid(),
+  title: z.string().trim().min(1).max(160),
+  kind: SceneSectionKindSchema,
+  aiPolicy: SceneSectionAiPolicySchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  archivedAt: z.string().datetime().nullable().default(null),
+});
+export type SceneSectionMetadata = z.infer<typeof SceneSectionMetadataSchema>;
+
+export const SceneSectionDocumentSchema = z.object({
+  metadata: SceneSectionMetadataSchema,
+  content: z.string(),
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  relativePath: z.string(),
+  characterCount: z.number().int().nonnegative(),
+});
+export type SceneSectionDocument = z.infer<typeof SceneSectionDocumentSchema>;
+
+export const CreateSceneSectionInputSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  kind: SceneSectionKindSchema,
+  aiPolicy: SceneSectionAiPolicySchema.optional(),
+  content: z.string().default(""),
+});
+export type CreateSceneSectionInput = z.input<typeof CreateSceneSectionInputSchema>;
+
+export const UpdateSceneSectionInputSchema = z
+  .object({
+    baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+    title: z.string().trim().min(1).max(160).optional(),
+    kind: SceneSectionKindSchema.optional(),
+    aiPolicy: SceneSectionAiPolicySchema.optional(),
+    content: z.string().optional(),
+  })
+  .superRefine((input, context) => {
+    if (Object.keys(input).every((key) => key === "baseRevision")) {
+      context.addIssue({ code: "custom", message: "至少提供一个 Section 字段" });
+    }
+  });
+export type UpdateSceneSectionInput = z.infer<typeof UpdateSceneSectionInputSchema>;
+
+export const ArchiveSceneSectionInputSchema = z.object({
+  baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type ArchiveSceneSectionInput = z.infer<typeof ArchiveSceneSectionInputSchema>;
+export const RestoreSceneSectionInputSchema = ArchiveSceneSectionInputSchema;
+export type RestoreSceneSectionInput = z.infer<typeof RestoreSceneSectionInputSchema>;
+
+export const SectionContextTargetSchema = z.enum(["local", "cloud"]);
+export type SectionContextTarget = z.infer<typeof SectionContextTargetSchema>;
+
+export const ReviewAnchorSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  sceneId: z.string().uuid(),
+  blockId: z.string().uuid(),
+  sceneRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  exactQuote: z.string().min(1).max(16000),
+  prefix: z.string().max(256),
+  suffix: z.string().max(256),
+  start: z.number().int().nonnegative(),
+  end: z.number().int().positive(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type ReviewAnchor = z.infer<typeof ReviewAnchorSchema>;
+
+export const ReviewAnchorStatusSchema = z.enum(["attached", "relocated", "orphaned"]);
+export type ReviewAnchorStatus = z.infer<typeof ReviewAnchorStatusSchema>;
+
+export const ReviewAnchorResolutionSchema = z.object({
+  status: ReviewAnchorStatusSchema,
+  start: z.number().int().nonnegative().nullable(),
+  end: z.number().int().nonnegative().nullable(),
+  reason: z.string(),
+});
+export type ReviewAnchorResolution = z.infer<typeof ReviewAnchorResolutionSchema>;
+
+export const ResolvedReviewAnchorSchema = z.object({
+  anchor: ReviewAnchorSchema,
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  resolution: ReviewAnchorResolutionSchema,
+});
+export type ResolvedReviewAnchor = z.infer<typeof ResolvedReviewAnchorSchema>;
+
+export const CreateReviewAnchorInputSchema = z
+  .object({
+    baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+    exactQuote: z.string().min(1).max(16000),
+    start: z.number().int().nonnegative(),
+    end: z.number().int().positive(),
+  })
+  .refine((input) => input.end > input.start, {
+    message: "锚点结束位置必须大于开始位置",
+    path: ["end"],
+  });
+export type CreateReviewAnchorInput = z.infer<typeof CreateReviewAnchorInputSchema>;
+
 export const SearchResultSchema = z.object({
   sceneId: z.string().uuid(),
   title: z.string(),

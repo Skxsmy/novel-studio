@@ -10,14 +10,18 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@milkdown/kit": "^7.21.2",
+    "@milkdown/react": "^7.21.2",
     "@novel-studio/contracts": "*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "^29.1.1",
     "vite": "^8.0.16",
     "vitest": "^4.0.3"
   }

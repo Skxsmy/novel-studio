@@ -60,6 +60,17 @@
 
 TimelineEvent 更新与删除要求 `baseRevision`；重排要求当前事件 ID 的完整无重复排列。叙事结构移动继续复用 NS-301 API。
 
+## 写作附属文档与锚点
+
+- `GET|POST /series/:seriesId/scenes/:sceneId/sections`
+- `PUT /series/:seriesId/sections/:sectionId`
+- `POST /series/:seriesId/sections/:sectionId/archive`
+- `POST /series/:seriesId/sections/:sectionId/restore`
+- `GET /series/:seriesId/scenes/:sceneId/sections/context?target=local|cloud`
+- `GET|POST /series/:seriesId/scenes/:sceneId/anchors`
+
+Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revision 相互独立。上下文资格接口只返回当前目标允许读取且未归档的 Section，不调用模型。创建锚点要求当前场景 revision、精确引用和字符范围；服务端验证正文切片，不接受客户端单方面声明。锚点查询只计算 `attached/relocated/orphaned`，不得在读取时改写文件。
+
 ## 后续长任务
 
 M4 以后需要长时间运行的 AI、导入和分析任务返回 job ID，并通过 `/jobs/:jobId/events` 的 SSE 输出状态。该接口尚未实现，不得在客户端假装可用。

@@ -1,16 +1,23 @@
 import type {
   ActManifest,
   ChapterManifest,
+  ArchiveSceneSectionInput,
   CreateActInput,
   CreateChapterInput,
+  CreateReviewAnchorInput,
   CreateSceneInput,
+  CreateSceneSectionInput,
   CreateSeriesInput,
   CreateTimelineEventInput,
   MoveSceneInput,
   HierarchyValidationResult,
   PlanningBoard,
   ReorderInput,
+  RestoreSceneSectionInput,
   SceneDocument,
+  SceneSectionDocument,
+  SectionContextTarget,
+  ResolvedReviewAnchor,
   SearchResult,
   SeriesDetail,
   SeriesSummary,
@@ -18,6 +25,7 @@ import type {
   UpdateActInput,
   UpdateChapterInput,
   UpdateSceneInput,
+  UpdateSceneSectionInput,
   UpdateScenePlanningInput,
   UpdateTimelineEventInput,
 } from "@novel-studio/contracts";
@@ -57,6 +65,8 @@ export const api = {
       body: JSON.stringify(input),
     }),
   getSeries: (seriesId: string) => request<SeriesDetail>(`/api/v1/series/${seriesId}`),
+  getScene: (seriesId: string, sceneId: string) =>
+    request<SceneDocument>(`/api/v1/series/${seriesId}/scenes/${sceneId}`),
   getPlanningBoard: (seriesId: string) =>
     request<PlanningBoard>(`/api/v1/series/${seriesId}/planning`),
   validateHierarchy: (seriesId: string) =>
@@ -74,6 +84,42 @@ export const api = {
   updateScenePlanning: (seriesId: string, sceneId: string, input: UpdateScenePlanningInput) =>
     request<SceneDocument>(`/api/v1/series/${seriesId}/scenes/${sceneId}/planning`, {
       method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  listSceneSections: (seriesId: string, sceneId: string) =>
+    request<SceneSectionDocument[]>(`/api/v1/series/${seriesId}/scenes/${sceneId}/sections`),
+  createSceneSection: (seriesId: string, sceneId: string, input: CreateSceneSectionInput) =>
+    request<SceneSectionDocument>(`/api/v1/series/${seriesId}/scenes/${sceneId}/sections`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateSceneSection: (seriesId: string, sectionId: string, input: UpdateSceneSectionInput) =>
+    request<SceneSectionDocument>(`/api/v1/series/${seriesId}/sections/${sectionId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  archiveSceneSection: (seriesId: string, sectionId: string, input: ArchiveSceneSectionInput) =>
+    request<SceneSectionDocument>(`/api/v1/series/${seriesId}/sections/${sectionId}/archive`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  restoreSceneSection: (seriesId: string, sectionId: string, input: RestoreSceneSectionInput) =>
+    request<SceneSectionDocument>(`/api/v1/series/${seriesId}/sections/${sectionId}/restore`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  listSceneSectionsForContext: (
+    seriesId: string,
+    sceneId: string,
+    target: SectionContextTarget,
+  ) => request<SceneSectionDocument[]>(
+    `/api/v1/series/${seriesId}/scenes/${sceneId}/sections/context?target=${target}`,
+  ),
+  listReviewAnchors: (seriesId: string, sceneId: string) =>
+    request<ResolvedReviewAnchor[]>(`/api/v1/series/${seriesId}/scenes/${sceneId}/anchors`),
+  createReviewAnchor: (seriesId: string, sceneId: string, input: CreateReviewAnchorInput) =>
+    request<ResolvedReviewAnchor>(`/api/v1/series/${seriesId}/scenes/${sceneId}/anchors`, {
+      method: "POST",
       body: JSON.stringify(input),
     }),
   createTimelineEvent: (seriesId: string, input: CreateTimelineEventInput) =>

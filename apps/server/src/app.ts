@@ -3,18 +3,24 @@ import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
+  ArchiveSceneSectionInputSchema,
   CreateActInputSchema,
   CreateChapterInputSchema,
+  CreateReviewAnchorInputSchema,
   CreateSceneInputSchema,
+  CreateSceneSectionInputSchema,
   CreateSeriesInputSchema,
   CreateTimelineEventInputSchema,
   DeleteTimelineEventInputSchema,
   MoveSceneInputSchema,
   ReorderInputSchema,
+  RestoreSceneSectionInputSchema,
+  SectionContextTargetSchema,
   UpdateActInputSchema,
   UpdateChapterInputSchema,
   UpdateScenePlanningInputSchema,
   UpdateSceneInputSchema,
+  UpdateSceneSectionInputSchema,
   UpdateTimelineEventInputSchema,
 } from "@novel-studio/contracts";
 import { ProjectRepository, StorageError } from "@novel-studio/storage";
@@ -126,6 +132,97 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     async (request) => {
       const input = UpdateScenePlanningInputSchema.parse(request.body);
       return repository.updateScenePlanning(request.params.seriesId, request.params.sceneId, input);
+    },
+  );
+
+  app.get<{ Params: { seriesId: string; sceneId: string } }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId/sections",
+    async (request) =>
+      repository.listSceneSections(request.params.seriesId, request.params.sceneId),
+  );
+
+  app.post<{ Params: { seriesId: string; sceneId: string } }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId/sections",
+    async (request, reply) => {
+      const input = CreateSceneSectionInputSchema.parse(request.body);
+      return reply.status(201).send(
+        await repository.createSceneSection(
+          request.params.seriesId,
+          request.params.sceneId,
+          input,
+        ),
+      );
+    },
+  );
+
+  app.put<{ Params: { seriesId: string; sectionId: string } }>(
+    "/api/v1/series/:seriesId/sections/:sectionId",
+    async (request) => {
+      const input = UpdateSceneSectionInputSchema.parse(request.body);
+      return repository.updateSceneSection(
+        request.params.seriesId,
+        request.params.sectionId,
+        input,
+      );
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; sectionId: string } }>(
+    "/api/v1/series/:seriesId/sections/:sectionId/archive",
+    async (request) => {
+      const input = ArchiveSceneSectionInputSchema.parse(request.body);
+      return repository.archiveSceneSection(
+        request.params.seriesId,
+        request.params.sectionId,
+        input,
+      );
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; sectionId: string } }>(
+    "/api/v1/series/:seriesId/sections/:sectionId/restore",
+    async (request) => {
+      const input = RestoreSceneSectionInputSchema.parse(request.body);
+      return repository.restoreSceneSection(
+        request.params.seriesId,
+        request.params.sectionId,
+        input,
+      );
+    },
+  );
+
+  app.get<{
+    Params: { seriesId: string; sceneId: string };
+    Querystring: { target?: string };
+  }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId/sections/context",
+    async (request) => {
+      const target = SectionContextTargetSchema.parse(request.query.target ?? "local");
+      return repository.listSceneSectionsForContext(
+        request.params.seriesId,
+        request.params.sceneId,
+        target,
+      );
+    },
+  );
+
+  app.get<{ Params: { seriesId: string; sceneId: string } }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId/anchors",
+    async (request) =>
+      repository.listReviewAnchors(request.params.seriesId, request.params.sceneId),
+  );
+
+  app.post<{ Params: { seriesId: string; sceneId: string } }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId/anchors",
+    async (request, reply) => {
+      const input = CreateReviewAnchorInputSchema.parse(request.body);
+      return reply.status(201).send(
+        await repository.createReviewAnchor(
+          request.params.seriesId,
+          request.params.sceneId,
+          input,
+        ),
+      );
     },
   );
 

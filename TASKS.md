@@ -25,7 +25,7 @@
 
 - [x] `NS-301` 显式 Act/Chapter 清单、排序、场景移动与稳定引用。
 - [x] `NS-302` 将 Grid/Outline/Matrix/双时间线接入真实规划数据。
-- [ ] `NS-303` 接入 Milkdown、Sections、专注写作与锚点模型。
+- [x] `NS-303` 接入 Milkdown、Sections、专注写作与锚点模型。
 - [ ] `NS-304` Codex 文件契约、分类、别名、关系和提及索引。
 - [ ] `NS-305` Progression、角色知识与按场景生效的事实查询。
 

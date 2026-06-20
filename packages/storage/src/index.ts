@@ -13,11 +13,14 @@ import Database from "better-sqlite3";
 import YAML from "yaml";
 import {
   ActManifestSchema,
+  ArchiveSceneSectionInputSchema,
   BookManifestSchema,
   ChapterManifestSchema,
   CreateActInputSchema,
   CreateChapterInputSchema,
+  CreateReviewAnchorInputSchema,
   CreateSceneInputSchema,
+  CreateSceneSectionInputSchema,
   CreateSeriesInputSchema,
   CreateTimelineEventInputSchema,
   DeleteTimelineEventInputSchema,
@@ -25,9 +28,15 @@ import {
   PlanningBoardSchema,
   PlanningSceneSchema,
   ReorderInputSchema,
+  RestoreSceneSectionInputSchema,
   SceneDocumentSchema,
   SceneFrontmatterSchema,
+  SceneSectionDocumentSchema,
+  SceneSectionMetadataSchema,
+  SectionContextTargetSchema,
   SeriesManifestSchema,
+  ResolvedReviewAnchorSchema,
+  ReviewAnchorSchema,
   TimelineEventDocumentSchema,
   TimelineEventSchema,
   TimelineManifestSchema,
@@ -35,13 +44,17 @@ import {
   UpdateChapterInputSchema,
   UpdateScenePlanningInputSchema,
   UpdateSceneInputSchema,
+  UpdateSceneSectionInputSchema,
   UpdateTimelineEventInputSchema,
   type ActManifest,
+  type ArchiveSceneSectionInput,
   type BookManifest,
   type ChapterManifest,
   type CreateActInput,
   type CreateChapterInput,
+  type CreateReviewAnchorInput,
   type CreateSceneInput,
+  type CreateSceneSectionInput,
   type CreateSeriesInput,
   type CreateTimelineEventInput,
   type DeleteTimelineEventInput,
@@ -54,8 +67,16 @@ import {
   type PlanningChapter,
   type PlanningScene,
   type ReorderInput,
+  type RestoreSceneSectionInput,
   type SceneDocument,
   type SceneFrontmatter,
+  type SceneSectionAiPolicy,
+  type SceneSectionDocument,
+  type SceneSectionMetadata,
+  type SectionContextTarget,
+  type ResolvedReviewAnchor,
+  type ReviewAnchor,
+  type ReviewAnchorResolution,
   type SearchResult,
   type SeriesDetail,
   type SeriesManifest,
@@ -67,6 +88,7 @@ import {
   type UpdateChapterInput,
   type UpdateScenePlanningInput,
   type UpdateSceneInput,
+  type UpdateSceneSectionInput,
   type UpdateTimelineEventInput,
 } from "@novel-studio/contracts";
 
@@ -78,6 +100,9 @@ const CHAPTERS_DIR = "chapters";
 const PLANNING_DIR = "planning";
 const TIMELINE_FILE = "timeline.yaml";
 const TIMELINE_EVENTS_DIR = "events";
+const SECTIONS_DIR = "sections";
+const REVIEW_DIR = "review";
+const ANCHORS_DIR = "anchors";
 
 function toChineseOrdinal(value: number): string {
   const digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
@@ -336,6 +361,118 @@ function parseSceneText(value: string, relativePath: string): SceneDocument {
   });
 }
 
+function serializeSceneSection(metadata: SceneSectionMetadata, content: string): string {
+  const normalizedContent = content.replace(/\r\n/gu, "\n").replace(/^\n+/u, "");
+  return `${FRONTMATTER_MARKER}\n${serializeYaml(metadata)}${FRONTMATTER_MARKER}\n\n${normalizedContent}`;
+}
+
+function parseSceneSectionText(value: string, relativePath: string): SceneSectionDocument {
+  const normalized = value.replace(/\r\n/gu, "\n");
+  if (!normalized.startsWith(`${FRONTMATTER_MARKER}\n`)) {
+    throw new StorageError("Section 文件缺少 YAML frontmatter", "INVALID_DATA", { relativePath });
+  }
+  const end = normalized.indexOf(`\n${FRONTMATTER_MARKER}\n`, 4);
+  if (end < 0) {
+    throw new StorageError("Section 文件 frontmatter 未闭合", "INVALID_DATA", { relativePath });
+  }
+  const metadata = SceneSectionMetadataSchema.parse(YAML.parse(normalized.slice(4, end)));
+  const content = normalized.slice(end + 5).replace(/^\n/u, "");
+  return SceneSectionDocumentSchema.parse({
+    metadata,
+    content,
+    revision: contentRevision(normalized),
+    relativePath: relativePath.replace(/\\/gu, "/"),
+    characterCount: countChineseCharacters(content),
+  });
+}
+
+export function isSceneSectionEligibleForContext(
+  policy: SceneSectionAiPolicy,
+  target: SectionContextTarget,
+): boolean {
+  const parsedPolicy = SceneSectionMetadataSchema.shape.aiPolicy.safeParse(policy);
+  const parsedTarget = SectionContextTargetSchema.safeParse(target);
+  if (!parsedPolicy.success || !parsedTarget.success) return false;
+  if (parsedPolicy.data === "never") return false;
+  return parsedTarget.data === "local" || parsedPolicy.data === "inherit";
+}
+
+function allExactQuoteStarts(content: string, quote: string): number[] {
+  const starts: number[] = [];
+  let offset = 0;
+  while (offset <= content.length - quote.length) {
+    const found = content.indexOf(quote, offset);
+    if (found < 0) break;
+    starts.push(found);
+    offset = found + Math.max(quote.length, 1);
+  }
+  return starts;
+}
+
+function contextScore(content: string, anchor: ReviewAnchor, start: number): number {
+  let score = 0;
+  if (anchor.prefix) {
+    const actualPrefix = content.slice(Math.max(0, start - anchor.prefix.length), start);
+    if (actualPrefix === anchor.prefix) score += 2;
+  }
+  if (anchor.suffix) {
+    const quoteEnd = start + anchor.exactQuote.length;
+    const actualSuffix = content.slice(quoteEnd, quoteEnd + anchor.suffix.length);
+    if (actualSuffix === anchor.suffix) score += 2;
+  }
+  return score;
+}
+
+export function resolveReviewAnchor(
+  anchor: ReviewAnchor,
+  content: string,
+): ReviewAnchorResolution {
+  if (content.slice(anchor.start, anchor.end) === anchor.exactQuote) {
+    return {
+      status: "attached",
+      start: anchor.start,
+      end: anchor.end,
+      reason: "原字符范围仍与引用文本一致",
+    };
+  }
+  const starts = allExactQuoteStarts(content, anchor.exactQuote);
+  if (starts.length === 1) {
+    return {
+      status: "relocated",
+      start: starts[0]!,
+      end: starts[0]! + anchor.exactQuote.length,
+      reason: "正文中存在唯一精确引用",
+    };
+  }
+  if (starts.length > 1) {
+    const scored = starts
+      .map((start) => ({ start, score: contextScore(content, anchor, start) }))
+      .sort((left, right) => right.score - left.score || Math.abs(left.start - anchor.start) - Math.abs(right.start - anchor.start));
+    const best = scored[0]!;
+    const runnerUp = scored[1];
+    if (best.score > 0 && (!runnerUp || best.score > runnerUp.score)) {
+      return {
+        status: "relocated",
+        start: best.start,
+        end: best.start + anchor.exactQuote.length,
+        reason: "前后文唯一消除了重复引用歧义",
+      };
+    }
+    return {
+      status: "orphaned",
+      start: null,
+      end: null,
+      reason: "正文中有多个无法唯一消歧的精确引用",
+    };
+  }
+  return {
+    status: "orphaned",
+    start: null,
+    end: null,
+    reason: "引用文本已不存在",
+  };
+}
+
 async function readYaml<T>(filePath: string, parse: (input: unknown) => T): Promise<T> {
   try {
     return parse(YAML.parse(await readFile(filePath, "utf8")));
@@ -365,6 +502,14 @@ function timelineManifestPath(seriesRoot: string): string {
 
 function timelineEventPath(seriesRoot: string, eventId: string): string {
   return path.join(seriesRoot, PLANNING_DIR, TIMELINE_EVENTS_DIR, `${eventId}.yaml`);
+}
+
+function sectionPath(seriesRoot: string, sceneId: string, sectionId: string): string {
+  return path.join(seriesRoot, SECTIONS_DIR, sceneId, `${sectionId}.md`);
+}
+
+function reviewAnchorPath(seriesRoot: string, anchorId: string): string {
+  return path.join(seriesRoot, REVIEW_DIR, ANCHORS_DIR, `${anchorId}.yaml`);
 }
 
 async function readActManifest(bookRoot: string, actId: string): Promise<ActManifest> {
@@ -500,6 +645,8 @@ export class ProjectRepository {
       "agents",
       "workshop",
       "planning/events",
+      "sections",
+      "review/anchors",
       ".studio/inbox",
       ".studio/history",
       ".studio/cache",
@@ -713,6 +860,259 @@ export class ProjectRepository {
     );
     await this.indexScene(seriesRoot, updated);
     return updated;
+  }
+
+  async listSceneSections(
+    seriesId: string,
+    sceneId: string,
+  ): Promise<SceneSectionDocument[]> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    await this.getScene(seriesId, sceneId);
+    const directory = assertInside(seriesRoot, path.join(seriesRoot, SECTIONS_DIR, sceneId));
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    const sections: SceneSectionDocument[] = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+      const filePath = assertInside(seriesRoot, path.join(directory, entry.name));
+      const document = parseSceneSectionText(
+        await readFile(filePath, "utf8"),
+        path.relative(seriesRoot, filePath),
+      );
+      if (
+        document.metadata.id !== path.basename(entry.name, ".md") ||
+        document.metadata.sceneId !== sceneId
+      ) {
+        throw new StorageError("Section 文件名或场景归属不一致", "INVALID_DATA", {
+          sectionId: document.metadata.id,
+          sceneId,
+        });
+      }
+      sections.push(document);
+    }
+    return sections.sort((left, right) => left.metadata.createdAt.localeCompare(right.metadata.createdAt));
+  }
+
+  async createSceneSection(
+    seriesId: string,
+    sceneId: string,
+    rawInput: CreateSceneSectionInput,
+  ): Promise<SceneSectionDocument> {
+    const input = CreateSceneSectionInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    await this.getScene(seriesId, sceneId);
+    const now = new Date().toISOString();
+    const metadata = SceneSectionMetadataSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      sceneId,
+      title: input.title,
+      kind: input.kind,
+      aiPolicy: input.aiPolicy ?? (input.kind === "sensitive" ? "never" : "inherit"),
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    });
+    const filePath = assertInside(seriesRoot, sectionPath(seriesRoot, sceneId, metadata.id));
+    await atomicWrite(filePath, serializeSceneSection(metadata, input.content));
+    return parseSceneSectionText(
+      await readFile(filePath, "utf8"),
+      path.relative(seriesRoot, filePath),
+    );
+  }
+
+  async updateSceneSection(
+    seriesId: string,
+    sectionId: string,
+    rawInput: UpdateSceneSectionInput,
+  ): Promise<SceneSectionDocument> {
+    const input = UpdateSceneSectionInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const { filePath, document: current } = await this.findSceneSection(seriesRoot, sectionId);
+    await this.getScene(seriesId, current.metadata.sceneId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("Section 已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+        section: current,
+      });
+    }
+    if (current.metadata.archivedAt) {
+      throw new StorageError("已归档 Section 不能直接编辑", "INVALID_DATA", { sectionId });
+    }
+    const metadata = SceneSectionMetadataSchema.parse({
+      ...current.metadata,
+      title: input.title ?? current.metadata.title,
+      kind: input.kind ?? current.metadata.kind,
+      aiPolicy: input.aiPolicy ?? current.metadata.aiPolicy,
+      updatedAt: new Date().toISOString(),
+    });
+    await atomicWrite(filePath, serializeSceneSection(metadata, input.content ?? current.content));
+    return parseSceneSectionText(
+      await readFile(filePath, "utf8"),
+      path.relative(seriesRoot, filePath),
+    );
+  }
+
+  async archiveSceneSection(
+    seriesId: string,
+    sectionId: string,
+    rawInput: ArchiveSceneSectionInput,
+  ): Promise<SceneSectionDocument> {
+    const input = ArchiveSceneSectionInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const { filePath, document: current } = await this.findSceneSection(seriesRoot, sectionId);
+    await this.getScene(seriesId, current.metadata.sceneId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("Section 已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+        section: current,
+      });
+    }
+    if (current.metadata.archivedAt) return current;
+    const now = new Date().toISOString();
+    const metadata = SceneSectionMetadataSchema.parse({
+      ...current.metadata,
+      updatedAt: now,
+      archivedAt: now,
+    });
+    await atomicWrite(filePath, serializeSceneSection(metadata, current.content));
+    return parseSceneSectionText(
+      await readFile(filePath, "utf8"),
+      path.relative(seriesRoot, filePath),
+    );
+  }
+
+  async restoreSceneSection(
+    seriesId: string,
+    sectionId: string,
+    rawInput: RestoreSceneSectionInput,
+  ): Promise<SceneSectionDocument> {
+    const input = RestoreSceneSectionInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const { filePath, document: current } = await this.findSceneSection(seriesRoot, sectionId);
+    await this.getScene(seriesId, current.metadata.sceneId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("Section 已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+        section: current,
+      });
+    }
+    if (!current.metadata.archivedAt) return current;
+    const metadata = SceneSectionMetadataSchema.parse({
+      ...current.metadata,
+      updatedAt: new Date().toISOString(),
+      archivedAt: null,
+    });
+    await atomicWrite(filePath, serializeSceneSection(metadata, current.content));
+    return parseSceneSectionText(
+      await readFile(filePath, "utf8"),
+      path.relative(seriesRoot, filePath),
+    );
+  }
+
+  async listSceneSectionsForContext(
+    seriesId: string,
+    sceneId: string,
+    rawTarget: SectionContextTarget,
+  ): Promise<SceneSectionDocument[]> {
+    const target = SectionContextTargetSchema.parse(rawTarget);
+    const sections = await this.listSceneSections(seriesId, sceneId);
+    return sections.filter(
+      (section) =>
+        section.metadata.archivedAt === null &&
+        isSceneSectionEligibleForContext(section.metadata.aiPolicy, target),
+    );
+  }
+
+  async listReviewAnchors(
+    seriesId: string,
+    sceneId: string,
+  ): Promise<ResolvedReviewAnchor[]> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const scene = await this.getScene(seriesId, sceneId);
+    const directory = assertInside(
+      seriesRoot,
+      path.join(seriesRoot, REVIEW_DIR, ANCHORS_DIR),
+    );
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    const anchors: ResolvedReviewAnchor[] = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".yaml")) continue;
+      const filePath = assertInside(seriesRoot, path.join(directory, entry.name));
+      const raw = await readFile(filePath, "utf8");
+      const anchor = ReviewAnchorSchema.parse(YAML.parse(raw));
+      if (anchor.id !== path.basename(entry.name, ".yaml")) {
+        throw new StorageError("锚点文件名与 ID 不一致", "INVALID_DATA", { anchorId: anchor.id });
+      }
+      if (anchor.sceneId !== sceneId) continue;
+      anchors.push(
+        ResolvedReviewAnchorSchema.parse({
+          anchor,
+          revision: contentRevision(raw),
+          resolution: resolveReviewAnchor(anchor, scene.content),
+        }),
+      );
+    }
+    return anchors.sort((left, right) => left.anchor.createdAt.localeCompare(right.anchor.createdAt));
+  }
+
+  async createReviewAnchor(
+    seriesId: string,
+    sceneId: string,
+    rawInput: CreateReviewAnchorInput,
+  ): Promise<ResolvedReviewAnchor> {
+    const input = CreateReviewAnchorInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const scene = await this.getScene(seriesId, sceneId);
+    if (scene.revision !== input.baseRevision) {
+      throw new StorageError("场景已被其他修改更新", "CONFLICT", {
+        currentRevision: scene.revision,
+        scene,
+      });
+    }
+    if (
+      input.end > scene.content.length ||
+      scene.content.slice(input.start, input.end) !== input.exactQuote
+    ) {
+      throw new StorageError("锚点范围与当前正文引用不一致", "INVALID_DATA", {
+        start: input.start,
+        end: input.end,
+      });
+    }
+    const now = new Date().toISOString();
+    const anchor = ReviewAnchorSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      sceneId,
+      blockId: randomUUID(),
+      sceneRevision: scene.revision,
+      exactQuote: input.exactQuote,
+      prefix: scene.content.slice(Math.max(0, input.start - 96), input.start),
+      suffix: scene.content.slice(input.end, input.end + 96),
+      start: input.start,
+      end: input.end,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const raw = serializeYaml(anchor);
+    const filePath = assertInside(seriesRoot, reviewAnchorPath(seriesRoot, anchor.id));
+    await atomicWrite(filePath, raw);
+    return ResolvedReviewAnchorSchema.parse({
+      anchor,
+      revision: contentRevision(raw),
+      resolution: resolveReviewAnchor(anchor, scene.content),
+    });
   }
 
   async rebuildIndex(seriesId: string): Promise<{ indexedScenes: number }> {
@@ -1870,6 +2270,44 @@ export class ProjectRepository {
       if (path.basename(filePath, ".md") === sceneId) return filePath;
     }
     throw new StorageError("场景不存在", "NOT_FOUND", { sceneId });
+  }
+
+  private async findSceneSection(
+    seriesRoot: string,
+    sectionId: string,
+  ): Promise<{ filePath: string; document: SceneSectionDocument }> {
+    const sectionsRoot = assertInside(seriesRoot, path.join(seriesRoot, SECTIONS_DIR));
+    let sceneDirectories;
+    try {
+      sceneDirectories = await readdir(sectionsRoot, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("Section 不存在", "NOT_FOUND", { sectionId });
+      }
+      throw error;
+    }
+    for (const sceneDirectory of sceneDirectories) {
+      if (!sceneDirectory.isDirectory()) continue;
+      const filePath = assertInside(
+        seriesRoot,
+        path.join(sectionsRoot, sceneDirectory.name, `${sectionId}.md`),
+      );
+      if (!(await pathExists(filePath))) continue;
+      const document = parseSceneSectionText(
+        await readFile(filePath, "utf8"),
+        path.relative(seriesRoot, filePath),
+      );
+      if (
+        document.metadata.id !== sectionId ||
+        document.metadata.sceneId !== sceneDirectory.name
+      ) {
+        throw new StorageError("Section 文件名或场景归属不一致", "INVALID_DATA", {
+          sectionId,
+        });
+      }
+      return { filePath, document };
+    }
+    throw new StorageError("Section 不存在", "NOT_FOUND", { sectionId });
   }
 
   private openIndex(seriesRoot: string): Database.Database {

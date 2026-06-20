@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ActManifest, ChapterManifest, PlanningBoard, SceneDocument, SearchResult, SeriesDetail, SeriesSummary } from "@novel-studio/contracts";
-import { ApiError, api } from "./api";
+import { api } from "./api";
 import { PlanView } from "./PlanView";
+import { WriteView } from "./WriteView";
 
 type WorkspaceView = "overview" | "plan" | "write" | "codex" | "workshop" | "review";
-type SaveState = "saved" | "dirty" | "saving" | "conflict" | "error";
 
 const navigation: Array<{ id: WorkspaceView; icon: string; label: string }> = [
   { id: "overview", icon: "⌂", label: "概览" },
@@ -17,16 +17,6 @@ const navigation: Array<{ id: WorkspaceView; icon: string; label: string }> = [
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(new Date(value));
-}
-
-function statusLabel(state: SaveState): string {
-  return {
-    saved: "已保存",
-    dirty: "等待保存",
-    saving: "正在保存…",
-    conflict: "检测到版本冲突",
-    error: "保存失败",
-  }[state];
 }
 
 function EmptyLibrary({ onCreated }: { onCreated: (series: SeriesDetail) => void }) {
@@ -171,116 +161,6 @@ function ReviewView() {
   );
 }
 
-interface WriteViewProps {
-  detail: SeriesDetail;
-  acts: ActManifest[];
-  chapters: ChapterManifest[];
-  activeScene: SceneDocument;
-  onSelectScene: (sceneId: string) => void;
-  onSceneUpdated: (scene: SceneDocument) => void;
-  onCreateScene: () => Promise<void>;
-  rightOpen: boolean;
-}
-
-function WriteView({ detail, acts, chapters, activeScene, onSelectScene, onSceneUpdated, onCreateScene, rightOpen }: WriteViewProps) {
-  const [title, setTitle] = useState(activeScene.metadata.title);
-  const [content, setContent] = useState(activeScene.content);
-  const [saveState, setSaveState] = useState<SaveState>("saved");
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    setTitle(activeScene.metadata.title);
-    setContent(activeScene.content);
-    setSaveState("saved");
-    setMessage("");
-  }, [activeScene.metadata.id, activeScene.metadata.title, activeScene.content]);
-
-  const save = useCallback(async () => {
-    if (saveState === "saving" || saveState === "saved") return;
-    setSaveState("saving");
-    try {
-      const updated = await api.updateScene(detail.manifest.id, activeScene.metadata.id, {
-        baseRevision: activeScene.revision,
-        title,
-        content,
-      });
-      onSceneUpdated(updated);
-      setSaveState("saved");
-      setMessage("");
-    } catch (caught) {
-      if (caught instanceof ApiError && caught.status === 409) {
-        setSaveState("conflict");
-        setMessage("磁盘上的场景已有新版本。为避免覆盖，本次修改尚未写入。");
-      } else {
-        setSaveState("error");
-        setMessage(caught instanceof Error ? caught.message : "保存失败");
-      }
-    }
-  }, [activeScene.metadata.id, activeScene.revision, content, detail.manifest.id, onSceneUpdated, saveState, title]);
-
-  useEffect(() => {
-    if (saveState !== "dirty") return;
-    const timer = window.setTimeout(() => void save(), 900);
-    return () => window.clearTimeout(timer);
-  }, [content, save, saveState, title]);
-
-  function changeContent(value: string) { setContent(value); setSaveState("dirty"); }
-  function changeTitle(value: string) { setTitle(value); setSaveState("dirty"); }
-
-  const characterCount = Array.from(content.replace(/\s/g, "")).length;
-  const paragraphCount = content.trim() ? content.trim().split(/\n\s*\n/u).length : 0;
-
-  const activeChapter = chapters.find((c) => c.id === activeScene.metadata.chapterId);
-  const activeAct = acts.find((a) => activeChapter ? a.chapterIds.includes(activeChapter.id) : false);
-  const book = detail.books[0];
-  const bookTitle = book?.title ?? "第一部";
-
-  const chapterGroups = new Map<string, SceneDocument[]>();
-  for (const chapter of chapters) chapterGroups.set(chapter.id, []);
-  for (const scene of detail.scenes) {
-    chapterGroups.get(scene.metadata.chapterId)?.push(scene);
-  }
-  const chaptersById = new Map(chapters.map((chapter) => [chapter.id, chapter]));
-
-  return (
-    <section className={`write-workspace ${rightOpen ? "with-inspector" : ""}`}>
-      <aside className="scene-drawer">
-        <div className="drawer-heading"><span>{bookTitle}</span><button onClick={() => void onCreateScene()} title="添加场景">＋</button></div>
-        {[...acts].sort((a, b) => a.order - b.order).map((act) => (
-          <div key={act.id}>
-            <p className="eyebrow">{act.title}</p>
-            {act.chapterIds.map((chapterId) => {
-              const chapter = chaptersById.get(chapterId);
-              if (!chapter) return null;
-              const scenes = [...(chapterGroups.get(chapterId) ?? [])].sort(
-                (a, b) => a.metadata.order - b.metadata.order,
-              );
-              return (
-                <div key={chapterId}>
-                  <p className="chapter-label">{chapter.title}</p>
-                  {scenes.map((scene, index) => (
-                    <button className={`scene-nav-item ${scene.metadata.id === activeScene.metadata.id ? "active" : ""}`} onClick={() => onSelectScene(scene.metadata.id)} key={scene.metadata.id}>
-                      <span>{String(index + 1).padStart(2, "0")}</span><div><strong>{scene.metadata.title}</strong><small>{scene.characterCount} 字符</small></div>
-                    </button>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </aside>
-      <article className="editor-shell">
-        <div className="editor-breadcrumb">{bookTitle}&nbsp;&nbsp;/&nbsp;&nbsp;{activeAct?.title ?? "幕"}&nbsp;&nbsp;/&nbsp;&nbsp;{activeChapter?.title ?? "章"}</div>
-        <input className="scene-title-input" value={title} onChange={(event) => changeTitle(event.target.value)} aria-label="场景标题" />
-        <textarea className="manuscript-editor" value={content} onChange={(event) => changeContent(event.target.value)} placeholder="从一个动作、一句话，或者某个不肯离开的画面开始……" spellCheck />
-        {message && <div className={`save-message ${saveState}`}>{message}</div>}
-        <footer className="editor-status"><span className={`save-state ${saveState}`}>● {statusLabel(saveState)}</span><span>{characterCount} 字符</span><span>{paragraphCount} 段</span><span>Markdown 原稿</span></footer>
-      </article>
-      {rightOpen && <aside className="inspector"><p className="eyebrow">SCENE CONTEXT</p><h3>场景资料</h3><dl><dt>状态</dt><dd>{activeScene.metadata.status}</dd><dt>POV</dt><dd>{activeScene.metadata.pov || "未设置"}</dd><dt>目标</dt><dd>{activeScene.metadata.goal || "尚未填写"}</dd><dt>摘要</dt><dd>{activeScene.metadata.summary || "等待作者确认"}</dd></dl><div className="inspector-note"><strong>上下文保护</strong><p>AI 模块尚未接入；当前不会把正文发送到任何外部服务。</p></div></aside>}
-    </section>
-  );
-}
-
 export function App() {
   const [seriesList, setSeriesList] = useState<SeriesSummary[]>([]);
   const [detail, setDetail] = useState<SeriesDetail | null>(null);
@@ -413,7 +293,7 @@ export function App() {
           onReload={reloadProject}
           onOpenScene={(sceneId) => { setActiveSceneId(sceneId); setActiveView("write"); }}
         />}
-        {activeView === "write" && activeScene && <WriteView detail={detail} acts={acts} chapters={chapters} activeScene={activeScene} onSelectScene={setActiveSceneId} onSceneUpdated={sceneUpdated} onCreateScene={createScene} rightOpen={rightOpen} />}
+        {activeView === "write" && activeScene && <WriteView detail={detail} acts={acts} chapters={chapters} activeScene={activeScene} onSelectScene={setActiveSceneId} onSceneUpdated={sceneUpdated} onCreateScene={createScene} rightOpen={rightOpen} focusMode={focusMode} onExitFocus={() => setFocusMode(false)} />}
         {activeView === "codex" && <CodexView />}
         {activeView === "workshop" && <WorkshopView />}
         {activeView === "review" && <ReviewView />}

@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ProjectRepository, StorageError } from "../src/index.js";
+import {
+  isSceneSectionEligibleForContext,
+  ProjectRepository,
+  resolveReviewAnchor,
+  StorageError,
+} from "../src/index.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -52,6 +57,137 @@ describe("ProjectRepository", () => {
     ).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
 
     expect((await store.getScene(series.manifest.id, scene.metadata.id)).revision).toBe(updated.revision);
+  });
+
+  it("stores Sections separately and enforces conservative AI context policies", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "纸上暗室" });
+    const scene = series.scenes[0]!;
+    const note = await store.createSceneSection(series.manifest.id, scene.metadata.id, {
+      title: "作者手记",
+      kind: "author-note",
+      content: "这里要更安静。",
+    });
+    const local = await store.createSceneSection(series.manifest.id, scene.metadata.id, {
+      title: "本地资料",
+      kind: "research",
+      aiPolicy: "local-only",
+      content: "仅供本地模型。",
+    });
+    const sensitive = await store.createSceneSection(series.manifest.id, scene.metadata.id, {
+      title: "私人备注",
+      kind: "sensitive",
+      content: "永不提供给 AI。",
+    });
+
+    expect(sensitive.metadata.aiPolicy).toBe("never");
+    expect((await store.getScene(series.manifest.id, scene.metadata.id)).content).toBe("");
+    expect((await store.listSceneSectionsForContext(series.manifest.id, scene.metadata.id, "local"))
+      .map((section) => section.metadata.id)).toEqual([note.metadata.id, local.metadata.id]);
+    expect((await store.listSceneSectionsForContext(series.manifest.id, scene.metadata.id, "cloud"))
+      .map((section) => section.metadata.id)).toEqual([note.metadata.id]);
+
+    const updated = await store.updateSceneSection(series.manifest.id, note.metadata.id, {
+      baseRevision: note.revision,
+      content: "保留这一段停顿。",
+    });
+    await expect(store.updateSceneSection(series.manifest.id, note.metadata.id, {
+      baseRevision: note.revision,
+      content: "过期内容",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    expect((await store.listSceneSections(series.manifest.id, scene.metadata.id))
+      .find((section) => section.metadata.id === note.metadata.id)?.content).toBe("保留这一段停顿。");
+
+    const archived = await store.archiveSceneSection(series.manifest.id, updated.metadata.id, {
+      baseRevision: updated.revision,
+    });
+    expect(archived.metadata.archivedAt).not.toBeNull();
+    expect((await store.listSceneSectionsForContext(series.manifest.id, scene.metadata.id, "local"))
+      .map((section) => section.metadata.id)).not.toContain(note.metadata.id);
+    const restored = await store.restoreSceneSection(series.manifest.id, archived.metadata.id, {
+      baseRevision: archived.revision,
+    });
+    expect(restored.metadata.archivedAt).toBeNull();
+    expect((await store.listSceneSectionsForContext(series.manifest.id, scene.metadata.id, "local"))
+      .map((section) => section.metadata.id)).toContain(note.metadata.id);
+  });
+
+  it("relocates review anchors by exact evidence and leaves their files unchanged on reads", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "雾中证词" });
+    const initial = series.scenes[0]!;
+    const content = "门外下着雨。\n\n周野把信压在灯下。\n\n钟声响了三次。";
+    const scene = await store.updateScene(series.manifest.id, initial.metadata.id, {
+      baseRevision: initial.revision,
+      title: "雨夜",
+      content,
+    });
+    const quote = "周野把信压在灯下。";
+    const start = content.indexOf(quote);
+    const created = await store.createReviewAnchor(series.manifest.id, scene.metadata.id, {
+      baseRevision: scene.revision,
+      exactQuote: quote,
+      start,
+      end: start + quote.length,
+    });
+    const root = seriesRoot(store, "雾中证词", series.manifest.id);
+    const anchorFile = path.join(root, "review", "anchors", `${created.anchor.id}.yaml`);
+    const beforeRead = await readFile(anchorFile, "utf8");
+
+    const movedScene = await store.updateScene(series.manifest.id, scene.metadata.id, {
+      baseRevision: scene.revision,
+      title: "雨夜",
+      content: `一辆车驶过巷口。\n\n${content}`,
+    });
+    const [relocated] = await store.listReviewAnchors(series.manifest.id, movedScene.metadata.id);
+    expect(relocated?.resolution).toMatchObject({ status: "relocated" });
+    expect(relocated?.resolution.start).toBeGreaterThan(start);
+    expect(await readFile(anchorFile, "utf8")).toBe(beforeRead);
+
+    await store.updateScene(series.manifest.id, movedScene.metadata.id, {
+      baseRevision: movedScene.revision,
+      title: "雨夜",
+      content: "所有灯都熄灭了。",
+    });
+    const [orphaned] = await store.listReviewAnchors(series.manifest.id, scene.metadata.id);
+    expect(orphaned?.resolution).toMatchObject({ status: "orphaned", start: null, end: null });
+  });
+
+  it("does not guess between equally supported anchor candidates", () => {
+    const quote = "他没有回头。";
+    const anchor = {
+      schemaVersion: 1 as const,
+      id: "00000000-0000-4000-8000-000000000001",
+      sceneId: "00000000-0000-4000-8000-000000000002",
+      blockId: "00000000-0000-4000-8000-000000000003",
+      sceneRevision: "0".repeat(64),
+      exactQuote: quote,
+      prefix: "",
+      suffix: "",
+      start: 100,
+      end: 100 + quote.length,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    expect(resolveReviewAnchor(anchor, `${quote}\n\n${quote}`).status).toBe("orphaned");
+    expect(isSceneSectionEligibleForContext("never", "local")).toBe(false);
+    expect(isSceneSectionEligibleForContext("local-only", "cloud")).toBe(false);
+  });
+
+  it("saves a 200,000-character Chinese scene without changing its text", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "长夜手稿" });
+    const scene = series.scenes[0]!;
+    const content = "潮".repeat(200_000);
+    const startedAt = Date.now();
+    const updated = await store.updateScene(series.manifest.id, scene.metadata.id, {
+      baseRevision: scene.revision,
+      title: "长章",
+      content,
+    });
+    expect(updated.content).toBe(content);
+    expect(updated.characterCount).toBe(200_000);
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 
   it("rebuilds the index and searches Chinese content", async () => {
