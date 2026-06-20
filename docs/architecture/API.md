@@ -1,12 +1,23 @@
 # 本地 API v1
 
-基础路径：`/api/v1`
+基础路径：`/api/v1`。首版只绑定 `127.0.0.1`。请求与响应由 `packages/contracts` 的 Zod 契约约束。
+
+## 错误语义
+
+| HTTP | code | 含义 |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | 请求形状、UUID 或数值范围不合法 |
+| 404 | `NOT_FOUND` | 查询目标不存在或未被权威父链引用 |
+| 409 | `CONFLICT` | `baseRevision` 过期 |
+| 422 | `INVALID_DATA` | 作品层级损坏或结构命令违反不变量 |
+| 403 | `PATH_ESCAPE` | 解析路径越出作品根目录 |
 
 ## 系统
 
-- `GET /health`：服务状态和版本。
-- `GET /system/config`：作品库位置及是否完成初始化。
-- `PUT /system/config`：更新作品库和备份目录。
+- `GET /health`
+- `GET /system/config`
+
+`PUT /system/config` 属于后续首次启动目录设置，目前未实现。
 
 ## 系列与场景
 
@@ -16,10 +27,29 @@
 - `POST /series/:seriesId/scenes`
 - `GET /series/:seriesId/scenes/:sceneId`
 - `PUT /series/:seriesId/scenes/:sceneId`
+- `POST /series/:seriesId/scenes/:sceneId/move`
+- `POST /series/:seriesId/chapters/:chapterId/scenes/reorder`
 - `POST /series/:seriesId/index/rebuild`
 - `GET /series/:seriesId/search?q=`
 
-所有写入使用 Zod 验证。场景更新必须传 `baseRevision`；冲突返回 HTTP 409 和当前版本。
+场景更新必须提供 `baseRevision`。移动只接受 `targetChapterId` 与可选 `order`，祖先 ID 由服务端推导。
 
-M4 后的长任务返回 job ID，并通过 `GET /jobs/:jobId/events` 的 SSE 流输出状态。API 不向局域网公开。
+## Act 与 Chapter
 
+- `GET|POST /series/:seriesId/books/:bookId/acts`
+- `GET|PUT /series/:seriesId/acts/:actId`
+- `POST /series/:seriesId/books/:bookId/acts/reorder`
+- `GET|POST /series/:seriesId/acts/:actId/chapters`
+- `GET|PUT /series/:seriesId/chapters/:chapterId`
+- `POST /series/:seriesId/acts/:actId/chapters/reorder`
+
+改名输入不包含 `order`。重排接收当前成员的完整、无重复排列。
+
+## 校验与迁移
+
+- `GET /series/:seriesId/hierarchy/validate`：只读报告缺失、孤儿、父链、顺序和路径问题。
+- `POST /series/:seriesId/migrate`：为 M2 旧作品建立快照并补齐 Act/Chapter 清单。
+
+## 后续长任务
+
+M4 以后需要长时间运行的 AI、导入和分析任务返回 job ID，并通过 `/jobs/:jobId/events` 的 SSE 输出状态。该接口尚未实现，不得在客户端假装可用。

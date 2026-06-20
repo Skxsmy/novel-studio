@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { SceneDocument, SearchResult, SeriesDetail, SeriesSummary } from "@novel-studio/contracts";
+import type { ActManifest, ChapterManifest, SceneDocument, SearchResult, SeriesDetail, SeriesSummary } from "@novel-studio/contracts";
 import { ApiError, api } from "./api";
 
 type WorkspaceView = "overview" | "plan" | "write" | "codex" | "workshop" | "review";
@@ -199,6 +199,8 @@ function ReviewView() {
 
 interface WriteViewProps {
   detail: SeriesDetail;
+  acts: ActManifest[];
+  chapters: ChapterManifest[];
   activeScene: SceneDocument;
   onSelectScene: (sceneId: string) => void;
   onSceneUpdated: (scene: SceneDocument) => void;
@@ -206,7 +208,7 @@ interface WriteViewProps {
   rightOpen: boolean;
 }
 
-function WriteView({ detail, activeScene, onSelectScene, onSceneUpdated, onCreateScene, rightOpen }: WriteViewProps) {
+function WriteView({ detail, acts, chapters, activeScene, onSelectScene, onSceneUpdated, onCreateScene, rightOpen }: WriteViewProps) {
   const [title, setTitle] = useState(activeScene.metadata.title);
   const [content, setContent] = useState(activeScene.content);
   const [saveState, setSaveState] = useState<SaveState>("saved");
@@ -254,19 +256,47 @@ function WriteView({ detail, activeScene, onSelectScene, onSceneUpdated, onCreat
   const characterCount = Array.from(content.replace(/\s/g, "")).length;
   const paragraphCount = content.trim() ? content.trim().split(/\n\s*\n/u).length : 0;
 
+  const activeChapter = chapters.find((c) => c.id === activeScene.metadata.chapterId);
+  const activeAct = acts.find((a) => activeChapter ? a.chapterIds.includes(activeChapter.id) : false);
+  const book = detail.books[0];
+  const bookTitle = book?.title ?? "第一部";
+
+  const chapterGroups = new Map<string, SceneDocument[]>();
+  for (const chapter of chapters) chapterGroups.set(chapter.id, []);
+  for (const scene of detail.scenes) {
+    chapterGroups.get(scene.metadata.chapterId)?.push(scene);
+  }
+  const chaptersById = new Map(chapters.map((chapter) => [chapter.id, chapter]));
+
   return (
     <section className={`write-workspace ${rightOpen ? "with-inspector" : ""}`}>
       <aside className="scene-drawer">
-        <div className="drawer-heading"><span>第一部</span><button onClick={() => void onCreateScene()} title="添加场景">＋</button></div>
-        <p className="chapter-label">第一章</p>
-        {detail.scenes.map((scene, index) => (
-          <button className={`scene-nav-item ${scene.metadata.id === activeScene.metadata.id ? "active" : ""}`} onClick={() => onSelectScene(scene.metadata.id)} key={scene.metadata.id}>
-            <span>{String(index + 1).padStart(2, "0")}</span><div><strong>{scene.metadata.title}</strong><small>{scene.characterCount} 字符</small></div>
-          </button>
+        <div className="drawer-heading"><span>{bookTitle}</span><button onClick={() => void onCreateScene()} title="添加场景">＋</button></div>
+        {[...acts].sort((a, b) => a.order - b.order).map((act) => (
+          <div key={act.id}>
+            <p className="eyebrow">{act.title}</p>
+            {act.chapterIds.map((chapterId) => {
+              const chapter = chaptersById.get(chapterId);
+              if (!chapter) return null;
+              const scenes = [...(chapterGroups.get(chapterId) ?? [])].sort(
+                (a, b) => a.metadata.order - b.metadata.order,
+              );
+              return (
+                <div key={chapterId}>
+                  <p className="chapter-label">{chapter.title}</p>
+                  {scenes.map((scene, index) => (
+                    <button className={`scene-nav-item ${scene.metadata.id === activeScene.metadata.id ? "active" : ""}`} onClick={() => onSelectScene(scene.metadata.id)} key={scene.metadata.id}>
+                      <span>{String(index + 1).padStart(2, "0")}</span><div><strong>{scene.metadata.title}</strong><small>{scene.characterCount} 字符</small></div>
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
         ))}
       </aside>
       <article className="editor-shell">
-        <div className="editor-breadcrumb">第一部&nbsp;&nbsp;/&nbsp;&nbsp;第一幕&nbsp;&nbsp;/&nbsp;&nbsp;第一章</div>
+        <div className="editor-breadcrumb">{bookTitle}&nbsp;&nbsp;/&nbsp;&nbsp;{activeAct?.title ?? "幕"}&nbsp;&nbsp;/&nbsp;&nbsp;{activeChapter?.title ?? "章"}</div>
         <input className="scene-title-input" value={title} onChange={(event) => changeTitle(event.target.value)} aria-label="场景标题" />
         <textarea className="manuscript-editor" value={content} onChange={(event) => changeContent(event.target.value)} placeholder="从一个动作、一句话，或者某个不肯离开的画面开始……" spellCheck />
         {message && <div className={`save-message ${saveState}`}>{message}</div>}
@@ -280,6 +310,8 @@ function WriteView({ detail, activeScene, onSelectScene, onSceneUpdated, onCreat
 export function App() {
   const [seriesList, setSeriesList] = useState<SeriesSummary[]>([]);
   const [detail, setDetail] = useState<SeriesDetail | null>(null);
+  const [acts, setActs] = useState<ActManifest[]>([]);
+  const [chapters, setChapters] = useState<ChapterManifest[]>([]);
   const [activeView, setActiveView] = useState<WorkspaceView>("overview");
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -294,10 +326,25 @@ export function App() {
     api.listSeries().then(setSeriesList).catch((error: unknown) => setFatalError(error instanceof Error ? error.message : "无法连接本地服务")).finally(() => setLoading(false));
   }, []);
 
+  const loadHierarchy = useCallback(async (loaded: SeriesDetail) => {
+    const loadedActs: ActManifest[] = [];
+    const loadedChapters: ChapterManifest[] = [];
+    for (const book of [...loaded.books].sort((a, b) => a.order - b.order)) {
+      const bookActs = await api.listActs(loaded.manifest.id, book.id);
+      loadedActs.push(...bookActs);
+      for (const act of bookActs) {
+        loadedChapters.push(...(await api.listChapters(loaded.manifest.id, act.id)));
+      }
+    }
+    setActs(loadedActs);
+    setChapters(loadedChapters);
+  }, []);
+
   const openSeries = useCallback(async (seriesId: string) => {
     setLoading(true);
     try {
       const loaded = await api.getSeries(seriesId);
+      await loadHierarchy(loaded);
       setDetail(loaded);
       setActiveSceneId(loaded.scenes[0]?.metadata.id ?? null);
       setActiveView("overview");
@@ -306,7 +353,18 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadHierarchy]);
+
+  async function acceptCreatedSeries(created: SeriesDetail) {
+    try {
+      await loadHierarchy(created);
+      setDetail(created);
+      setSeriesList([{ id: created.manifest.id, title: created.manifest.title, description: created.manifest.description, updatedAt: created.manifest.updatedAt, archived: false, bookCount: created.books.length, sceneCount: created.scenes.length, directoryName: "" }]);
+      setActiveSceneId(created.scenes[0]?.metadata.id ?? null);
+    } catch (error) {
+      setFatalError(error instanceof Error ? error.message : "读取新作品层级失败");
+    }
+  }
 
   const activeScene = useMemo(() => detail?.scenes.find((scene) => scene.metadata.id === activeSceneId) ?? detail?.scenes[0] ?? null, [activeSceneId, detail]);
 
@@ -331,7 +389,7 @@ export function App() {
   if (loading && !detail && seriesList.length === 0) return <div className="loading-screen"><span>NS</span><p>正在打开本地写作室…</p></div>;
   if (fatalError) return <div className="fatal-screen"><h1>本地服务没有准备好</h1><p>{fatalError}</p><button onClick={() => window.location.reload()}>重新连接</button></div>;
   if (!detail) {
-    if (seriesList.length === 0) return <EmptyLibrary onCreated={(created) => { setDetail(created); setSeriesList([{ id: created.manifest.id, title: created.manifest.title, description: created.manifest.description, updatedAt: created.manifest.updatedAt, archived: false, bookCount: created.books.length, sceneCount: created.scenes.length, directoryName: "" }]); setActiveSceneId(created.scenes[0]?.metadata.id ?? null); }} />;
+    if (seriesList.length === 0) return <EmptyLibrary onCreated={(created) => void acceptCreatedSeries(created)} />;
     return <main className="library-picker"><div className="brand-mark">NS</div><p className="eyebrow">YOUR STORY LIBRARY</p><h1>选择一个系列</h1><div>{seriesList.map((series) => <button onClick={() => void openSeries(series.id)} key={series.id}><strong>{series.title}</strong><span>{series.sceneCount} 个场景 · 更新于 {formatDate(series.updatedAt)}</span></button>)}</div></main>;
   }
 
@@ -339,7 +397,7 @@ export function App() {
     <div className={`app-shell ${focusMode ? "focus-mode" : ""} ${sidebarOpen ? "sidebar-open" : "sidebar-collapsed"}`}>
       <aside className="app-sidebar">
         <div className="sidebar-brand"><div className="brand-mark small">NS</div><div><strong>Novel Studio</strong><small>本地写作室</small></div></div>
-        <button className="series-switcher" onClick={() => setDetail(null)}><span>{detail.manifest.title.slice(0, 1)}</span><div><strong>{detail.manifest.title}</strong><small>切换作品</small></div><b>⌄</b></button>
+        <button className="series-switcher" onClick={() => { setDetail(null); setActs([]); setChapters([]); }}><span>{detail.manifest.title.slice(0, 1)}</span><div><strong>{detail.manifest.title}</strong><small>切换作品</small></div><b>⌄</b></button>
         <nav>{navigation.map((item) => <button className={activeView === item.id ? "active" : ""} onClick={() => setActiveView(item.id)} key={item.id}><span>{item.icon}</span><b>{item.label}</b>{item.id === "review" && <i>0</i>}</button>)}</nav>
         <div className="sidebar-footer"><button><span>⚙</span><b>设置</b></button><div className="local-status"><span /> 本地数据已连接</div></div>
       </aside>
@@ -356,7 +414,7 @@ export function App() {
 
         {activeView === "overview" && <Overview detail={detail} />}
         {activeView === "plan" && <PlanView detail={detail} />}
-        {activeView === "write" && activeScene && <WriteView detail={detail} activeScene={activeScene} onSelectScene={setActiveSceneId} onSceneUpdated={sceneUpdated} onCreateScene={createScene} rightOpen={rightOpen} />}
+        {activeView === "write" && activeScene && <WriteView detail={detail} acts={acts} chapters={chapters} activeScene={activeScene} onSelectScene={setActiveSceneId} onSceneUpdated={sceneUpdated} onCreateScene={createScene} rightOpen={rightOpen} />}
         {activeView === "codex" && <CodexView />}
         {activeView === "workshop" && <WorkshopView />}
         {activeView === "review" && <ReviewView />}
@@ -364,4 +422,3 @@ export function App() {
     </div>
   );
 }
-

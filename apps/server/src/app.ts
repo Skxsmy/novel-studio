@@ -3,8 +3,14 @@ import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
+  CreateActInputSchema,
+  CreateChapterInputSchema,
   CreateSceneInputSchema,
   CreateSeriesInputSchema,
+  MoveSceneInputSchema,
+  ReorderInputSchema,
+  UpdateActInputSchema,
+  UpdateChapterInputSchema,
   UpdateSceneInputSchema,
 } from "@novel-studio/contracts";
 import { ProjectRepository, StorageError } from "@novel-studio/storage";
@@ -79,6 +85,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     repository.getSeries(request.params.seriesId),
   );
 
+  app.get<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId/hierarchy/validate",
+    async (request) => repository.validateHierarchy(request.params.seriesId),
+  );
+
   app.post<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/scenes",
     async (request, reply) => {
@@ -109,6 +120,104 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.get<{ Params: { seriesId: string }; Querystring: { q?: string } }>(
     "/api/v1/series/:seriesId/search",
     async (request) => repository.search(request.params.seriesId, request.query.q ?? ""),
+  );
+
+  // --- Acts ---
+  app.get<{ Params: { seriesId: string; bookId: string } }>(
+    "/api/v1/series/:seriesId/books/:bookId/acts",
+    async (request) => repository.listActs(request.params.seriesId, request.params.bookId),
+  );
+
+  app.post<{ Params: { seriesId: string; bookId: string } }>(
+    "/api/v1/series/:seriesId/books/:bookId/acts",
+    async (request, reply) => {
+      const input = CreateActInputSchema.parse(request.body);
+      return reply.status(201).send(
+        await repository.createAct(request.params.seriesId, request.params.bookId, input),
+      );
+    },
+  );
+
+  app.get<{ Params: { seriesId: string; actId: string } }>(
+    "/api/v1/series/:seriesId/acts/:actId",
+    async (request) => repository.getAct(request.params.seriesId, request.params.actId),
+  );
+
+  app.put<{ Params: { seriesId: string; actId: string } }>(
+    "/api/v1/series/:seriesId/acts/:actId",
+    async (request) => {
+      const input = UpdateActInputSchema.parse(request.body);
+      return repository.updateAct(request.params.seriesId, request.params.actId, input);
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; bookId: string } }>(
+    "/api/v1/series/:seriesId/books/:bookId/acts/reorder",
+    async (request) => {
+      const input = ReorderInputSchema.parse(request.body);
+      return repository.reorderActs(request.params.seriesId, request.params.bookId, input);
+    },
+  );
+
+  // --- Chapters ---
+  app.get<{ Params: { seriesId: string; actId: string } }>(
+    "/api/v1/series/:seriesId/acts/:actId/chapters",
+    async (request) => repository.listChapters(request.params.seriesId, request.params.actId),
+  );
+
+  app.post<{ Params: { seriesId: string; actId: string } }>(
+    "/api/v1/series/:seriesId/acts/:actId/chapters",
+    async (request, reply) => {
+      const input = CreateChapterInputSchema.parse(request.body);
+      return reply.status(201).send(
+        await repository.createChapter(request.params.seriesId, request.params.actId, input),
+      );
+    },
+  );
+
+  app.get<{ Params: { seriesId: string; chapterId: string } }>(
+    "/api/v1/series/:seriesId/chapters/:chapterId",
+    async (request) =>
+      repository.getChapter(request.params.seriesId, request.params.chapterId),
+  );
+
+  app.put<{ Params: { seriesId: string; chapterId: string } }>(
+    "/api/v1/series/:seriesId/chapters/:chapterId",
+    async (request) => {
+      const input = UpdateChapterInputSchema.parse(request.body);
+      return repository.updateChapter(request.params.seriesId, request.params.chapterId, input);
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; actId: string } }>(
+    "/api/v1/series/:seriesId/acts/:actId/chapters/reorder",
+    async (request) => {
+      const input = ReorderInputSchema.parse(request.body);
+      return repository.reorderChapters(request.params.seriesId, request.params.actId, input);
+    },
+  );
+
+  // --- Scene Movement ---
+  app.post<{ Params: { seriesId: string; sceneId: string } }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId/move",
+    async (request) => {
+      const input = MoveSceneInputSchema.parse(request.body);
+      return repository.moveScene(request.params.seriesId, request.params.sceneId, input);
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; chapterId: string } }>(
+    "/api/v1/series/:seriesId/chapters/:chapterId/scenes/reorder",
+    async (request) => {
+      const input = ReorderInputSchema.parse(request.body);
+      return repository.reorderScenes(request.params.seriesId, request.params.chapterId, input);
+    },
+  );
+
+  // --- Migration ---
+  app.post<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId/migrate",
+    async (request) => repository.migrateToManifests(request.params.seriesId),
   );
 
   if (options.webRoot) {

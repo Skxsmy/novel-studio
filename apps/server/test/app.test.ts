@@ -49,5 +49,43 @@ describe("local API", () => {
     expect(staleResponse.statusCode).toBe(409);
     await app.close();
   });
-});
 
+  it("validates hierarchy and rejects incomplete reorder commands", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
+    roots.push(root);
+    const app = await buildApp({ libraryRoot: root });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "层级接口" },
+    });
+    const series = created.json();
+    const book = series.books[0];
+    const firstActs = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/books/${book.id}/acts`,
+    });
+    const firstAct = firstActs.json()[0];
+    const secondActResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/books/${book.id}/acts`,
+      payload: { title: "第二幕" },
+    });
+    expect(secondActResponse.statusCode).toBe(201);
+
+    const invalidReorder = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/books/${book.id}/acts/reorder`,
+      payload: { orderedIds: [firstAct.id] },
+    });
+    expect(invalidReorder.statusCode).toBe(422);
+
+    const validation = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/hierarchy/validate`,
+    });
+    expect(validation.statusCode).toBe(200);
+    expect(validation.json()).toMatchObject({ valid: true, actCount: 2 });
+    await app.close();
+  });
+});

@@ -1,10 +1,19 @@
 import type {
+  ActManifest,
+  ChapterManifest,
+  CreateActInput,
+  CreateChapterInput,
   CreateSceneInput,
   CreateSeriesInput,
+  MoveSceneInput,
+  HierarchyValidationResult,
+  ReorderInput,
   SceneDocument,
   SearchResult,
   SeriesDetail,
   SeriesSummary,
+  UpdateActInput,
+  UpdateChapterInput,
   UpdateSceneInput,
 } from "@novel-studio/contracts";
 
@@ -43,6 +52,8 @@ export const api = {
       body: JSON.stringify(input),
     }),
   getSeries: (seriesId: string) => request<SeriesDetail>(`/api/v1/series/${seriesId}`),
+  validateHierarchy: (seriesId: string) =>
+    request<HierarchyValidationResult>(`/api/v1/series/${seriesId}/hierarchy/validate`),
   createScene: (seriesId: string, input: CreateSceneInput) =>
     request<SceneDocument>(`/api/v1/series/${seriesId}/scenes`, {
       method: "POST",
@@ -55,4 +66,53 @@ export const api = {
     }),
   search: (seriesId: string, query: string) =>
     request<SearchResult[]>(`/api/v1/series/${seriesId}/search?q=${encodeURIComponent(query)}`),
+  listActs: (seriesId: string, bookId: string) =>
+    request<ActManifest[]>(`/api/v1/series/${seriesId}/books/${bookId}/acts`),
+  createAct: (seriesId: string, bookId: string, input: CreateActInput) =>
+    request<ActManifest>(`/api/v1/series/${seriesId}/books/${bookId}/acts`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateAct: (seriesId: string, actId: string, input: UpdateActInput) =>
+    request<ActManifest>(`/api/v1/series/${seriesId}/acts/${actId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  reorderActs: (seriesId: string, bookId: string, input: ReorderInput) =>
+    request<ActManifest[]>(`/api/v1/series/${seriesId}/books/${bookId}/acts/reorder`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  listChapters: (seriesId: string, actId: string) =>
+    request<ChapterManifest[]>(`/api/v1/series/${seriesId}/acts/${actId}/chapters`),
+  createChapter: (seriesId: string, actId: string, input: CreateChapterInput) =>
+    request<ChapterManifest>(`/api/v1/series/${seriesId}/acts/${actId}/chapters`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateChapter: (seriesId: string, chapterId: string, input: UpdateChapterInput) =>
+    request<ChapterManifest>(`/api/v1/series/${seriesId}/chapters/${chapterId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  reorderChapters: (seriesId: string, actId: string, input: ReorderInput) =>
+    request<ChapterManifest[]>(`/api/v1/series/${seriesId}/acts/${actId}/chapters/reorder`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  moveScene: (seriesId: string, sceneId: string, input: MoveSceneInput) =>
+    request<SceneDocument>(`/api/v1/series/${seriesId}/scenes/${sceneId}/move`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  reorderScenes: (seriesId: string, chapterId: string, input: ReorderInput) =>
+    request<SceneDocument[]>(`/api/v1/series/${seriesId}/chapters/${chapterId}/scenes/reorder`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  migrateSeries: (seriesId: string) =>
+    request<{ actsCreated: number; chaptersCreated: number; snapshotPath: string }>(
+      `/api/v1/series/${seriesId}/migrate`,
+      { method: "POST" },
+    ),
 };

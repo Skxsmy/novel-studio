@@ -40,6 +40,89 @@ export const BookManifestSchema = z.object({
 });
 export type BookManifest = z.infer<typeof BookManifestSchema>;
 
+export const ActManifestSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  bookId: z.string().uuid(),
+  title: z.string().min(1).max(160),
+  order: z.number().int().positive(),
+  chapterIds: z.array(z.string().uuid()).default([]),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type ActManifest = z.infer<typeof ActManifestSchema>;
+
+export const ChapterManifestSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  actId: z.string().uuid(),
+  title: z.string().min(1).max(160),
+  order: z.number().int().positive(),
+  sceneIds: z.array(z.string().uuid()).default([]),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type ChapterManifest = z.infer<typeof ChapterManifestSchema>;
+
+export const CreateActInputSchema = z.object({
+  title: z.string().trim().min(1).max(160).default("新幕"),
+});
+export type CreateActInput = z.input<typeof CreateActInputSchema>;
+
+export const CreateChapterInputSchema = z.object({
+  title: z.string().trim().min(1).max(160).default("新章"),
+});
+export type CreateChapterInput = z.input<typeof CreateChapterInputSchema>;
+
+export const UpdateActInputSchema = z.object({
+  title: z.string().trim().min(1).max(160).optional(),
+});
+export type UpdateActInput = z.infer<typeof UpdateActInputSchema>;
+
+export const UpdateChapterInputSchema = z.object({
+  title: z.string().trim().min(1).max(160).optional(),
+});
+export type UpdateChapterInput = z.infer<typeof UpdateChapterInputSchema>;
+
+export const MoveSceneInputSchema = z.object({
+  targetChapterId: z.string().uuid(),
+  order: z.number().int().positive().optional(),
+});
+export type MoveSceneInput = z.infer<typeof MoveSceneInputSchema>;
+
+export const ReorderInputSchema = z
+  .object({
+    orderedIds: z.array(z.string().uuid()).min(1),
+  })
+  .superRefine(({ orderedIds }, context) => {
+    if (new Set(orderedIds).size !== orderedIds.length) {
+      context.addIssue({
+        code: "custom",
+        message: "重排列表不能包含重复 ID",
+        path: ["orderedIds"],
+      });
+    }
+  });
+export type ReorderInput = z.infer<typeof ReorderInputSchema>;
+
+export const HierarchyIssueSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  entityId: z.string().optional(),
+  relativePath: z.string().optional(),
+});
+export type HierarchyIssue = z.infer<typeof HierarchyIssueSchema>;
+
+export const HierarchyValidationResultSchema = z.object({
+  valid: z.boolean(),
+  issues: z.array(HierarchyIssueSchema),
+  bookCount: z.number().int().nonnegative(),
+  actCount: z.number().int().nonnegative(),
+  chapterCount: z.number().int().nonnegative(),
+  sceneCount: z.number().int().nonnegative(),
+});
+export type HierarchyValidationResult = z.infer<typeof HierarchyValidationResultSchema>;
+
 export const SceneFrontmatterSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string().uuid(),
@@ -128,4 +211,3 @@ export interface ApiErrorBody {
   message: string;
   details?: unknown;
 }
-

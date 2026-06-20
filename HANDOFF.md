@@ -1,37 +1,44 @@
 # 最新交接
 
-更新时间：2026-06-19
+更新时间：2026-06-20
 
-## 当前工作
+## 仓库状态
 
-- 已完成任务：`NS-001`、`NS-002`、`NS-101`–`NS-103`、`NS-201`–`NS-204`
 - 分支：`main`
-- 已验证代码 HEAD：`aed404d`（最终验收文档提交在其后）
-- 唯一下一任务：`NS-301`
+- 最近相关提交：
+  - `196886f NS-003 docs(product): preserve complete product intent`
+  - `NS-301 fix(hierarchy): enforce manifest integrity and safe moves`（本交接所在 HEAD）
+- 预期脏文件：无。接手时先运行 `git status --short` 核实。
 
 ## 已完成
 
-- 完成产品、架构、数据、安全、ADR、任务和测试文档。
-- 完成 TypeScript npm workspaces、React/Vite 8、Fastify、Zod 与 better-sqlite3。
-- 完成系列与场景文件存储、revision 冲突保护、FTS5 和 `/api/v1`。
-- 完成中文浏览器工作台和真实场景自动保存。
-- 生产构建和双击启动脚本可用。
-
-## 下一步
-
-执行 `NS-301`：先补 Act/Chapter manifest 契约和磁盘迁移策略，再实现排序与移动测试。不要提前接 Milkdown 或 AI。
+- `NS-003`：约 1500 行完整产品、UX、AI、资料、Word/版本、目标架构与需求追踪规格已经入库，不再依赖聊天上下文。
+- `NS-301`：修复另一 AI 实现中发现的层级完整性缺陷，并重写任务规格：
+  - 缺失 Act/Chapter 不再静默跳过；
+  - 重排要求完整无重复排列；
+  - 同章移动不复制 ID；跨幕移动由目标章推导 Act；
+  - 场景实际搬移到目标目录，两章 order 连续更新；
+  - 创建、重排、移动采用可恢复文件事务；
+  - 提供层级校验 API；
+  - 迁移测试真实删除旧清单并验证快照与重建；
+  - 新建作品后前端立即加载层级，导航按 Act→Chapter 展示。
 
 ## 验证记录
 
-- `npm.cmd audit --audit-level=low`：0 vulnerabilities。
-- `npm.cmd run check`：类型检查通过；server 1 项、storage 3 项测试通过；Vite 8 生产构建通过。
-- 冷启动：`scripts/start.ps1 -NoBrowser` 可从停止状态拉起服务并通过 health check。
-- 浏览器：创建“雾港纪事”，写入 71 个中文字符，自动保存、刷新恢复、全文搜索高亮均通过。
-- 浏览器：Plan、Codex、Workshop、Review 导航通过；控制台无 warning/error。
+- `npm.cmd run check`：退出码 0。
+- Server：2/2。
+- Storage：18/18。
+- Web typecheck 与生产构建：通过。
+- 浏览器新建与幕章导航：通过。
+- 逐项证据：`docs/testing/NS-301_ACCEPTANCE.md`。
 
 ## 已知问题
 
-- PowerShell 执行策略会阻止 `npm.ps1`，统一使用 `npm.cmd`。
-- 应用服务可能仍在 `127.0.0.1:4317` 运行；启动脚本会先检查 health，不会重复启动。
-- 浏览器刷新后回到作品库选择页，尚未记住上次打开的系列。
-- `data/library`、日志、SQLite 和示例作品均被 `.gitignore` 排除。
+- PowerShell 执行策略会阻止直接运行 `npm.ps1`，统一使用 `npm.cmd`。
+- 构建产物偶尔受托管沙箱权限限制；源代码并无文件锁问题。
+- Web 仍没有自动化 UI 测试，NS-302 应开始为规划查询与关键交互建立测试层。
+- 当前不支持场景跨单本移动；这是 NS-301 明确边界，不是遗漏。
+
+## 唯一下一任务
+
+执行 `NS-302`。先阅读 `docs/README.md`、完整产品规格、`docs/tasks/M3.md` 与 ADR-0005；先定义共享规划查询模型和 NS302 验收 ID，再改 Grid/Outline/Matrix/双时间线。不要提前接入 Milkdown 或 AI。

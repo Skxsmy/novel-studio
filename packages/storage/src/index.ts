@@ -12,28 +12,58 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import YAML from "yaml";
 import {
+  ActManifestSchema,
   BookManifestSchema,
+  ChapterManifestSchema,
+  CreateActInputSchema,
+  CreateChapterInputSchema,
   CreateSceneInputSchema,
   CreateSeriesInputSchema,
+  MoveSceneInputSchema,
+  ReorderInputSchema,
   SceneDocumentSchema,
   SceneFrontmatterSchema,
   SeriesManifestSchema,
+  UpdateActInputSchema,
+  UpdateChapterInputSchema,
   UpdateSceneInputSchema,
+  type ActManifest,
   type BookManifest,
+  type ChapterManifest,
+  type CreateActInput,
+  type CreateChapterInput,
   type CreateSceneInput,
   type CreateSeriesInput,
+  type HierarchyIssue,
+  type HierarchyValidationResult,
+  type MoveSceneInput,
+  type ReorderInput,
   type SceneDocument,
   type SceneFrontmatter,
   type SearchResult,
   type SeriesDetail,
   type SeriesManifest,
   type SeriesSummary,
+  type UpdateActInput,
+  type UpdateChapterInput,
   type UpdateSceneInput,
 } from "@novel-studio/contracts";
 
 const FRONTMATTER_MARKER = "---";
 const SERIES_FILE = "series.yaml";
 const BOOK_FILE = "book.yaml";
+const ACTS_DIR = "acts";
+const CHAPTERS_DIR = "chapters";
+
+function toChineseOrdinal(value: number): string {
+  const digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+  if (value <= 0) return String(value);
+  if (value < 10) return digits[value] ?? String(value);
+  if (value < 20) return `十${value === 10 ? "" : digits[value - 10]}`;
+  const tens = Math.floor(value / 10);
+  const ones = value % 10;
+  return `${digits[tens]}十${ones === 0 ? "" : digits[ones]}`;
+}
 
 export class StorageError extends Error {
   constructor(
@@ -99,6 +129,153 @@ async function atomicWrite(filePath: string, value: string): Promise<void> {
   }
 }
 
+interface FileMutation {
+  targetPath: string;
+  content?: string;
+  delete?: boolean;
+}
+
+interface TransactionEntry {
+  target: string;
+  temporary: string | null;
+  backup: string;
+  hadOriginal: boolean;
+  delete: boolean;
+}
+
+interface TransactionJournal {
+  id: string;
+  status: "prepared" | "committing" | "committed";
+  entries: TransactionEntry[];
+}
+
+async function recoverFileTransactions(seriesRoot: string): Promise<void> {
+  const transactionRoot = path.join(seriesRoot, ".studio", "transactions");
+  let files: string[];
+  try {
+    files = (await readdir(transactionRoot, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => path.join(transactionRoot, entry.name));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+
+  for (const journalPath of files) {
+    const journal = JSON.parse(await readFile(journalPath, "utf8")) as TransactionJournal;
+    const entries = journal.entries.map((entry) => ({
+      ...entry,
+      target: assertInside(seriesRoot, path.join(seriesRoot, entry.target)),
+      temporary: entry.temporary
+        ? assertInside(seriesRoot, path.join(seriesRoot, entry.temporary))
+        : null,
+      backup: assertInside(seriesRoot, path.join(seriesRoot, entry.backup)),
+    }));
+
+    if (journal.status === "committed") {
+      await Promise.all(
+        entries.flatMap((entry) => [
+          rm(entry.backup, { force: true }),
+          ...(entry.temporary ? [rm(entry.temporary, { force: true })] : []),
+        ]),
+      );
+      await rm(journalPath, { force: true });
+      continue;
+    }
+
+    for (const entry of [...entries].reverse()) {
+      if (entry.hadOriginal && (await pathExists(entry.backup))) {
+        await rm(entry.target, { force: true });
+        await rename(entry.backup, entry.target);
+      } else if (!entry.hadOriginal) {
+        await rm(entry.target, { force: true });
+      }
+      if (entry.temporary) await rm(entry.temporary, { force: true });
+    }
+    await rm(journalPath, { force: true });
+  }
+}
+
+async function applyFileTransaction(
+  seriesRoot: string,
+  mutations: FileMutation[],
+): Promise<void> {
+  const uniqueTargets = new Set(mutations.map((mutation) => path.resolve(mutation.targetPath)));
+  if (uniqueTargets.size !== mutations.length) {
+    throw new StorageError("文件事务包含重复目标", "INVALID_DATA");
+  }
+
+  await recoverFileTransactions(seriesRoot);
+  const id = randomUUID();
+  const transactionRoot = path.join(seriesRoot, ".studio", "transactions");
+  await mkdir(transactionRoot, { recursive: true });
+  const journalPath = path.join(transactionRoot, `${id}.json`);
+  const entries: TransactionEntry[] = [];
+
+  for (const mutation of mutations) {
+    const targetPath = assertInside(seriesRoot, mutation.targetPath);
+    await mkdir(path.dirname(targetPath), { recursive: true });
+    const temporary = mutation.delete ? null : `${targetPath}.${id}.tmp`;
+    if (temporary) {
+      if (mutation.content === undefined) {
+        throw new StorageError("文件事务缺少写入内容", "INVALID_DATA", { targetPath });
+      }
+      await writeFile(temporary, mutation.content, { encoding: "utf8", flag: "wx" });
+    }
+    entries.push({
+      target: path.relative(seriesRoot, targetPath),
+      temporary: temporary ? path.relative(seriesRoot, temporary) : null,
+      backup: path.relative(seriesRoot, `${targetPath}.${id}.bak`),
+      hadOriginal: await pathExists(targetPath),
+      delete: mutation.delete ?? false,
+    });
+  }
+
+  const writeJournal = async (status: TransactionJournal["status"]) =>
+    atomicWrite(journalPath, JSON.stringify({ id, status, entries } satisfies TransactionJournal));
+
+  await writeJournal("prepared");
+  try {
+    await writeJournal("committing");
+    for (const entry of entries) {
+      const target = path.join(seriesRoot, entry.target);
+      const backup = path.join(seriesRoot, entry.backup);
+      if (entry.hadOriginal) await rename(target, backup);
+      if (entry.temporary) await rename(path.join(seriesRoot, entry.temporary), target);
+    }
+    await writeJournal("committed");
+    await Promise.all(entries.map((entry) => rm(path.join(seriesRoot, entry.backup), { force: true })));
+    await rm(journalPath, { force: true });
+  } catch (error) {
+    await recoverFileTransactions(seriesRoot);
+    throw error;
+  }
+}
+
+function assertExactPermutation(
+  existingIds: string[],
+  orderedIds: string[],
+  entityLabel: string,
+): void {
+  const existing = new Set(existingIds);
+  const ordered = new Set(orderedIds);
+  const missingIds = existingIds.filter((id) => !ordered.has(id));
+  const unknownIds = orderedIds.filter((id) => !existing.has(id));
+  const duplicateIds = orderedIds.filter((id, index) => orderedIds.indexOf(id) !== index);
+  if (
+    existingIds.length !== orderedIds.length ||
+    ordered.size !== orderedIds.length ||
+    missingIds.length > 0 ||
+    unknownIds.length > 0
+  ) {
+    throw new StorageError(`${entityLabel}重排必须是现有 ID 的完整无重复排列`, "INVALID_DATA", {
+      missingIds,
+      unknownIds,
+      duplicateIds: [...new Set(duplicateIds)],
+    });
+  }
+}
+
 function serializeYaml(value: unknown): string {
   return YAML.stringify(value, { lineWidth: 0 });
 }
@@ -150,6 +327,30 @@ async function readYaml<T>(filePath: string, parse: (input: unknown) => T): Prom
   }
 }
 
+function actPath(bookRoot: string, actId: string): string {
+  return path.join(bookRoot, ACTS_DIR, `${actId}.yaml`);
+}
+
+function chapterPath(bookRoot: string, chapterId: string): string {
+  return path.join(bookRoot, CHAPTERS_DIR, `${chapterId}.yaml`);
+}
+
+async function readActManifest(bookRoot: string, actId: string): Promise<ActManifest> {
+  return readYaml(actPath(bookRoot, actId), (value) => ActManifestSchema.parse(value));
+}
+
+async function readChapterManifest(bookRoot: string, chapterId: string): Promise<ChapterManifest> {
+  return readYaml(chapterPath(bookRoot, chapterId), (value) => ChapterManifestSchema.parse(value));
+}
+
+async function writeActManifest(bookRoot: string, manifest: ActManifest): Promise<void> {
+  await atomicWrite(actPath(bookRoot, manifest.id), serializeYaml(manifest));
+}
+
+async function writeChapterManifest(bookRoot: string, manifest: ChapterManifest): Promise<void> {
+  await atomicWrite(chapterPath(bookRoot, manifest.id), serializeYaml(manifest));
+}
+
 async function walkSceneFiles(directory: string): Promise<string[]> {
   let entries;
   try {
@@ -165,6 +366,18 @@ async function walkSceneFiles(directory: string): Promise<string[]> {
     else if (entry.isFile() && entry.name.endsWith(".md")) files.push(fullPath);
   }
   return files;
+}
+
+interface ChapterContext {
+  book: BookManifest;
+  bookRoot: string;
+  act: ActManifest;
+  chapter: ChapterManifest;
+}
+
+interface SceneContext extends ChapterContext {
+  scene: SceneDocument;
+  scenePath: string;
 }
 
 export class ProjectRepository {
@@ -214,6 +427,26 @@ export class ProjectRepository {
       createdAt: now,
       updatedAt: now,
     });
+    const act: ActManifest = ActManifestSchema.parse({
+      schemaVersion: 1,
+      id: actId,
+      bookId,
+      title: "第一幕",
+      order: 1,
+      chapterIds: [chapterId],
+      createdAt: now,
+      updatedAt: now,
+    });
+    const chapter: ChapterManifest = ChapterManifestSchema.parse({
+      schemaVersion: 1,
+      id: chapterId,
+      actId,
+      title: "第一章",
+      order: 1,
+      sceneIds: [],
+      createdAt: now,
+      updatedAt: now,
+    });
 
     await mkdir(sceneDirectory, { recursive: true });
     const requiredDirectories = [
@@ -237,8 +470,12 @@ export class ProjectRepository {
     await Promise.all(
       requiredDirectories.map((directory) => mkdir(path.join(seriesRoot, directory), { recursive: true })),
     );
-    await atomicWrite(path.join(seriesRoot, SERIES_FILE), serializeYaml(manifest));
-    await atomicWrite(path.join(bookRoot, BOOK_FILE), serializeYaml(book));
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: path.join(seriesRoot, SERIES_FILE), content: serializeYaml(manifest) },
+      { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeYaml(book) },
+      { targetPath: actPath(bookRoot, act.id), content: serializeYaml(act) },
+      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(chapter) },
+    ]);
     await this.createScene(seriesId, { title: "开篇场景", content: "" }, {
       bookId,
       actId,
@@ -254,8 +491,10 @@ export class ProjectRepository {
     const summaries: SeriesSummary[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const seriesFile = path.join(this.libraryRoot, entry.name, SERIES_FILE);
+      const root = path.join(this.libraryRoot, entry.name);
+      const seriesFile = path.join(root, SERIES_FILE);
       try {
+        await recoverFileTransactions(root);
         const manifest = await readYaml(seriesFile, (value) => SeriesManifestSchema.parse(value));
         const scenes = await walkSceneFiles(path.join(this.libraryRoot, entry.name, "books"));
         summaries.push({
@@ -278,6 +517,10 @@ export class ProjectRepository {
 
   async getSeries(seriesId: string): Promise<SeriesDetail> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    const hierarchy = await this.validateHierarchy(seriesId);
+    if (!hierarchy.valid) {
+      throw new StorageError("作品层级不完整", "INVALID_DATA", { issues: hierarchy.issues });
+    }
     const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
       SeriesManifestSchema.parse(value),
     );
@@ -289,13 +532,20 @@ export class ProjectRepository {
         ),
       );
     }
-    const sceneFiles = await walkSceneFiles(path.join(seriesRoot, "books"));
-    const scenes = await Promise.all(
-      sceneFiles.map(async (filePath) =>
-        parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath)),
-      ),
-    );
-    scenes.sort((a, b) => a.metadata.order - b.metadata.order);
+    const scenes: SceneDocument[] = [];
+    for (const book of books.sort((a, b) => a.order - b.order)) {
+      const bookRoot = path.join(seriesRoot, "books", book.id);
+      for (const actId of book.actIds) {
+        const act = await this.readReferencedAct(bookRoot, book, actId);
+        for (const chapterId of act.chapterIds) {
+          const chapter = await this.readReferencedChapter(bookRoot, act, chapterId);
+          for (const sceneId of chapter.sceneIds) {
+            const scene = await this.readReferencedScene(seriesRoot, book, act, chapter, sceneId);
+            scenes.push(scene);
+          }
+        }
+      }
+    }
     return { manifest, books, scenes };
   }
 
@@ -316,9 +566,13 @@ export class ProjectRepository {
       ? series.books.find((item) => item.id === location.bookId)
       : series.books[0];
     if (!book) throw new StorageError("作品没有可用单本", "INVALID_DATA");
-    const actId = location?.actId ?? book.actIds[0] ?? randomUUID();
-    const chapterId = location?.chapterId ?? randomUUID();
-    const existing = await walkSceneFiles(path.join(series.root, "books"));
+    const actId = location?.actId ?? book.actIds[0];
+    if (!actId) throw new StorageError("单本没有可用幕", "INVALID_DATA", { bookId: book.id });
+    const act = await this.readReferencedAct(path.join(series.root, "books", book.id), book, actId);
+    const chapterId = location?.chapterId ?? act.chapterIds[0];
+    if (!chapterId) throw new StorageError("幕没有可用章", "INVALID_DATA", { actId });
+    const bookRoot = path.join(series.root, "books", book.id);
+    const chapter = await this.readReferencedChapter(bookRoot, act, chapterId);
     const now = new Date().toISOString();
     const metadata = SceneFrontmatterSchema.parse({
       schemaVersion: 1,
@@ -327,7 +581,7 @@ export class ProjectRepository {
       actId,
       chapterId,
       title: input.title,
-      order: existing.length + 1,
+      order: chapter.sceneIds.length + 1,
       status: "draft",
       pov: null,
       locationIds: [],
@@ -345,8 +599,16 @@ export class ProjectRepository {
       series.root,
       path.join(series.root, "books", book.id, "manuscript", actId, chapterId, `${metadata.id}.md`),
     );
-    await atomicWrite(filePath, serializeScene(metadata, input.content));
-    const scene = await this.getScene(seriesId, metadata.id);
+    const updatedChapter = ChapterManifestSchema.parse({
+      ...chapter,
+      sceneIds: [...chapter.sceneIds, metadata.id],
+      updatedAt: now,
+    });
+    await applyFileTransaction(series.root, [
+      { targetPath: filePath, content: serializeScene(metadata, input.content) },
+      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(updatedChapter) },
+    ]);
+    const scene = parseSceneText(await readFile(filePath, "utf8"), path.relative(series.root, filePath));
     await this.indexScene(series.root, scene);
     return scene;
   }
@@ -424,6 +686,465 @@ export class ProjectRepository {
     }
   }
 
+  async getAct(seriesId: string, actId: string): Promise<ActManifest> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const books = await this.readBookManifests(seriesRoot);
+    for (const book of books) {
+      if (book.actIds.includes(actId)) {
+        return this.readReferencedAct(path.join(seriesRoot, "books", book.id), book, actId);
+      }
+    }
+    throw new StorageError("幕不存在", "NOT_FOUND", { actId });
+  }
+
+  async getChapter(seriesId: string, chapterId: string): Promise<ChapterManifest> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return (await this.findChapterContext(seriesRoot, chapterId)).chapter;
+  }
+
+  async listActs(seriesId: string, bookId: string): Promise<ActManifest[]> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const bookRoot = assertInside(seriesRoot, path.join(seriesRoot, "books", bookId));
+    const book = await readYaml(path.join(bookRoot, BOOK_FILE), (value) =>
+      BookManifestSchema.parse(value),
+    );
+    const acts = await Promise.all(
+      book.actIds.map((actId) => this.readReferencedAct(bookRoot, book, actId)),
+    );
+    if (new Set(book.actIds).size !== book.actIds.length || acts.some((act, index) => act.order !== index + 1)) {
+      throw new StorageError("单本的幕引用或顺序无效", "INVALID_DATA", { bookId });
+    }
+    return acts;
+  }
+
+  async listChapters(seriesId: string, actId: string): Promise<ChapterManifest[]> {
+    const act = await this.getAct(seriesId, actId);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const bookRoot = assertInside(
+      seriesRoot,
+      path.join(seriesRoot, "books", act.bookId),
+    );
+    const chapters = await Promise.all(
+      act.chapterIds.map((chapterId) => this.readReferencedChapter(bookRoot, act, chapterId)),
+    );
+    if (
+      new Set(act.chapterIds).size !== act.chapterIds.length ||
+      chapters.some((chapter, index) => chapter.order !== index + 1)
+    ) {
+      throw new StorageError("幕的章引用或顺序无效", "INVALID_DATA", { actId });
+    }
+    return chapters;
+  }
+
+  async createAct(
+    seriesId: string,
+    bookId: string,
+    rawInput: CreateActInput,
+  ): Promise<ActManifest> {
+    const input = CreateActInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const bookRoot = assertInside(seriesRoot, path.join(seriesRoot, "books", bookId));
+    const book = await readYaml(path.join(bookRoot, BOOK_FILE), (value) =>
+      BookManifestSchema.parse(value),
+    );
+    const now = new Date().toISOString();
+    const act: ActManifest = ActManifestSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      bookId,
+      title: input.title,
+      order: book.actIds.length + 1,
+      chapterIds: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    const updatedBook = BookManifestSchema.parse({
+      ...book,
+      actIds: [...book.actIds, act.id],
+      updatedAt: now,
+    });
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: actPath(bookRoot, act.id), content: serializeYaml(act) },
+      { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeYaml(updatedBook) },
+    ]);
+    return act;
+  }
+
+  async createChapter(
+    seriesId: string,
+    actId: string,
+    rawInput: CreateChapterInput,
+  ): Promise<ChapterManifest> {
+    const input = CreateChapterInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const act = await this.getAct(seriesId, actId);
+    const bookRoot = assertInside(seriesRoot, path.join(seriesRoot, "books", act.bookId));
+    const now = new Date().toISOString();
+    const chapter: ChapterManifest = ChapterManifestSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      actId,
+      title: input.title,
+      order: act.chapterIds.length + 1,
+      sceneIds: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    const updatedAct = ActManifestSchema.parse({
+      ...act,
+      chapterIds: [...act.chapterIds, chapter.id],
+      updatedAt: now,
+    });
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(chapter) },
+      { targetPath: actPath(bookRoot, act.id), content: serializeYaml(updatedAct) },
+    ]);
+    return chapter;
+  }
+
+  async updateAct(
+    seriesId: string,
+    actId: string,
+    rawInput: UpdateActInput,
+  ): Promise<ActManifest> {
+    const input = UpdateActInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const act = await this.getAct(seriesId, actId);
+    const bookRoot = assertInside(seriesRoot, path.join(seriesRoot, "books", act.bookId));
+    const updated = ActManifestSchema.parse({
+      ...act,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+    await writeActManifest(bookRoot, updated);
+    return updated;
+  }
+
+  async updateChapter(
+    seriesId: string,
+    chapterId: string,
+    rawInput: UpdateChapterInput,
+  ): Promise<ChapterManifest> {
+    const input = UpdateChapterInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const context = await this.findChapterContext(seriesRoot, chapterId);
+    const { chapter, bookRoot } = context;
+    const updated = ChapterManifestSchema.parse({
+      ...chapter,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+    await writeChapterManifest(bookRoot, updated);
+    return updated;
+  }
+
+  async moveScene(
+    seriesId: string,
+    sceneId: string,
+    rawInput: MoveSceneInput,
+  ): Promise<SceneDocument> {
+    const input = MoveSceneInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const source = await this.findChapterContextByScene(seriesRoot, sceneId);
+    const target = await this.findChapterContext(seriesRoot, input.targetChapterId);
+    if (source.book.id !== target.book.id) {
+      throw new StorageError("NS-301 不支持场景跨单本移动", "INVALID_DATA", {
+        sourceBookId: source.book.id,
+        targetBookId: target.book.id,
+      });
+    }
+
+    if (source.chapter.id === target.chapter.id) {
+      if (input.order === undefined) return source.scene;
+      const reordered = source.chapter.sceneIds.filter((id) => id !== sceneId);
+      const position = Math.min(input.order, reordered.length + 1) - 1;
+      reordered.splice(position, 0, sceneId);
+      const scenes = await this.reorderScenes(seriesId, source.chapter.id, { orderedIds: reordered });
+      return scenes.find((scene) => scene.metadata.id === sceneId)!;
+    }
+
+    const now = new Date().toISOString();
+    const sourceIds = source.chapter.sceneIds.filter((id) => id !== sceneId);
+    if (sourceIds.length === source.chapter.sceneIds.length) {
+      throw new StorageError("源章没有引用待移动场景", "INVALID_DATA", { sceneId });
+    }
+    const targetIds = target.chapter.sceneIds.filter((id) => id !== sceneId);
+    const position = Math.min(input.order ?? targetIds.length + 1, targetIds.length + 1) - 1;
+    targetIds.splice(position, 0, sceneId);
+
+    const sourceScenes = await this.prepareOrderedScenes(seriesRoot, source, sourceIds, now);
+    const targetScenes = await this.prepareOrderedScenes(seriesRoot, target, targetIds, now, source.scene);
+    const updatedSourceChapter = ChapterManifestSchema.parse({
+      ...source.chapter,
+      sceneIds: sourceIds,
+      updatedAt: now,
+    });
+    const updatedTargetChapter = ChapterManifestSchema.parse({
+      ...target.chapter,
+      sceneIds: targetIds,
+      updatedAt: now,
+    });
+    const destinationPath = path.join(
+      target.bookRoot,
+      "manuscript",
+      target.act.id,
+      target.chapter.id,
+      `${sceneId}.md`,
+    );
+    const mutations: FileMutation[] = [
+      { targetPath: chapterPath(source.bookRoot, source.chapter.id), content: serializeYaml(updatedSourceChapter) },
+      { targetPath: chapterPath(target.bookRoot, target.chapter.id), content: serializeYaml(updatedTargetChapter) },
+      ...sourceScenes.map(({ filePath, document }) => ({
+        targetPath: filePath,
+        content: serializeScene(document.metadata, document.content),
+      })),
+      ...targetScenes.map(({ filePath, document }) => ({
+        targetPath: document.metadata.id === sceneId ? destinationPath : filePath,
+        content: serializeScene(document.metadata, document.content),
+      })),
+    ];
+    if (path.resolve(source.scenePath) !== path.resolve(destinationPath)) {
+      mutations.push({ targetPath: source.scenePath, delete: true });
+    }
+    await applyFileTransaction(seriesRoot, mutations);
+    for (const prepared of [...sourceScenes, ...targetScenes]) {
+      const finalPath = prepared.document.metadata.id === sceneId ? destinationPath : prepared.filePath;
+      const indexed = parseSceneText(
+        await readFile(finalPath, "utf8"),
+        path.relative(seriesRoot, finalPath),
+      );
+      await this.indexScene(seriesRoot, indexed);
+    }
+    return this.getScene(seriesId, sceneId);
+  }
+
+  async reorderActs(
+    seriesId: string,
+    bookId: string,
+    rawInput: ReorderInput,
+  ): Promise<ActManifest[]> {
+    const input = ReorderInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const bookRoot = assertInside(seriesRoot, path.join(seriesRoot, "books", bookId));
+    const book = await readYaml(path.join(bookRoot, BOOK_FILE), (value) =>
+      BookManifestSchema.parse(value),
+    );
+
+    assertExactPermutation(book.actIds, input.orderedIds, "幕");
+
+    const now = new Date().toISOString();
+    const acts: ActManifest[] = [];
+    for (let i = 0; i < input.orderedIds.length; i++) {
+      const id = input.orderedIds[i]!;
+      const act = await readActManifest(bookRoot, id);
+      const updated = ActManifestSchema.parse({ ...act, order: i + 1, updatedAt: now });
+      acts.push(updated);
+    }
+
+    const updatedBook = BookManifestSchema.parse({
+      ...book,
+      actIds: input.orderedIds,
+      updatedAt: now,
+    });
+    await applyFileTransaction(seriesRoot, [
+      ...acts.map((act) => ({ targetPath: actPath(bookRoot, act.id), content: serializeYaml(act) })),
+      { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeYaml(updatedBook) },
+    ]);
+    return acts;
+  }
+
+  async reorderChapters(
+    seriesId: string,
+    actId: string,
+    rawInput: ReorderInput,
+  ): Promise<ChapterManifest[]> {
+    const input = ReorderInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const act = await this.getAct(seriesId, actId);
+    const bookRoot = assertInside(seriesRoot, path.join(seriesRoot, "books", act.bookId));
+
+    assertExactPermutation(act.chapterIds, input.orderedIds, "章");
+
+    const now = new Date().toISOString();
+    const chapters: ChapterManifest[] = [];
+    for (let i = 0; i < input.orderedIds.length; i++) {
+      const id = input.orderedIds[i]!;
+      const chapter = await readChapterManifest(bookRoot, id);
+      const updated = ChapterManifestSchema.parse({
+        ...chapter,
+        order: i + 1,
+        updatedAt: now,
+      });
+      chapters.push(updated);
+    }
+
+    const updatedAct = ActManifestSchema.parse({
+      ...act,
+      chapterIds: input.orderedIds,
+      updatedAt: now,
+    });
+    await applyFileTransaction(seriesRoot, [
+      ...chapters.map((chapter) => ({
+        targetPath: chapterPath(bookRoot, chapter.id),
+        content: serializeYaml(chapter),
+      })),
+      { targetPath: actPath(bookRoot, act.id), content: serializeYaml(updatedAct) },
+    ]);
+    return chapters;
+  }
+
+  async reorderScenes(
+    seriesId: string,
+    chapterId: string,
+    rawInput: ReorderInput,
+  ): Promise<SceneDocument[]> {
+    const input = ReorderInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const context = await this.findChapterContext(seriesRoot, chapterId);
+    const { chapter, bookRoot } = context;
+    assertExactPermutation(chapter.sceneIds, input.orderedIds, "场景");
+
+    const now = new Date().toISOString();
+    const prepared = await this.prepareOrderedScenes(seriesRoot, context, input.orderedIds, now);
+
+    const updatedChapter = ChapterManifestSchema.parse({
+      ...chapter,
+      sceneIds: input.orderedIds,
+      updatedAt: now,
+    });
+    await applyFileTransaction(seriesRoot, [
+      ...prepared.map(({ filePath, document }) => ({
+        targetPath: filePath,
+        content: serializeScene(document.metadata, document.content),
+      })),
+      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(updatedChapter) },
+    ]);
+    const scenes: SceneDocument[] = [];
+    for (const { filePath } of prepared) {
+      const scene = parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath));
+      await this.indexScene(seriesRoot, scene);
+      scenes.push(scene);
+    }
+    return scenes;
+  }
+
+  async migrateToManifests(
+    seriesId: string,
+  ): Promise<{ actsCreated: number; chaptersCreated: number; snapshotPath: string }> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const snapshotDir = path.join(seriesRoot, ".studio", "snapshots", `pre-migration-${timestamp}`);
+    await mkdir(snapshotDir, { recursive: true });
+    await this.copyDir(path.join(seriesRoot, "books"), snapshotDir);
+
+    const sceneFiles = await walkSceneFiles(path.join(seriesRoot, "books"));
+    const scenes = await Promise.all(
+      sceneFiles.map(async (filePath) =>
+        parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath)),
+      ),
+    );
+
+    const now = new Date().toISOString();
+    const books = await this.readBookManifests(seriesRoot);
+    const knownBookIds = new Set(books.map((book) => book.id));
+    for (const scene of scenes) {
+      if (!knownBookIds.has(scene.metadata.bookId)) {
+        throw new StorageError("旧场景引用了不存在的单本，无法迁移", "INVALID_DATA", {
+          sceneId: scene.metadata.id,
+          bookId: scene.metadata.bookId,
+          snapshotPath: path.relative(seriesRoot, snapshotDir),
+        });
+      }
+    }
+
+    const mutations: FileMutation[] = [];
+    let actsCreated = 0;
+    let chaptersCreated = 0;
+
+    for (const book of books) {
+      const bookRoot = path.join(seriesRoot, "books", book.id);
+      const bookScenes = scenes.filter((scene) => scene.metadata.bookId === book.id);
+      const discoveredActIds = [...new Set(bookScenes.map((scene) => scene.metadata.actId))];
+      const actIds = [
+        ...book.actIds,
+        ...discoveredActIds.filter((actId) => !book.actIds.includes(actId)),
+      ];
+      const updatedBook = BookManifestSchema.parse({ ...book, actIds, updatedAt: now });
+      mutations.push({ targetPath: path.join(bookRoot, BOOK_FILE), content: serializeYaml(updatedBook) });
+
+      for (let actIndex = 0; actIndex < actIds.length; actIndex++) {
+        const actId = actIds[actIndex]!;
+        const actScenes = bookScenes.filter((scene) => scene.metadata.actId === actId);
+        let existingAct: ActManifest | null = null;
+        try {
+          existingAct = await readActManifest(bookRoot, actId);
+        } catch (error) {
+          if (!(error instanceof StorageError && error.code === "NOT_FOUND")) throw error;
+        }
+        const discoveredChapterIds = [...new Set(actScenes.map((scene) => scene.metadata.chapterId))];
+        const chapterIds = existingAct
+          ? [
+              ...existingAct.chapterIds,
+              ...discoveredChapterIds.filter((chapterId) => !existingAct!.chapterIds.includes(chapterId)),
+            ]
+          : discoveredChapterIds;
+        const act = ActManifestSchema.parse({
+          schemaVersion: 1,
+          id: actId,
+          bookId: book.id,
+          title: existingAct?.title ?? `第${toChineseOrdinal(actIndex + 1)}幕`,
+          order: actIndex + 1,
+          chapterIds,
+          createdAt: existingAct?.createdAt ?? now,
+          updatedAt: now,
+        });
+        if (!existingAct) actsCreated++;
+        mutations.push({ targetPath: actPath(bookRoot, actId), content: serializeYaml(act) });
+
+        for (let chapterIndex = 0; chapterIndex < chapterIds.length; chapterIndex++) {
+          const chapterId = chapterIds[chapterIndex]!;
+          let existingChapter: ChapterManifest | null = null;
+          try {
+            existingChapter = await readChapterManifest(bookRoot, chapterId);
+          } catch (error) {
+            if (!(error instanceof StorageError && error.code === "NOT_FOUND")) throw error;
+          }
+          const sceneIds = actScenes
+            .filter((scene) => scene.metadata.chapterId === chapterId)
+            .sort((a, b) => a.metadata.order - b.metadata.order)
+            .map((scene) => scene.metadata.id);
+          const chapter = ChapterManifestSchema.parse({
+            schemaVersion: 1,
+            id: chapterId,
+            actId,
+            title: existingChapter?.title ?? `第${toChineseOrdinal(chapterIndex + 1)}章`,
+            order: chapterIndex + 1,
+            sceneIds,
+            createdAt: existingChapter?.createdAt ?? now,
+            updatedAt: now,
+          });
+          if (!existingChapter) chaptersCreated++;
+          mutations.push({ targetPath: chapterPath(bookRoot, chapterId), content: serializeYaml(chapter) });
+        }
+      }
+    }
+
+    await applyFileTransaction(seriesRoot, mutations);
+    const validation = await this.validateHierarchy(seriesId);
+    if (!validation.valid) {
+      throw new StorageError("迁移后层级校验失败；快照已保留", "INVALID_DATA", {
+        snapshotPath: path.relative(seriesRoot, snapshotDir),
+        issues: validation.issues,
+      });
+    }
+
+    return {
+      actsCreated,
+      chaptersCreated,
+      snapshotPath: path.relative(seriesRoot, snapshotDir),
+    };
+  }
   private async getSeriesWithoutScenes(seriesId: string): Promise<{
     root: string;
     manifest: SeriesManifest;
@@ -443,6 +1164,314 @@ export class ProjectRepository {
     return { root, manifest, books };
   }
 
+  private async readBookManifests(seriesRoot: string): Promise<BookManifest[]> {
+    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+      SeriesManifestSchema.parse(value),
+    );
+    return Promise.all(
+      manifest.bookIds.map((bookId) =>
+        readYaml(path.join(seriesRoot, "books", bookId, BOOK_FILE), (value) =>
+          BookManifestSchema.parse(value),
+        ),
+      ),
+    );
+  }
+
+  async validateHierarchy(seriesId: string): Promise<HierarchyValidationResult> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const issues: HierarchyIssue[] = [];
+    const books = await this.readBookManifests(seriesRoot);
+    const referencedActIds = new Set<string>();
+    const referencedChapterIds = new Set<string>();
+    const referencedSceneIds = new Set<string>();
+    let actCount = 0;
+    let chapterCount = 0;
+
+    const addIssue = (
+      code: string,
+      message: string,
+      entityId?: string,
+      relativePath?: string,
+    ) => issues.push({ code, message, entityId, relativePath });
+    const addDuplicates = (ids: string[], ownerId: string, kind: string) => {
+      for (const id of ids.filter((value, index) => ids.indexOf(value) !== index)) {
+        addIssue("DUPLICATE_REFERENCE", `${kind}包含重复引用`, id, ownerId);
+      }
+    };
+
+    const sceneFiles = await walkSceneFiles(path.join(seriesRoot, "books"));
+    const scenesById = new Map<string, { document: SceneDocument; filePath: string }>();
+    for (const filePath of sceneFiles) {
+      try {
+        const document = parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath));
+        if (scenesById.has(document.metadata.id)) {
+          addIssue("DUPLICATE_ENTITY_ID", "多个场景文件使用同一 ID", document.metadata.id);
+        } else {
+          scenesById.set(document.metadata.id, { document, filePath });
+        }
+      } catch (error) {
+        addIssue(
+          "INVALID_SCENE_FILE",
+          error instanceof Error ? error.message : "场景文件无效",
+          undefined,
+          path.relative(seriesRoot, filePath),
+        );
+      }
+    }
+
+    for (const book of books) {
+      const bookReferencedActIds = new Set<string>();
+      const bookReferencedChapterIds = new Set<string>();
+      addDuplicates(book.actIds, book.id, "单本.actIds");
+      const bookRoot = path.join(seriesRoot, "books", book.id);
+      for (let actIndex = 0; actIndex < book.actIds.length; actIndex++) {
+        const actId = book.actIds[actIndex]!;
+        if (referencedActIds.has(actId)) addIssue("MULTIPLE_PARENTS", "幕被多个单本引用", actId);
+        referencedActIds.add(actId);
+        bookReferencedActIds.add(actId);
+        let act: ActManifest;
+        try {
+          act = await readActManifest(bookRoot, actId);
+          actCount++;
+        } catch (error) {
+          addIssue("MISSING_ACT", "单本引用的幕清单不存在或无效", actId);
+          continue;
+        }
+        if (act.bookId !== book.id) addIssue("ANCESTRY_MISMATCH", "幕的 bookId 与父单本不一致", act.id);
+        if (act.order !== actIndex + 1) addIssue("ORDER_MISMATCH", "幕 order 与父清单位置不一致", act.id);
+        addDuplicates(act.chapterIds, act.id, "幕.chapterIds");
+
+        for (let chapterIndex = 0; chapterIndex < act.chapterIds.length; chapterIndex++) {
+          const chapterId = act.chapterIds[chapterIndex]!;
+          if (referencedChapterIds.has(chapterId)) addIssue("MULTIPLE_PARENTS", "章被多个幕引用", chapterId);
+          referencedChapterIds.add(chapterId);
+          bookReferencedChapterIds.add(chapterId);
+          let chapter: ChapterManifest;
+          try {
+            chapter = await readChapterManifest(bookRoot, chapterId);
+            chapterCount++;
+          } catch (error) {
+            addIssue("MISSING_CHAPTER", "幕引用的章清单不存在或无效", chapterId);
+            continue;
+          }
+          if (chapter.actId !== act.id) addIssue("ANCESTRY_MISMATCH", "章的 actId 与父幕不一致", chapter.id);
+          if (chapter.order !== chapterIndex + 1) addIssue("ORDER_MISMATCH", "章 order 与父清单位置不一致", chapter.id);
+          addDuplicates(chapter.sceneIds, chapter.id, "章.sceneIds");
+
+          for (let sceneIndex = 0; sceneIndex < chapter.sceneIds.length; sceneIndex++) {
+            const sceneId = chapter.sceneIds[sceneIndex]!;
+            if (referencedSceneIds.has(sceneId)) addIssue("MULTIPLE_PARENTS", "场景被多个章引用", sceneId);
+            referencedSceneIds.add(sceneId);
+            const stored = scenesById.get(sceneId);
+            if (!stored) {
+              addIssue("MISSING_SCENE", "章引用的场景文件不存在", sceneId);
+              continue;
+            }
+            const { metadata } = stored.document;
+            if (
+              metadata.bookId !== book.id ||
+              metadata.actId !== act.id ||
+              metadata.chapterId !== chapter.id
+            ) {
+              addIssue("ANCESTRY_MISMATCH", "场景 frontmatter 与父层级不一致", sceneId);
+            }
+            if (metadata.order !== sceneIndex + 1) {
+              addIssue("ORDER_MISMATCH", "场景 order 与父清单位置不一致", sceneId);
+            }
+            const expectedPath = path.join(
+              bookRoot,
+              "manuscript",
+              act.id,
+              chapter.id,
+              `${sceneId}.md`,
+            );
+            if (path.resolve(stored.filePath) !== path.resolve(expectedPath)) {
+              addIssue("PATH_MISMATCH", "场景物理路径与层级不一致", sceneId, path.relative(seriesRoot, stored.filePath));
+            }
+          }
+        }
+      }
+
+      for (const actualId of await this.listManifestIds(path.join(bookRoot, ACTS_DIR))) {
+        if (!bookReferencedActIds.has(actualId)) addIssue("ORPHAN_ACT", "幕清单未被当前单本引用", actualId);
+      }
+      for (const actualId of await this.listManifestIds(path.join(bookRoot, CHAPTERS_DIR))) {
+        if (!bookReferencedChapterIds.has(actualId)) addIssue("ORPHAN_CHAPTER", "章清单未被当前单本引用", actualId);
+      }
+    }
+    for (const sceneId of scenesById.keys()) {
+      if (!referencedSceneIds.has(sceneId)) addIssue("ORPHAN_SCENE", "场景文件未被任何章引用", sceneId);
+    }
+
+    return {
+      valid: issues.length === 0,
+      issues,
+      bookCount: books.length,
+      actCount,
+      chapterCount,
+      sceneCount: scenesById.size,
+    };
+  }
+
+  private async readReferencedAct(
+    bookRoot: string,
+    book: BookManifest,
+    actId: string,
+  ): Promise<ActManifest> {
+    try {
+      const act = await readActManifest(bookRoot, actId);
+      if (act.bookId !== book.id) {
+        throw new StorageError("幕的父单本引用不一致", "INVALID_DATA", { actId, bookId: book.id });
+      }
+      return act;
+    } catch (error) {
+      if (error instanceof StorageError && error.code === "NOT_FOUND") {
+        throw new StorageError("单本引用的幕清单不存在", "INVALID_DATA", { actId, bookId: book.id });
+      }
+      throw error;
+    }
+  }
+
+  private async readReferencedChapter(
+    bookRoot: string,
+    act: ActManifest,
+    chapterId: string,
+  ): Promise<ChapterManifest> {
+    try {
+      const chapter = await readChapterManifest(bookRoot, chapterId);
+      if (chapter.actId !== act.id) {
+        throw new StorageError("章的父幕引用不一致", "INVALID_DATA", { chapterId, actId: act.id });
+      }
+      return chapter;
+    } catch (error) {
+      if (error instanceof StorageError && error.code === "NOT_FOUND") {
+        throw new StorageError("幕引用的章清单不存在", "INVALID_DATA", { chapterId, actId: act.id });
+      }
+      throw error;
+    }
+  }
+
+  private async readReferencedScene(
+    seriesRoot: string,
+    book: BookManifest,
+    act: ActManifest,
+    chapter: ChapterManifest,
+    sceneId: string,
+  ): Promise<SceneDocument> {
+    let filePath: string;
+    try {
+      filePath = await this.findScenePath(seriesRoot, sceneId);
+    } catch (error) {
+      if (error instanceof StorageError && error.code === "NOT_FOUND") {
+        throw new StorageError("章引用的场景文件不存在", "INVALID_DATA", { sceneId, chapterId: chapter.id });
+      }
+      throw error;
+    }
+    const scene = parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath));
+    if (
+      scene.metadata.bookId !== book.id ||
+      scene.metadata.actId !== act.id ||
+      scene.metadata.chapterId !== chapter.id
+    ) {
+      throw new StorageError("场景 frontmatter 与父层级不一致", "INVALID_DATA", { sceneId });
+    }
+    return scene;
+  }
+
+  private async findChapterContext(seriesRoot: string, chapterId: string): Promise<ChapterContext> {
+    const books = await this.readBookManifests(seriesRoot);
+    for (const book of books) {
+      const bookRoot = path.join(seriesRoot, "books", book.id);
+      for (const actId of book.actIds) {
+        const act = await this.readReferencedAct(bookRoot, book, actId);
+        if (!act.chapterIds.includes(chapterId)) continue;
+        const chapter = await this.readReferencedChapter(bookRoot, act, chapterId);
+        return { book, bookRoot, act, chapter };
+      }
+    }
+    throw new StorageError("章不存在或未被幕引用", "NOT_FOUND", { chapterId });
+  }
+
+  private async findChapterContextByScene(seriesRoot: string, sceneId: string): Promise<SceneContext> {
+    const scenePath = await this.findScenePath(seriesRoot, sceneId);
+    const scene = parseSceneText(await readFile(scenePath, "utf8"), path.relative(seriesRoot, scenePath));
+    const context = await this.findChapterContext(seriesRoot, scene.metadata.chapterId);
+    if (!context.chapter.sceneIds.includes(sceneId)) {
+      throw new StorageError("场景未被其 frontmatter 指定的章引用", "INVALID_DATA", { sceneId });
+    }
+    if (scene.metadata.bookId !== context.book.id || scene.metadata.actId !== context.act.id) {
+      throw new StorageError("场景 frontmatter 的祖先引用不一致", "INVALID_DATA", { sceneId });
+    }
+    return { ...context, scene, scenePath };
+  }
+
+  private async prepareOrderedScenes(
+    seriesRoot: string,
+    context: ChapterContext,
+    orderedIds: string[],
+    updatedAt: string,
+    movedScene?: SceneDocument,
+  ): Promise<Array<{ filePath: string; document: SceneDocument }>> {
+    const prepared: Array<{ filePath: string; document: SceneDocument }> = [];
+    for (let index = 0; index < orderedIds.length; index++) {
+      const sceneId = orderedIds[index]!;
+      const filePath = movedScene?.metadata.id === sceneId
+        ? await this.findScenePath(seriesRoot, sceneId)
+        : await this.findScenePath(seriesRoot, sceneId);
+      const current = movedScene?.metadata.id === sceneId
+        ? movedScene
+        : parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath));
+      if (current.metadata.id !== sceneId) {
+        throw new StorageError("场景文件 ID 与清单引用不一致", "INVALID_DATA", { sceneId });
+      }
+      if (
+        movedScene?.metadata.id !== sceneId &&
+        (current.metadata.bookId !== context.book.id ||
+          current.metadata.actId !== context.act.id ||
+          current.metadata.chapterId !== context.chapter.id)
+      ) {
+        throw new StorageError("待重排场景不属于目标章", "INVALID_DATA", { sceneId });
+      }
+      const metadata = SceneFrontmatterSchema.parse({
+        ...current.metadata,
+        bookId: context.book.id,
+        actId: context.act.id,
+        chapterId: context.chapter.id,
+        order: index + 1,
+        updatedAt,
+      });
+      prepared.push({ filePath, document: { ...current, metadata } });
+    }
+    return prepared;
+  }
+
+  private async listManifestIds(directory: string): Promise<string[]> {
+    try {
+      return (await readdir(directory, { withFileTypes: true }))
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".yaml"))
+        .map((entry) => path.basename(entry.name, ".yaml"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+  }
+
+  private async copyDir(source: string, destination: string): Promise<void> {
+    const { mkdir: cpMkdir, readdir: cpReaddir, copyFile: cpCopyFile } =
+      await import("node:fs/promises");
+    await cpMkdir(destination, { recursive: true });
+    const entries = await cpReaddir(source, { withFileTypes: true });
+    for (const entry of entries) {
+      const srcPath = path.join(source, entry.name);
+      const destPath = path.join(destination, entry.name);
+      if (entry.isDirectory()) {
+        await this.copyDir(srcPath, destPath);
+      } else {
+        await cpCopyFile(srcPath, destPath);
+      }
+    }
+  }
+
   private async findSeriesRoot(seriesId: string): Promise<string> {
     await this.initialize();
     const entries = await readdir(this.libraryRoot, { withFileTypes: true });
@@ -450,6 +1479,7 @@ export class ProjectRepository {
       if (!entry.isDirectory()) continue;
       const root = assertInside(this.libraryRoot, path.join(this.libraryRoot, entry.name));
       try {
+        await recoverFileTransactions(root);
         const manifest = await readYaml(path.join(root, SERIES_FILE), (value) =>
           SeriesManifestSchema.parse(value),
         );
@@ -532,4 +1562,3 @@ export async function pathExists(filePath: string): Promise<boolean> {
     throw error;
   }
 }
-
