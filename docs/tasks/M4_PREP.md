@@ -54,10 +54,11 @@ NS-400 的目标是把 M3 产物整理成 M4 可以安全承载 AI 能力的形�
    - 状态提升保持谨慎，避免为了拆分引入跨组件隐式写入。
 
 5. **NS400-E：建立可重复烟测 / E2E**
-   - 至少覆盖：
-     1. 创建系列 → 写正文 → 刷新恢复。
-     2. 新建部 / 幕 / 章 → 层级校验 `valid=true`。
-     3. 创建设定条目 → 正文提及 → 资料范围预览。
+   - 已建立 `packages/storage/test/smoke.test.ts`，并提供根命令 `npm.cmd run test:smoke`。
+   - 当前三条烟测覆盖：
+     1. 创建系列 → 写中文正文 → 重启读取 → 删除 SQLite → 重建索引 → 搜索命中。
+     2. 新建部 / 幕 / 章 → 移动场景 → 稳定 ID → 层级校验 `valid=true` → PlanningBoard 投影正确。
+     3. 创建设定条目 → 正文提及索引 → `on-mention/manual/never` 资料范围预览 → 后文进展和角色所知不向前泄漏。
    - 这些测试不替代人工 UX 验收，但必须能在重构后自动报警。
 
 6. **NS400-F：M4 契约先行**
@@ -87,7 +88,7 @@ NS-400 的目标是把 M3 产物整理成 M4 可以安全承载 AI 能力的形�
 | NS400-B02 | Codex API 行为保持不变 | 现有 server/storage/web 测试通过 |
 | NS400-C01 | 至少一个 storage 领域辅助被提取并保留测试 | 后续代码 diff |
 | NS400-D01 | 至少一个前端大视图被拆出子组件且行为不变 | 后续代码 diff + web 测试 |
-| NS400-E01 | 三条核心烟测以自动化脚本或测试形式存在 | 后续测试记录 |
+| NS400-E01 | 三条核心烟测以自动化脚本或测试形式存在 | `packages/storage/test/smoke.test.ts` + `npm.cmd run test:smoke` |
 | NS400-F01 | M4 最小 AI 契约写入 contracts/docs，且不接真实模型 | 后续契约 diff |
 
 ## 完成定义

@@ -6,7 +6,7 @@
 
 - 分支：`main`
 - 最近相关提交：`NS-306 feat(structure): expose series and hierarchy creation`
-- 当前任务：`NS-400` 进行中，目标是 M3 到 M4 的整备门。
+- 当前任务：`NS-400` 进行中，目标是 M3 到 M4 的整备门；三条核心烟测已落地，下一步应转向 M4 最小契约。
 - 预期脏文件：`TASKS.md`、`STATUS.md`、`HANDOFF.md`、`docs/tasks/M4_PREP.md`、`docs/testing/NS-400_ACCEPTANCE.md`，以及本轮拆分涉及的 server/storage/web 文件。提交后应无脏文件；接手时运行 `git status --short` 核实。
 
 ## 已完成
@@ -64,12 +64,14 @@
   - `apps/server/src/app.ts` 从约 718 行降到 363 行，继续只负责 Fastify 创建、错误处理、领域路由注册和静态资源；
   - 已将 storage 的 `StorageError`、路径归属/原子写入/存在性检查、多文件事务拆到 `errors.ts`、`fileSystem.ts`、`fileTransactions.ts`；
   - 已将 `CodexView.tsx` 拆为顶层列表视图、`CodexEntryEditor.tsx` 和 `CodexEntryPanels.tsx`，顶层视图从约 692 行降到 162 行；
+  - 已新增 `packages/storage/test/smoke.test.ts` 和 `npm.cmd run test:smoke`，覆盖创建写作恢复、层级创建校验、设定库提及/资料范围/未来事实隔离；
   - server typecheck、server test、storage typecheck、storage test、web typecheck、web test 和全量 `npm.cmd run check` 通过。
 
 ## 验证
 
 - `npm.cmd run check`：退出码 0。
-- Server 6/6，Web 14/14，Storage 36/36。
+- Server 6/6，Web 14/14，Storage 39/39。
+- `npm.cmd run test:smoke`：1 个文件、3 条烟测通过。
 - `scripts/start.ps1 -NoBrowser`：已有健康服务存在时复用当前服务，没有启动新的监听进程。
 - 浏览器中文 fixture：已确认设定与参考笔记独立保存、自定义类别、同名歧义不误分配、有向关系、`on-mention`/`never` 资料范围预览、归档恢复和追踪表名称解析通过。
 - 浏览器文案抽样：主导航、首页、概览、规划、写作抽屉、设定库、编辑室、待确认均无 `Canon/Research/Section/POV/tokens/AI/钉住/手工/0 字符` 等旧界面词；控制台无 warning/error。
@@ -94,7 +96,6 @@
 
 `NS-400`：继续完成 M3 到 M4 的整备门。当前优先级：
 
-1. 建立三条可重复烟测：创建写作恢复、层级创建校验、设定库提及与资料范围。
+1. M4 契约先行：定义 `ContextBundle`、`ContextItem`、`PromptTemplate`、`ModelCallLog`、`Proposal` 最小形状和只读/候选变更边界。
 2. 继续提取 storage 领域逻辑，下一块可考虑层级投影或 Codex 查询。
-3. M4 契约先行：ContextBundle、PromptTemplate、ModelCallLog、Proposal 最小形状。
-4. 完成后再进入 `NS-401`，不要直接把模型连接堆进现有大文件。
+3. 视契约落地情况决定是否关闭 `NS-400` 并进入 `NS-401`；不要直接把模型连接堆进现有大文件。
