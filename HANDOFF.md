@@ -6,8 +6,8 @@
 
 - 分支：`main`
 - 最近相关提交：`NS-306 feat(structure): expose series and hierarchy creation`
-- 当前任务：`NS-306` 已完成，下一任务为 `NS-401`。
-- 预期脏文件：提交后应无脏文件；接手时运行 `git status --short` 核实。
+- 当前任务：`NS-400` 进行中，目标是 M3 到 M4 的整备门。
+- 预期脏文件：`TASKS.md`、`STATUS.md`、`HANDOFF.md`、`docs/tasks/M4_PREP.md`、`docs/testing/NS-400_ACCEPTANCE.md`，以及本轮拆分涉及的 server/storage/web 文件。提交后应无脏文件；接手时运行 `git status --short` 核实。
 
 ## 已完成
 
@@ -57,6 +57,12 @@
   - 每个幕提供“新章”，空幕显示“给这一幕添加第一章”；
   - 自动标题使用“第二部 / 第二幕 / 第二章”等中文序数；
   - 全量 check 与浏览器验收通过。
+- NS-400 当前进度：
+  - 已新增 `docs/tasks/M4_PREP.md` 和 `docs/testing/NS-400_ACCEPTANCE.md`；
+  - 已更新当前架构文档，不再停留在 M0–M2；
+  - 已将 Codex API 路由拆到 `apps/server/src/routes/codex.ts`；
+  - `apps/server/src/app.ts` 从约 718 行降到 363 行，继续只负责 Fastify 创建、错误处理、领域路由注册和静态资源；
+  - server typecheck、server test 和全量 `npm.cmd run check` 通过。
 
 ## 验证
 
@@ -84,4 +90,9 @@
 
 ## 唯一下一任务
 
-`NS-401`：进入 M4，先细化 ProviderAdapter、上下文装配器、提示词版本、权限边界、用量记录和可审计调用日志的执行规格，再实现最小模型连接闭环。
+`NS-400`：继续完成 M3 到 M4 的整备门。当前优先级：
+
+1. 提取 storage 领域辅助，优先选择文件事务、层级投影或 Codex 查询中边界清楚的一块。
+2. 拆分前端大视图，优先 `CodexView` 的详情/进展/角色所知面板。
+3. 建立三条可重复烟测：创建写作恢复、层级创建校验、设定库提及与资料范围。
+4. 完成后再进入 `NS-401`，不要直接把模型连接堆进现有大文件。
