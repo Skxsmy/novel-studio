@@ -17,6 +17,8 @@ series-slug-id/
 ├─ codex/custom/<category-id>/
 ├─ codex/entry-research/
 ├─ codex/relations/
+├─ codex/progressions/
+├─ codex/knowledge/
 ├─ research/{sources,notes}/
 ├─ snippets/
 ├─ styles/
@@ -104,3 +106,11 @@ SQLite 保存可重建的场景定位、正文搜索、Codex 搜索、名称候�
 六个内置类别使用稳定字符串 ID 和固定目录；自定义类别元数据位于 `codex/categories/<categoryId>.yaml`，条目位于 `codex/custom/<categoryId>/<entryId>.md`。条目 Markdown 正文只保存 Canon Description，Research 位于独立的 `codex/entry-research/<entryId>.md`，两者 revision 独立。
 
 关系位于 `codex/relations/<relationId>.yaml`。有向关系只表达 `sourceEntryId → targetEntryId`；无向关系从两端查询同一文件，不复制第二条边。提及索引只表示名称或别名在场景正文中出现，不改变 Scene 显式关联或任何 Canon。
+
+## 进展记录与角色所知
+
+世界事实和关系变化位于 `codex/progressions/<progressionId>.yaml`。记录指向设定条目或关系、拥有 `addition/replacement` 变更类型、作者可读的 `fieldKey`、生效起止场景、摘要和证据。Replacement 只影响按场景查询投影，不删除旧记录。
+
+角色知道、相信或误解的内容位于 `codex/knowledge/<knowledgeId>.yaml`。知道者必须是人物条目；记录可指向一个涉及条目、一个关系或二者之一，并带有 `knows/believes/misunderstands` 立场、生效起止场景和证据。
+
+有效状态查询以叙事顺序为准。早期场景不会返回未来记录正文、ID 或证据；只允许返回隐藏数量，用于提醒作者后面还有变化。

@@ -325,4 +325,116 @@ describe("local API", () => {
     expect(crossSeries.statusCode).toBe(404);
     await app.close();
   });
+
+  it("serves effective story facts and character knowledge without leaking future content", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
+    roots.push(root);
+    const app = await buildApp({ libraryRoot: root });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "进展接口" },
+    });
+    const series = created.json();
+    const firstScene = series.scenes[0];
+    const updatedFirst = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${firstScene.metadata.id}`,
+      payload: {
+        baseRevision: firstScene.revision,
+        title: "初见",
+        content: "林岚第一次信任周野。",
+      },
+    });
+    const secondScene = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/scenes`,
+      payload: {
+        title: "误解",
+        content: "林岚误以为周野背叛了她。",
+      },
+    });
+    const lin = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: { categoryId: "character", name: "林岚" },
+    });
+    const zhou = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: { categoryId: "character", name: "周野" },
+    });
+    const relation = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/relations`,
+      payload: {
+        sourceEntryId: lin.json().metadata.id,
+        targetEntryId: zhou.json().metadata.id,
+        type: "信任",
+      },
+    });
+    const progression = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        target: {
+          kind: "relation",
+          entryId: null,
+          relationId: relation.json().relation.id,
+        },
+        fieldKey: "关系状态",
+        changeKind: "replacement",
+        summary: "林岚暂时不再信任周野。",
+        effectiveFromSceneId: secondScene.json().metadata.id,
+        evidence: [{
+          sourceType: "scene",
+          sourceId: secondScene.json().metadata.id,
+          quote: "林岚误以为周野背叛了她。",
+          note: "关系变化来自第二场正文。",
+        }],
+      },
+    });
+    expect(progression.statusCode).toBe(201);
+    const knowledge = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/knowledge`,
+      payload: {
+        characterEntryId: lin.json().metadata.id,
+        subjectEntryId: zhou.json().metadata.id,
+        relationId: relation.json().relation.id,
+        stance: "misunderstands",
+        summary: "林岚误以为周野已经背叛。",
+        effectiveFromSceneId: secondScene.json().metadata.id,
+        evidence: [{
+          sourceType: "scene",
+          sourceId: secondScene.json().metadata.id,
+          quote: "林岚误以为周野背叛了她。",
+          note: "这是角色主观误解。",
+        }],
+      },
+    });
+    expect(knowledge.statusCode).toBe(201);
+
+    const early = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/effective?sceneId=${updatedFirst.json().metadata.id}&entryId=${zhou.json().metadata.id}&viewerEntryId=${lin.json().metadata.id}`,
+    });
+    expect(early.statusCode).toBe(200);
+    expect(early.json().hiddenFutureProgressionCount).toBe(1);
+    expect(early.json().hiddenFutureKnowledgeCount).toBe(1);
+    expect(JSON.stringify(early.json())).not.toContain("暂时不再信任");
+    expect(JSON.stringify(early.json())).not.toContain("已经背叛");
+
+    const current = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/effective?sceneId=${secondScene.json().metadata.id}&entryId=${zhou.json().metadata.id}&viewerEntryId=${lin.json().metadata.id}`,
+    });
+    expect(current.statusCode).toBe(200);
+    expect(current.json().relationStates[0].progressions[0].progression.summary)
+      .toBe("林岚暂时不再信任周野。");
+    expect(current.json().characterKnowledge[0].knowledge.stance).toBe("misunderstands");
+    expect(current.json().characterKnowledge[0].knowledge.evidence[0].quote)
+      .toBe("林岚误以为周野背叛了她。");
+    await app.close();
+  });
 });

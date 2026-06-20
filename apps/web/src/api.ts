@@ -7,12 +7,17 @@ import type {
   CodexCategoryDocument,
   CodexCategoryId,
   CodexContextPreview,
+  CodexEffectiveState,
   CodexEntryDocument,
+  CodexKnowledgeDocument,
   CodexMention,
+  CodexProgressionDocument,
   CodexRelationDocument,
   CodexSearchResult,
   CreateCodexCategoryInput,
   CreateCodexEntryInput,
+  CreateCodexKnowledgeInput,
+  CreateCodexProgressionInput,
   CreateCodexRelationInput,
   CreateChapterInput,
   CreateReviewAnchorInput,
@@ -37,6 +42,8 @@ import type {
   UpdateActInput,
   UpdateCodexCategoryInput,
   UpdateCodexEntryInput,
+  UpdateCodexKnowledgeInput,
+  UpdateCodexProgressionInput,
   UpdateCodexRelationInput,
   UpdateChapterInput,
   UpdateSceneInput,
@@ -273,6 +280,114 @@ export const api = {
       `/api/v1/series/${seriesId}/codex/relations/${relationId}/restore`,
       { method: "POST", body: JSON.stringify(input) },
     ),
+  listCodexProgressions: (
+    seriesId: string,
+    options: { entryId?: string; relationId?: string; includeArchived?: boolean } = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (options.entryId) query.set("entryId", options.entryId);
+    if (options.relationId) query.set("relationId", options.relationId);
+    if (options.includeArchived) query.set("includeArchived", "true");
+    const suffix = query.size ? `?${query}` : "";
+    return request<CodexProgressionDocument[]>(
+      `/api/v1/series/${seriesId}/codex/progressions${suffix}`,
+    );
+  },
+  createCodexProgression: (seriesId: string, input: CreateCodexProgressionInput) =>
+    request<CodexProgressionDocument>(`/api/v1/series/${seriesId}/codex/progressions`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateCodexProgression: (
+    seriesId: string,
+    progressionId: string,
+    input: UpdateCodexProgressionInput,
+  ) =>
+    request<CodexProgressionDocument>(
+      `/api/v1/series/${seriesId}/codex/progressions/${progressionId}`,
+      { method: "PUT", body: JSON.stringify(input) },
+    ),
+  archiveCodexProgression: (
+    seriesId: string,
+    progressionId: string,
+    input: ArchiveCodexDocumentInput,
+  ) =>
+    request<CodexProgressionDocument>(
+      `/api/v1/series/${seriesId}/codex/progressions/${progressionId}/archive`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  restoreCodexProgression: (
+    seriesId: string,
+    progressionId: string,
+    input: ArchiveCodexDocumentInput,
+  ) =>
+    request<CodexProgressionDocument>(
+      `/api/v1/series/${seriesId}/codex/progressions/${progressionId}/restore`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  listCodexKnowledge: (
+    seriesId: string,
+    options: {
+      characterEntryId?: string;
+      subjectEntryId?: string;
+      relationId?: string;
+      includeArchived?: boolean;
+    } = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (options.characterEntryId) query.set("characterEntryId", options.characterEntryId);
+    if (options.subjectEntryId) query.set("subjectEntryId", options.subjectEntryId);
+    if (options.relationId) query.set("relationId", options.relationId);
+    if (options.includeArchived) query.set("includeArchived", "true");
+    const suffix = query.size ? `?${query}` : "";
+    return request<CodexKnowledgeDocument[]>(
+      `/api/v1/series/${seriesId}/codex/knowledge${suffix}`,
+    );
+  },
+  createCodexKnowledge: (seriesId: string, input: CreateCodexKnowledgeInput) =>
+    request<CodexKnowledgeDocument>(`/api/v1/series/${seriesId}/codex/knowledge`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateCodexKnowledge: (
+    seriesId: string,
+    knowledgeId: string,
+    input: UpdateCodexKnowledgeInput,
+  ) =>
+    request<CodexKnowledgeDocument>(
+      `/api/v1/series/${seriesId}/codex/knowledge/${knowledgeId}`,
+      { method: "PUT", body: JSON.stringify(input) },
+    ),
+  archiveCodexKnowledge: (
+    seriesId: string,
+    knowledgeId: string,
+    input: ArchiveCodexDocumentInput,
+  ) =>
+    request<CodexKnowledgeDocument>(
+      `/api/v1/series/${seriesId}/codex/knowledge/${knowledgeId}/archive`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  restoreCodexKnowledge: (
+    seriesId: string,
+    knowledgeId: string,
+    input: ArchiveCodexDocumentInput,
+  ) =>
+    request<CodexKnowledgeDocument>(
+      `/api/v1/series/${seriesId}/codex/knowledge/${knowledgeId}/restore`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  getCodexEffectiveState: (
+    seriesId: string,
+    sceneId: string,
+    entryId: string,
+    viewerEntryId?: string,
+  ) => {
+    const query = new URLSearchParams({ sceneId, entryId });
+    if (viewerEntryId) query.set("viewerEntryId", viewerEntryId);
+    return request<CodexEffectiveState>(
+      `/api/v1/series/${seriesId}/codex/effective?${query}`,
+    );
+  },
   previewCodexContext: (seriesId: string, sceneId: string, pinnedIds: string[] = []) => {
     const query = new URLSearchParams({ sceneId });
     if (pinnedIds.length) query.set("pinnedIds", pinnedIds.join(","));

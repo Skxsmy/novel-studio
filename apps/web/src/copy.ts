@@ -1,6 +1,8 @@
 import type {
   CodexAiContextPolicy,
   CodexContextExclusionReason,
+  CodexKnowledgeStance,
+  CodexProgressionChangeKind,
   PlanningState,
   SceneSectionAiPolicy,
   SceneStatus,
@@ -26,6 +28,17 @@ export const contextExclusionLabels: Record<CodexContextExclusionReason, string>
   "manual-only": "需要你主动选择",
   never: "已设为永不提供给模型",
   archived: "条目已归档",
+};
+
+export const progressionChangeLabels: Record<CodexProgressionChangeKind, string> = {
+  addition: "追加事实",
+  replacement: "替换此前状态",
+};
+
+export const knowledgeStanceLabels: Record<CodexKnowledgeStance, string> = {
+  knows: "知道",
+  believes: "相信",
+  misunderstands: "误解",
 };
 
 export const sceneStatusLabels: Record<SceneStatus, string> = {

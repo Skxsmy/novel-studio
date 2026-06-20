@@ -8,6 +8,8 @@ import {
   CodexCategoryIdSchema,
   CreateCodexCategoryInputSchema,
   CreateCodexEntryInputSchema,
+  CreateCodexKnowledgeInputSchema,
+  CreateCodexProgressionInputSchema,
   CreateCodexRelationInputSchema,
   CreateActInputSchema,
   CreateChapterInputSchema,
@@ -24,6 +26,8 @@ import {
   UpdateActInputSchema,
   UpdateCodexCategoryInputSchema,
   UpdateCodexEntryInputSchema,
+  UpdateCodexKnowledgeInputSchema,
+  UpdateCodexProgressionInputSchema,
   UpdateCodexRelationInputSchema,
   UpdateChapterInputSchema,
   UpdateScenePlanningInputSchema,
@@ -427,6 +431,167 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       );
     },
   );
+
+  app.get<{
+    Params: { seriesId: string };
+    Querystring: {
+      entryId?: string;
+      relationId?: string;
+      includeArchived?: string;
+    };
+  }>("/api/v1/series/:seriesId/codex/progressions", async (request) =>
+    repository.listCodexProgressions(request.params.seriesId, {
+      ...(request.query.entryId ? { entryId: request.query.entryId } : {}),
+      ...(request.query.relationId ? { relationId: request.query.relationId } : {}),
+      includeArchived: request.query.includeArchived === "true",
+    }),
+  );
+
+  app.post<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId/codex/progressions",
+    async (request, reply) => {
+      const input = CreateCodexProgressionInputSchema.parse(request.body);
+      return reply.status(201).send(
+        await repository.createCodexProgression(request.params.seriesId, input),
+      );
+    },
+  );
+
+  app.get<{ Params: { seriesId: string; progressionId: string } }>(
+    "/api/v1/series/:seriesId/codex/progressions/:progressionId",
+    async (request) =>
+      repository.getCodexProgression(
+        request.params.seriesId,
+        request.params.progressionId,
+      ),
+  );
+
+  app.put<{ Params: { seriesId: string; progressionId: string } }>(
+    "/api/v1/series/:seriesId/codex/progressions/:progressionId",
+    async (request) => {
+      const input = UpdateCodexProgressionInputSchema.parse(request.body);
+      return repository.updateCodexProgression(
+        request.params.seriesId,
+        request.params.progressionId,
+        input,
+      );
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; progressionId: string } }>(
+    "/api/v1/series/:seriesId/codex/progressions/:progressionId/archive",
+    async (request) => {
+      const input = ArchiveCodexDocumentInputSchema.parse(request.body);
+      return repository.archiveCodexProgression(
+        request.params.seriesId,
+        request.params.progressionId,
+        input,
+      );
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; progressionId: string } }>(
+    "/api/v1/series/:seriesId/codex/progressions/:progressionId/restore",
+    async (request) => {
+      const input = ArchiveCodexDocumentInputSchema.parse(request.body);
+      return repository.restoreCodexProgression(
+        request.params.seriesId,
+        request.params.progressionId,
+        input,
+      );
+    },
+  );
+
+  app.get<{
+    Params: { seriesId: string };
+    Querystring: {
+      characterEntryId?: string;
+      subjectEntryId?: string;
+      relationId?: string;
+      includeArchived?: string;
+    };
+  }>("/api/v1/series/:seriesId/codex/knowledge", async (request) =>
+    repository.listCodexKnowledge(request.params.seriesId, {
+      ...(request.query.characterEntryId
+        ? { characterEntryId: request.query.characterEntryId }
+        : {}),
+      ...(request.query.subjectEntryId
+        ? { subjectEntryId: request.query.subjectEntryId }
+        : {}),
+      ...(request.query.relationId ? { relationId: request.query.relationId } : {}),
+      includeArchived: request.query.includeArchived === "true",
+    }),
+  );
+
+  app.post<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId/codex/knowledge",
+    async (request, reply) => {
+      const input = CreateCodexKnowledgeInputSchema.parse(request.body);
+      return reply.status(201).send(
+        await repository.createCodexKnowledge(request.params.seriesId, input),
+      );
+    },
+  );
+
+  app.get<{ Params: { seriesId: string; knowledgeId: string } }>(
+    "/api/v1/series/:seriesId/codex/knowledge/:knowledgeId",
+    async (request) =>
+      repository.getCodexKnowledge(
+        request.params.seriesId,
+        request.params.knowledgeId,
+      ),
+  );
+
+  app.put<{ Params: { seriesId: string; knowledgeId: string } }>(
+    "/api/v1/series/:seriesId/codex/knowledge/:knowledgeId",
+    async (request) => {
+      const input = UpdateCodexKnowledgeInputSchema.parse(request.body);
+      return repository.updateCodexKnowledge(
+        request.params.seriesId,
+        request.params.knowledgeId,
+        input,
+      );
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; knowledgeId: string } }>(
+    "/api/v1/series/:seriesId/codex/knowledge/:knowledgeId/archive",
+    async (request) => {
+      const input = ArchiveCodexDocumentInputSchema.parse(request.body);
+      return repository.archiveCodexKnowledge(
+        request.params.seriesId,
+        request.params.knowledgeId,
+        input,
+      );
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; knowledgeId: string } }>(
+    "/api/v1/series/:seriesId/codex/knowledge/:knowledgeId/restore",
+    async (request) => {
+      const input = ArchiveCodexDocumentInputSchema.parse(request.body);
+      return repository.restoreCodexKnowledge(
+        request.params.seriesId,
+        request.params.knowledgeId,
+        input,
+      );
+    },
+  );
+
+  app.get<{
+    Params: { seriesId: string };
+    Querystring: { sceneId?: string; entryId?: string; viewerEntryId?: string };
+  }>("/api/v1/series/:seriesId/codex/effective", async (request) => {
+    if (!request.query.sceneId || !request.query.entryId) {
+      throw new StorageError("有效状态查询需要 sceneId 与 entryId", "INVALID_DATA");
+    }
+    return repository.getCodexEffectiveState(
+      request.params.seriesId,
+      request.query.sceneId,
+      request.query.entryId,
+      request.query.viewerEntryId,
+    );
+  });
 
   app.get<{
     Params: { seriesId: string };

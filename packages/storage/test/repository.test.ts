@@ -546,6 +546,281 @@ describe("ProjectRepository", () => {
       .ambiguities).toHaveLength(1);
   });
 
+  it("projects Progression additions and replacements by narrative scene without leaking future facts", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "状态沿革" });
+    const opening = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
+      baseRevision: series.scenes[0]!.revision,
+      title: "取得钥匙",
+      content: "林岚第一次握住旧钥匙。",
+    });
+    const lost = await store.createScene(series.manifest.id, {
+      title: "遗失钥匙",
+      content: "旧钥匙落进了潮水。",
+    });
+    const marked = await store.createScene(series.manifest.id, {
+      title: "留下痕迹",
+      content: "林岚的袖口留下潮水味。",
+    });
+    const lin = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "林岚",
+      description: "调查员。",
+    });
+
+    const holding = await store.createCodexProgression(series.manifest.id, {
+      target: { kind: "entry", entryId: lin.metadata.id, relationId: null },
+      fieldKey: "持有物",
+      changeKind: "addition",
+      summary: "林岚持有旧钥匙。",
+      effectiveFromSceneId: opening.metadata.id,
+      evidence: [{
+        sourceType: "scene",
+        sourceId: opening.metadata.id,
+        quote: "林岚第一次握住旧钥匙。",
+        note: "正文写出她获得旧钥匙。",
+      }],
+    });
+    const lostKey = await store.createCodexProgression(series.manifest.id, {
+      target: { kind: "entry", entryId: lin.metadata.id, relationId: null },
+      fieldKey: "持有物",
+      changeKind: "replacement",
+      summary: "林岚失去旧钥匙。",
+      effectiveFromSceneId: lost.metadata.id,
+      evidence: [{
+        sourceType: "scene",
+        sourceId: lost.metadata.id,
+        quote: "旧钥匙落进了潮水。",
+        note: "正文明确写出旧钥匙离手。",
+      }],
+    });
+    const trace = await store.createCodexProgression(series.manifest.id, {
+      target: { kind: "entry", entryId: lin.metadata.id, relationId: null },
+      fieldKey: "持有物",
+      changeKind: "addition",
+      summary: "林岚身上留下潮水痕迹。",
+      effectiveFromSceneId: marked.metadata.id,
+      evidence: [{
+        sourceType: "scene",
+        sourceId: marked.metadata.id,
+        quote: "林岚的袖口留下潮水味。",
+        note: "后续痕迹追加到同一状态槽。",
+      }],
+    });
+
+    expect(await store.listCodexProgressions(series.manifest.id, {
+      entryId: lin.metadata.id,
+      includeArchived: true,
+    })).toHaveLength(3);
+
+    const beforeFuture = await store.getCodexEffectiveState(
+      series.manifest.id,
+      opening.metadata.id,
+      lin.metadata.id,
+    );
+    expect(beforeFuture.worldFacts.map((document) => document.progression.summary))
+      .toEqual([holding.progression.summary]);
+    expect(beforeFuture.hiddenFutureProgressionCount).toBe(2);
+    expect(JSON.stringify(beforeFuture)).not.toContain(lostKey.progression.summary);
+
+    const afterReplacement = await store.getCodexEffectiveState(
+      series.manifest.id,
+      lost.metadata.id,
+      lin.metadata.id,
+    );
+    expect(afterReplacement.worldFacts.map((document) => document.progression.summary))
+      .toEqual([lostKey.progression.summary]);
+
+    const afterAddition = await store.getCodexEffectiveState(
+      series.manifest.id,
+      marked.metadata.id,
+      lin.metadata.id,
+    );
+    expect(afterAddition.worldFacts.map((document) => document.progression.summary))
+      .toEqual([lostKey.progression.summary, trace.progression.summary]);
+
+    const archived = await store.archiveCodexProgression(series.manifest.id, lostKey.progression.id, {
+      baseRevision: lostKey.revision,
+    });
+    expect((await store.getCodexEffectiveState(series.manifest.id, lost.metadata.id, lin.metadata.id))
+      .worldFacts.map((document) => document.progression.summary)).toEqual([holding.progression.summary]);
+    await store.restoreCodexProgression(series.manifest.id, archived.progression.id, {
+      baseRevision: archived.revision,
+    });
+    expect((await store.getCodexEffectiveState(series.manifest.id, lost.metadata.id, lin.metadata.id))
+      .worldFacts.map((document) => document.progression.summary)).toEqual([lostKey.progression.summary]);
+  });
+
+  it("keeps relationship progressions and character knowledge separate from world facts", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "误解与关系" });
+    const first = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
+      baseRevision: series.scenes[0]!.revision,
+      title: "合作",
+      content: "林岚决定信任周野。",
+    });
+    const second = await store.createScene(series.manifest.id, {
+      title: "误会",
+      content: "林岚误以为周野背叛了她。",
+    });
+    const lin = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "林岚",
+    });
+    const zhou = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "周野",
+    });
+    const relation = await store.createCodexRelation(series.manifest.id, {
+      sourceEntryId: lin.metadata.id,
+      targetEntryId: zhou.metadata.id,
+      type: "信任",
+      directed: true,
+      description: "林岚起初选择信任周野。",
+    });
+    const changed = await store.createCodexProgression(series.manifest.id, {
+      target: { kind: "relation", entryId: null, relationId: relation.relation.id },
+      fieldKey: "关系状态",
+      changeKind: "replacement",
+      summary: "林岚暂时不再信任周野。",
+      effectiveFromSceneId: second.metadata.id,
+      evidence: [{
+        sourceType: "scene",
+        sourceId: second.metadata.id,
+        quote: "林岚误以为周野背叛了她。",
+        note: "正文写出信任关系发生主观转折。",
+      }],
+    });
+    const misunderstanding = await store.createCodexKnowledge(series.manifest.id, {
+      characterEntryId: lin.metadata.id,
+      subjectEntryId: zhou.metadata.id,
+      relationId: relation.relation.id,
+      stance: "misunderstands",
+      summary: "林岚误以为周野已经背叛。",
+      effectiveFromSceneId: second.metadata.id,
+      evidence: [{
+        sourceType: "scene",
+        sourceId: second.metadata.id,
+        quote: "林岚误以为周野背叛了她。",
+        note: "这是角色主观误解，不自动成为世界真相。",
+      }],
+    });
+
+    const before = await store.getCodexEffectiveState(
+      series.manifest.id,
+      first.metadata.id,
+      zhou.metadata.id,
+      lin.metadata.id,
+    );
+    expect(before.characterKnowledge).toHaveLength(0);
+    expect(before.hiddenFutureKnowledgeCount).toBe(1);
+    expect(JSON.stringify(before)).not.toContain(misunderstanding.knowledge.summary);
+
+    const linView = await store.getCodexEffectiveState(
+      series.manifest.id,
+      second.metadata.id,
+      zhou.metadata.id,
+      lin.metadata.id,
+    );
+    expect(linView.characterKnowledge.map((document) => document.knowledge.stance))
+      .toEqual(["misunderstands"]);
+    expect(linView.characterKnowledge[0]!.knowledge.summary)
+      .toBe(misunderstanding.knowledge.summary);
+    expect(linView.worldFacts).toHaveLength(0);
+    expect(linView.relationStates.flatMap((state) => state.progressions)
+      .map((document) => document.progression.summary)).toContain(changed.progression.summary);
+
+    const zhouView = await store.getCodexEffectiveState(
+      series.manifest.id,
+      second.metadata.id,
+      zhou.metadata.id,
+      zhou.metadata.id,
+    );
+    expect(zhouView.characterKnowledge).toHaveLength(0);
+    expect((await store.listCodexRelations(series.manifest.id, { entryId: zhou.metadata.id }))
+      [0]!.relation.description).toBe("林岚起初选择信任周野。");
+  });
+
+  it("rejects invalid Progression and Knowledge references, quotes and stale revisions", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "证据边界" });
+    const scene = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
+      baseRevision: series.scenes[0]!.revision,
+      title: "证据场",
+      content: "林岚在门口停下。",
+    });
+    const lin = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "林岚",
+    });
+    const gate = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "location",
+      name: "门口",
+    });
+
+    await expect(store.createCodexProgression(series.manifest.id, {
+      target: { kind: "entry", entryId: lin.metadata.id, relationId: null },
+      changeKind: "addition",
+      summary: "这条证据引文不存在。",
+      effectiveFromSceneId: scene.metadata.id,
+      evidence: [{
+        sourceType: "scene",
+        sourceId: scene.metadata.id,
+        quote: "不存在的引文",
+        note: "必须被拒绝。",
+      }],
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    await expect(store.createCodexKnowledge(series.manifest.id, {
+      characterEntryId: gate.metadata.id,
+      subjectEntryId: lin.metadata.id,
+      stance: "knows",
+      summary: "地点不能作为知道者。",
+      effectiveFromSceneId: scene.metadata.id,
+      evidence: [{
+        sourceType: "scene",
+        sourceId: scene.metadata.id,
+        quote: "林岚在门口停下。",
+        note: "知道者类别错误。",
+      }],
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    const progression = await store.createCodexProgression(series.manifest.id, {
+      target: { kind: "entry", entryId: lin.metadata.id, relationId: null },
+      fieldKey: "位置",
+      changeKind: "addition",
+      summary: "林岚停在门口。",
+      effectiveFromSceneId: scene.metadata.id,
+      evidence: [{
+        sourceType: "scene",
+        sourceId: scene.metadata.id,
+        quote: "林岚在门口停下。",
+        note: "正文提供位置证据。",
+      }],
+    });
+    const updated = await store.updateCodexProgression(
+      series.manifest.id,
+      progression.progression.id,
+      {
+        baseRevision: progression.revision,
+        summary: "林岚在门口观察。",
+      },
+    );
+    await expect(store.updateCodexProgression(
+      series.manifest.id,
+      progression.progression.id,
+      {
+        baseRevision: progression.revision,
+        summary: "过期更新。",
+      },
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    await expect(store.archiveCodexProgression(series.manifest.id, progression.progression.id, {
+      baseRevision: progression.revision,
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    expect((await store.getCodexProgression(series.manifest.id, progression.progression.id))
+      .progression.summary).toBe(updated.progression.summary);
+  });
+
   it("saves a 200,000-character Chinese scene without changing its text", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "长夜手稿" });

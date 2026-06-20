@@ -26,7 +26,12 @@ import {
   CodexCustomCategorySchema,
   CodexEntryDocumentSchema,
   CodexEntryMetadataSchema,
+  CodexEffectiveStateSchema,
+  CodexKnowledgeDocumentSchema,
+  CodexKnowledgeSchema,
   CodexMentionSchema,
+  CodexProgressionDocumentSchema,
+  CodexProgressionSchema,
   CodexRelationDocumentSchema,
   CodexRelationSchema,
   CodexResearchDocumentSchema,
@@ -34,6 +39,8 @@ import {
   CodexSearchResultSchema,
   CreateCodexCategoryInputSchema,
   CreateCodexEntryInputSchema,
+  CreateCodexKnowledgeInputSchema,
+  CreateCodexProgressionInputSchema,
   CreateCodexRelationInputSchema,
   CreateActInputSchema,
   CreateChapterInputSchema,
@@ -62,6 +69,8 @@ import {
   TimelineManifestSchema,
   UpdateCodexCategoryInputSchema,
   UpdateCodexEntryInputSchema,
+  UpdateCodexKnowledgeInputSchema,
+  UpdateCodexProgressionInputSchema,
   UpdateCodexRelationInputSchema,
   UpdateActInputSchema,
   UpdateChapterInputSchema,
@@ -84,7 +93,12 @@ import {
   type CodexCustomCategory,
   type CodexEntryDocument,
   type CodexEntryMetadata,
+  type CodexEffectiveState,
+  type CodexKnowledge,
+  type CodexKnowledgeDocument,
   type CodexMention,
+  type CodexProgression,
+  type CodexProgressionDocument,
   type CodexRelation,
   type CodexRelationDocument,
   type CodexResearchDocument,
@@ -92,6 +106,8 @@ import {
   type CodexSearchResult,
   type CreateCodexCategoryInput,
   type CreateCodexEntryInput,
+  type CreateCodexKnowledgeInput,
+  type CreateCodexProgressionInput,
   type CreateCodexRelationInput,
   type CreateActInput,
   type CreateChapterInput,
@@ -131,6 +147,8 @@ import {
   type UpdateActInput,
   type UpdateCodexCategoryInput,
   type UpdateCodexEntryInput,
+  type UpdateCodexKnowledgeInput,
+  type UpdateCodexProgressionInput,
   type UpdateCodexRelationInput,
   type UpdateChapterInput,
   type UpdateScenePlanningInput,
@@ -155,6 +173,8 @@ const CODEX_CATEGORIES_DIR = "categories";
 const CODEX_CUSTOM_DIR = "custom";
 const CODEX_RESEARCH_DIR = "entry-research";
 const CODEX_RELATIONS_DIR = "relations";
+const CODEX_PROGRESSIONS_DIR = "progressions";
+const CODEX_KNOWLEDGE_DIR = "knowledge";
 
 const BUILT_IN_CODEX_CATEGORIES: ReadonlyArray<{
   id: CodexBuiltInCategoryId;
@@ -674,6 +694,108 @@ export function isSceneSectionEligibleForContext(
   return parsedTarget.data === "local" || parsedPolicy.data === "inherit";
 }
 
+function narrativeIndexForScene(
+  sceneIndexes: Map<string, number>,
+  sceneId: string,
+): number {
+  const index = sceneIndexes.get(sceneId);
+  if (!index) {
+    throw new StorageError("记录引用了未知场景", "INVALID_DATA", { sceneId });
+  }
+  return index;
+}
+
+function isActiveForNarrativePosition(
+  fromSceneId: string,
+  toSceneId: string | null,
+  targetIndex: number,
+  sceneIndexes: Map<string, number>,
+): boolean {
+  const fromIndex = narrativeIndexForScene(sceneIndexes, fromSceneId);
+  const toIndex = toSceneId ? narrativeIndexForScene(sceneIndexes, toSceneId) : null;
+  return fromIndex <= targetIndex && (toIndex === null || targetIndex <= toIndex);
+}
+
+function progressionGroupKey(progression: CodexProgression): string {
+  const targetId =
+    progression.target.kind === "entry"
+      ? progression.target.entryId
+      : progression.target.relationId;
+  return `${progression.target.kind}:${targetId}:${progression.fieldKey}`;
+}
+
+function compareProgressionsAtNarrativePosition(
+  sceneIndexes: Map<string, number>,
+  left: CodexProgressionDocument,
+  right: CodexProgressionDocument,
+): number {
+  return (
+    narrativeIndexForScene(sceneIndexes, left.progression.effectiveFromSceneId) -
+      narrativeIndexForScene(sceneIndexes, right.progression.effectiveFromSceneId) ||
+    left.progression.createdAt.localeCompare(right.progression.createdAt)
+  );
+}
+
+export function effectiveProgressionsForScene(
+  progressions: CodexProgressionDocument[],
+  targetIndex: number,
+  sceneIndexes: Map<string, number>,
+): CodexProgressionDocument[] {
+  const active = progressions
+    .filter((document) => document.progression.archivedAt === null)
+    .filter((document) =>
+      isActiveForNarrativePosition(
+        document.progression.effectiveFromSceneId,
+        document.progression.effectiveToSceneId,
+        targetIndex,
+        sceneIndexes,
+      ),
+    )
+    .sort((left, right) =>
+      compareProgressionsAtNarrativePosition(sceneIndexes, left, right),
+    );
+  const byGroup = new Map<string, CodexProgressionDocument[]>();
+  for (const document of active) {
+    const key = progressionGroupKey(document.progression);
+    byGroup.set(key, [...(byGroup.get(key) ?? []), document]);
+  }
+
+  const effective: CodexProgressionDocument[] = [];
+  for (const documents of byGroup.values()) {
+    const latestReplacement = [...documents]
+      .filter((document) => document.progression.changeKind === "replacement")
+      .sort((left, right) =>
+        compareProgressionsAtNarrativePosition(sceneIndexes, right, left),
+      )[0];
+    if (!latestReplacement) {
+      effective.push(...documents);
+      continue;
+    }
+    effective.push(latestReplacement);
+    const replacementIndex = narrativeIndexForScene(
+      sceneIndexes,
+      latestReplacement.progression.effectiveFromSceneId,
+    );
+    for (const document of documents) {
+      if (document.progression.changeKind !== "addition") continue;
+      const documentIndex = narrativeIndexForScene(
+        sceneIndexes,
+        document.progression.effectiveFromSceneId,
+      );
+      if (
+        documentIndex > replacementIndex ||
+        (documentIndex === replacementIndex &&
+          document.progression.createdAt > latestReplacement.progression.createdAt)
+      ) {
+        effective.push(document);
+      }
+    }
+  }
+  return effective.sort((left, right) =>
+    compareProgressionsAtNarrativePosition(sceneIndexes, left, right),
+  );
+}
+
 function allExactQuoteStarts(content: string, quote: string): number[] {
   const starts: number[] = [];
   let offset = 0;
@@ -816,6 +938,14 @@ function codexRelationPath(seriesRoot: string, relationId: string): string {
   return path.join(seriesRoot, CODEX_DIR, CODEX_RELATIONS_DIR, `${relationId}.yaml`);
 }
 
+function codexProgressionPath(seriesRoot: string, progressionId: string): string {
+  return path.join(seriesRoot, CODEX_DIR, CODEX_PROGRESSIONS_DIR, `${progressionId}.yaml`);
+}
+
+function codexKnowledgePath(seriesRoot: string, knowledgeId: string): string {
+  return path.join(seriesRoot, CODEX_DIR, CODEX_KNOWLEDGE_DIR, `${knowledgeId}.yaml`);
+}
+
 async function readActManifest(bookRoot: string, actId: string): Promise<ActManifest> {
   return readYaml(actPath(bookRoot, actId), (value) => ActManifestSchema.parse(value));
 }
@@ -946,6 +1076,8 @@ export class ProjectRepository {
       "codex/custom",
       "codex/entry-research",
       "codex/relations",
+      "codex/progressions",
+      "codex/knowledge",
       "research/sources",
       "research/notes",
       "snippets",
@@ -1903,6 +2035,347 @@ export class ProjectRepository {
     rawInput: ArchiveCodexDocumentInput,
   ): Promise<CodexRelationDocument> {
     return this.setCodexRelationArchived(seriesId, relationId, rawInput, false);
+  }
+
+  async listCodexProgressions(
+    seriesId: string,
+    options: {
+      entryId?: string;
+      relationId?: string;
+      includeArchived?: boolean;
+    } = {},
+  ): Promise<CodexProgressionDocument[]> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const progressions = await this.listCodexProgressionsFromRoot(seriesRoot);
+    return progressions
+      .filter((document) => options.includeArchived || document.progression.archivedAt === null)
+      .filter((document) =>
+        !options.entryId ||
+        (document.progression.target.kind === "entry" &&
+          document.progression.target.entryId === options.entryId),
+      )
+      .filter((document) =>
+        !options.relationId ||
+        (document.progression.target.kind === "relation" &&
+          document.progression.target.relationId === options.relationId),
+      )
+      .sort((left, right) =>
+        left.progression.createdAt.localeCompare(right.progression.createdAt),
+      );
+  }
+
+  async getCodexProgression(
+    seriesId: string,
+    progressionId: string,
+  ): Promise<CodexProgressionDocument> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return this.readCodexProgression(seriesRoot, progressionId);
+  }
+
+  async createCodexProgression(
+    seriesId: string,
+    rawInput: CreateCodexProgressionInput,
+  ): Promise<CodexProgressionDocument> {
+    const input = CreateCodexProgressionInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const now = new Date().toISOString();
+    const progression = CodexProgressionSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      target: input.target,
+      fieldKey: input.fieldKey ?? "description",
+      changeKind: input.changeKind,
+      summary: input.summary,
+      effectiveFromSceneId: input.effectiveFromSceneId,
+      effectiveToSceneId: input.effectiveToSceneId ?? null,
+      evidence: input.evidence,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    });
+    await this.assertCodexProgressionReferences(seriesId, seriesRoot, progression);
+    const raw = serializeYaml(progression);
+    await atomicWrite(codexProgressionPath(seriesRoot, progression.id), raw);
+    return CodexProgressionDocumentSchema.parse({
+      progression,
+      revision: contentRevision(raw),
+    });
+  }
+
+  async updateCodexProgression(
+    seriesId: string,
+    progressionId: string,
+    rawInput: UpdateCodexProgressionInput,
+  ): Promise<CodexProgressionDocument> {
+    const input = UpdateCodexProgressionInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.readCodexProgression(seriesRoot, progressionId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("进展记录已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+    if (current.progression.archivedAt) {
+      throw new StorageError("已归档进展记录不能直接编辑", "INVALID_DATA", {
+        progressionId,
+      });
+    }
+    const { baseRevision: _baseRevision, ...changes } = input;
+    const progression = CodexProgressionSchema.parse({
+      ...current.progression,
+      ...changes,
+      updatedAt: new Date().toISOString(),
+    });
+    await this.assertCodexProgressionReferences(seriesId, seriesRoot, progression);
+    const raw = serializeYaml(progression);
+    await atomicWrite(codexProgressionPath(seriesRoot, progression.id), raw);
+    return CodexProgressionDocumentSchema.parse({
+      progression,
+      revision: contentRevision(raw),
+    });
+  }
+
+  async archiveCodexProgression(
+    seriesId: string,
+    progressionId: string,
+    rawInput: ArchiveCodexDocumentInput,
+  ): Promise<CodexProgressionDocument> {
+    return this.setCodexProgressionArchived(seriesId, progressionId, rawInput, true);
+  }
+
+  async restoreCodexProgression(
+    seriesId: string,
+    progressionId: string,
+    rawInput: ArchiveCodexDocumentInput,
+  ): Promise<CodexProgressionDocument> {
+    return this.setCodexProgressionArchived(seriesId, progressionId, rawInput, false);
+  }
+
+  async listCodexKnowledge(
+    seriesId: string,
+    options: {
+      characterEntryId?: string;
+      subjectEntryId?: string;
+      relationId?: string;
+      includeArchived?: boolean;
+    } = {},
+  ): Promise<CodexKnowledgeDocument[]> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const knowledge = await this.listCodexKnowledgeFromRoot(seriesRoot);
+    return knowledge
+      .filter((document) => options.includeArchived || document.knowledge.archivedAt === null)
+      .filter((document) =>
+        !options.characterEntryId ||
+        document.knowledge.characterEntryId === options.characterEntryId,
+      )
+      .filter((document) =>
+        !options.subjectEntryId ||
+        document.knowledge.subjectEntryId === options.subjectEntryId,
+      )
+      .filter((document) =>
+        !options.relationId || document.knowledge.relationId === options.relationId,
+      )
+      .sort((left, right) =>
+        left.knowledge.createdAt.localeCompare(right.knowledge.createdAt),
+      );
+  }
+
+  async getCodexKnowledge(
+    seriesId: string,
+    knowledgeId: string,
+  ): Promise<CodexKnowledgeDocument> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return this.readCodexKnowledge(seriesRoot, knowledgeId);
+  }
+
+  async createCodexKnowledge(
+    seriesId: string,
+    rawInput: CreateCodexKnowledgeInput,
+  ): Promise<CodexKnowledgeDocument> {
+    const input = CreateCodexKnowledgeInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const now = new Date().toISOString();
+    const knowledge = CodexKnowledgeSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      characterEntryId: input.characterEntryId,
+      subjectEntryId: input.subjectEntryId ?? null,
+      relationId: input.relationId ?? null,
+      stance: input.stance,
+      summary: input.summary,
+      truthProgressionId: input.truthProgressionId ?? null,
+      effectiveFromSceneId: input.effectiveFromSceneId,
+      effectiveToSceneId: input.effectiveToSceneId ?? null,
+      evidence: input.evidence,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    });
+    await this.assertCodexKnowledgeReferences(seriesId, seriesRoot, knowledge);
+    const raw = serializeYaml(knowledge);
+    await atomicWrite(codexKnowledgePath(seriesRoot, knowledge.id), raw);
+    return CodexKnowledgeDocumentSchema.parse({
+      knowledge,
+      revision: contentRevision(raw),
+    });
+  }
+
+  async updateCodexKnowledge(
+    seriesId: string,
+    knowledgeId: string,
+    rawInput: UpdateCodexKnowledgeInput,
+  ): Promise<CodexKnowledgeDocument> {
+    const input = UpdateCodexKnowledgeInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.readCodexKnowledge(seriesRoot, knowledgeId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("角色所知已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+    if (current.knowledge.archivedAt) {
+      throw new StorageError("已归档角色所知不能直接编辑", "INVALID_DATA", {
+        knowledgeId,
+      });
+    }
+    const { baseRevision: _baseRevision, ...changes } = input;
+    const knowledge = CodexKnowledgeSchema.parse({
+      ...current.knowledge,
+      ...changes,
+      updatedAt: new Date().toISOString(),
+    });
+    await this.assertCodexKnowledgeReferences(seriesId, seriesRoot, knowledge);
+    const raw = serializeYaml(knowledge);
+    await atomicWrite(codexKnowledgePath(seriesRoot, knowledge.id), raw);
+    return CodexKnowledgeDocumentSchema.parse({
+      knowledge,
+      revision: contentRevision(raw),
+    });
+  }
+
+  async archiveCodexKnowledge(
+    seriesId: string,
+    knowledgeId: string,
+    rawInput: ArchiveCodexDocumentInput,
+  ): Promise<CodexKnowledgeDocument> {
+    return this.setCodexKnowledgeArchived(seriesId, knowledgeId, rawInput, true);
+  }
+
+  async restoreCodexKnowledge(
+    seriesId: string,
+    knowledgeId: string,
+    rawInput: ArchiveCodexDocumentInput,
+  ): Promise<CodexKnowledgeDocument> {
+    return this.setCodexKnowledgeArchived(seriesId, knowledgeId, rawInput, false);
+  }
+
+  async getCodexEffectiveState(
+    seriesId: string,
+    sceneId: string,
+    entryId: string,
+    viewerEntryId?: string,
+  ): Promise<CodexEffectiveState> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const entry = await this.getCodexEntry(seriesId, entryId);
+    if (entry.metadata.archivedAt) {
+      throw new StorageError("已归档条目不能作为有效状态查询目标", "INVALID_DATA", {
+        entryId,
+      });
+    }
+    const { sceneIndexes } = await this.narrativeSceneIndexes(seriesId);
+    const narrativeIndex = narrativeIndexForScene(sceneIndexes, sceneId);
+    const relations = await this.listCodexRelations(seriesId, {
+      entryId,
+      includeArchived: false,
+    });
+    const relationIds = new Set(relations.map((document) => document.relation.id));
+    const allProgressions = (await this.listCodexProgressionsFromRoot(seriesRoot))
+      .filter((document) => document.progression.archivedAt === null);
+    const directProgressions = allProgressions.filter(
+      (document) =>
+        document.progression.target.kind === "entry" &&
+        document.progression.target.entryId === entryId,
+    );
+    const relationProgressions = allProgressions.filter(
+      (document) =>
+        document.progression.target.kind === "relation" &&
+        Boolean(document.progression.target.relationId) &&
+        relationIds.has(document.progression.target.relationId!),
+    );
+    const relevantProgressions = [...directProgressions, ...relationProgressions];
+    const worldFacts = effectiveProgressionsForScene(
+      directProgressions,
+      narrativeIndex,
+      sceneIndexes,
+    );
+    const relationStates = relations.map((relation) => ({
+        relation,
+        progressions: effectiveProgressionsForScene(
+          relationProgressions.filter(
+            (document) =>
+              document.progression.target.relationId === relation.relation.id,
+          ),
+          narrativeIndex,
+          sceneIndexes,
+        ),
+      }));
+    const hiddenFutureProgressionCount = relevantProgressions.filter(
+      (document) =>
+        narrativeIndexForScene(sceneIndexes, document.progression.effectiveFromSceneId) >
+        narrativeIndex,
+    ).length;
+
+    let characterKnowledge: CodexKnowledgeDocument[] = [];
+    let hiddenFutureKnowledgeCount = 0;
+    if (viewerEntryId) {
+      const viewer = await this.getCodexEntry(seriesId, viewerEntryId);
+      if (viewer.metadata.categoryId !== "character" || viewer.metadata.archivedAt) {
+        throw new StorageError("角色所知查询的观察者必须是未归档人物", "INVALID_DATA", {
+          viewerEntryId,
+        });
+      }
+      const relevantKnowledge = (await this.listCodexKnowledgeFromRoot(seriesRoot))
+        .filter((document) => document.knowledge.archivedAt === null)
+        .filter((document) => document.knowledge.characterEntryId === viewerEntryId)
+        .filter(
+          (document) =>
+            document.knowledge.subjectEntryId === entryId ||
+            (document.knowledge.relationId
+              ? relationIds.has(document.knowledge.relationId)
+              : false),
+        );
+      characterKnowledge = relevantKnowledge
+        .filter((document) =>
+          isActiveForNarrativePosition(
+            document.knowledge.effectiveFromSceneId,
+            document.knowledge.effectiveToSceneId,
+            narrativeIndex,
+            sceneIndexes,
+          ),
+        )
+        .sort(
+          (left, right) =>
+            narrativeIndexForScene(sceneIndexes, left.knowledge.effectiveFromSceneId) -
+              narrativeIndexForScene(sceneIndexes, right.knowledge.effectiveFromSceneId) ||
+            left.knowledge.createdAt.localeCompare(right.knowledge.createdAt),
+        );
+      hiddenFutureKnowledgeCount = relevantKnowledge.filter(
+        (document) =>
+          narrativeIndexForScene(sceneIndexes, document.knowledge.effectiveFromSceneId) >
+          narrativeIndex,
+      ).length;
+    }
+
+    return CodexEffectiveStateSchema.parse({
+      sceneId,
+      narrativeIndex,
+      entry,
+      worldFacts,
+      relationStates,
+      characterKnowledge,
+      hiddenFutureProgressionCount,
+      hiddenFutureKnowledgeCount,
+    });
   }
 
   async listCodexMentionsForEntry(
@@ -3647,6 +4120,335 @@ export class ProjectRepository {
     await atomicWrite(codexRelationPath(seriesRoot, relation.id), raw);
     return CodexRelationDocumentSchema.parse({
       relation,
+      revision: contentRevision(raw),
+    });
+  }
+
+  private async readCodexProgression(
+    seriesRoot: string,
+    progressionId: string,
+  ): Promise<CodexProgressionDocument> {
+    const filePath = assertInside(seriesRoot, codexProgressionPath(seriesRoot, progressionId));
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("进展记录不存在", "NOT_FOUND", { progressionId });
+      }
+      throw error;
+    }
+    let progression: CodexProgression;
+    try {
+      progression = CodexProgressionSchema.parse(YAML.parse(raw));
+    } catch (error) {
+      throw new StorageError("进展记录 YAML 无效", "INVALID_DATA", {
+        progressionId,
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (progression.id !== progressionId) {
+      throw new StorageError("进展记录文件名与 ID 不一致", "INVALID_DATA", {
+        progressionId,
+        actualId: progression.id,
+      });
+    }
+    return CodexProgressionDocumentSchema.parse({
+      progression,
+      revision: contentRevision(raw),
+    });
+  }
+
+  private async listCodexProgressionsFromRoot(
+    seriesRoot: string,
+  ): Promise<CodexProgressionDocument[]> {
+    const directory = path.join(seriesRoot, CODEX_DIR, CODEX_PROGRESSIONS_DIR);
+    let files;
+    try {
+      files = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    const documents: CodexProgressionDocument[] = [];
+    const seen = new Set<string>();
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith(".yaml")) continue;
+      const document = await this.readCodexProgression(
+        seriesRoot,
+        path.basename(file.name, ".yaml"),
+      );
+      if (seen.has(document.progression.id)) {
+        throw new StorageError("多个进展记录文件使用同一 ID", "INVALID_DATA", {
+          progressionId: document.progression.id,
+        });
+      }
+      seen.add(document.progression.id);
+      documents.push(document);
+    }
+    return documents;
+  }
+
+  private async readCodexKnowledge(
+    seriesRoot: string,
+    knowledgeId: string,
+  ): Promise<CodexKnowledgeDocument> {
+    const filePath = assertInside(seriesRoot, codexKnowledgePath(seriesRoot, knowledgeId));
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("角色所知不存在", "NOT_FOUND", { knowledgeId });
+      }
+      throw error;
+    }
+    let knowledge: CodexKnowledge;
+    try {
+      knowledge = CodexKnowledgeSchema.parse(YAML.parse(raw));
+    } catch (error) {
+      throw new StorageError("角色所知 YAML 无效", "INVALID_DATA", {
+        knowledgeId,
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (knowledge.id !== knowledgeId) {
+      throw new StorageError("角色所知文件名与 ID 不一致", "INVALID_DATA", {
+        knowledgeId,
+        actualId: knowledge.id,
+      });
+    }
+    return CodexKnowledgeDocumentSchema.parse({
+      knowledge,
+      revision: contentRevision(raw),
+    });
+  }
+
+  private async listCodexKnowledgeFromRoot(
+    seriesRoot: string,
+  ): Promise<CodexKnowledgeDocument[]> {
+    const directory = path.join(seriesRoot, CODEX_DIR, CODEX_KNOWLEDGE_DIR);
+    let files;
+    try {
+      files = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    const documents: CodexKnowledgeDocument[] = [];
+    const seen = new Set<string>();
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith(".yaml")) continue;
+      const document = await this.readCodexKnowledge(
+        seriesRoot,
+        path.basename(file.name, ".yaml"),
+      );
+      if (seen.has(document.knowledge.id)) {
+        throw new StorageError("多个角色所知文件使用同一 ID", "INVALID_DATA", {
+          knowledgeId: document.knowledge.id,
+        });
+      }
+      seen.add(document.knowledge.id);
+      documents.push(document);
+    }
+    return documents;
+  }
+
+  private async narrativeSceneIndexes(seriesId: string): Promise<{
+    sceneIndexes: Map<string, number>;
+    scenesById: Map<string, SceneDocument>;
+  }> {
+    const series = await this.getSeries(seriesId);
+    const sceneIndexes = new Map<string, number>();
+    const scenesById = new Map<string, SceneDocument>();
+    for (let index = 0; index < series.scenes.length; index++) {
+      const scene = series.scenes[index]!;
+      sceneIndexes.set(scene.metadata.id, index + 1);
+      scenesById.set(scene.metadata.id, scene);
+    }
+    return { sceneIndexes, scenesById };
+  }
+
+  private assertEffectiveSceneRange(
+    sceneIndexes: Map<string, number>,
+    effectiveFromSceneId: string,
+    effectiveToSceneId: string | null,
+  ): void {
+    const fromIndex = narrativeIndexForScene(sceneIndexes, effectiveFromSceneId);
+    if (!effectiveToSceneId) return;
+    const toIndex = narrativeIndexForScene(sceneIndexes, effectiveToSceneId);
+    if (toIndex <= fromIndex) {
+      throw new StorageError("生效结束场景必须晚于起始场景", "INVALID_DATA", {
+        effectiveFromSceneId,
+        effectiveToSceneId,
+      });
+    }
+  }
+
+  private async assertEvidenceReferences(
+    seriesId: string,
+    seriesRoot: string,
+    evidence: CodexProgression["evidence"],
+  ): Promise<void> {
+    const { scenesById } = await this.narrativeSceneIndexes(seriesId);
+    const entryIds = new Set(
+      (await this.listCodexEntriesFromRoot(seriesRoot)).map((entry) => entry.metadata.id),
+    );
+    const relationIds = new Set(
+      (await this.listCodexRelations(seriesId, { includeArchived: true })).map(
+        (relation) => relation.relation.id,
+      ),
+    );
+    for (const item of evidence) {
+      if (item.sourceType === "scene") {
+        const scene = scenesById.get(item.sourceId);
+        if (!scene) {
+          throw new StorageError("证据引用未知场景", "INVALID_DATA", {
+            sourceId: item.sourceId,
+          });
+        }
+        if (item.quote && !scene.content.includes(item.quote)) {
+          throw new StorageError("证据引文未出现在对应场景正文中", "INVALID_DATA", {
+            sceneId: item.sourceId,
+            quote: item.quote,
+          });
+        }
+      } else if (item.sourceType === "codex-entry") {
+        if (!entryIds.has(item.sourceId)) {
+          throw new StorageError("证据引用未知设定条目", "INVALID_DATA", {
+            sourceId: item.sourceId,
+          });
+        }
+      } else if (!relationIds.has(item.sourceId)) {
+        throw new StorageError("证据引用未知关系", "INVALID_DATA", {
+          sourceId: item.sourceId,
+        });
+      }
+    }
+  }
+
+  private async assertCodexProgressionReferences(
+    seriesId: string,
+    seriesRoot: string,
+    progression: CodexProgression,
+  ): Promise<void> {
+    const { sceneIndexes } = await this.narrativeSceneIndexes(seriesId);
+    this.assertEffectiveSceneRange(
+      sceneIndexes,
+      progression.effectiveFromSceneId,
+      progression.effectiveToSceneId,
+    );
+    if (progression.target.kind === "entry") {
+      const entryId = progression.target.entryId!;
+      const entry = await this.getCodexEntry(seriesId, entryId);
+      if (entry.metadata.archivedAt) {
+        throw new StorageError("进展记录不能指向已归档条目", "INVALID_DATA", {
+          entryId,
+        });
+      }
+    } else {
+      const relationId = progression.target.relationId!;
+      const relation = await this.readCodexRelation(seriesRoot, relationId);
+      if (relation.relation.archivedAt) {
+        throw new StorageError("进展记录不能指向已归档关系", "INVALID_DATA", {
+          relationId,
+        });
+      }
+    }
+    await this.assertEvidenceReferences(seriesId, seriesRoot, progression.evidence);
+  }
+
+  private async assertCodexKnowledgeReferences(
+    seriesId: string,
+    seriesRoot: string,
+    knowledge: CodexKnowledge,
+  ): Promise<void> {
+    const { sceneIndexes } = await this.narrativeSceneIndexes(seriesId);
+    this.assertEffectiveSceneRange(
+      sceneIndexes,
+      knowledge.effectiveFromSceneId,
+      knowledge.effectiveToSceneId,
+    );
+    const character = await this.getCodexEntry(seriesId, knowledge.characterEntryId);
+    if (character.metadata.categoryId !== "character" || character.metadata.archivedAt) {
+      throw new StorageError("角色所知的知道者必须是未归档人物", "INVALID_DATA", {
+        characterEntryId: knowledge.characterEntryId,
+      });
+    }
+    if (knowledge.subjectEntryId) {
+      const subject = await this.getCodexEntry(seriesId, knowledge.subjectEntryId);
+      if (subject.metadata.archivedAt) {
+        throw new StorageError("角色所知不能指向已归档条目", "INVALID_DATA", {
+          subjectEntryId: knowledge.subjectEntryId,
+        });
+      }
+    }
+    if (knowledge.relationId) {
+      const relation = await this.readCodexRelation(seriesRoot, knowledge.relationId);
+      if (relation.relation.archivedAt) {
+        throw new StorageError("角色所知不能指向已归档关系", "INVALID_DATA", {
+          relationId: knowledge.relationId,
+        });
+      }
+    }
+    if (knowledge.truthProgressionId) {
+      await this.readCodexProgression(seriesRoot, knowledge.truthProgressionId);
+    }
+    await this.assertEvidenceReferences(seriesId, seriesRoot, knowledge.evidence);
+  }
+
+  private async setCodexProgressionArchived(
+    seriesId: string,
+    progressionId: string,
+    rawInput: ArchiveCodexDocumentInput,
+    archived: boolean,
+  ): Promise<CodexProgressionDocument> {
+    const input = ArchiveCodexDocumentInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.readCodexProgression(seriesRoot, progressionId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("进展记录已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+    if (Boolean(current.progression.archivedAt) === archived) return current;
+    const progression = CodexProgressionSchema.parse({
+      ...current.progression,
+      updatedAt: new Date().toISOString(),
+      archivedAt: archived ? new Date().toISOString() : null,
+    });
+    const raw = serializeYaml(progression);
+    await atomicWrite(codexProgressionPath(seriesRoot, progression.id), raw);
+    return CodexProgressionDocumentSchema.parse({
+      progression,
+      revision: contentRevision(raw),
+    });
+  }
+
+  private async setCodexKnowledgeArchived(
+    seriesId: string,
+    knowledgeId: string,
+    rawInput: ArchiveCodexDocumentInput,
+    archived: boolean,
+  ): Promise<CodexKnowledgeDocument> {
+    const input = ArchiveCodexDocumentInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.readCodexKnowledge(seriesRoot, knowledgeId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("角色所知已被其他修改更新", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+    if (Boolean(current.knowledge.archivedAt) === archived) return current;
+    const knowledge = CodexKnowledgeSchema.parse({
+      ...current.knowledge,
+      updatedAt: new Date().toISOString(),
+      archivedAt: archived ? new Date().toISOString() : null,
+    });
+    const raw = serializeYaml(knowledge);
+    await atomicWrite(codexKnowledgePath(seriesRoot, knowledge.id), raw);
+    return CodexKnowledgeDocumentSchema.parse({
+      knowledge,
       revision: contentRevision(raw),
     });
   }

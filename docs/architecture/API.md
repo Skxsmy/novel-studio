@@ -88,8 +88,19 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 - `POST /series/:seriesId/codex/relations/:relationId/archive`
 - `POST /series/:seriesId/codex/relations/:relationId/restore`
 - `GET /series/:seriesId/codex/context?sceneId=&pinnedIds=`
+- `GET|POST /series/:seriesId/codex/progressions`
+- `GET|PUT /series/:seriesId/codex/progressions/:progressionId`
+- `POST /series/:seriesId/codex/progressions/:progressionId/archive`
+- `POST /series/:seriesId/codex/progressions/:progressionId/restore`
+- `GET|POST /series/:seriesId/codex/knowledge`
+- `GET|PUT /series/:seriesId/codex/knowledge/:knowledgeId`
+- `POST /series/:seriesId/codex/knowledge/:knowledgeId/archive`
+- `POST /series/:seriesId/codex/knowledge/:knowledgeId/restore`
+- `GET /series/:seriesId/codex/effective?sceneId=&entryId=&viewerEntryId=`
 
 条目更新分别检查条目 `baseRevision` 和 Research `baseResearchRevision`；只修改其中一类时只要求对应 revision。内置类别不能更新或归档。自动提及与上下文预览是派生查询，不写回正文、Scene 关联或 Canon。`never` 条目即使出现在 `pinnedIds` 中也必须排除。
+
+进展记录和角色所知均为权威 YAML 文件，更新、归档和恢复要求自身 `baseRevision`。有效状态查询只按当前叙事位置返回已生效记录；未来记录只返回数量，不返回摘要、证据或 ID。
 
 ## 后续长任务
 

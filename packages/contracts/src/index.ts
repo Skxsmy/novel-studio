@@ -722,6 +722,236 @@ export const CodexRelationDocumentSchema = z.object({
 });
 export type CodexRelationDocument = z.infer<typeof CodexRelationDocumentSchema>;
 
+export const EvidenceSourceTypeSchema = z.enum([
+  "scene",
+  "codex-entry",
+  "relation",
+]);
+export type EvidenceSourceType = z.infer<typeof EvidenceSourceTypeSchema>;
+
+export const EvidenceSchema = z.object({
+  sourceType: EvidenceSourceTypeSchema,
+  sourceId: z.string().uuid(),
+  quote: z.string().max(16000).default(""),
+  note: z.string().trim().min(1).max(16000),
+});
+export type Evidence = z.infer<typeof EvidenceSchema>;
+
+export const CodexProgressionTargetKindSchema = z.enum(["entry", "relation"]);
+export type CodexProgressionTargetKind = z.infer<
+  typeof CodexProgressionTargetKindSchema
+>;
+
+export const CodexProgressionTargetSchema = z
+  .object({
+    kind: CodexProgressionTargetKindSchema,
+    entryId: z.string().uuid().nullable().default(null),
+    relationId: z.string().uuid().nullable().default(null),
+  })
+  .superRefine((target, context) => {
+    if (target.kind === "entry" && !target.entryId) {
+      context.addIssue({
+        code: "custom",
+        message: "条目进展必须提供 entryId",
+        path: ["entryId"],
+      });
+    }
+    if (target.kind === "relation" && !target.relationId) {
+      context.addIssue({
+        code: "custom",
+        message: "关系进展必须提供 relationId",
+        path: ["relationId"],
+      });
+    }
+  });
+export type CodexProgressionTarget = z.infer<
+  typeof CodexProgressionTargetSchema
+>;
+
+export const CodexProgressionChangeKindSchema = z.enum([
+  "addition",
+  "replacement",
+]);
+export type CodexProgressionChangeKind = z.infer<
+  typeof CodexProgressionChangeKindSchema
+>;
+
+export const CodexProgressionSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    id: z.string().uuid(),
+    target: CodexProgressionTargetSchema,
+    fieldKey: z.string().trim().min(1).max(120).default("description"),
+    changeKind: CodexProgressionChangeKindSchema,
+    summary: z.string().trim().min(1).max(16000),
+    effectiveFromSceneId: z.string().uuid(),
+    effectiveToSceneId: z.string().uuid().nullable().default(null),
+    evidence: z.array(EvidenceSchema).min(1),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    archivedAt: z.string().datetime().nullable().default(null),
+  })
+  .superRefine((progression, context) => {
+    if (progression.effectiveToSceneId === progression.effectiveFromSceneId) {
+      context.addIssue({
+        code: "custom",
+        message: "生效结束场景不能与起始场景相同",
+        path: ["effectiveToSceneId"],
+      });
+    }
+  });
+export type CodexProgression = z.infer<typeof CodexProgressionSchema>;
+
+export const CodexProgressionDocumentSchema = z.object({
+  progression: CodexProgressionSchema,
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type CodexProgressionDocument = z.infer<
+  typeof CodexProgressionDocumentSchema
+>;
+
+export const CreateCodexProgressionInputSchema = z.object({
+  target: CodexProgressionTargetSchema,
+  fieldKey: z.string().trim().min(1).max(120).default("description"),
+  changeKind: CodexProgressionChangeKindSchema,
+  summary: z.string().trim().min(1).max(16000),
+  effectiveFromSceneId: z.string().uuid(),
+  effectiveToSceneId: z.string().uuid().nullable().default(null),
+  evidence: z.array(EvidenceSchema).min(1),
+});
+export type CreateCodexProgressionInput = z.input<
+  typeof CreateCodexProgressionInputSchema
+>;
+
+export const UpdateCodexProgressionInputSchema =
+  CreateCodexProgressionInputSchema.partial()
+    .extend({ baseRevision: z.string().regex(/^[a-f0-9]{64}$/) })
+    .superRefine((input, context) => {
+      if (Object.keys(input).every((key) => key === "baseRevision")) {
+        context.addIssue({ code: "custom", message: "至少提供一个进展字段" });
+      }
+    });
+export type UpdateCodexProgressionInput = z.infer<
+  typeof UpdateCodexProgressionInputSchema
+>;
+
+export const CodexKnowledgeStanceSchema = z.enum([
+  "knows",
+  "believes",
+  "misunderstands",
+]);
+export type CodexKnowledgeStance = z.infer<typeof CodexKnowledgeStanceSchema>;
+
+export const CodexKnowledgeSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    id: z.string().uuid(),
+    characterEntryId: z.string().uuid(),
+    subjectEntryId: z.string().uuid().nullable().default(null),
+    relationId: z.string().uuid().nullable().default(null),
+    stance: CodexKnowledgeStanceSchema,
+    summary: z.string().trim().min(1).max(16000),
+    truthProgressionId: z.string().uuid().nullable().default(null),
+    effectiveFromSceneId: z.string().uuid(),
+    effectiveToSceneId: z.string().uuid().nullable().default(null),
+    evidence: z.array(EvidenceSchema).min(1),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    archivedAt: z.string().datetime().nullable().default(null),
+  })
+  .superRefine((knowledge, context) => {
+    if (!knowledge.subjectEntryId && !knowledge.relationId) {
+      context.addIssue({
+        code: "custom",
+        message: "角色所知必须关联一个条目或关系",
+        path: ["subjectEntryId"],
+      });
+    }
+    if (knowledge.effectiveToSceneId === knowledge.effectiveFromSceneId) {
+      context.addIssue({
+        code: "custom",
+        message: "生效结束场景不能与起始场景相同",
+        path: ["effectiveToSceneId"],
+      });
+    }
+  });
+export type CodexKnowledge = z.infer<typeof CodexKnowledgeSchema>;
+
+export const CodexKnowledgeDocumentSchema = z.object({
+  knowledge: CodexKnowledgeSchema,
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type CodexKnowledgeDocument = z.infer<
+  typeof CodexKnowledgeDocumentSchema
+>;
+
+export const CreateCodexKnowledgeInputSchema = z
+  .object({
+    characterEntryId: z.string().uuid(),
+    subjectEntryId: z.string().uuid().nullable().default(null),
+    relationId: z.string().uuid().nullable().default(null),
+    stance: CodexKnowledgeStanceSchema,
+    summary: z.string().trim().min(1).max(16000),
+    truthProgressionId: z.string().uuid().nullable().default(null),
+    effectiveFromSceneId: z.string().uuid(),
+    effectiveToSceneId: z.string().uuid().nullable().default(null),
+    evidence: z.array(EvidenceSchema).min(1),
+  })
+  .superRefine((knowledge, context) => {
+    if (!knowledge.subjectEntryId && !knowledge.relationId) {
+      context.addIssue({
+        code: "custom",
+        message: "角色所知必须关联一个条目或关系",
+        path: ["subjectEntryId"],
+      });
+    }
+  });
+export type CreateCodexKnowledgeInput = z.input<
+  typeof CreateCodexKnowledgeInputSchema
+>;
+
+export const UpdateCodexKnowledgeInputSchema = z
+  .object({
+    baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+    characterEntryId: z.string().uuid().optional(),
+    subjectEntryId: z.string().uuid().nullable().optional(),
+    relationId: z.string().uuid().nullable().optional(),
+    stance: CodexKnowledgeStanceSchema.optional(),
+    summary: z.string().trim().min(1).max(16000).optional(),
+    truthProgressionId: z.string().uuid().nullable().optional(),
+    effectiveFromSceneId: z.string().uuid().optional(),
+    effectiveToSceneId: z.string().uuid().nullable().optional(),
+    evidence: z.array(EvidenceSchema).min(1).optional(),
+  })
+  .superRefine((input, context) => {
+    if (Object.keys(input).every((key) => key === "baseRevision")) {
+      context.addIssue({ code: "custom", message: "至少提供一个角色所知字段" });
+    }
+  });
+export type UpdateCodexKnowledgeInput = z.infer<
+  typeof UpdateCodexKnowledgeInputSchema
+>;
+
+export const CodexRelationEffectiveStateSchema = z.object({
+  relation: CodexRelationDocumentSchema,
+  progressions: z.array(CodexProgressionDocumentSchema),
+});
+export type CodexRelationEffectiveState = z.infer<
+  typeof CodexRelationEffectiveStateSchema
+>;
+
+export const CodexEffectiveStateSchema = z.object({
+  sceneId: z.string().uuid(),
+  narrativeIndex: z.number().int().positive(),
+  entry: CodexEntryDocumentSchema,
+  worldFacts: z.array(CodexProgressionDocumentSchema),
+  relationStates: z.array(CodexRelationEffectiveStateSchema),
+  characterKnowledge: z.array(CodexKnowledgeDocumentSchema),
+  hiddenFutureProgressionCount: z.number().int().nonnegative(),
+  hiddenFutureKnowledgeCount: z.number().int().nonnegative(),
+});
+export type CodexEffectiveState = z.infer<typeof CodexEffectiveStateSchema>;
+
 export const CreateCodexRelationInputSchema = CodexRelationSchema.pick({
   sourceEntryId: true,
   targetEntryId: true,

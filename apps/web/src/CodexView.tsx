@@ -4,15 +4,25 @@ import type {
   CodexCategoryDocument,
   CodexCategoryId,
   CodexContextPreview,
+  CodexEffectiveState,
   CodexEntryDocument,
+  CodexKnowledgeDocument,
+  CodexKnowledgeStance,
   CodexRelationDocument,
   CodexMention,
+  CodexProgressionChangeKind,
+  CodexProgressionDocument,
   SceneDocument,
 } from "@novel-studio/contracts";
 import { api } from "./api";
-import { codexPolicyLabels, contextExclusionLabels } from "./copy";
+import {
+  codexPolicyLabels,
+  contextExclusionLabels,
+  knowledgeStanceLabels,
+  progressionChangeLabels,
+} from "./copy";
 
-type DetailTab = "canon" | "research" | "details" | "relations" | "mentions";
+type DetailTab = "canon" | "research" | "details" | "relations" | "progressions" | "knowledge" | "mentions";
 
 export function parseDetailLines(value: string): Record<string, string> {
   const details: Record<string, string> = {};
@@ -60,11 +70,25 @@ function EntryEditor({
   const [automaticPlural, setAutomaticPlural] = useState(entry.metadata.mention.automaticPlural);
   const [excludedTerms, setExcludedTerms] = useState(entry.metadata.mention.excludedTerms.join("\n"));
   const [relations, setRelations] = useState<CodexRelationDocument[]>([]);
+  const [progressions, setProgressions] = useState<CodexProgressionDocument[]>([]);
+  const [knowledge, setKnowledge] = useState<CodexKnowledgeDocument[]>([]);
   const [mentions, setMentions] = useState<CodexMention[]>([]);
   const [context, setContext] = useState<CodexContextPreview | null>(null);
+  const [effectiveState, setEffectiveState] = useState<CodexEffectiveState | null>(null);
   const [relationTarget, setRelationTarget] = useState("");
   const [relationType, setRelationType] = useState("关联");
   const [relationDirected, setRelationDirected] = useState(true);
+  const [progressionField, setProgressionField] = useState("状态");
+  const [progressionKind, setProgressionKind] = useState<CodexProgressionChangeKind>("addition");
+  const [progressionSummary, setProgressionSummary] = useState("");
+  const [viewerEntryId, setViewerEntryId] = useState(
+    entry.metadata.categoryId === "character" ? entry.metadata.id : "",
+  );
+  const [knowledgeCharacterId, setKnowledgeCharacterId] = useState(
+    entry.metadata.categoryId === "character" ? entry.metadata.id : "",
+  );
+  const [knowledgeStance, setKnowledgeStance] = useState<CodexKnowledgeStance>("knows");
+  const [knowledgeSummary, setKnowledgeSummary] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -82,6 +106,14 @@ function EntryEditor({
     setAutomaticPlural(entry.metadata.mention.automaticPlural);
     setExcludedTerms(entry.metadata.mention.excludedTerms.join("\n"));
     setContext(null);
+    setEffectiveState(null);
+    setProgressionField("状态");
+    setProgressionKind("addition");
+    setProgressionSummary("");
+    setViewerEntryId(entry.metadata.categoryId === "character" ? entry.metadata.id : "");
+    setKnowledgeCharacterId(entry.metadata.categoryId === "character" ? entry.metadata.id : "");
+    setKnowledgeStance("knows");
+    setKnowledgeSummary("");
   }, [entry.metadata.id, entry.revision, entry.research.revision]);
 
   useEffect(() => {
@@ -91,13 +123,27 @@ function EntryEditor({
         seriesId,
         { entryId: entry.metadata.id, includeArchived: true },
       ),
+      api.listCodexProgressions(
+        seriesId,
+        { entryId: entry.metadata.id, includeArchived: true },
+      ),
+      api.listCodexKnowledge(
+        seriesId,
+        { includeArchived: true },
+      ),
       api.listCodexMentionsForEntry(
         seriesId,
         entry.metadata.id,
       ),
-    ]).then(([loadedRelations, loadedMentions]) => {
+    ]).then(([loadedRelations, loadedProgressions, loadedKnowledge, loadedMentions]) => {
       if (!cancelled) {
         setRelations(loadedRelations);
+        setProgressions(loadedProgressions);
+        setKnowledge(loadedKnowledge.filter((document) =>
+          document.knowledge.subjectEntryId === entry.metadata.id ||
+          document.knowledge.characterEntryId === entry.metadata.id ||
+          loadedRelations.some((relation) => relation.relation.id === document.knowledge.relationId),
+        ));
         setMentions(loadedMentions);
       }
     }).catch((error: unknown) => {
@@ -109,6 +155,32 @@ function EntryEditor({
     () => Object.fromEntries(entries.map((item) => [item.metadata.id, item.metadata.name])),
     [entries],
   );
+  const characterEntries = useMemo(
+    () => entries.filter((item) => item.metadata.categoryId === "character" && !item.metadata.archivedAt),
+    [entries],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeSceneId) {
+      setEffectiveState(null);
+      return () => { cancelled = true; };
+    }
+    api.getCodexEffectiveState(
+      seriesId,
+      activeSceneId,
+      entry.metadata.id,
+      viewerEntryId || undefined,
+    ).then((state) => {
+      if (!cancelled) setEffectiveState(state);
+    }).catch((error: unknown) => {
+      if (!cancelled) {
+        setEffectiveState(null);
+        setMessage(error instanceof Error ? error.message : "读取此刻有效状态失败");
+      }
+    });
+    return () => { cancelled = true; };
+  }, [seriesId, activeSceneId, entry.metadata.id, viewerEntryId, progressions.length, knowledge.length]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -164,6 +236,108 @@ function EntryEditor({
         includeArchived: true,
       }));
       setRelationTarget("");
+    });
+  }
+
+  async function refreshProgressionsAndKnowledge() {
+    const [loadedRelations, loadedProgressions, loadedKnowledge] = await Promise.all([
+      api.listCodexRelations(seriesId, {
+        entryId: entry.metadata.id,
+        includeArchived: true,
+      }),
+      api.listCodexProgressions(seriesId, {
+        entryId: entry.metadata.id,
+        includeArchived: true,
+      }),
+      api.listCodexKnowledge(seriesId, { includeArchived: true }),
+    ]);
+    setRelations(loadedRelations);
+    setProgressions(loadedProgressions);
+    setKnowledge(loadedKnowledge.filter((document) =>
+      document.knowledge.subjectEntryId === entry.metadata.id ||
+      document.knowledge.characterEntryId === entry.metadata.id ||
+      loadedRelations.some((relation) => relation.relation.id === document.knowledge.relationId),
+    ));
+    if (activeSceneId) {
+      setEffectiveState(await api.getCodexEffectiveState(
+        seriesId,
+        activeSceneId,
+        entry.metadata.id,
+        viewerEntryId || undefined,
+      ));
+    }
+  }
+
+  async function createProgression() {
+    const fromSceneId = activeSceneId ?? scenes[0]?.metadata.id;
+    if (!fromSceneId || !progressionSummary.trim()) return;
+    await run(async () => {
+      await api.createCodexProgression(seriesId, {
+        target: { kind: "entry", entryId: entry.metadata.id, relationId: null },
+        fieldKey: progressionField.trim() || "状态",
+        changeKind: progressionKind,
+        summary: progressionSummary,
+        effectiveFromSceneId: fromSceneId,
+        evidence: [{
+          sourceType: "scene",
+          sourceId: fromSceneId,
+          note: "作者手动记录的故事状态变化。",
+        }],
+      });
+      setProgressionSummary("");
+      await refreshProgressionsAndKnowledge();
+    });
+  }
+
+  async function toggleProgression(document: CodexProgressionDocument) {
+    await run(async () => {
+      if (document.progression.archivedAt) {
+        await api.restoreCodexProgression(seriesId, document.progression.id, {
+          baseRevision: document.revision,
+        });
+      } else {
+        await api.archiveCodexProgression(seriesId, document.progression.id, {
+          baseRevision: document.revision,
+        });
+      }
+      await refreshProgressionsAndKnowledge();
+    });
+  }
+
+  async function createKnowledge() {
+    const fromSceneId = activeSceneId ?? scenes[0]?.metadata.id;
+    if (!fromSceneId || !knowledgeCharacterId || !knowledgeSummary.trim()) return;
+    await run(async () => {
+      await api.createCodexKnowledge(seriesId, {
+        characterEntryId: knowledgeCharacterId,
+        subjectEntryId: entry.metadata.id,
+        relationId: null,
+        stance: knowledgeStance,
+        summary: knowledgeSummary,
+        effectiveFromSceneId: fromSceneId,
+        evidence: [{
+          sourceType: "scene",
+          sourceId: fromSceneId,
+          note: "作者手动记录的角色所知。",
+        }],
+      });
+      setKnowledgeSummary("");
+      await refreshProgressionsAndKnowledge();
+    });
+  }
+
+  async function toggleKnowledge(document: CodexKnowledgeDocument) {
+    await run(async () => {
+      if (document.knowledge.archivedAt) {
+        await api.restoreCodexKnowledge(seriesId, document.knowledge.id, {
+          baseRevision: document.revision,
+        });
+      } else {
+        await api.archiveCodexKnowledge(seriesId, document.knowledge.id, {
+          baseRevision: document.revision,
+        });
+      }
+      await refreshProgressionsAndKnowledge();
     });
   }
 
@@ -232,12 +406,50 @@ function EntryEditor({
         </select></label>
       </div>
 
+      {activeSceneId && <section className="effective-state-panel">
+        <div className="effective-state-header">
+          <div>
+            <strong>此刻有效</strong>
+            <small>{scenes.find((scene) => scene.metadata.id === activeSceneId)?.metadata.title ?? "当前场景"}</small>
+          </div>
+          <label>观察角色<select value={viewerEntryId} onChange={(event) => setViewerEntryId(event.target.value)}>
+            <option value="">只看世界事实</option>
+            {characterEntries.map((item) => <option value={item.metadata.id} key={item.metadata.id}>{item.metadata.name}</option>)}
+          </select></label>
+        </div>
+        {effectiveState ? <div className="effective-state-grid">
+          <article>
+            <span>世界事实</span>
+            {effectiveState.worldFacts.length
+              ? effectiveState.worldFacts.map((document) => <p key={document.progression.id}>{document.progression.summary}</p>)
+              : <p>此刻没有额外进展记录。</p>}
+          </article>
+          <article>
+            <span>关系变化</span>
+            {effectiveState.relationStates.flatMap((state) => state.progressions).length
+              ? effectiveState.relationStates.map((state) => state.progressions.map((document) => <p key={document.progression.id}>{entryNames[state.relation.relation.sourceEntryId] ?? "条目"} / {entryNames[state.relation.relation.targetEntryId] ?? "条目"}：{document.progression.summary}</p>))
+              : <p>此刻没有关系进展。</p>}
+          </article>
+          <article>
+            <span>角色所知</span>
+            {effectiveState.characterKnowledge.length
+              ? effectiveState.characterKnowledge.map((document) => <p key={document.knowledge.id}>{entryNames[document.knowledge.characterEntryId] ?? "角色"}{knowledgeStanceLabels[document.knowledge.stance]}：{document.knowledge.summary}</p>)
+              : <p>{viewerEntryId ? "此刻没有这名角色的相关所知。" : "选择观察角色后显示主观所知。"}</p>}
+          </article>
+        </div> : <p className="empty-side">正在计算当前场景状态…</p>}
+        {effectiveState && (effectiveState.hiddenFutureProgressionCount > 0 || effectiveState.hiddenFutureKnowledgeCount > 0) && <p className="future-hidden-note">
+          后文还有 {effectiveState.hiddenFutureProgressionCount + effectiveState.hiddenFutureKnowledgeCount} 条变化尚未到达当前场景，内容已隐藏。
+        </p>}
+      </section>}
+
       <nav className="codex-tabs">
         {([
           ["canon", "已确认设定"],
           ["research", "参考笔记"],
           ["details", "识别规则"],
           ["relations", "关系"],
+          ["progressions", "进展记录"],
+          ["knowledge", "角色所知"],
           ["mentions", "正文提及"],
         ] as Array<[DetailTab, string]>).map(([value, label]) => (
           <button className={tab === value ? "active" : ""} onClick={() => setTab(value)} key={value}>{label}</button>
@@ -297,6 +509,51 @@ function EntryEditor({
           {!relations.length && <p className="empty-side">尚无关系。A→B 不会被系统自动解释为 B→A。</p>}
         </div>
         <p className="milestone-notice">关系随剧情发生变化时，会在后续的“进展记录”里追加历史；本页不会覆盖旧状态。</p>
+      </div>}
+
+      {tab === "progressions" && <div className="codex-tab-body">
+        <p className="codex-safety-note">进展记录从指定场景起生效；它不会改写已确认设定正文，只会参与“此刻有效”的状态计算。</p>
+        <div className="progression-create">
+          <label>状态槽<input value={progressionField} onChange={(event) => setProgressionField(event.target.value)} placeholder="外貌、持有物、关系状态…" /></label>
+          <label>变化方式<select value={progressionKind} onChange={(event) => setProgressionKind(event.target.value as CodexProgressionChangeKind)}>
+            {Object.entries(progressionChangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+          </select></label>
+          <label>从当前场景起发生什么<textarea value={progressionSummary} onChange={(event) => setProgressionSummary(event.target.value)} placeholder="例如：林岚失去旧钥匙。" /></label>
+          <button disabled={!activeSceneId || !progressionSummary.trim() || busy} onClick={() => void createProgression()}>记录进展</button>
+        </div>
+        <div className="relation-list">
+          {progressions.map((document) => <article className={document.progression.archivedAt ? "archived" : ""} key={document.progression.id}>
+            <strong>{progressionChangeLabels[document.progression.changeKind]} · {document.progression.fieldKey}</strong>
+            <span>{document.progression.summary}</span>
+            <small>自 {scenes.find((scene) => scene.metadata.id === document.progression.effectiveFromSceneId)?.metadata.title ?? "未知场景"} 起生效 · {document.progression.evidence.length} 条证据</small>
+            <button onClick={() => void toggleProgression(document)}>{document.progression.archivedAt ? "恢复" : "归档"}</button>
+          </article>)}
+          {!progressions.length && <p className="empty-side">尚无进展记录。人物状态、物件归属或关系变化都可以从这里追加历史。</p>}
+        </div>
+      </div>}
+
+      {tab === "knowledge" && <div className="codex-tab-body">
+        <p className="codex-safety-note">角色所知描述“某个角色此刻怎么理解这件事”。误解可以和世界事实并存，不会被系统自动纠正。</p>
+        <div className="progression-create">
+          <label>知道者<select value={knowledgeCharacterId} onChange={(event) => setKnowledgeCharacterId(event.target.value)}>
+            <option value="">选择人物</option>
+            {characterEntries.map((item) => <option value={item.metadata.id} key={item.metadata.id}>{item.metadata.name}</option>)}
+          </select></label>
+          <label>立场<select value={knowledgeStance} onChange={(event) => setKnowledgeStance(event.target.value as CodexKnowledgeStance)}>
+            {Object.entries(knowledgeStanceLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+          </select></label>
+          <label>这个角色以为什么<textarea value={knowledgeSummary} onChange={(event) => setKnowledgeSummary(event.target.value)} placeholder="例如：林岚误以为周野已经背叛。" /></label>
+          <button disabled={!activeSceneId || !knowledgeCharacterId || !knowledgeSummary.trim() || busy} onClick={() => void createKnowledge()}>记录所知</button>
+        </div>
+        <div className="relation-list">
+          {knowledge.map((document) => <article className={document.knowledge.archivedAt ? "archived" : ""} key={document.knowledge.id}>
+            <strong>{entryNames[document.knowledge.characterEntryId] ?? "角色"} · {knowledgeStanceLabels[document.knowledge.stance]}</strong>
+            <span>{document.knowledge.summary}</span>
+            <small>自 {scenes.find((scene) => scene.metadata.id === document.knowledge.effectiveFromSceneId)?.metadata.title ?? "未知场景"} 起生效 · 涉及 {document.knowledge.subjectEntryId ? (entryNames[document.knowledge.subjectEntryId] ?? "条目") : "关系"}</small>
+            <button onClick={() => void toggleKnowledge(document)}>{document.knowledge.archivedAt ? "恢复" : "归档"}</button>
+          </article>)}
+          {!knowledge.length && <p className="empty-side">尚无角色所知。这里适合记录秘密、误会、错误判断和角色何时得知真相。</p>}
+        </div>
       </div>}
 
       {tab === "mentions" && <div className="codex-tab-body">
