@@ -118,6 +118,18 @@ apps/server/src/routes/codex.ts     # 设定库、进展、角色所知和上下
 
 拆分必须以行为不变为前提，不能为了行数指标改变文件格式或错误语义。
 
+## 前端结构
+
+NS-400 已开始拆分大视图：
+
+```text
+apps/web/src/CodexView.tsx          # 设定库类别、列表、选择和顶层载入
+apps/web/src/CodexEntryEditor.tsx   # 单个条目的编辑状态、保存和附属数据加载
+apps/web/src/CodexEntryPanels.tsx   # 此刻有效、关系、进展、角色所知、正文提及面板
+```
+
+后续 M4 的上下文预览、模型资料范围和候选事实入口不得重新塞回 `CodexView.tsx`；应继续以面板或领域组件承载。
+
 ## 存储层结构
 
 NS-400 已开始把所有写入共用的安全层从大仓库文件中拆出：

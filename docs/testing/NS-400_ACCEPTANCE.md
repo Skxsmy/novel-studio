@@ -28,7 +28,7 @@ NS-400 是 M3 与 M4 之间的整备门。它不新增小说功能，而是降�
 | NS400-B01 | 通过 | 已将 Codex 路由移入 `apps/server/src/routes/codex.ts`；`app.ts` 从约 718 行降到 363 行 |
 | NS400-B02 | 通过 | `npm.cmd run typecheck -w @novel-studio/server`、`npm.cmd run test -w @novel-studio/server` 和全量 `npm.cmd run check` 均通过 |
 | NS400-C01 | 通过 | 已提取 `errors.ts`、`fileSystem.ts`、`fileTransactions.ts`；`ProjectRepository` 公开导入保持不变 |
-| NS400-D01 | 待办 | 后续拆分前端大视图 |
+| NS400-D01 | 通过 | 已将 `CodexView.tsx` 拆为 `CodexView.tsx`、`CodexEntryEditor.tsx`、`CodexEntryPanels.tsx`；顶层视图从约 692 行降到 162 行 |
 | NS400-E01 | 待办 | 后续建立三条可重复烟测 |
 | NS400-F01 | 待办 | 后续写入 M4 最小 Context/Prompt/CallLog/Proposal 契约 |
 
@@ -44,6 +44,9 @@ NS-400 是 M3 与 M4 之间的整备门。它不新增小说功能，而是降�
 - `npm.cmd run typecheck -w @novel-studio/storage`：通过。
 - `npm.cmd run test -w @novel-studio/storage`：36/36 测试通过。
 - storage 文件事务拆分后再次运行 `npm.cmd run check`：通过；Server 6/6、Web 14/14、Storage 36/36、生产构建通过。
+- `npm.cmd run typecheck -w @novel-studio/web`：通过。
+- `npm.cmd run test -w @novel-studio/web`：5 个文件、14 项测试通过。
+- Codex 前端拆分后再次运行 `npm.cmd run check`：通过；Server 6/6、Web 14/14、Storage 36/36、生产构建通过。
 
 ## 已知风险
 
