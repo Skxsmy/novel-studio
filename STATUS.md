@@ -19,17 +19,18 @@
 - 创建、重排与移动使用可恢复多文件事务；访问作品时回滚中断事务。
 - M2 缺 Act/Chapter 清单迁移：先快照、再补齐、最后运行同一校验器。
 - 新建作品后立即加载幕章，写作抽屉按 Act→Chapter→Scene 展示。
-- Grid、Outline、Matrix 与双时间线读取同一 PlanningBoard；选择和筛选跨视图保留。
+- 故事板、大纲、追踪表与双时间线读取同一 PlanningBoard；选择和筛选跨视图保留。
 - 显式 TimelineEvent 文件、故事顺序、未放置场景与可访问结构移动入口。
 - 规划分叉支持更新规划、保留有意偏离或标记正文待修订。
 - Milkdown/ProseMirror 中文 Markdown 编辑器、专注模式与显式保存/冲突状态。
 - localStorage 崩溃恢复草稿保存基础 revision；安全草稿和过期草稿分别提示，不静默覆盖磁盘。
 - 五类独立 Section Markdown 文件、`inherit/local-only/never` AI 权限、归档与恢复。
 - 独立审阅锚点 YAML、精确引用/前后文重定位，以及 `attached/relocated/orphaned` 明确状态。
-- 六个内置 Codex 类别、自定义类别，以及独立 Canon Description、Research、关系文件和稳定 revision。
+- 六个内置设定库类别、自定义类别，以及独立的已确认设定、参考笔记、关系文件和稳定 revision。
 - 名称、别名、排除词、大小写、英文复数、最长词优先与同名歧义的可重建提及索引。
-- `always/on-mention/manual/never` AI 上下文策略预览；`never` 即使手工钉住也不会进入上下文。
-- 三栏 Codex 工作区支持条目、Research、详情、关系、Mentions、归档与恢复；Planning Matrix 显示 Codex 名称而非内部 UUID。
+- `always/on-mention/manual/never` 模型可读范围预览；`never` 即使主动选择也不会提供给模型。
+- 三栏设定库工作区支持条目、参考笔记、识别规则、关系、正文提及、归档与恢复；规划追踪表显示条目名称而非内部 UUID。
+- 主要界面已统一中文写作用语：设定库、已确认设定、参考笔记、资料范围、主动选择、附属文档、追踪表。
 - 完整产品、UX、AI 编辑团队、资料库、Word/版本和里程碑规格位于 `docs/product/`。
 
 ## 最近验证
@@ -39,19 +40,20 @@
 - Storage：32/32 测试通过。
 - Web：11/11 测试通过。
 - Production build：server 与 Vite web 通过。
-- 浏览器：Codex 条目与独立 Research、自定义类别、有向关系、提及索引、同名歧义、AI 上下文禁区、归档恢复及 Matrix 名称解析通过；控制台无 warning/error。
+- 浏览器：设定库条目与独立参考笔记、自定义类别、有向关系、提及索引、同名歧义、模型可读范围禁区、归档恢复及追踪表名称解析通过；控制台无 warning/error。
+- 浏览器文案抽样：主导航、首页、概览、规划、写作抽屉、设定库、编辑室、待确认均未发现旧英文界面词或“手工钉住”等生硬译词。
 - `git diff --check`：通过（仅换行提示）。
 
 详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`。
 
 ## 当前限制
 
-- Codex 已有真实 Canon/Research、关系与提及索引；Progression、角色知识和按场景生效事实尚未实现。
-- Workshop、Review 尚无真实 AI 工作流或候选变更。
+- 设定库已有真实的已确认设定、参考笔记、关系与提及索引；进展记录、角色知识和按场景生效事实尚未实现。
+- 编辑室、待确认页面尚无真实智能编辑工作流或候选变更。
 - 场景保存尚未回写系列 `updatedAt`。
 - 首次启动选择作品库、应用内停止服务和托盘入口尚未实现。
 - Milkdown 会规范化等价 CommonMark 标记风格；当前保证语义与正文文字，不承诺逐字符保留 `-/*` 或 `---/***` 写法。
 
 ## 唯一下一任务
 
-`NS-305`：先细化 Progression、角色知识、世界真相与角色所知分离、按场景生效查询和证据规则，再实现文件/API/UI 与连续性查询。
+`NS-305`：先细化进展记录、角色知识、世界真相与角色所知分离、按场景生效查询和证据规则，再实现文件/API/UI 与连续性查询。

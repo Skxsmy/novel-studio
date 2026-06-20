@@ -10,15 +10,9 @@ import type {
   SceneDocument,
 } from "@novel-studio/contracts";
 import { api } from "./api";
+import { codexPolicyLabels, contextExclusionLabels } from "./copy";
 
 type DetailTab = "canon" | "research" | "details" | "relations" | "mentions";
-
-const policyLabels: Record<CodexAiContextPolicy, string> = {
-  always: "总是包含",
-  "on-mention": "提及时包含",
-  manual: "仅手工钉住",
-  never: "永不提供给 AI",
-};
 
 export function parseDetailLines(value: string): Record<string, string> {
   const details: Record<string, string> = {};
@@ -152,7 +146,7 @@ function EntryEditor({
         },
       });
       onSaved(updated);
-      setMessage("条目与独立 Research 已保存");
+      setMessage("条目与参考笔记已分别保存");
     });
   }
 
@@ -207,7 +201,7 @@ function EntryEditor({
     <section className="codex-detail">
       <header>
         <div>
-          <p className="eyebrow">CODEX ENTRY</p>
+          <p className="eyebrow">资料条目</p>
           <input
             aria-label="条目名称"
             className="codex-name"
@@ -233,48 +227,48 @@ function EntryEditor({
       <div className="codex-summary-fields">
         <label>别名<input value={aliases} onChange={(event) => setAliases(event.target.value)} placeholder="用逗号分隔" /></label>
         <label>标签<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="主角，调查组" /></label>
-        <label>AI 上下文策略<select value={policy} onChange={(event) => setPolicy(event.target.value as CodexAiContextPolicy)}>
-          {Object.entries(policyLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+        <label>模型可读范围<select value={policy} onChange={(event) => setPolicy(event.target.value as CodexAiContextPolicy)}>
+          {Object.entries(codexPolicyLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
         </select></label>
       </div>
 
       <nav className="codex-tabs">
         {([
-          ["canon", "Canon"],
-          ["research", "Research"],
-          ["details", "Details"],
-          ["relations", "Relations"],
-          ["mentions", "Mentions"],
+          ["canon", "已确认设定"],
+          ["research", "参考笔记"],
+          ["details", "识别规则"],
+          ["relations", "关系"],
+          ["mentions", "正文提及"],
         ] as Array<[DetailTab, string]>).map(([value, label]) => (
           <button className={tab === value ? "active" : ""} onClick={() => setTab(value)} key={value}>{label}</button>
         ))}
       </nav>
 
       {tab === "canon" && <div className="codex-tab-body">
-        <p className="codex-safety-note">这里是作者确认的 Canon Description，会成为后续故事上下文的事实来源。</p>
-        <textarea aria-label="Canon Description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="这个条目在故事世界中确定成立什么？" />
+        <p className="codex-safety-note">这里记录你已经确认的故事设定，后续整理资料时会把它当作事实来源。</p>
+        <textarea aria-label="已确认设定" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="这个人物、地点或设定在故事里已经确定了什么？" />
       </div>}
 
       {tab === "research" && <div className="codex-tab-body">
-        <p className="codex-safety-note research">Research 使用独立 Markdown 文件，不会自动成为 Canon。</p>
-        <textarea aria-label="Research" value={research} onChange={(event) => setResearch(event.target.value)} placeholder="灵感、现实资料、待核实想法……" />
+        <p className="codex-safety-note research">参考笔记会单独保存；它可以启发写作，但不会自动变成已确认设定。</p>
+        <textarea aria-label="参考笔记" value={research} onChange={(event) => setResearch(event.target.value)} placeholder="灵感、现实资料、待核实想法……" />
       </div>}
 
       {tab === "details" && <div className="codex-tab-body codex-details-tab">
-        <label>自定义字段 <small>每行使用“字段: 值”</small><textarea value={details} onChange={(event) => setDetails(event.target.value)} placeholder={"年龄: 28\n职业: 调查员"} /></label>
+        <label>补充字段 <small>每行写成“字段：内容”</small><textarea value={details} onChange={(event) => setDetails(event.target.value)} placeholder={"年龄：28\n职业：调查员"} /></label>
         <fieldset>
           <legend>提及规则</legend>
-          <label><input type="checkbox" checked={matchAliases} onChange={(event) => setMatchAliases(event.target.checked)} /> 匹配别名</label>
+          <label><input type="checkbox" checked={matchAliases} onChange={(event) => setMatchAliases(event.target.checked)} /> 正文中出现别名时也算提及</label>
           <label><input type="checkbox" checked={caseSensitive} onChange={(event) => setCaseSensitive(event.target.checked)} /> 区分大小写</label>
-          <label><input type="checkbox" checked={automaticPlural} onChange={(event) => setAutomaticPlural(event.target.checked)} /> 英文自动复数</label>
-          <label>排除词<textarea value={excludedTerms} onChange={(event) => setExcludedTerms(event.target.value)} placeholder="每行一个；例如用于阻止短名称误命中长词" /></label>
+          <label><input type="checkbox" checked={automaticPlural} onChange={(event) => setAutomaticPlural(event.target.checked)} /> 英文名称允许复数形式</label>
+          <label>排除用词<textarea value={excludedTerms} onChange={(event) => setExcludedTerms(event.target.value)} placeholder="每行一个；用于避免短名称误命中长词" /></label>
         </fieldset>
         <div className="context-preview-box">
-          <strong>当前场景上下文资格</strong>
-          <div><button disabled={!activeSceneId || busy} onClick={() => void previewContext(false)}>检查自动装配</button><button disabled={!activeSceneId || busy} onClick={() => void previewContext(true)}>模拟手工钉住</button></div>
+          <strong>当前场景的资料提供范围</strong>
+          <div><button disabled={!activeSceneId || busy} onClick={() => void previewContext(false)}>查看默认范围</button><button disabled={!activeSceneId || busy} onClick={() => void previewContext(true)}>试算主动选择</button></div>
           {context && <p>{context.included.some((item) => item.metadata.id === entry.metadata.id)
-            ? "会包含此条目"
-            : `不会包含：${context.excluded.find((item) => item.entryId === entry.metadata.id)?.reason ?? "未知原因"}`}</p>}
+            ? "当前会提供这条资料"
+            : `不会提供：${contextExclusionLabels[context.excluded.find((item) => item.entryId === entry.metadata.id)?.reason ?? "not-mentioned"]}`}</p>}
         </div>
       </div>}
 
@@ -285,7 +279,7 @@ function EntryEditor({
             {entries.filter((item) => item.metadata.id !== entry.metadata.id && !item.metadata.archivedAt).map((item) => <option value={item.metadata.id} key={item.metadata.id}>{item.metadata.name}</option>)}
           </select>
           <input value={relationType} onChange={(event) => setRelationType(event.target.value)} placeholder="关系类型" />
-          <label><input type="checkbox" checked={relationDirected} onChange={(event) => setRelationDirected(event.target.checked)} /> 有方向</label>
+          <label><input type="checkbox" checked={relationDirected} onChange={(event) => setRelationDirected(event.target.checked)} /> 区分方向</label>
           <button disabled={!relationTarget || busy} onClick={() => void createRelation()}>添加关系</button>
         </div>
         <div className="relation-list">
@@ -296,23 +290,23 @@ function EntryEditor({
             return <article className={relation.relation.archivedAt ? "archived" : ""} key={relation.relation.id}>
               <strong>{arrow} {entryNames[otherId] ?? otherId.slice(0, 8)}</strong>
               <span>{relation.relation.type}</span>
-              <small>{relation.relation.directed ? "方向保持原始 source/target" : "无向；两端查询同一关系"}</small>
+              <small>{relation.relation.directed ? "只表示这个方向" : "不区分方向；两端看到同一条关系"}</small>
               <button onClick={() => void toggleRelation(relation)}>{relation.relation.archivedAt ? "恢复" : "归档"}</button>
             </article>;
           })}
           {!relations.length && <p className="empty-side">尚无关系。A→B 不会被系统自动解释为 B→A。</p>}
         </div>
-        <p className="milestone-notice">关系随剧情变化的历史由 NS-305 Progression 管理；本页不会覆盖旧状态。</p>
+        <p className="milestone-notice">关系随剧情发生变化时，会在后续的“进展记录”里追加历史；本页不会覆盖旧状态。</p>
       </div>}
 
       {tab === "mentions" && <div className="codex-tab-body">
-        <p className="codex-safety-note">提及只表示名称出现在正文中，不等于人物参与场景或 Canon 成立。</p>
+        <p className="codex-safety-note">正文提及只表示名称出现过，不等于人物参与场景，也不等于设定已经成立。</p>
         {mentions.map((mention) => <article className="mention-row" key={`${mention.sceneId}-${mention.start}`}>
           <strong>{scenes.find((scene) => scene.metadata.id === mention.sceneId)?.metadata.title ?? mention.sceneId.slice(0, 8)}</strong>
           <span>“{mention.matchedText}”</span>
           <small>{mention.isAlias ? "别名" : "名称"} · 字符 {mention.start}–{mention.end}</small>
         </article>)}
-        {!mentions.length && <p className="empty-side">当前索引没有找到明确提及。同名歧义不会被分配到任一条目。</p>}
+        {!mentions.length && <p className="empty-side">当前没有明确提及。同名歧义会先留空，避免系统替你猜。</p>}
       </div>}
 
       {message && <div className="codex-message">{message}</div>}
@@ -358,7 +352,7 @@ export function CodexView({
           : loadedEntries[0]?.metadata.id ?? null,
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "读取 Codex 失败");
+      setMessage(error instanceof Error ? error.message : "读取设定库失败");
     } finally {
       setBusy(false);
     }
@@ -441,7 +435,7 @@ export function CodexView({
   return (
     <section className="codex-workspace">
       <aside className="codex-categories">
-        <div className="codex-panel-heading"><div><p className="eyebrow">STORY MEMORY</p><h2>Codex</h2></div><span>{entries.filter((entry) => !entry.metadata.archivedAt).length}</span></div>
+        <div className="codex-panel-heading"><div><p className="eyebrow">故事资料</p><h2>设定库</h2></div><span>{entries.filter((entry) => !entry.metadata.archivedAt).length}</span></div>
         <button className={selectedCategoryId === "all" ? "active" : ""} onClick={() => setSelectedCategoryId("all")}><span>全</span><strong>全部条目</strong></button>
         {visibleCategories.map((category) => <div className="category-row" key={category.category.id}>
           <button className={selectedCategoryId === category.category.id ? "active" : ""} onClick={() => setSelectedCategoryId(category.category.id)}>
@@ -458,10 +452,10 @@ export function CodexView({
         <header><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="筛选名称、别名或标签" /><button disabled={busy} onClick={() => void createEntry()}>新建条目</button></header>
         {visibleEntries.map((entry) => <button className={`${selectedEntryId === entry.metadata.id ? "active" : ""} ${entry.metadata.archivedAt ? "archived" : ""}`} onClick={() => setSelectedEntryId(entry.metadata.id)} key={entry.metadata.id}>
           <strong>{entry.metadata.name}</strong>
-          <span>{entry.metadata.aliases.slice(0, 2).join(" · ") || policyLabels[entry.metadata.aiContextPolicy]}</span>
-          <small>{entry.description.slice(0, 56) || "尚无 Canon Description"}</small>
+          <span>{entry.metadata.aliases.slice(0, 2).join(" · ") || codexPolicyLabels[entry.metadata.aiContextPolicy]}</span>
+          <small>{entry.description.slice(0, 56) || "尚无已确认设定"}</small>
         </button>)}
-        {!visibleEntries.length && <p className="empty-side">{busy ? "正在读取 Codex…" : "这个类别还没有条目。"}</p>}
+        {!visibleEntries.length && <p className="empty-side">{busy ? "正在读取设定库…" : "这个类别还没有条目。"}</p>}
       </section>
 
       {selectedEntry ? <EntryEditor
@@ -475,7 +469,7 @@ export function CodexView({
           void onCodexChanged();
         }}
         onArchived={() => void load(selectedEntry.metadata.id)}
-      /> : <section className="codex-empty-detail"><span>◇</span><h3>建立故事记忆</h3><p>先创建人物、地点或设定。Canon 与 Research 会分别保存，不会互相冒充。</p></section>}
+      /> : <section className="codex-empty-detail"><span>◇</span><h3>建立故事资料</h3><p>先创建人物、地点或设定。已确认设定和参考笔记会分开保存，不会互相冒充。</p></section>}
       {message && <div className="codex-global-message">{message}</div>}
     </section>
   );

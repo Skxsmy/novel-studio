@@ -10,6 +10,7 @@ import type {
 } from "@novel-studio/contracts";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "./api";
+import { readableSceneStatus, sectionPolicyLabels } from "./copy";
 import { MarkdownEditor, type MarkdownSelection } from "./MarkdownEditor";
 import {
   clearRecoveryDraft,
@@ -26,15 +27,15 @@ type InspectorTab = "context" | "sections" | "anchors";
 const sectionKindLabels: Record<SceneSectionKind, string> = {
   "author-note": "作者备注",
   candidate: "候选版本",
-  research: "研究资料",
+  research: "参考资料",
   sensitive: "敏感资料",
   temporary: "临时草稿",
 };
 
-const policyLabels: Record<SceneSectionAiPolicy, string> = {
-  inherit: "遵循调用权限",
-  "local-only": "仅本地模型",
-  never: "永不提供给 AI",
+const anchorStatusLabels: Record<string, string> = {
+  attached: "已定位",
+  relocated: "已重定位",
+  orphaned: "未找到原文",
 };
 
 function statusLabel(state: SaveState): string {
@@ -251,7 +252,7 @@ export function WriteView({
       });
       setSections((current) => [...current, created]);
     } catch (caught) {
-      setSideMessage(caught instanceof Error ? caught.message : "创建 Section 失败");
+      setSideMessage(caught instanceof Error ? caught.message : "创建附属文档失败");
     }
   }
 
@@ -262,9 +263,9 @@ export function WriteView({
         ...changes,
       });
       setSections((current) => current.map((item) => item.metadata.id === updated.metadata.id ? updated : item));
-      setSideMessage("Section 已保存");
+      setSideMessage("附属文档已保存");
     } catch (caught) {
-      setSideMessage(caught instanceof Error ? caught.message : "保存 Section 失败");
+      setSideMessage(caught instanceof Error ? caught.message : "保存附属文档失败");
     }
   }
 
@@ -274,9 +275,9 @@ export function WriteView({
         baseRevision: section.revision,
       });
       setSections((current) => current.map((item) => item.metadata.id === archived.metadata.id ? archived : item));
-      setSideMessage("Section 已归档");
+      setSideMessage("附属文档已归档");
     } catch (caught) {
-      setSideMessage(caught instanceof Error ? caught.message : "归档 Section 失败");
+      setSideMessage(caught instanceof Error ? caught.message : "归档附属文档失败");
     }
   }
 
@@ -286,9 +287,9 @@ export function WriteView({
         baseRevision: section.revision,
       });
       setSections((current) => current.map((item) => item.metadata.id === restored.metadata.id ? restored : item));
-      setSideMessage("Section 已恢复");
+      setSideMessage("附属文档已恢复");
     } catch (caught) {
-      setSideMessage(caught instanceof Error ? caught.message : "恢复 Section 失败");
+      setSideMessage(caught instanceof Error ? caught.message : "恢复附属文档失败");
     }
   }
 
@@ -337,7 +338,7 @@ export function WriteView({
                   <p className="chapter-label">{chapter.title}</p>
                   {scenes.map((scene, index) => (
                     <button className={`scene-nav-item ${scene.metadata.id === activeScene.metadata.id ? "active" : ""}`} onClick={() => onSelectScene(scene.metadata.id)} key={scene.metadata.id}>
-                      <span>{String(index + 1).padStart(2, "0")}</span><div><strong>{scene.metadata.title}</strong><small>{scene.characterCount} 字符</small></div>
+                      <span>{String(index + 1).padStart(2, "0")}</span><div><strong>{scene.metadata.title}</strong><small>{scene.characterCount} 字</small></div>
                     </button>
                   ))}
                 </div>
@@ -366,16 +367,16 @@ export function WriteView({
           />
         </div>
         {message && <div className={`save-message ${saveState}`}>{message}{saveState === "conflict" && <button onClick={() => void reloadDiskVersion()}>重新载入磁盘版本</button>}</div>}
-        <footer className="editor-status"><span className={`save-state ${saveState}`}>● {statusLabel(saveState)}</span><span>{characterCount} 字符</span><span>{paragraphCount} 段</span><span>Markdown 原稿</span></footer>
+        <footer className="editor-status"><span className={`save-state ${saveState}`}>● {statusLabel(saveState)}</span><span>{characterCount} 字</span><span>{paragraphCount} 段</span><span>Markdown 原稿</span></footer>
       </article>
       {rightOpen && (
         <aside className="inspector writing-inspector">
           <div className="inspector-tabs">
             <button className={inspectorTab === "context" ? "active" : ""} onClick={() => setInspectorTab("context")}>场景</button>
-            <button className={inspectorTab === "sections" ? "active" : ""} onClick={() => setInspectorTab("sections")}>Sections</button>
+            <button className={inspectorTab === "sections" ? "active" : ""} onClick={() => setInspectorTab("sections")}>附属文档</button>
             <button className={inspectorTab === "anchors" ? "active" : ""} onClick={() => setInspectorTab("anchors")}>锚点</button>
           </div>
-          {inspectorTab === "context" && <><p className="eyebrow">SCENE CONTEXT</p><h3>场景资料</h3><dl><dt>状态</dt><dd>{activeScene.metadata.status}</dd><dt>POV</dt><dd>{activeScene.metadata.pov || "未设置"}</dd><dt>目标</dt><dd>{activeScene.metadata.goal || "尚未填写"}</dd><dt>摘要</dt><dd>{activeScene.metadata.summary || "等待作者确认"}</dd></dl><div className="inspector-note"><strong>上下文保护</strong><p>AI 模块尚未接入；当前不会把正文发送到任何外部服务。</p></div></>}
+          {inspectorTab === "context" && <><p className="eyebrow">场景资料</p><h3>场景资料</h3><dl><dt>状态</dt><dd>{readableSceneStatus(activeScene.metadata.status)}</dd><dt>视角</dt><dd>{activeScene.metadata.pov || "未设置"}</dd><dt>目标</dt><dd>{activeScene.metadata.goal || "尚未填写"}</dd><dt>摘要</dt><dd>{activeScene.metadata.summary || "等待作者确认"}</dd></dl><div className="inspector-note"><strong>资料保护</strong><p>智能编辑尚未接入；当前不会把正文发送到任何外部服务。</p></div></>}
           {inspectorTab === "sections" && <SectionPanel sections={sections} onCreate={createSection} onUpdate={updateSection} onArchive={archiveSection} onRestore={restoreSection} />}
           {inspectorTab === "anchors" && <AnchorPanel anchors={anchors} selectedText={selectedText} canCreate={saveState === "saved"} onCreate={createAnchor} />}
           {sideMessage && <p className="side-message">{sideMessage}</p>}
@@ -400,10 +401,10 @@ function SectionPanel({
 }) {
   const [newKind, setNewKind] = useState<SceneSectionKind>("author-note");
   return <div className="section-panel">
-    <p className="eyebrow">SEPARATE DOCUMENTS</p>
+    <p className="eyebrow">附属文档</p>
     <div className="section-create"><select value={newKind} onChange={(event) => setNewKind(event.target.value as SceneSectionKind)}>{Object.entries(sectionKindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button onClick={() => void onCreate(newKind)}>新建</button></div>
     {sections.filter((section) => !section.metadata.archivedAt).map((section) => <SectionCard key={section.metadata.id} section={section} onUpdate={onUpdate} onArchive={onArchive} />)}
-    {!sections.some((section) => !section.metadata.archivedAt) && <p className="empty-side">本场景还没有 Section。</p>}
+    {!sections.some((section) => !section.metadata.archivedAt) && <p className="empty-side">本场景还没有附属文档。</p>}
     {sections.filter((section) => section.metadata.archivedAt).map((section) => <div className="archived-section" key={section.metadata.id}><span>{section.metadata.title}</span><button onClick={() => void onRestore(section)}>恢复</button></div>)}
   </div>;
 }
@@ -419,9 +420,9 @@ function SectionCard({ section, onUpdate, onArchive }: {
   useEffect(() => { setTitle(section.metadata.title); setContent(section.content); setAiPolicy(section.metadata.aiPolicy); }, [section]);
   return <article className="section-card">
     <span>{sectionKindLabels[section.metadata.kind]}</span>
-    <input value={title} onChange={(event) => setTitle(event.target.value)} aria-label="Section 标题" />
+    <input value={title} onChange={(event) => setTitle(event.target.value)} aria-label="附属文档标题" />
     <textarea value={content} onChange={(event) => setContent(event.target.value)} aria-label={`${title}内容`} placeholder="这份资料不会混入正文……" />
-    <select value={aiPolicy} onChange={(event) => setAiPolicy(event.target.value as SceneSectionAiPolicy)}>{Object.entries(policyLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+    <select value={aiPolicy} onChange={(event) => setAiPolicy(event.target.value as SceneSectionAiPolicy)}>{Object.entries(sectionPolicyLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
     <footer><button onClick={() => void onUpdate(section, { title, content, aiPolicy })}>保存</button><button onClick={() => void onArchive(section)}>归档</button></footer>
   </article>;
 }
@@ -433,10 +434,10 @@ function AnchorPanel({ anchors, selectedText, canCreate, onCreate }: {
   onCreate: () => Promise<void>;
 }) {
   return <div className="anchor-panel">
-    <p className="eyebrow">REVIEW EVIDENCE</p>
+    <p className="eyebrow">审阅依据</p>
     <div className="selection-preview">{selectedText ? `“${selectedText.slice(0, 80)}”` : "先在正文中选择一段文字"}</div>
     <button className="anchor-create" disabled={!selectedText || !canCreate} onClick={() => void onCreate()}>建立审阅锚点</button>
-    {anchors.map(({ anchor, resolution }) => <article className={`anchor-card ${resolution.status}`} key={anchor.id}><span>{resolution.status}</span><blockquote>{anchor.exactQuote}</blockquote><small>{resolution.reason}</small></article>)}
+    {anchors.map(({ anchor, resolution }) => <article className={`anchor-card ${resolution.status}`} key={anchor.id}><span>{anchorStatusLabels[resolution.status] ?? resolution.status}</span><blockquote>{anchor.exactQuote}</blockquote><small>{resolution.reason}</small></article>)}
     {!anchors.length && <p className="empty-side">尚无审阅锚点。</p>}
   </div>;
 }

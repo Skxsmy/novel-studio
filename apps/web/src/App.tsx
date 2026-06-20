@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ActManifest, ChapterManifest, PlanningBoard, SceneDocument, SearchResult, SeriesDetail, SeriesSummary } from "@novel-studio/contracts";
 import { api } from "./api";
 import { CodexView } from "./CodexView";
+import { appName, readableSceneStatus } from "./copy";
 import { PlanView } from "./PlanView";
 import { WriteView } from "./WriteView";
 
@@ -11,9 +12,9 @@ const navigation: Array<{ id: WorkspaceView; icon: string; label: string }> = [
   { id: "overview", icon: "⌂", label: "概览" },
   { id: "plan", icon: "▦", label: "规划" },
   { id: "write", icon: "✎", label: "写作" },
-  { id: "codex", icon: "◇", label: "Codex" },
-  { id: "workshop", icon: "✦", label: "工作坊" },
-  { id: "review", icon: "✓", label: "审阅" },
+  { id: "codex", icon: "◇", label: "设定库" },
+  { id: "workshop", icon: "✦", label: "编辑室" },
+  { id: "review", icon: "✓", label: "待确认" },
 ];
 
 function formatDate(value: string): string {
@@ -43,10 +44,10 @@ function EmptyLibrary({ onCreated }: { onCreated: (series: SeriesDetail) => void
   return (
     <main className="welcome-shell">
       <header className="welcome-header">
-        <div className="brand-mark">NS</div>
+        <div className="brand-mark">书</div>
         <div>
-          <p className="eyebrow">LOCAL STORY WORKSPACE</p>
-          <h1>Novel Studio</h1>
+          <p className="eyebrow">本地写作工作台</p>
+          <h1>{appName}</h1>
         </div>
         <span className="local-badge">仅本机</span>
       </header>
@@ -54,18 +55,18 @@ function EmptyLibrary({ onCreated }: { onCreated: (series: SeriesDetail) => void
       <section className="welcome-grid">
         <div className="welcome-copy">
           <p className="eyebrow">让故事保持清醒</p>
-          <h2>写作时只看文字，<br />需要时再召集整间编辑室。</h2>
+          <h2>写作时只看文字，<br />需要时再打开辅助资料。</h2>
           <p>
-            原稿始终是你能直接打开的 Markdown 文件。规划、人物状态和 AI 建议围绕它工作，而不是把作品锁进黑箱。
+            原稿始终是你能直接打开的 Markdown 文件。规划、人物状态和智能编辑建议都围绕它工作，不会把作品藏进专有格式里。
           </p>
           <div className="principle-row">
-            <span>文件为真</span><span>建议先确认</span><span>上下文可检查</span>
+            <span>文件为真</span><span>建议先确认</span><span>资料范围可查</span>
           </div>
         </div>
 
         <form className="create-card" onSubmit={submit}>
           <div className="card-number">01</div>
-          <p className="eyebrow">创建第一个系列</p>
+          <p className="eyebrow">开始一个系列</p>
           <label>
             系列名称
             <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：雾港纪事" autoFocus />
@@ -90,13 +91,13 @@ function Overview({ detail }: { detail: SeriesDetail }) {
   return (
     <section className="content-page overview-page">
       <div className="page-heading">
-        <div><p className="eyebrow">PROJECT PULSE</p><h2>{detail.manifest.title}</h2></div>
-        <span className="phase-chip">M1 · 交互骨架</span>
+        <div><p className="eyebrow">作品概览</p><h2>{detail.manifest.title}</h2></div>
+        <span className="phase-chip">本地基础版</span>
       </div>
       <div className="metric-grid">
-        <article><span>正文字符</span><strong>{characters.toLocaleString("zh-CN")}</strong><small>本系列当前总量</small></article>
+        <article><span>正文字数</span><strong>{characters.toLocaleString("zh-CN")}</strong><small>全系列当前字数</small></article>
         <article><span>场景</span><strong>{detail.scenes.length}</strong><small>{detail.scenes.filter((scene) => scene.metadata.status === "draft").length} 个草稿</small></article>
-        <article><span>候选更新</span><strong>0</strong><small>AI 不会自动改写 Canon</small></article>
+        <article><span>待确认修改</span><strong>0</strong><small>智能编辑不会自动改写已确认设定</small></article>
       </div>
       <div className="two-column">
         <article className="panel recent-panel">
@@ -104,15 +105,15 @@ function Overview({ detail }: { detail: SeriesDetail }) {
           {detail.scenes.map((scene, index) => (
             <div className="recent-row" key={scene.metadata.id}>
               <span className="scene-index">{String(index + 1).padStart(2, "0")}</span>
-              <div><strong>{scene.metadata.title}</strong><small>{scene.characterCount} 字符 · {scene.metadata.status}</small></div>
+              <div><strong>{scene.metadata.title}</strong><small>{scene.characterCount} 字 · {readableSceneStatus(scene.metadata.status)}</small></div>
               <span>{formatDate(scene.metadata.updatedAt)}</span>
             </div>
           ))}
         </article>
         <article className="panel next-panel">
-          <p className="eyebrow">NEXT SESSION</p>
+          <p className="eyebrow">下次继续</p>
           <h3>回到开篇场景</h3>
-          <p>先写下一段真实发生的事。人物库、连续性和编辑会审会在后续里程碑接入。</p>
+          <p>先写下一段真实发生的事。设定库、连续性检查和编辑会审会在后续接入。</p>
           <div className="quote-line">“大纲允许被人物说服。”</div>
         </article>
       </div>
@@ -123,14 +124,14 @@ function Overview({ detail }: { detail: SeriesDetail }) {
 function WorkshopView() {
   return (
     <section className="content-page workshop-page">
-      <div className="page-heading"><div><p className="eyebrow">EDITORIAL ROOM</p><h2>工作坊</h2></div><span className="phase-chip">计划于 M4–M5</span></div>
+      <div className="page-heading"><div><p className="eyebrow">编辑室</p><h2>编辑室</h2></div><span className="phase-chip">后续接入</span></div>
       <div className="workshop-layout">
         <aside className="agent-list">
           {[["主", "主笔伙伴"], ["构", "结构编辑"], ["人", "人物编辑"], ["冷", "冷酷读者"]].map(([mark, name], index) => <button className={index === 0 ? "selected" : ""} key={name}><span>{mark}</span><div><strong>{name}</strong><small>{index === 0 ? "共同构思与落笔" : "独立判断，不负责附和"}</small></div></button>)}
         </aside>
         <div className="chat-placeholder">
-          <div className="context-strip"><span>上下文尚未装配</span><span>0 tokens</span><span>本地优先</span></div>
-          <div className="empty-conversation"><span>✦</span><h3>把问题交给合适的编辑</h3><p>模型连接前，此处不会伪造 AI 回答。M4 将先实现上下文预览和调用记录。</p></div>
+          <div className="context-strip"><span>资料范围尚未整理</span><span>0 字资料</span><span>本地优先</span></div>
+          <div className="empty-conversation"><span>✦</span><h3>把问题交给合适的编辑</h3><p>模型连接前，此处不会假装已经有编辑回复。后续会先实现资料范围预览和调用记录。</p></div>
           <div className="composer"><textarea disabled placeholder="选择模型后与编辑讨论……" /><button disabled>发送</button></div>
         </div>
       </div>
@@ -141,8 +142,8 @@ function WorkshopView() {
 function ReviewView() {
   return (
     <section className="content-page review-page">
-      <div className="page-heading"><div><p className="eyebrow">PROPOSAL INBOX</p><h2>审阅收件箱</h2></div><span className="count-chip">0 项待处理</span></div>
-      <div className="empty-review"><div className="shield">✓</div><h3>作品目前没有待确认的更改</h3><p>以后所有 AI 摘要、人物状态、伏笔和正文修改都会先来到这里。只有你的接受动作能改变原稿和 Canon。</p><div className="review-rules"><span>带证据</span><span>带基础版本</span><span>可拒绝</span><span>可逐项修改</span></div></div>
+      <div className="page-heading"><div><p className="eyebrow">待确认修改</p><h2>待确认</h2></div><span className="count-chip">0 项待处理</span></div>
+      <div className="empty-review"><div className="shield">✓</div><h3>作品目前没有待确认的更改</h3><p>以后所有智能编辑生成的摘要、人物状态、伏笔和正文修改都会先来到这里。只有你的接受动作能改变原稿和已确认设定。</p><div className="review-rules"><span>带证据</span><span>带基础版本</span><span>可拒绝</span><span>可逐项修改</span></div></div>
     </section>
   );
 }
@@ -247,17 +248,17 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [detail, searchQuery]);
 
-  if (loading && !detail && seriesList.length === 0) return <div className="loading-screen"><span>NS</span><p>正在打开本地写作室…</p></div>;
+  if (loading && !detail && seriesList.length === 0) return <div className="loading-screen"><span>书</span><p>正在打开本地写作室…</p></div>;
   if (fatalError) return <div className="fatal-screen"><h1>本地服务没有准备好</h1><p>{fatalError}</p><button onClick={() => window.location.reload()}>重新连接</button></div>;
   if (!detail) {
     if (seriesList.length === 0) return <EmptyLibrary onCreated={(created) => void acceptCreatedSeries(created)} />;
-    return <main className="library-picker"><div className="brand-mark">NS</div><p className="eyebrow">YOUR STORY LIBRARY</p><h1>选择一个系列</h1><div>{seriesList.map((series) => <button onClick={() => void openSeries(series.id)} key={series.id}><strong>{series.title}</strong><span>{series.sceneCount} 个场景 · 更新于 {formatDate(series.updatedAt)}</span></button>)}</div></main>;
+    return <main className="library-picker"><div className="brand-mark">书</div><p className="eyebrow">作品库</p><h1>选择一个系列</h1><div>{seriesList.map((series) => <button onClick={() => void openSeries(series.id)} key={series.id}><strong>{series.title}</strong><span>{series.sceneCount} 个场景 · 更新于 {formatDate(series.updatedAt)}</span></button>)}</div></main>;
   }
 
   return (
     <div className={`app-shell ${focusMode ? "focus-mode" : ""} ${sidebarOpen ? "sidebar-open" : "sidebar-collapsed"}`}>
       <aside className="app-sidebar">
-        <div className="sidebar-brand"><div className="brand-mark small">NS</div><div><strong>Novel Studio</strong><small>本地写作室</small></div></div>
+        <div className="sidebar-brand"><div className="brand-mark small">书</div><div><strong>{appName}</strong><small>本地写作台</small></div></div>
         <button className="series-switcher" onClick={() => { setDetail(null); setActs([]); setChapters([]); setPlanningBoard(null); }}><span>{detail.manifest.title.slice(0, 1)}</span><div><strong>{detail.manifest.title}</strong><small>切换作品</small></div><b>⌄</b></button>
         <nav>{navigation.map((item) => <button className={activeView === item.id ? "active" : ""} onClick={() => setActiveView(item.id)} key={item.id}><span>{item.icon}</span><b>{item.label}</b>{item.id === "review" && <i>0</i>}</button>)}</nav>
         <div className="sidebar-footer"><button><span>⚙</span><b>设置</b></button><div className="local-status"><span /> 本地数据已连接</div></div>
