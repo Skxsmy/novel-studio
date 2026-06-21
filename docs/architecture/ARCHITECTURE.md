@@ -15,7 +15,7 @@ File store   SQLite / FTS5
 (authority)  (index/cache)
 ```
 
-当前已具备 `ProviderAdapter`、MockProvider、OpenAI-compatible / DeepSeek 协议路径、上下文预览、SSE 流式调用和调用日志 API。真实 DeepSeek 调用仍需用户在界面保存密钥后验收；其它 Provider 和完整调用记录 UI 仍在 M4 后续任务中。
+当前已具备 `ProviderAdapter`、MockProvider、DeepSeek 独立 Provider、通用 OpenAI-compatible 基础路径、上下文预览、SSE 流式调用和调用日志 API。用户侧已确认 DeepSeek 连接正常并能获取模型列表；真实 DeepSeek 非写入调用、其它 Provider 和完整调用记录 UI 仍在 M4 后续任务中。
 
 ## 工作区和依赖方向
 

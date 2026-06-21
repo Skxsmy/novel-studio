@@ -44,7 +44,7 @@
 - [x] `NS-405` 场景级上下文装配器、权限过滤、未来剧情隔离和用量估算。
 - [x] `NS-406` 提示词模板、角色、Preset、声明式渲染和版本历史。
 - [x] `NS-407` 非写入型 AI 调用、SSE 流式输出和 ModelCallLog。
-- [-] `NS-408` OpenAI-compatible、Ollama、OpenAI、OpenRouter、Anthropic、Gemini Provider 接入。
+- [-] `NS-408` DeepSeek、通用 OpenAI-compatible、Ollama、OpenAI、OpenRouter、Anthropic、Gemini Provider 接入。
 - [ ] `NS-409` 上下文预览 UI、调用日志 UI 和浏览器验收覆盖。
 - [ ] `NS-410` M4 收口验收、安全检查、状态交接和 M5 入口确认。
 

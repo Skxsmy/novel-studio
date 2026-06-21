@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
   CreateModelProfileInputSchema,
+  DeleteModelProfileCredentialResultSchema,
   ModelProfileSchema,
+  ModelProfileCredentialStatusSchema,
   ProviderConnectionResultSchema,
   ProviderModelDescriptorSchema,
   SaveModelProfileCredentialInputSchema,
@@ -152,6 +154,75 @@ export function registerAiRoutes(
     },
   );
 
+  app.get<{ Params: { seriesId: string; profileId: string } }>(
+    "/api/v1/series/:seriesId/ai/model-profiles/:profileId/credential",
+    async (request) => {
+      const current = await repository.getModelProfile(request.params.seriesId, request.params.profileId);
+      let exists = false;
+      if (current.credentialRef) {
+        try {
+          await credentialStore.readSecret(current.credentialRef);
+          exists = true;
+        } catch {
+          exists = false;
+        }
+      }
+      return ModelProfileCredentialStatusSchema.parse({
+        credentialRef: current.credentialRef,
+        storeKind: credentialStore.kind,
+        exists,
+        modelProfile: current,
+      });
+    },
+  );
+
+  app.delete<{ Params: { seriesId: string; profileId: string } }>(
+    "/api/v1/series/:seriesId/ai/model-profiles/:profileId/credential",
+    async (request, reply) => {
+      const current = await repository.getModelProfile(request.params.seriesId, request.params.profileId);
+      let deleted = false;
+      const credentialRef = current.credentialRef;
+      if (credentialRef) {
+        try {
+          await credentialStore.deleteSecret(credentialRef);
+          deleted = true;
+        } catch (error) {
+          if (error instanceof CredentialStoreError && error.code === "credential-store-unavailable") {
+            return reply.status(503).send({
+              code: error.code.toUpperCase().replace(/-/gu, "_"),
+              message: error.message,
+            });
+          }
+        }
+      }
+      const updatedAt = new Date().toISOString();
+      const profiles = await repository.listModelProfiles(request.params.seriesId);
+      let updated = current;
+      await Promise.all(profiles
+        .filter((profile) => credentialRef && profile.credentialRef === credentialRef)
+        .map(async (profile) => {
+          const saved = await repository.saveModelProfile(request.params.seriesId, ModelProfileSchema.parse({
+            ...profile,
+            credentialRef: null,
+            updatedAt,
+          }));
+          if (saved.id === current.id) updated = saved;
+        }));
+      if (!credentialRef) {
+        updated = await repository.saveModelProfile(request.params.seriesId, ModelProfileSchema.parse({
+          ...current,
+          credentialRef: null,
+          updatedAt,
+        }));
+      }
+      return DeleteModelProfileCredentialResultSchema.parse({
+        deleted,
+        storeKind: credentialStore.kind,
+        modelProfile: updated,
+      });
+    },
+  );
+
   app.put<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/ai/cloud-policy",
     async (request) => {
@@ -215,9 +286,9 @@ export function registerAiRoutes(
           error: blocked,
         });
       }
+      let adapter;
       try {
-        const adapter = providerRegistry.get(profile.provider);
-        return ProviderModelDescriptorSchema.array().parse(await adapter.listModels(profile));
+        adapter = providerRegistry.get(profile.provider);
       } catch {
         const error = modelError(
           "provider-unavailable",
@@ -225,6 +296,16 @@ export function registerAiRoutes(
           true,
         );
         return reply.status(503).send({ code: "PROVIDER_UNAVAILABLE", message: error.message, error });
+      }
+      try {
+        return ProviderModelDescriptorSchema.array().parse(await adapter.listModels(profile));
+      } catch (caught) {
+        const error = adapter.classifyError(caught);
+        return reply.status(providerErrorStatus(error)).send({
+          code: error.code.toUpperCase().replace(/-/gu, "_"),
+          message: error.message,
+          error,
+        });
       }
     },
   );

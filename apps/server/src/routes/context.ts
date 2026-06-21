@@ -18,6 +18,7 @@ import type { ProjectRepository } from "@novel-studio/storage";
 import {
   ensureCloudAllowed,
   ensureCredentialBoundary,
+  isCloudRouted,
   providerErrorStatus,
 } from "../ai/policy.js";
 import { ensureBuiltInPrompts } from "../prompts/builtIns.js";
@@ -155,7 +156,7 @@ function applyBudget(
 }
 
 function sectionAccessForModel(profile: ModelProfile | null): "local" | "cloud" {
-  return profile?.cloudPolicy === "cloud-allowed" ? "cloud" : "local";
+  return profile && isCloudRouted(profile) ? "cloud" : "local";
 }
 
 async function buildContextBundle(

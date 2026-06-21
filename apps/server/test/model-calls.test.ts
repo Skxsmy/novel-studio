@@ -250,7 +250,7 @@ describe("NS-407 model call API", () => {
     await app.close();
   });
 
-  it("streams an OpenAI-compatible DeepSeek response through the model call API", async () => {
+  it("streams a DeepSeek response through the model call API", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-calls-deepseek-api-"));
     roots.push(root);
     const app = await buildApp({
@@ -286,17 +286,12 @@ describe("NS-407 model call API", () => {
     });
     const series = created.json();
     const scene = series.scenes[0];
-    await app.inject({
-      method: "PUT",
-      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
-      payload: { cloudPolicy: "cloud-allowed" },
-    });
     const profile = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
       payload: {
         title: "DeepSeek 写作模型",
-        provider: "openai-compatible",
+        provider: "deepseek",
         baseUrl: "https://api.deepseek.com",
         model: "deepseek-v4-flash",
         cloudPolicy: "cloud-allowed",
@@ -348,7 +343,7 @@ describe("NS-407 model call API", () => {
     });
     expect(saved.statusCode).toBe(200);
     expect(saved.json()).toMatchObject({
-      provider: "openai-compatible",
+      provider: "deepseek",
       model: "deepseek-v4-flash",
       status: "succeeded",
       error: null,

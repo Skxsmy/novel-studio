@@ -144,10 +144,10 @@ function sseResponse(...events: string[]): Response {
 }
 
 describe("ProviderAdapter core and MockProvider", () => {
-  it("registers MockProvider and OpenAI-compatible provider without registering vendor-specific providers", () => {
+  it("registers MockProvider, generic OpenAI-compatible and DeepSeek providers", () => {
     const registry = createDefaultProviderRegistry({ credentialStore: fakeCredentialStore() });
 
-    expect(registry.list().map((adapter) => adapter.provider)).toEqual(["mock", "openai-compatible"]);
+    expect(registry.list().map((adapter) => adapter.provider)).toEqual(["mock", "openai-compatible", "deepseek"]);
     expect(registry.get("mock")).toBeInstanceOf(MockProvider);
     expect(() => registry.get("openai")).toThrow("Provider is not registered");
   });
@@ -304,7 +304,7 @@ describe("ProviderAdapter core and MockProvider", () => {
     });
   });
 
-  it("connects to an OpenAI-compatible DeepSeek profile and streams text through SSE", async () => {
+  it("connects to a DeepSeek profile and streams text through the DeepSeek-compatible SSE contract", async () => {
     const requests: Array<{ url: string; authorization: string | null; body?: unknown }> = [];
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = String(input);
@@ -316,7 +316,11 @@ describe("ProviderAdapter core and MockProvider", () => {
       });
       if (url.endsWith("/models")) {
         return new Response(JSON.stringify({
-          data: [{ id: "deepseek-v4-flash" }, { id: "deepseek-v4-pro" }],
+          object: "list",
+          data: [
+            { id: "deepseek-v4-flash", object: "model", owned_by: "deepseek" },
+            { id: "deepseek-v4-pro", object: "model", owned_by: "deepseek" },
+          ],
         }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (url.endsWith("/chat/completions")) {
@@ -331,10 +335,39 @@ describe("ProviderAdapter core and MockProvider", () => {
     const provider = new OpenAiCompatibleProvider({
       credentialStore: fakeCredentialStore("deepseek-test-key"),
       fetchImpl,
+      provider: "deepseek",
+      title: "DeepSeek",
+      defaultBaseUrl: "https://api.deepseek.com",
+      models: [
+        {
+          id: "deepseek-v4-flash",
+          title: "DeepSeek V4 Flash",
+          contextWindowTokens: 1_000_000,
+          capabilities: {
+            streamText: true,
+            structuredOutput: true,
+            embeddings: false,
+            tokenEstimate: true,
+            modelList: true,
+          },
+        },
+        {
+          id: "deepseek-v4-pro",
+          title: "DeepSeek V4 Pro",
+          contextWindowTokens: 1_000_000,
+          capabilities: {
+            streamText: true,
+            structuredOutput: true,
+            embeddings: false,
+            tokenEstimate: true,
+            modelList: true,
+          },
+        },
+      ],
     });
     const profile = modelProfile({
       title: "DeepSeek 写作模型",
-      provider: "openai-compatible",
+      provider: "deepseek",
       baseUrl: "https://api.deepseek.com",
       model: "deepseek-v4-flash",
       cloudPolicy: "cloud-allowed",
@@ -351,7 +384,7 @@ describe("ProviderAdapter core and MockProvider", () => {
 
     await expect(provider.testConnection(profile)).resolves.toMatchObject({
       ok: true,
-      provider: "openai-compatible",
+      provider: "deepseek",
       models: [
         { id: "deepseek-v4-flash" },
         { id: "deepseek-v4-pro" },
@@ -376,16 +409,65 @@ describe("ProviderAdapter core and MockProvider", () => {
     });
   });
 
-  it("classifies OpenAI-compatible auth failures without leaking secrets", async () => {
+  it("keeps generic OpenAI-compatible profiles separate from DeepSeek defaults", async () => {
+    const provider = new OpenAiCompatibleProvider({
+      credentialStore: fakeCredentialStore("generic-key"),
+      fetchImpl: async (input) => {
+        expect(String(input)).toBe("https://example.test/v1/models");
+        return new Response(JSON.stringify({
+          object: "list",
+          data: [{ id: "provider-model-a", object: "model", owned_by: "example" }],
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      },
+    });
+    const descriptor = provider.describeCapabilities();
+    expect(descriptor.provider).toBe("openai-compatible");
+    expect(descriptor.models).toEqual([]);
+
+    const profile = modelProfile({
+      provider: "openai-compatible",
+      baseUrl: "https://example.test/v1",
+      model: "provider-model-a",
+      credentialRef: "novel-studio/model-profile/generic",
+    });
+    await expect(provider.listModels(profile)).resolves.toEqual([
+      expect.objectContaining({ id: "provider-model-a" }),
+    ]);
+  });
+
+  it("requires a service address for generic OpenAI-compatible profiles", async () => {
+    const provider = new OpenAiCompatibleProvider({
+      credentialStore: fakeCredentialStore("generic-key"),
+      fetchImpl: async () => {
+        throw new Error("fetch should not be called without a base URL");
+      },
+    });
+    const profile = modelProfile({
+      provider: "openai-compatible",
+      baseUrl: null,
+      model: "provider-model-a",
+      credentialRef: "novel-studio/model-profile/generic",
+    });
+
+    await expect(provider.testConnection(profile)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "provider-error", message: "请先填写模型服务地址。" },
+    });
+  });
+
+  it("classifies DeepSeek auth failures without leaking secrets", async () => {
     const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
       error: { message: "unauthorized sk-secret-would-leak" },
     }), { status: 401, headers: { "content-type": "application/json" } });
     const provider = new OpenAiCompatibleProvider({
       credentialStore: fakeCredentialStore("deepseek-test-key"),
       fetchImpl,
+      provider: "deepseek",
+      title: "DeepSeek",
+      defaultBaseUrl: "https://api.deepseek.com",
     });
     const profile = modelProfile({
-      provider: "openai-compatible",
+      provider: "deepseek",
       baseUrl: "https://api.deepseek.com",
       model: "deepseek-v4-flash",
       cloudPolicy: "cloud-allowed",
@@ -398,6 +480,29 @@ describe("ProviderAdapter core and MockProvider", () => {
       error: { code: "provider-auth-failed", providerStatus: 401 },
     });
     expect(result.error?.message).not.toContain("sk-secret");
+  });
+
+  it("classifies DeepSeek insufficient balance as a billing error", async () => {
+    const provider = new OpenAiCompatibleProvider({
+      credentialStore: fakeCredentialStore("deepseek-test-key"),
+      fetchImpl: async () => new Response(JSON.stringify({
+        error: { message: "Insufficient Balance" },
+      }), { status: 402, headers: { "content-type": "application/json" } }),
+      provider: "deepseek",
+      title: "DeepSeek",
+      defaultBaseUrl: "https://api.deepseek.com",
+    });
+    const profile = modelProfile({
+      provider: "deepseek",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      credentialRef: "novel-studio/model-profile/test",
+    });
+
+    await expect(provider.testConnection(profile)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "provider-billing-required", providerStatus: 402 },
+    });
   });
 
   it("distinguishes credential references from likely plaintext secrets", () => {

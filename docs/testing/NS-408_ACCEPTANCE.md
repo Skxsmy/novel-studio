@@ -1,21 +1,23 @@
 # NS-408 验收记录：真实 Provider 接入
 
-状态：部分通过。OpenAI-compatible / DeepSeek 路径已完成；完整 NS-408 仍进行中。
+状态：部分通过。DeepSeek 独立 Provider 与通用 OpenAI-compatible 基础路径已完成；完整 NS-408 仍进行中。
 
 ## 范围
 
 本次验收覆盖：
 
-- OpenAI-compatible adapter；
+- DeepSeek adapter；
+- 通用 OpenAI-compatible adapter；
 - DeepSeek 快速配置 UI；
 - 密钥保存端点与凭据引用；
+- 密钥替换、删除和复用；
 - 服务端 fake fetch / fake credential store 测试；
 - 写作页非写入调用仍经统一 ProviderRegistry；
 - 浏览器验收截图唯一化与人工检查流程。
 
 不覆盖：
 
-- 用户真实 DeepSeek API Key；
+- 用户真实 DeepSeek 非写入调用；
 - OpenAI、OpenRouter、Anthropic、Gemini、Ollama；
 - 完整调用日志 UI。
 
@@ -23,11 +25,20 @@
 
 | 检查 | 结果 |
 |---|---|
-| `npm.cmd run typecheck -w @novel-studio/web` | 通过 |
+| `npm.cmd run typecheck` | 通过 |
+| `npm.cmd run test -w @novel-studio/ai` | 通过，15/15 |
+| `npm.cmd run test -w @novel-studio/server` | 通过，15/15 |
+| `npm.cmd run check` | 通过，Server 15/15、Web 14/14、AI 15/15、Storage 41/41 |
 | `npm.cmd run test:e2e` | 通过 |
-| `@novel-studio/ai` 单元测试 | 已在同轮通过 |
-| `@novel-studio/server` 单元测试 | 已在同轮通过 |
-| 全仓 `npm.cmd run test` | 已在同轮通过 |
+
+## 用户侧真实验收
+
+用户已在设置页保存 DeepSeek 密钥，并从用户视角确认：
+
+- DeepSeek 连接正常；
+- 能够获取 DeepSeek 模型列表。
+
+该项由用户手动验收提供结论；Codex 未在本地进程中读取或打印真实密钥，也未声称自行完成真实密钥测试。
 
 ## 浏览器截图
 
@@ -56,19 +67,17 @@
 
 - API Key 只通过 `/credential` 端点写入 `CredentialStore`。
 - `ModelProfile` 只保存 `credentialRef`。
+- 用户可替换当前密钥、删除密钥，或让模型配置复用已有凭据引用。
+- DeepSeek 使用独立 `provider: deepseek`；通用 `openai-compatible` 不继承 DeepSeek 的默认地址、模型或 provider-specific 错误语义。
 - fake secret 测试确认认证失败信息不会泄露密钥。
-- 云端权限仍由作品级 `cloudPolicy` 控制。
 - Provider 失败不会静默改用其他 Provider。
 
-## 待用户参与验收
+## 待补验收
 
-用户在设置页保存真实 DeepSeek API Key 后，需要执行：
+仍需执行一次真实 DeepSeek 非写入调用：
 
-1. 打开设置页。
-2. 选择或创建 `DeepSeek 写作模型`。
-3. 允许云端模型。
-4. 粘贴 API Key 并保存。
-5. 点击测试连接。
-6. 到写作页进行一次非写入型 AI 审稿。
+1. 选择已通过连接测试的 `DeepSeek 写作模型`。
+2. 到写作页进行一次非写入型 AI 审稿。
+3. 确认 AI 结果不直接写入正文，调用记录不泄露密钥。
 
-通过后，才能把 OpenAI-compatible / DeepSeek 路径视为真实环境通过。
+该项通过后，DeepSeek 路径可视为真实环境纵向闭环通过。

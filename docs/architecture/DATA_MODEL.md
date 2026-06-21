@@ -166,7 +166,7 @@ archivedAt: null
 
 `credentialRef` 是系统凭据引用，例如 `novel-studio:openai:default`。不得把 API key 写入 YAML、SQLite、调用日志、浏览器 localStorage 或 Git。模型配置校验会拒绝明显的明文密钥字符串，例如 `sk-...`、`api_key` 或 `bearer ...`。
 
-作品级 `series.yaml` 也保存 `cloudPolicy`。当作品为 `local-only` 时，云端 Provider 的连接测试和后续调用都必须被服务端拒绝。
+作品级 `series.yaml` 仍可能保存历史 `cloudPolicy` 字段。当前 M4 主界面不再提供“只允许本机模型”的全局开关；模型调用安全边界由 Provider 显式选择、系统凭据引用、资料级 `local-only/never` 规则和“禁止静默回退”共同保证。
 
 ### AgentRole
 

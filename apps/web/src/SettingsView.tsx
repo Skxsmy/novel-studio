@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   AiProvider,
-  CloudPolicy,
   ModelProfile,
+  ModelProfileCredentialStatus,
   ProviderConnectionResult,
+  ProviderModelDescriptor,
   SeriesDetail,
   SeriesManifest,
 } from "@novel-studio/contracts";
@@ -11,32 +12,61 @@ import { ApiError, api } from "./api";
 import { PromptSettingsPanel } from "./PromptSettingsPanel";
 
 const providerLabels: Record<AiProvider, string> = {
-  mock: "本机测试模型",
+  mock: "测试模型",
   openai: "OpenAI",
   anthropic: "Claude",
   google: "Gemini",
   openrouter: "OpenRouter",
   ollama: "Ollama",
+  deepseek: "DeepSeek",
   "openai-compatible": "OpenAI 兼容服务",
 };
 
-const cloudPolicyLabels: Record<CloudPolicy, string> = {
-  "local-only": "只允许本机模型",
-  "cloud-allowed": "允许使用云端模型",
+const servicePresets = {
+  deepseek: {
+    label: "DeepSeek",
+    description: "官方 OpenAI 兼容接口",
+    provider: "deepseek" as const,
+    baseUrl: "https://api.deepseek.com",
+    model: "deepseek-v4-flash",
+    contextWindowTokens: 1_000_000,
+  },
+  custom: {
+    label: "自定义兼容服务",
+    description: "填写服务商提供的 OpenAI 格式地址",
+    provider: "openai-compatible" as const,
+    baseUrl: "",
+    model: "填写模型代号",
+    contextWindowTokens: 8192,
+  },
+} as const;
+
+type ServicePresetId = keyof typeof servicePresets;
+
+const providerDescriptions: Record<AiProvider, string> = {
+  mock: "用于自动化验收，不连接真实模型。",
+  openai: "OpenAI 官方接口。",
+  anthropic: "Claude 官方接口。",
+  google: "Gemini 官方接口。",
+  openrouter: "OpenRouter 聚合接口。",
+  ollama: "本机 Ollama 服务。",
+  deepseek: "DeepSeek 官方接口。服务地址、模型列表和错误码按 DeepSeek 文档适配。",
+  "openai-compatible": "使用 OpenAI 格式接口。服务地址以模型提供商官方文档为准。",
 };
 
 function providerDescription(provider: AiProvider): string {
-  if (provider === "mock") return "用于验收流程，不会产生网络调用。";
-  if (provider === "ollama") return "面向本机部署模型，后续接入真实流式调用。";
-  if (provider === "openai-compatible") return "适用于 DeepSeek 或其他 OpenAI 格式服务。密钥只保存在本机系统里。";
-  return "需要先允许云端调用，并保存服务密钥。";
+  return providerDescriptions[provider];
 }
 
 function connectionMessage(result: ProviderConnectionResult | null, error: string): string {
-  if (error) return "连接失败，请检查服务地址、模型名称和密钥。";
+  if (error) return error;
   if (!result) return "尚未测试";
   if (result.ok) return `连接正常，可识别 ${result.models.length} 个模型。`;
-  return "连接失败，请检查服务地址、模型名称和密钥。";
+  return result.error?.message ?? "连接失败，请检查服务地址、模型名称和密钥。";
+}
+
+function credentialLabel(profile: ModelProfile): string {
+  return `${profile.title} 的密钥`;
 }
 
 export function SettingsView({
@@ -46,18 +76,20 @@ export function SettingsView({
   detail: SeriesDetail;
   onSeriesManifestUpdated: (manifest: SeriesManifest) => void;
 }) {
-  const [cloudPolicy, setCloudPolicy] = useState<CloudPolicy>(detail.manifest.cloudPolicy);
+  void onSeriesManifestUpdated;
   const [settingsSection, setSettingsSection] = useState<"models" | "prompts">("models");
   const [profiles, setProfiles] = useState<ModelProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [servicePreset, setServicePreset] = useState<ServicePresetId>("deepseek");
   const [profileDraft, setProfileDraft] = useState({
     title: "",
     baseUrl: "",
     model: "",
-    cloudPolicy: "local-only" as CloudPolicy,
     credentialRef: "",
   });
   const [credentialSecret, setCredentialSecret] = useState("");
+  const [credentialStatus, setCredentialStatus] = useState<Record<string, ModelProfileCredentialStatus | null>>({});
+  const [availableModels, setAvailableModels] = useState<Record<string, ProviderModelDescriptor[]>>({});
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [testResults, setTestResults] = useState<Record<string, ProviderConnectionResult | null>>({});
@@ -79,10 +111,6 @@ export function SettingsView({
   }, [detail.manifest.id]);
 
   useEffect(() => {
-    setCloudPolicy(detail.manifest.cloudPolicy);
-  }, [detail.manifest.cloudPolicy]);
-
-  useEffect(() => {
     void loadProfiles().catch((caught) => {
       setMessage(caught instanceof Error ? caught.message : "无法读取模型设置");
     });
@@ -94,80 +122,24 @@ export function SettingsView({
       title: selectedProfile.title,
       baseUrl: selectedProfile.baseUrl ?? "",
       model: selectedProfile.model,
-      cloudPolicy: selectedProfile.cloudPolicy,
       credentialRef: selectedProfile.credentialRef ?? "",
     });
     setCredentialSecret("");
+    void api.getModelProfileCredential(detail.manifest.id, selectedProfile.id)
+      .then((status) => setCredentialStatus((current) => ({ ...current, [selectedProfile.id]: status })))
+      .catch(() => setCredentialStatus((current) => ({ ...current, [selectedProfile.id]: null })));
   }, [selectedProfile]);
 
-  async function saveCloudPolicy(nextPolicy: CloudPolicy) {
-    setCloudPolicy(nextPolicy);
-    setBusy("cloud-policy");
-    setMessage("");
-    try {
-      const updated = await api.updateSeriesCloudPolicy(detail.manifest.id, {
-        cloudPolicy: nextPolicy,
-      });
-      onSeriesManifestUpdated(updated);
-      setMessage("作品的模型权限已保存。");
-    } catch (caught) {
-      setCloudPolicy(detail.manifest.cloudPolicy);
-      setMessage(caught instanceof Error ? caught.message : "保存模型权限失败");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function createMockProfile() {
-    setBusy("create-mock");
+  async function createServiceProfile() {
+    const preset = servicePresets[servicePreset];
+    setBusy("create-service");
     setMessage("");
     try {
       const created = await api.createModelProfile(detail.manifest.id, {
-        title: "本机验收模型",
-        provider: "mock",
-        model: "mock-continuity-v1",
-        cloudPolicy: "local-only",
-      });
-      await loadProfiles();
-      setSelectedProfileId(created.id);
-      setMessage("已添加本机验收模型，可用于上下文预览和自动化测试。");
-    } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "添加模型失败");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function createCloudPlaceholder(provider: AiProvider) {
-    setBusy(`create-${provider}`);
-    setMessage("");
-    try {
-      const created = await api.createModelProfile(detail.manifest.id, {
-        title: `${providerLabels[provider]} 配置`,
-        provider,
-        baseUrl: provider === "openai-compatible" ? "https://api.deepseek.com" : null,
-        model: provider === "openrouter" ? "openrouter/model-id" : "待填写模型代号",
-        cloudPolicy: provider === "ollama" ? "local-only" : "cloud-allowed",
-      });
-      await loadProfiles();
-      setSelectedProfileId(created.id);
-      setMessage("已建立配置占位。真实调用前仍需补齐模型代号和凭据引用。");
-    } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "建立配置失败");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function createDeepSeekProfile() {
-    setBusy("create-deepseek");
-    setMessage("");
-    try {
-      const created = await api.createModelProfile(detail.manifest.id, {
-        title: "DeepSeek 写作模型",
-        provider: "openai-compatible",
-        baseUrl: "https://api.deepseek.com",
-        model: "deepseek-v4-flash",
+        title: servicePreset === "deepseek" ? "DeepSeek 写作模型" : "自定义兼容服务",
+        provider: preset.provider,
+        baseUrl: preset.baseUrl || null,
+        model: preset.model,
         cloudPolicy: "cloud-allowed",
         capabilities: {
           streamText: true,
@@ -176,20 +148,20 @@ export function SettingsView({
           tokenEstimate: true,
           modelList: true,
         },
-        contextWindowTokens: 1_000_000,
+        contextWindowTokens: preset.contextWindowTokens,
       });
       await loadProfiles();
       setSelectedProfileId(created.id);
-      setMessage("已建立 DeepSeek 配置。请允许云端模型，并把 API Key 保存到系统凭据后再测试连接。");
+      setMessage("已建立连接。保存密钥后可获取模型列表。");
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "建立 DeepSeek 配置失败");
+      setMessage(caught instanceof Error ? caught.message : "建立连接失败");
     } finally {
       setBusy("");
     }
   }
 
-  async function saveSelectedProfile() {
-    if (!selectedProfile) return;
+  async function saveSelectedProfile(): Promise<ModelProfile | null> {
+    if (!selectedProfile) return null;
     setBusy(`update-${selectedProfile.id}`);
     setMessage("");
     try {
@@ -197,13 +169,14 @@ export function SettingsView({
         title: profileDraft.title,
         baseUrl: profileDraft.baseUrl.trim() || null,
         model: profileDraft.model,
-        cloudPolicy: profileDraft.cloudPolicy,
         credentialRef: profileDraft.credentialRef.trim() || null,
       });
       setProfiles((current) => current.map((profile) => profile.id === updated.id ? updated : profile));
       setMessage("模型配置已保存。");
+      return updated;
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : "保存模型配置失败");
+      return null;
     } finally {
       setBusy("");
     }
@@ -226,7 +199,16 @@ export function SettingsView({
         profile.id === result.modelProfile.id ? result.modelProfile : profile,
       ));
       setProfileDraft((current) => ({ ...current, credentialRef: result.credentialRef }));
-      setMessage("密钥已保存到系统凭据。作品文件、日志和 Git 不会保存明文密钥。");
+      setCredentialStatus((current) => ({
+        ...current,
+        [selectedProfile.id]: {
+          credentialRef: result.credentialRef,
+          storeKind: result.storeKind,
+          exists: true,
+          modelProfile: result.modelProfile,
+        },
+      }));
+      setMessage("密钥已保存。");
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : "保存密钥失败");
     } finally {
@@ -234,21 +216,77 @@ export function SettingsView({
     }
   }
 
+  async function deleteSelectedCredential() {
+    if (!selectedProfile) return;
+    setBusy(`credential-delete-${selectedProfile.id}`);
+    setMessage("");
+    try {
+      const result = await api.deleteModelProfileCredential(detail.manifest.id, selectedProfile.id);
+      setProfiles((current) => current.map((profile) =>
+        profile.id === result.modelProfile.id ? result.modelProfile : profile,
+      ));
+      setProfileDraft((current) => ({ ...current, credentialRef: "" }));
+      setCredentialStatus((current) => ({
+        ...current,
+        [selectedProfile.id]: {
+          credentialRef: null,
+          storeKind: result.storeKind,
+          exists: false,
+          modelProfile: result.modelProfile,
+        },
+      }));
+      await loadProfiles();
+      setMessage(result.deleted ? "密钥已删除。" : "已清除当前模型的密钥。");
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : "删除密钥失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function loadProviderModels(profile: ModelProfile) {
+    setBusy(`models-${profile.id}`);
+    setMessage("");
+    setTestErrors((current) => ({ ...current, [profile.id]: "" }));
+    try {
+      const models = await api.listProviderModels(detail.manifest.id, profile.id);
+      setAvailableModels((current) => ({ ...current, [profile.id]: models }));
+      if (models.length > 0 && !models.some((model) => model.id === profileDraft.model)) {
+        setProfileDraft((current) => ({ ...current, model: models[0]!.id }));
+      }
+      setMessage(models.length ? "模型列表已更新。" : "服务没有返回可选模型。");
+    } catch (caught) {
+      const text = caught instanceof Error ? caught.message : "获取模型列表失败";
+      setTestErrors((current) => ({ ...current, [profile.id]: text }));
+      setMessage(text);
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function testProfile(profile: ModelProfile) {
+    const updated = await saveSelectedProfile();
+    const target = updated ?? profile;
     setBusy(`test-${profile.id}`);
     setMessage("");
     setTestErrors((current) => ({ ...current, [profile.id]: "" }));
     try {
-      const result = await api.testModelProfile(detail.manifest.id, profile.id);
-      setTestResults((current) => ({ ...current, [profile.id]: result }));
+      const result = await api.testModelProfile(detail.manifest.id, target.id);
+      setTestResults((current) => ({ ...current, [target.id]: result }));
+      if (result.models.length > 0) {
+        setAvailableModels((current) => ({ ...current, [target.id]: result.models }));
+        if (!result.models.some((model) => model.id === profileDraft.model)) {
+          setProfileDraft((current) => ({ ...current, model: result.models[0]!.id }));
+        }
+      }
     } catch (caught) {
       const fallback = caught instanceof ApiError && typeof caught.body === "object"
         ? JSON.stringify(caught.body)
         : "";
-      setTestResults((current) => ({ ...current, [profile.id]: null }));
+      setTestResults((current) => ({ ...current, [target.id]: null }));
       setTestErrors((current) => ({
         ...current,
-        [profile.id]: caught instanceof Error ? caught.message : fallback || "连接测试失败",
+        [target.id]: caught instanceof Error ? caught.message : fallback || "连接测试失败",
       }));
     } finally {
       setBusy("");
@@ -263,7 +301,7 @@ export function SettingsView({
           <h2>{settingsSection === "models" ? "模型与资料权限" : "角色与提示词"}</h2>
           <p>
             {settingsSection === "models"
-              ? "这里只管理模型入口和资料边界。真正调用前仍会预览上下文，智能编辑也不能直接改写正文或已确认设定。"
+              ? "管理写作模型的服务地址、模型和密钥。密钥保存在系统凭据中，不显示明文。"
               : "这里管理智能编辑的职责边界、提示词模板和版本。模板预览不调用模型，也不会写入正文。"}
           </p>
         </div>
@@ -290,39 +328,26 @@ export function SettingsView({
       {settingsSection === "models" ? (
         <>
           <div className="settings-command-bar">
-            <div className="settings-cloud-card">
+            <div className="settings-quick-card provider-add-card">
               <div>
-                <span>作品级权限</span>
-                <strong>{cloudPolicyLabels[cloudPolicy]}</strong>
-                <small>云端未打开时，服务端会拒绝云端模型连接和调用。</small>
+                <span>新增连接</span>
+                <strong>选择模型服务</strong>
+                <small>{servicePresets[servicePreset].description}</small>
               </div>
-              <select
-                value={cloudPolicy}
-                disabled={busy === "cloud-policy"}
-                onChange={(event) => void saveCloudPolicy(event.target.value as CloudPolicy)}
-                aria-label="当前权限"
-              >
-                {Object.entries(cloudPolicyLabels).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="settings-quick-card">
-              <div>
-                <span>快速添加</span>
-                <strong>建立模型配置</strong>
-              </div>
-              <div className="settings-actions">
-                <button onClick={() => void createMockProfile()} disabled={busy === "create-mock"}>
-                  添加本机验收模型
-                </button>
-                <button onClick={() => void createDeepSeekProfile()} disabled={busy === "create-deepseek"}>
-                  添加 DeepSeek 配置
-                </button>
-                <button onClick={() => void createCloudPlaceholder("openai-compatible")} disabled={busy === "create-openai-compatible"}>
-                  添加兼容服务
-                </button>
-              </div>
+              <label className="provider-preset-picker">
+                服务
+                <select
+                  value={servicePreset}
+                  onChange={(event) => setServicePreset(event.target.value as ServicePresetId)}
+                >
+                  {Object.entries(servicePresets).map(([value, preset]) => (
+                    <option key={value} value={value}>{preset.label}</option>
+                  ))}
+                </select>
+              </label>
+              <button onClick={() => void createServiceProfile()} disabled={busy === "create-service"}>
+                添加连接
+              </button>
             </div>
           </div>
 
@@ -374,44 +399,81 @@ export function SettingsView({
                           />
                         </label>
                         <label>
-                          模型代号
-                          <input
-                            value={profileDraft.model}
-                            onChange={(event) => setProfileDraft((current) => ({ ...current, model: event.target.value }))}
-                          />
-                        </label>
-                        <label>
                           服务地址
                           <input
                             value={profileDraft.baseUrl}
-                            placeholder={selectedProfile.provider === "openai-compatible" ? "https://api.deepseek.com" : "本机验收模型无需填写"}
+                            placeholder={selectedProfile.provider === "deepseek"
+                              ? "https://api.deepseek.com"
+                              : selectedProfile.provider === "openai-compatible"
+                                ? "填写服务商提供的接口地址"
+                                : "本机验收模型无需填写"}
                             onChange={(event) => setProfileDraft((current) => ({ ...current, baseUrl: event.target.value }))}
                             disabled={selectedProfile.provider === "mock"}
                           />
                         </label>
-                        <label>
-                          调用权限
-                          <select
-                            value={profileDraft.cloudPolicy}
-                            onChange={(event) => setProfileDraft((current) => ({ ...current, cloudPolicy: event.target.value as CloudPolicy }))}
-                          >
-                            {Object.entries(cloudPolicyLabels).map(([value, label]) => (
-                              <option key={value} value={value}>{label}</option>
-                            ))}
-                          </select>
-                        </label>
+                        <div className="model-picker">
+                          <label>
+                            模型
+                            {availableModels[selectedProfile.id]?.length ? (
+                              <select
+                                value={profileDraft.model}
+                                onChange={(event) => setProfileDraft((current) => ({ ...current, model: event.target.value }))}
+                              >
+                                {availableModels[selectedProfile.id]!.map((model) => (
+                                  <option key={model.id} value={model.id}>{model.title || model.id}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                value={profileDraft.model}
+                                onChange={(event) => setProfileDraft((current) => ({ ...current, model: event.target.value }))}
+                              />
+                            )}
+                          </label>
+                          {selectedProfile.provider !== "mock" && (
+                            <button
+                              type="button"
+                              onClick={() => void loadProviderModels(selectedProfile)}
+                              disabled={busy === `models-${selectedProfile.id}`}
+                            >
+                              获取模型
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {selectedProfile.provider !== "mock" && (
                         <div className="credential-save-card">
                           <div>
                             <strong>服务密钥</strong>
-                            <small>只保存在系统凭据中，保存后会清空输入框。</small>
+                            <small>
+                              {credentialStatus[selectedProfile.id]?.exists || profileDraft.credentialRef
+                                ? "当前连接已有密钥。可以替换、删除，或改用其他已保存密钥。"
+                                : "尚未保存密钥。"}
+                            </small>
                           </div>
+                          {profiles.some((profile) => profile.credentialRef && profile.credentialRef !== profileDraft.credentialRef) && (
+                            <label className="credential-ref-picker">
+                              使用已有密钥
+                              <select
+                                value={profileDraft.credentialRef}
+                                onChange={(event) => setProfileDraft((current) => ({ ...current, credentialRef: event.target.value }))}
+                              >
+                                <option value="">不使用</option>
+                                {profiles
+                                  .filter((profile) => profile.credentialRef)
+                                  .map((profile) => (
+                                    <option key={`${profile.id}:${profile.credentialRef}`} value={profile.credentialRef ?? ""}>
+                                      {credentialLabel(profile)}
+                                    </option>
+                                  ))}
+                              </select>
+                            </label>
+                          )}
                           <div>
                             <input
                               type="password"
                               value={credentialSecret}
-                              placeholder="粘贴 API Key"
+                              placeholder={profileDraft.credentialRef ? "粘贴新 API Key 可替换" : "粘贴 API Key"}
                               autoComplete="off"
                               onChange={(event) => setCredentialSecret(event.target.value)}
                             />
@@ -419,7 +481,14 @@ export function SettingsView({
                               onClick={() => void saveSelectedCredential()}
                               disabled={busy === `credential-${selectedProfile.id}`}
                             >
-                              保存密钥
+                              {profileDraft.credentialRef ? "替换密钥" : "保存密钥"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deleteSelectedCredential()}
+                              disabled={!profileDraft.credentialRef || busy === `credential-delete-${selectedProfile.id}`}
+                            >
+                              删除密钥
                             </button>
                           </div>
                         </div>

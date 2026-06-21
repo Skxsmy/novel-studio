@@ -36,10 +36,12 @@ import type {
   CreateSceneSectionInput,
   CreateSeriesInput,
   CreateTimelineEventInput,
+  DeleteModelProfileCredentialResult,
   MoveSceneInput,
   ModelCallLog,
   ModelCallStreamEvent,
   ModelProfile,
+  ModelProfileCredentialStatus,
   SaveModelProfileCredentialInput,
   SaveModelProfileCredentialResult,
   HierarchyValidationResult,
@@ -200,10 +202,19 @@ export const api = {
       `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential`,
       { method: "POST", body: JSON.stringify(input) },
     ),
+  getModelProfileCredential: (seriesId: string, modelProfileId: string) =>
+    request<ModelProfileCredentialStatus>(
+      `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential`,
+    ),
+  deleteModelProfileCredential: (seriesId: string, modelProfileId: string) =>
+    request<DeleteModelProfileCredentialResult>(
+      `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential`,
+      { method: "DELETE" },
+    ),
   testModelProfile: (seriesId: string, modelProfileId: string) =>
     request<ProviderConnectionResult>(
       `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/test`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify({}) },
     ),
   listProviderModels: (seriesId: string, modelProfileId: string) =>
     request<ProviderModelDescriptor[]>(

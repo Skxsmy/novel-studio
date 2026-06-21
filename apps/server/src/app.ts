@@ -105,6 +105,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       });
       return;
     }
+    const statusCode = (error as { statusCode?: unknown }).statusCode;
+    if (typeof statusCode === "number" && statusCode >= 400 && statusCode < 500) {
+      void reply.status(statusCode).send({
+        code: statusCode === 415 ? "UNSUPPORTED_MEDIA_TYPE" : "BAD_REQUEST",
+        message: error instanceof Error ? error.message : "请求无法处理",
+      });
+      return;
+    }
     app.log.error(error);
     void reply.status(500).send({ code: "INTERNAL_ERROR", message: "服务器内部错误" });
   });

@@ -27,6 +27,7 @@ export const AiProviderSchema = z.enum([
   "google",
   "openrouter",
   "ollama",
+  "deepseek",
   "openai-compatible",
 ]);
 export type AiProvider = z.infer<typeof AiProviderSchema>;
@@ -148,6 +149,25 @@ export type SaveModelProfileCredentialResult = z.infer<
   typeof SaveModelProfileCredentialResultSchema
 >;
 
+export const ModelProfileCredentialStatusSchema = z.object({
+  credentialRef: CredentialRefSchema.nullable().default(null),
+  storeKind: z.enum(["windows-credential-manager", "unavailable"]),
+  exists: z.boolean(),
+  modelProfile: ModelProfileSchema,
+});
+export type ModelProfileCredentialStatus = z.infer<
+  typeof ModelProfileCredentialStatusSchema
+>;
+
+export const DeleteModelProfileCredentialResultSchema = z.object({
+  deleted: z.boolean(),
+  storeKind: z.enum(["windows-credential-manager", "unavailable"]),
+  modelProfile: ModelProfileSchema,
+});
+export type DeleteModelProfileCredentialResult = z.infer<
+  typeof DeleteModelProfileCredentialResultSchema
+>;
+
 export const UpdateSeriesCloudPolicyInputSchema = z.object({
   cloudPolicy: CloudPolicySchema,
 });
@@ -166,6 +186,7 @@ export type ModelCallStatus = z.infer<typeof ModelCallStatusSchema>;
 
 export const ModelCallErrorCodeSchema = z.enum([
   "provider-auth-failed",
+  "provider-billing-required",
   "cloud-disabled",
   "provider-rate-limited",
   "provider-unavailable",

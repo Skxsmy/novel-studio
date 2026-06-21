@@ -37,5 +37,37 @@ export function createDefaultProviderRegistry(options: ProviderRegistryOptions =
   };
   if (options.fetchImpl) openAiCompatibleOptions.fetchImpl = options.fetchImpl;
   registry.register(new OpenAiCompatibleProvider(openAiCompatibleOptions));
+  registry.register(new OpenAiCompatibleProvider({
+    ...openAiCompatibleOptions,
+    provider: "deepseek",
+    title: "DeepSeek",
+    defaultBaseUrl: "https://api.deepseek.com",
+    models: [
+      {
+        id: "deepseek-v4-flash",
+        title: "DeepSeek V4 Flash",
+        contextWindowTokens: 1_000_000,
+        capabilities: {
+          streamText: true,
+          structuredOutput: true,
+          embeddings: false,
+          tokenEstimate: true,
+          modelList: true,
+        },
+      },
+      {
+        id: "deepseek-v4-pro",
+        title: "DeepSeek V4 Pro",
+        contextWindowTokens: 1_000_000,
+        capabilities: {
+          streamText: true,
+          structuredOutput: true,
+          embeddings: false,
+          tokenEstimate: true,
+          modelList: true,
+        },
+      },
+    ],
+  }));
   return registry;
 }

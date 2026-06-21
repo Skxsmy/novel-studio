@@ -6,7 +6,7 @@
 
 - 分支：`main`
 - 最近相关提交：查看 `git log -5 --oneline`；应包含 NS-401 至 NS-407 提交。NS-408 当前尚未提交。
-- 当前任务：`NS-408` 进行中；OpenAI-compatible / DeepSeek 路径已实现，真实 DeepSeek 验收需用户在界面保存 API Key 后执行，其它 Provider 待接入。
+- 当前任务：`NS-408` 进行中；DeepSeek 独立 Provider 与通用 OpenAI-compatible 基础路径已实现，用户侧已确认 DeepSeek 连接正常且能获取模型列表，其它 Provider 待接入。
 - 预期脏文件：本轮存在 NS-408 相关代码、测试和文档改动。接手时运行 `git status --short` 核实。
 
 ## 已完成
@@ -117,11 +117,11 @@
   - 未新增真实 Provider、模型设置 UI、API key 文件、网络调用或正文 / 已确认设定写入能力。
 - NS-404：
   - 已新增模型配置 API、作品级云端权限 API 和 Provider 连接测试路由；
-  - 已新增 `apps/server/src/ai/policy.ts`，集中处理云端禁用、凭据引用和错误状态；
+  - 已新增 `apps/server/src/ai/policy.ts`，集中处理凭据引用、Provider 边界和错误状态；
   - 已新增 `packages/ai/src/credentials.ts`，提供凭据存储抽象与 Windows Credential Manager 实现，不落明文文件；
   - `CredentialRefSchema` 会拒绝明显的明文密钥字符串；
   - 设置页“模型与资料权限”可添加本机验收模型、建立 Provider 配置占位、保存模型代号和凭据引用、测试连接；
-  - 云端禁用或缺少凭据引用时服务端拒绝连接测试，不会退回 MockProvider；
+  - 历史版本曾使用作品级云端权限开关；NS-408 后主路径已移除全局“只允许本机模型”开关，继续保留 Provider 显式选择、资料级权限过滤和禁止静默回退边界；
   - 已新增 `docs/tasks/NS-404.md` 和 `docs/testing/NS-404_ACCEPTANCE.md`。
 - NS-405：
   - 已新增 `POST /api/v1/series/:seriesId/context/preview` 和 `GET /api/v1/series/:seriesId/context/:contextBundleId`；
@@ -151,15 +151,18 @@
   - 已新增 `docs/tasks/NS-407.md` 和 `docs/testing/NS-407_ACCEPTANCE.md`。
 - NS-408（进行中）：
   - 已新增 `packages/ai/src/openAiCompatibleProvider.ts`；
-  - 默认 `ProviderRegistry` 现在注册 `mock` 与 `openai-compatible`；
-  - OpenAI-compatible adapter 支持连接测试、模型列表、流式文本、基础结构化输出、token 粗估和统一错误分类；
+  - 默认 `ProviderRegistry` 现在注册 `mock`、`deepseek` 与 `openai-compatible`；
+  - DeepSeek 与通用 OpenAI-compatible 共用 OpenAI 格式传输层，但在 Provider 层分离；通用兼容服务不继承 DeepSeek 默认地址、模型或 provider-specific 错误语义；
+  - DeepSeek adapter 支持连接测试、模型列表、流式文本、基础结构化输出、token 粗估和统一错误分类；
   - 设置页可创建 DeepSeek 配置，默认服务地址 `https://api.deepseek.com`，默认模型代号 `deepseek-v4-flash`；
-  - 新增密钥保存端点 `/api/v1/series/:seriesId/ai/model-profiles/:profileId/credential`，明文密钥只写入 `CredentialStore`，模型配置只保存凭据引用；
+  - 新增密钥保存、状态查询和删除端点；明文密钥只写入 `CredentialStore`，模型配置只保存凭据引用；
+  - 设置页支持保存、替换、删除当前密钥，也可让模型配置复用已有凭据引用；
   - 服务端 `app.ts` 注入同一 `CredentialStore` 与 `ProviderRegistry` 给 AI、Context 和 ModelCall 路由，避免模块级单例；
   - 浏览器验收截图改为唯一运行 ID、唯一文件名和 `*-screenshot-manifest.json` 清单；
   - 设置页 UI 已移除主界面的开发者说明，“凭据引用”和能力参数折叠进“高级信息”；
+  - 用户侧已确认 DeepSeek 连接正常，并能获取模型列表；
   - 已新增 `docs/tasks/NS-408.md` 和 `docs/testing/NS-408_ACCEPTANCE.md`；
-  - 未实现 OpenAI、OpenRouter、Anthropic、Gemini、Ollama adapter；未用用户真实 DeepSeek API Key 做真实网络验收。
+  - 未实现 OpenAI、OpenRouter、Anthropic、Gemini、Ollama adapter；尚未记录真实 DeepSeek 非写入调用结果。
 
 ## 验证
 
@@ -212,6 +215,12 @@
 - 2026-06-21 NS-408 `npm.cmd run test`：通过；Server 15/15，Web 14/14，AI 12/12，Storage 41/41。
 - 2026-06-21 NS-408 `npm.cmd run typecheck -w @novel-studio/web`：通过。
 - 2026-06-21 NS-408 `npm.cmd run test:e2e`：通过；1 个 Chrome 用例，覆盖 DeepSeek / OpenAI-compatible 配置、唯一截图 manifest、上下文预览、AI 审稿和正文候选闭环。人工查看最新 `m4-deepseek-provider-config` 截图，确认无“回退策略必须另行显式配置”等开发者说明，服务密钥卡不竖排，提示不遮挡表单。
+- 2026-06-21 NS-408 Provider 拆分后 `npm.cmd run typecheck`：通过。
+- 2026-06-21 NS-408 Provider 拆分后 `npm.cmd run test -w @novel-studio/ai`：通过，15/15。
+- 2026-06-21 NS-408 Provider 拆分后 `npm.cmd run test -w @novel-studio/server`：通过，15/15。
+- 2026-06-21 NS-408 Provider 拆分后 `npm.cmd run check`：通过；Server 15/15，Web 14/14，AI 15/15，Storage 41/41，生产构建通过。
+- 2026-06-21 NS-408 Provider 拆分后 `npm.cmd run test:e2e`：通过；1 个 Chrome 用例。
+- 2026-06-21 NS-408 用户侧真实验收：用户确认 DeepSeek 连接正常，并能获取模型列表；Codex 未读取或打印真实密钥。
 
 ## 已知限制
 
@@ -224,20 +233,20 @@
 - 当前没有应用内停止服务或托盘入口；启动脚本记录 PID 状态并会清理可确认属于本 checkout 的旧进程，但不会结束无法确认来源的端口占用者。
 - 早前手工浏览器验收留下了测试用系列、故事进展、未来隐藏记录和角色所知记录；它们位于本地示例作品库，不进入 Git。新的 Playwright 验收使用隔离临时作品库。
 - 当前 Codex 更新后内置 Browser 控制通道已恢复；若后续再次出现 `sandboxPolicy` 或 URL policy 错误，先用 `node_repl/js` 最小探针和 Browser 插件文档接口分层确认，不要再用本地代理绕过。Codex shell 中不要依赖“命令结束后仍保留后台服务”的假设；启动验收优先用 `-SmokeTest`，浏览器或 E2E 验收应由能托管服务生命周期的工具使用 `-Foreground`。
-- NS-404 至 NS-408 只实现最小设置页、写作页上下文预览入口、提示词预览入口、AI 审稿 / 改写入口和 OpenAI-compatible / DeepSeek 路径；完整上下文分组、调用记录 UI、完整角色 / 变量 / Preset 编辑器和更多浏览器 E2E 归入 `NS-409` 或后续 UI 整理。
+- NS-404 至 NS-408 只实现最小设置页、写作页上下文预览入口、提示词预览入口、AI 审稿 / 改写入口、DeepSeek 独立 Provider 和通用 OpenAI-compatible 基础路径；完整上下文分组、调用记录 UI、完整角色 / 变量 / Preset 编辑器和更多浏览器 E2E 归入 `NS-409` 或后续 UI 整理。
 - UI 相关任务必须进行真实浏览器操作并保存截图证据；不要再只用 DOM 断言证明“按钮能点”。截图必须带唯一运行 ID，并逐图人工检查。当前规则写在 `docs/testing/BROWSER_ACCEPTANCE.md`。
 - UI 方向不清晰时应先用当前截图和 UX 要求生成少量视觉预览；预览图必须按 `USER_EXPERIENCE_SPEC.md` 管理，未采纳探索图不进入项目。
-- OpenAI-compatible / DeepSeek 的真实密钥录入界面已实现，但真实网络验收需用户在界面保存 API Key 后执行。
+- DeepSeek 真实连接和模型列表获取已由用户侧验收通过；真实 DeepSeek 非写入调用结果尚未记录。
 - OpenAI、OpenRouter、Anthropic、Gemini 和 Ollama Provider 尚未实现，仍属 `NS-408` 剩余工作。
 
 ## 唯一下一任务
 
-`NS-408`：用户保存 DeepSeek API Key 后完成真实连接 / 非写入调用验收；随后继续 Ollama、OpenAI、OpenRouter、Anthropic、Gemini Provider 接入。
+`NS-408`：记录一次真实 DeepSeek 非写入调用，或继续 Ollama、OpenAI、OpenRouter、Anthropic、Gemini Provider 接入。
 
 当前优先级：
 
-1. 等用户在设置页保存 DeepSeek API Key 后，点击测试连接，并在写作页发起一次非写入审稿调用。
-2. 真实验收通过后，继续接入 Ollama 或其它 Provider；不要把 NS-408 整体标为完成。
+1. 若继续 DeepSeek 验收，在写作页用已通过连接测试的 DeepSeek 模型发起一次非写入审稿调用，并确认不会直接写入正文或泄露密钥。
+2. 若继续 Provider 接入，优先接入 Ollama 或 OpenAI；不要把 NS-408 整体标为完成。
 3. 继续复用 NS-404 的云端权限和凭据引用边界，不得从本地模型静默回退云端。
 4. 单元测试覆盖连接测试、模型列表、流式文本、结构化输出能力声明和错误分类。
 5. 不把真实 API 密钥写入作品目录、日志、浏览器控制台或 Git。

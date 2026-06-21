@@ -119,7 +119,7 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 - 调用前可预览 `ContextBundle` 和用量估算。
 - 调用后必须保存 `ModelCallLog`，包含模型、提示词版本、上下文包 ID、请求 / 响应哈希、状态和用量。
 - AI 输出不得未经作者确认直接写正文、已确认设定、摘要、故事进展或角色所知。正文类任务可以生成候选文本；候选必须在编辑器内选中，并由作者保留后才保存。
-- 云端禁用时不得调用云端 Provider，也不得从本地模型静默回退到云端模型。
+- Provider 必须显式选择；调用失败时不得从本地模型静默回退到云端模型，也不得从当前 Provider 静默换用其它 Provider。资料级 `local-only/never` 内容必须按上下文目标过滤。
 - 错误必须分类为认证失败、权限禁止、模型不可用、网络失败、上下文过长、限流、结构化输出失败或未知错误。
 
 ### 模型配置与 Provider
@@ -132,13 +132,13 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 - `POST /series/:seriesId/ai/model-profiles/:profileId/test`
 - `GET /series/:seriesId/ai/model-profiles/:profileId/models`
 
-`ModelProfile` 描述一个可选模型配置，包括 Provider、模型名、服务地址、能力、默认参数、云端策略和凭据引用。API 不返回明文 API key。
+`ModelProfile` 描述一个可选模型配置，包括 Provider、模型名、服务地址、能力、默认参数和凭据引用。API 不返回明文 API key。`cloudPolicy` 字段暂时保留用于旧文件兼容和调用日志审计，但不作为主界面上的全局“只允许本机模型”开关。
 
 `POST /model-profiles/:profileId/credential` 接收一次性密钥输入并写入 `CredentialStore`，随后把模型配置更新为凭据引用。服务端不得把明文密钥写入作品目录、调用日志、错误响应或 Git 可追踪文件。
 
-`PUT /ai/cloud-policy` 更新作品级云端权限，当前取值为 `local-only` 或 `cloud-allowed`。作品处于 `local-only` 时，云端 Provider 的连接测试和后续调用都必须返回权限错误。
+`PUT /ai/cloud-policy` 是历史接口，当前不作为用户主路径。M4 当前的安全边界改由模型凭据、Provider 显式选择、资料级 `local-only/never` 规则和“禁止静默回退”共同保证。
 
-`POST /model-profiles/:profileId/test` 只做连接测试和能力读取。云端被禁用时直接返回 403；凭据缺失返回 422；Provider 认证失败返回 401 或 502，并附错误分类。
+`POST /model-profiles/:profileId/test` 只做连接测试和能力读取。Provider 认证失败、余额不足、限流、模型不可用和服务不可达会返回对应错误分类；不会自动换用其它 Provider。
 
 `GET /model-profiles/:profileId/models` 返回 Provider 可见模型列表。若 Provider 不支持模型列表，返回能力声明中的静态模型或明确的“不支持”，不能伪造动态列表。
 

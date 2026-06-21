@@ -9,7 +9,7 @@
 - M2：完成。文件存储、API、冲突保护、索引重建与搜索已有自动化测试。
 - M3：完成。`NS-301` 至 `NS-307` 均已实现并通过自动化与浏览器验收。
 - M3 → M4 整备：`NS-400` 完成。当前架构、拆分基线、可重复烟测和 M4 最小契约均已写入仓库。
-- M4：进行中。`NS-401` 至 `NS-407` 已完成；`NS-408` 正在推进，OpenAI-compatible / DeepSeek 路径已实现，剩余 Provider 待接入。
+- M4：进行中。`NS-401` 至 `NS-407` 已完成；`NS-408` 正在推进，DeepSeek 独立 Provider 与通用 OpenAI-compatible 基础路径已实现，剩余 Provider 待接入。
 
 ## 当前已实现
 
@@ -46,11 +46,11 @@
 - NS-401 已完成：M4 API 草案、数据格式草案、MockProvider 垂直切片、浏览器验收映射和安全不变量已写入仓库；未新增真实模型调用。
 - NS-402 已完成：AI 契约已从单体 contracts 拆到领域文件；storage 已支持模型配置、角色、提示词、Preset、上下文包和调用日志的最小 YAML 持久化；SQLite 可重建 M4 上下文包和调用日志索引。
 - NS-403 已完成：新增 `@novel-studio/ai`，实现 ProviderAdapter、ProviderRegistry、MockProvider、模型能力描述、流式输出、结构化输出、embedding、token 估算和统一错误分类；未接真实 Provider，未读取 API key，未新增正文或已确认设定写入能力。
-- NS-404 已完成：新增模型配置 API、作品级云端权限开关、凭据引用校验、Windows Credential Manager 存储抽象、Provider 连接测试、设置页“模型与资料权限”；云端禁用或缺少凭据引用时服务端拒绝调用测试，不会退回 MockProvider。
+- NS-404 已完成：新增模型配置 API、凭据引用校验、Windows Credential Manager 存储抽象、Provider 连接测试、设置页“模型与资料权限”；NS-408 后主路径已移除全局“只允许本机模型”开关，继续保留 Provider 显式选择、资料级权限过滤和禁止静默回退边界。
 - NS-405 已完成：新增场景级 `ContextBundle` 装配和预览 API；写作页右侧可生成最小上下文预览；预览包记录纳入项、排除项、来源、原因和用量估算；`never`、隐藏区段和后文信息不会进入当前场景上下文。
 - NS-406 已完成：新增 7 个内置智能编辑角色、提示词模板、Preset、声明式渲染、模板版本 API 和设置页“角色与提示词”；上下文预览会记录真实 PromptTemplate ID / version；模板缺少必填输入或包含表达式时拒绝渲染。
 - NS-407 已完成：新增非写入型 AI 调用 API、SSE 流式输出、调用日志保存和写作页“审稿 / 改写”最小闭环；`rewrite` 只生成正文内联候选，候选整段选中，作者点击“保留”后才保存。
-- NS-408 进行中：新增 OpenAI-compatible Provider，设置页可创建 DeepSeek 配置、保存服务密钥到系统凭据、测试连接和经统一 ProviderRegistry 发起调用；真实 DeepSeek 调用需用户在界面保存 API Key 后验收。OpenAI、OpenRouter、Anthropic、Gemini 和 Ollama 仍待实现。
+- NS-408 进行中：新增 DeepSeek 独立 Provider 与通用 OpenAI-compatible 基础路径，设置页可创建 DeepSeek 配置、保存 / 替换 / 删除 / 复用服务密钥、获取模型列表、测试连接并经统一 ProviderRegistry 发起调用；用户侧已确认 DeepSeek 连接正常且能获取模型列表。OpenAI、OpenRouter、Anthropic、Gemini 和 Ollama 仍待实现。
 - UI 原则已补入权威规格：主界面从作者视角组织信息，调用来源、基准版本、调用 ID、Token 用量等审计字段不得出现在写作主路径；UI 预览图必须受控管理，未采纳的探索图不进入项目。
 - UI 规范已补充：主界面不得用开发者说明反复解释失败回退、密钥存储、日志脱敏等内部边界；只展示用户当前决策和下一步。截图验收必须生成唯一运行 ID、截图 manifest，并逐图人工检查。
 - 完整产品、UX、AI 编辑团队、资料库、Word/版本和里程碑规格位于 `docs/product/`。
@@ -95,6 +95,8 @@
 - NS-407 收口 `npm.cmd run check`：2026-06-21 通过；Server 13/13，Web 14/14，AI 10/10，Storage 41/41，生产构建通过。
 - NS-408 局部验证：`npm.cmd run test` 通过；Server 15/15，Web 14/14，AI 12/12，Storage 41/41。
 - NS-408 浏览器验收 `npm.cmd run test:e2e`：2026-06-21 通过；1 个 Chrome 用例，覆盖 DeepSeek / OpenAI-compatible 配置界面、唯一截图 manifest、写作页上下文预览、AI 审稿和正文候选闭环。人工查看确认 DeepSeek 设置页不再显示开发者回退说明，服务密钥卡不再竖排，凭据引用和能力参数折叠进“高级信息”。
+- NS-408 Provider 拆分后验证：`npm.cmd run typecheck` 通过；`npm.cmd run test -w @novel-studio/ai` 通过，15/15；`npm.cmd run test -w @novel-studio/server` 通过，15/15；`npm.cmd run check` 通过，Server 15/15、Web 14/14、AI 15/15、Storage 41/41；`npm.cmd run test:e2e` 通过，1 个 Chrome 用例。
+- NS-408 用户侧真实验收：用户已确认 DeepSeek 连接正常，并能获取模型列表。该结论来自用户手动验收；Codex 未读取或打印真实密钥。
 
 详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`、`docs/testing/NS-305_ACCEPTANCE.md`、`docs/testing/NS-306_ACCEPTANCE.md`、`docs/testing/NS-401_ACCEPTANCE.md`、`docs/testing/NS-402_ACCEPTANCE.md`、`docs/testing/NS-403_ACCEPTANCE.md`、`docs/testing/NS-404_ACCEPTANCE.md`、`docs/testing/NS-405_ACCEPTANCE.md`、`docs/testing/NS-406_ACCEPTANCE.md`、`docs/testing/NS-407_ACCEPTANCE.md`、`docs/testing/NS-408_ACCEPTANCE.md`。
 
@@ -103,8 +105,8 @@
 - 早前手工浏览器验收曾在本地示例作品库留下测试用系列、故事进展和角色所知记录；这些是本地权威数据文件，不进入 Git。新的 Playwright 验收改用隔离临时作品库。
 - 当前 Windows / Codex 沙箱环境可能拒绝改写固定 `data/server.*` 启动文件；启动脚本已对 pid 状态写入提供 `%TEMP%\novel-studio` fallback。Codex 自动化启动验收优先使用 `-SmokeTest`，正式发布前仍建议在普通 PowerShell 中复测一次双击启动器。
 - 编辑室、待确认页面尚无真实智能编辑工作流或候选变更。
-- NS-404 至 NS-408 只提供最小设置页、上下文预览入口、提示词预览入口、写作页 AI 审稿 / 改写入口和 OpenAI-compatible / DeepSeek 路径；完整上下文分组 UI、调用后快照查看、完整角色 / 变量 / Preset 编辑器和更多浏览器自动验收属于 `NS-409` 或后续 UI 整理。
-- OpenAI-compatible / DeepSeek 的真实密钥录入界面已实现，但真实网络验收需用户在界面保存 API Key 后执行。
+- NS-404 至 NS-408 只提供最小设置页、上下文预览入口、提示词预览入口、写作页 AI 审稿 / 改写入口、DeepSeek 独立 Provider 和通用 OpenAI-compatible 基础路径；完整上下文分组 UI、调用后快照查看、完整角色 / 变量 / Preset 编辑器和更多浏览器自动验收属于 `NS-409` 或后续 UI 整理。
+- DeepSeek 真实连接和模型列表获取已由用户侧验收通过；真实 DeepSeek 非写入调用结果尚未记录。
 - OpenAI、OpenRouter、Anthropic、Gemini 和 Ollama Provider 尚未实现，仍属 `NS-408` 剩余工作。
 - 场景保存尚未回写系列 `updatedAt`。
 - 首次启动选择作品库、应用内停止服务和托盘入口尚未实现。
@@ -112,6 +114,6 @@
 
 ## 唯一下一任务
 
-`NS-408`：用户保存 DeepSeek API Key 后完成真实连接 / 非写入调用验收；随后继续 Ollama、OpenAI、OpenRouter、Anthropic、Gemini Provider 接入。
+`NS-408`：记录一次真实 DeepSeek 非写入调用，或继续 Ollama、OpenAI、OpenRouter、Anthropic、Gemini Provider 接入。
 
 说明：下一步应在统一 `ProviderAdapter` 下接入真实 Provider 协议层，继续保持云端权限、凭据引用和“不得从本地模型静默回退云端”的边界。

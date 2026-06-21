@@ -72,6 +72,15 @@ test.describe("已实现能力浏览器验收", () => {
       let seriesList = await getJson<SeriesSummary[]>(request, "/api/v1/series");
       expect(seriesList).toHaveLength(1);
       const seriesId = seriesList[0]!.id;
+      const mockProfileResponse = await request.post(`/api/v1/series/${seriesId}/ai/model-profiles`, {
+        data: {
+          title: "本机验收模型",
+          provider: "mock",
+          model: "mock-continuity-v1",
+          cloudPolicy: "cloud-allowed",
+        },
+      });
+      expect(mockProfileResponse.ok()).toBe(true);
 
       for (const label of ["概览", "规划", "写作", "设定库", "编辑室", "待确认"]) {
         await expect(page.getByRole("button", { name: new RegExp(label) })).toBeVisible();
@@ -155,9 +164,6 @@ test.describe("已实现能力浏览器验收", () => {
       await page.getByRole("button", { name: /设置/ }).click();
       await expect(page.getByRole("heading", { name: "模型与资料权限" })).toBeVisible();
       await expect(page.getByRole("button", { name: "专注模式" })).toHaveCount(0);
-      await clickAndWaitForPost(page, "/model-profiles", async () => {
-        await page.getByRole("button", { name: "添加本机验收模型" }).click();
-      });
       await expect(page.locator(".model-list").getByRole("button", { name: /本机验收模型/ })).toBeVisible();
       await clickAndWaitForPost(page, "/test", async () => {
         await page.getByRole("button", { name: "测试连接" }).click();
@@ -166,18 +172,13 @@ test.describe("已实现能力浏览器验收", () => {
       await capture("m4-settings-model-profile");
 
       await clickAndWaitForPost(page, "/model-profiles", async () => {
-        await page.getByRole("button", { name: "添加 DeepSeek 配置" }).click();
+        await page.getByRole("button", { name: "添加连接" }).click();
       });
       await expect(page.locator(".model-list").getByRole("button", { name: /DeepSeek 写作模型/ })).toBeVisible();
       await expect(page.getByLabel("服务地址")).toHaveValue("https://api.deepseek.com");
-      await expect(page.getByLabel("模型代号")).toHaveValue("deepseek-v4-flash");
+      await expect(page.getByLabel("模型")).toHaveValue("deepseek-v4-flash");
       await expect(page.getByPlaceholder("粘贴 API Key")).toBeVisible();
-      const cloudPolicyResponse = page.waitForResponse((response) =>
-        response.request().method() === "PUT" && response.url().includes("/ai/cloud-policy"),
-      );
-      await page.getByLabel("当前权限").selectOption("cloud-allowed");
-      await cloudPolicyResponse;
-      await expect(page.getByText(/密钥只保存在本机系统里/)).toBeVisible();
+      await expect(page.getByText(/尚未保存密钥/)).toBeVisible();
       await capture("m4-deepseek-provider-config");
 
       await page.getByRole("button", { name: "角色与提示词" }).click();

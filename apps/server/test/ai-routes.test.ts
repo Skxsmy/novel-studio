@@ -98,7 +98,7 @@ describe("M4 model settings API", () => {
     await app.close();
   });
 
-  it("blocks cloud providers when the series is local-only and never falls back to MockProvider", async () => {
+  it("does not fall back to MockProvider when a configured provider is unavailable", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-ai-api-"));
     roots.push(root);
     const app = await buildApp({ libraryRoot: root });
@@ -123,24 +123,6 @@ describe("M4 model settings API", () => {
     expect(cloudProfileResponse.statusCode).toBe(201);
     const cloudProfile = cloudProfileResponse.json();
 
-    const localOnlyBlocked = await app.inject({
-      method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${cloudProfile.id}/test`,
-    });
-    expect(localOnlyBlocked.statusCode).toBe(403);
-    expect(localOnlyBlocked.json()).toMatchObject({
-      code: "CLOUD_DISABLED",
-      error: { code: "cloud-disabled" },
-    });
-
-    const policy = await app.inject({
-      method: "PUT",
-      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
-      payload: { cloudPolicy: "cloud-allowed" },
-    });
-    expect(policy.statusCode).toBe(200);
-    expect(policy.json().cloudPolicy).toBe("cloud-allowed");
-
     const unavailable = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${cloudProfile.id}/test`,
@@ -157,13 +139,14 @@ describe("M4 model settings API", () => {
     await app.close();
   });
 
-  it("saves a DeepSeek OpenAI-compatible key to the credential store and tests the provider", async () => {
+  it("saves a DeepSeek key to the credential store and tests the provider", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-ai-api-"));
     roots.push(root);
+    const secrets = new Map<string, string>();
     const requests: Array<{ url: string; authorization: string | null }> = [];
     const app = await buildApp({
       libraryRoot: root,
-      credentialStore: memoryCredentialStore(),
+      credentialStore: memoryCredentialStore(secrets),
       providerFetch: async (input, init) => {
         const url = String(input);
         requests.push({
@@ -172,7 +155,11 @@ describe("M4 model settings API", () => {
         });
         if (url === "https://api.deepseek.com/models") {
           return new Response(JSON.stringify({
-            data: [{ id: "deepseek-v4-flash" }, { id: "deepseek-v4-pro" }],
+            object: "list",
+            data: [
+              { id: "deepseek-v4-flash", object: "model", owned_by: "deepseek" },
+              { id: "deepseek-v4-pro", object: "model", owned_by: "deepseek" },
+            ],
           }), { status: 200, headers: { "content-type": "application/json" } });
         }
         return new Response(JSON.stringify({ error: { message: "not found" } }), {
@@ -188,19 +175,12 @@ describe("M4 model settings API", () => {
     });
     const series = created.json();
 
-    const policy = await app.inject({
-      method: "PUT",
-      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
-      payload: { cloudPolicy: "cloud-allowed" },
-    });
-    expect(policy.statusCode).toBe(200);
-
     const profileResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
       payload: {
         title: "DeepSeek 写作模型",
-        provider: "openai-compatible",
+        provider: "deepseek",
         baseUrl: "https://api.deepseek.com",
         model: "deepseek-v4-flash",
         cloudPolicy: "cloud-allowed",
@@ -220,6 +200,17 @@ describe("M4 model settings API", () => {
     expect(JSON.stringify(credential.json())).not.toContain("deepseek-test-key");
     expect(credential.json().credentialRef).toContain(profile.id);
 
+    const status = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+    });
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toMatchObject({
+      credentialRef: credential.json().credentialRef,
+      exists: true,
+    });
+    expect(JSON.stringify(status.json())).not.toContain("deepseek-test-key");
+
     const tested = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/test`,
@@ -227,7 +218,7 @@ describe("M4 model settings API", () => {
     expect(tested.statusCode).toBe(200);
     expect(tested.json()).toMatchObject({
       ok: true,
-      provider: "openai-compatible",
+      provider: "deepseek",
       models: [
         { id: "deepseek-v4-flash" },
         { id: "deepseek-v4-pro" },
@@ -237,6 +228,15 @@ describe("M4 model settings API", () => {
       url: "https://api.deepseek.com/models",
       authorization: "Bearer deepseek-test-key",
     });
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toMatchObject({ deleted: true });
+    expect(deleted.json().modelProfile.credentialRef).toBeNull();
+    expect(secrets.size).toBe(0);
 
     await app.close();
   });

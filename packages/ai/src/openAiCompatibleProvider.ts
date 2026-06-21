@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import {
+  type AiProvider,
   TokenUsageSchema,
   type ContextBundle,
   type ModelCallError,
@@ -26,6 +27,10 @@ type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 interface OpenAiCompatibleProviderOptions {
   credentialStore: CredentialStore;
   fetchImpl?: FetchLike;
+  provider?: Extract<AiProvider, "openai-compatible" | "deepseek">;
+  title?: string;
+  defaultBaseUrl?: string | null;
+  models?: ProviderModelDescriptor[];
 }
 
 interface OpenAiErrorBody {
@@ -38,8 +43,11 @@ interface OpenAiErrorBody {
 }
 
 interface OpenAiModelListBody {
+  object?: unknown;
   data?: Array<{
     id?: unknown;
+    object?: unknown;
+    owned_by?: unknown;
   }>;
 }
 
@@ -80,6 +88,7 @@ const DEEPSEEK_MODELS: ProviderModelDescriptor[] = [
 ];
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
+const GENERIC_CONTEXT_WINDOW_TOKENS = 8192;
 
 function sanitizeProviderMessage(value: unknown): string {
   const text = typeof value === "string" && value.trim()
@@ -103,8 +112,14 @@ function contextText(request: ProviderTextRequest): string {
   return [promptText(request.prompt), context].filter(Boolean).join("\n\n");
 }
 
-function endpoint(baseUrl: string | null | undefined, pathname: string): string {
-  const base = new URL(baseUrl?.trim() || DEFAULT_BASE_URL);
+function endpoint(baseUrl: string | null | undefined, defaultBaseUrl: string | null, pathname: string): string {
+  const resolvedBaseUrl = baseUrl?.trim() || defaultBaseUrl;
+  if (!resolvedBaseUrl) {
+    throw new ProviderAdapterError("provider-error", "请先填写模型服务地址。", {
+      retryable: false,
+    });
+  }
+  const base = new URL(resolvedBaseUrl);
   const normalized = base.href.endsWith("/") ? base.href : `${base.href}/`;
   return new URL(pathname.replace(/^\//u, ""), normalized).toString();
 }
@@ -162,8 +177,9 @@ function tokenUsageFromOpenAi(value: OpenAiChatCompletionBody["usage"]): TokenUs
 
 function errorCodeFromStatus(status: number): ModelCallError["code"] {
   if (status === 401 || status === 403) return "provider-auth-failed";
+  if (status === 402) return "provider-billing-required";
   if (status === 404) return "model-unavailable";
-  if (status === 408 || status === 502 || status === 503 || status === 504) {
+  if (status === 408 || status === 500 || status === 502 || status === 503 || status === 504) {
     return "provider-unavailable";
   }
   if (status === 429) return "provider-rate-limited";
@@ -174,8 +190,12 @@ function retryableFromStatus(status: number): boolean {
   return status === 408 || status === 429 || status === 502 || status === 503 || status === 504;
 }
 
-function staticModelDescriptor(modelProfile: ModelProfile, modelId: string): ProviderModelDescriptor {
-  return DEEPSEEK_MODELS.find((model) => model.id === modelId) ?? {
+function staticModelDescriptor(
+  modelProfile: ModelProfile,
+  knownModels: ProviderModelDescriptor[],
+  modelId: string,
+): ProviderModelDescriptor {
+  return knownModels.find((model) => model.id === modelId) ?? {
     id: modelId,
     title: modelId,
     contextWindowTokens: modelProfile.contextWindowTokens,
@@ -184,19 +204,26 @@ function staticModelDescriptor(modelProfile: ModelProfile, modelId: string): Pro
 }
 
 export class OpenAiCompatibleProvider implements ProviderAdapter {
-  readonly provider = "openai-compatible" as const;
+  readonly provider: Extract<AiProvider, "openai-compatible" | "deepseek">;
   private readonly fetchImpl: FetchLike;
+  private readonly title: string;
+  private readonly defaultBaseUrl: string | null;
+  private readonly models: ProviderModelDescriptor[];
 
   constructor(private readonly options: OpenAiCompatibleProviderOptions) {
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.provider = options.provider ?? "openai-compatible";
+    this.title = options.title ?? "OpenAI 兼容服务";
+    this.defaultBaseUrl = options.defaultBaseUrl ?? null;
+    this.models = options.models ?? [];
   }
 
   describeCapabilities(): ProviderDescriptor {
     return {
       provider: this.provider,
-      title: "OpenAI 兼容服务",
+      title: this.title,
       capabilities: OPENAI_COMPATIBLE_CAPABILITIES,
-      models: DEEPSEEK_MODELS,
+      models: this.models,
     };
   }
 
@@ -226,31 +253,45 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
 
   async listModels(modelProfile: ModelProfile): Promise<ProviderModelDescriptor[]> {
     this.assertProfileProvider(modelProfile);
-    const secret = await this.readSecret(modelProfile);
-    const response = await this.fetchImpl(endpoint(modelProfile.baseUrl, "/models"), {
+    const secret = await this.readOptionalSecret(modelProfile);
+    const response = await this.fetchImpl(endpoint(modelProfile.baseUrl, this.defaultBaseUrl, "/models"), {
       method: "GET",
       headers: this.headers(secret),
     });
     await this.assertOk(response);
     const body = await response.json() as OpenAiModelListBody;
-    const modelIds = (body.data ?? [])
+    if (body.object !== undefined && body.object !== "list") {
+      throw new ProviderAdapterError("provider-error", "Provider 模型列表格式不符合 OpenAI 兼容约定。", {
+        retryable: false,
+        providerStatus: response.status,
+      });
+    }
+    if (!Array.isArray(body.data)) {
+      throw new ProviderAdapterError("provider-error", "Provider 没有返回模型列表。", {
+        retryable: false,
+        providerStatus: response.status,
+      });
+    }
+    const modelIds = body.data
+      .filter((item) => item && typeof item === "object")
       .map((item) => item.id)
-      .filter((id): id is string => typeof id === "string" && id.length > 0);
-    const uniqueIds = Array.from(new Set(modelIds.length ? modelIds : [modelProfile.model]));
-    return uniqueIds.map((id) => staticModelDescriptor(modelProfile, id));
+      .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+      .map((id) => id.trim());
+    const uniqueIds = Array.from(new Set(modelIds));
+    return uniqueIds.map((id) => staticModelDescriptor(modelProfile, this.models, id));
   }
 
   async *streamText(request: ProviderTextRequest): AsyncIterable<string> {
     this.assertProfileProvider(request.modelProfile);
     this.assertContextFits(request);
-    const secret = await this.readSecret(request.modelProfile);
+    const secret = await this.readOptionalSecret(request.modelProfile);
     const init: RequestInit = {
       method: "POST",
       headers: this.headers(secret),
       body: JSON.stringify(chatBody(request.modelProfile, request.prompt, request.parameters, true)),
     };
     if (request.abortSignal) init.signal = request.abortSignal;
-    const response = await this.fetchImpl(endpoint(request.modelProfile.baseUrl, "/chat/completions"), {
+    const response = await this.fetchImpl(endpoint(request.modelProfile.baseUrl, this.defaultBaseUrl, "/chat/completions"), {
       ...init,
     });
     await this.assertOk(response);
@@ -287,7 +328,7 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
   ): Promise<T> {
     this.assertProfileProvider(request.modelProfile);
     this.assertContextFits(request);
-    const secret = await this.readSecret(request.modelProfile);
+    const secret = await this.readOptionalSecret(request.modelProfile);
     const init: RequestInit = {
       method: "POST",
       headers: this.headers(secret),
@@ -297,7 +338,7 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
       }),
     };
     if (request.abortSignal) init.signal = request.abortSignal;
-    const response = await this.fetchImpl(endpoint(request.modelProfile.baseUrl, "/chat/completions"), {
+    const response = await this.fetchImpl(endpoint(request.modelProfile.baseUrl, this.defaultBaseUrl, "/chat/completions"), {
       ...init,
     });
     await this.assertOk(response);
@@ -342,18 +383,19 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
     return classifyProviderError(error);
   }
 
-  private headers(secret: string): Record<string, string> {
-    return {
-      authorization: `Bearer ${secret}`,
+  private headers(secret: string | null): Record<string, string> {
+    const headers: Record<string, string> = {
       "content-type": "application/json",
     };
+    if (secret) {
+      headers.authorization = `Bearer ${secret}`;
+    }
+    return headers;
   }
 
-  private async readSecret(modelProfile: ModelProfile): Promise<string> {
+  private async readOptionalSecret(modelProfile: ModelProfile): Promise<string | null> {
     if (!modelProfile.credentialRef) {
-      throw new ProviderAdapterError("permission-denied", "该模型配置缺少系统凭据引用。", {
-        retryable: false,
-      });
+      return null;
     }
     try {
       const secret = await this.options.credentialStore.readSecret(modelProfile.credentialRef);
@@ -429,16 +471,26 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
 
   private assertProfileProvider(modelProfile: ModelProfile): void {
     if (modelProfile.provider !== this.provider) {
-      throw new ProviderAdapterError("provider-error", "ModelProfile 与 OpenAI 兼容 Provider 不匹配。", {
+      throw new ProviderAdapterError("provider-error", "ModelProfile 与当前 Provider 不匹配。", {
         retryable: false,
       });
     }
   }
 }
 
-export function deepSeekDefaults() {
+export function openAiCompatibleDefaults() {
   return {
     provider: "openai-compatible" as const,
+    baseUrl: null,
+    model: "填写模型代号",
+    capabilities: OPENAI_COMPATIBLE_CAPABILITIES,
+    contextWindowTokens: GENERIC_CONTEXT_WINDOW_TOKENS,
+  };
+}
+
+export function deepSeekDefaults() {
+  return {
+    provider: "deepseek" as const,
     baseUrl: DEFAULT_BASE_URL,
     model: "deepseek-v4-flash",
     capabilities: OPENAI_COMPATIBLE_CAPABILITIES,
