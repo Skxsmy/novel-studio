@@ -42,7 +42,7 @@
 - [x] `NS-403` ProviderAdapter 核心、能力描述、错误分类和 MockProvider。
 - [x] `NS-404` 模型设置、连接测试、密钥存储抽象和云端权限开关。
 - [x] `NS-405` 场景级上下文装配器、权限过滤、未来剧情隔离和用量估算。
-- [ ] `NS-406` 提示词模板、角色、Preset、声明式渲染和版本历史。
+- [x] `NS-406` 提示词模板、角色、Preset、声明式渲染和版本历史。
 - [ ] `NS-407` 非写入型 AI 调用、SSE 流式输出和 ModelCallLog。
 - [ ] `NS-408` OpenAI-compatible、Ollama、OpenAI、OpenRouter、Anthropic、Gemini Provider 接入。
 - [ ] `NS-409` 上下文预览 UI、调用日志 UI 和浏览器验收覆盖。

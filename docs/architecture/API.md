@@ -112,7 +112,7 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 
 ## M4 AI 基础设施
 
-`NS-404` 与 `NS-405` 已实现模型配置、权限边界和上下文预览；非写入型调用、提示词版本、真实 Provider 和调用日志仍在后续 M4 任务中完成。M4 的第一条纵向闭环使用 MockProvider 完成“上下文预览 → 非写入型调用 → 调用日志”。
+`NS-404` 至 `NS-406` 已实现模型配置、权限边界、上下文预览、角色与提示词模板版本；非写入型调用、真实 Provider 和调用日志仍在后续 M4 任务中完成。M4 的第一条纵向闭环使用 MockProvider 完成“上下文预览 → 非写入型调用 → 调用日志”。
 
 所有 M4 AI 接口必须满足：
 
@@ -143,16 +143,19 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 
 - `GET /series/:seriesId/ai/roles`
 - `POST /series/:seriesId/ai/roles/:roleId/clone`
+- `PUT /series/:seriesId/ai/roles/:roleId`
 - `GET /series/:seriesId/ai/prompts`
 - `POST /series/:seriesId/ai/prompts`
 - `POST /series/:seriesId/ai/prompts/:promptTemplateId/preview`
 - `POST /series/:seriesId/ai/prompts/:promptTemplateId/versions`
+- `GET /series/:seriesId/ai/presets`
+- `POST /series/:seriesId/ai/presets`
 
 内置角色首版包括：主笔伙伴、结构编辑、人物编辑、连续性编辑、文风编辑、冷酷读者和研究员。内置角色不可原地改写；用户只能复制后修改。
 
-提示词模板是声明式 YAML。模板渲染只允许变量替换、组件拼接和条件化包含；不得执行任意 JavaScript。每次修改活动模板都生成新版本，旧调用日志继续指向旧版本。
+提示词模板是声明式 YAML。当前实现只允许 `{{变量名}}` 替换和组件拼接；不得执行任意 JavaScript。每次修改模板都生成新版本，旧调用日志继续指向旧版本。
 
-`POST /prompts/:promptTemplateId/preview` 只返回渲染后的提示词片段和缺失输入列表，不触发模型调用。
+`POST /prompts/:promptTemplateId/preview` 只返回渲染后的提示词片段，不触发模型调用。缺少必填输入时返回 `400 PROMPT_INPUT_MISSING`；模板包含表达式或未闭合占位符时返回 `422 PROMPT_TEMPLATE_INVALID`。
 
 ### 上下文预览
 

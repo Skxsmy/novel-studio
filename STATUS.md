@@ -9,7 +9,7 @@
 - M2：完成。文件存储、API、冲突保护、索引重建与搜索已有自动化测试。
 - M3：完成。`NS-301` 至 `NS-307` 均已实现并通过自动化与浏览器验收。
 - M3 → M4 整备：`NS-400` 完成。当前架构、拆分基线、可重复烟测和 M4 最小契约均已写入仓库。
-- M4：进行中。`NS-401` 至 `NS-405` 已完成；下一任务是 `NS-406`。
+- M4：进行中。`NS-401` 至 `NS-406` 已完成；下一任务是 `NS-407`。
 
 ## 当前已实现
 
@@ -41,13 +41,14 @@
 - NS-400 已完成：当前架构文档已更新到 M3；服务端 Codex 路由已从 `app.ts` 拆入 `apps/server/src/routes/codex.ts`，`app.ts` 从约 718 行降到 363 行；storage 的错误、路径安全、原子写入和多文件事务已拆入独立模块；前端设定库已拆为顶层视图、条目编辑器和条目面板；已新增三条 M3→M4 核心烟测；M4 的 Context、Prompt、ModelCallLog 和 Proposal 最小契约已定义。
 - NS-307 已完成：写作页左侧作品结构栏改为更清晰的部 / 幕 / 章 / 场景布局；新建场景可以明确指定目标部、幕和章，第二部章节内新建场景不再回落到第一部。
 - 启动器已再次瘦身：`scripts/start.ps1` 直接启动 Node 服务产物，不再通过 `npm start` 父进程；新增 `-SmokeTest` 启动验收模式、`-Foreground` 测试托管模式和 `-Stop` 清理模式，并保留轻量互斥锁，减少 Codex / 自动化测试中的后台进程和并发启动风险。
-- 浏览器验收已改为 Playwright 自动操纵 Chrome；当前只运行 M3 已实现主路径，使用系统临时目录中的隔离作品库，不污染真实 `data/library`。M4/M5 的 AI、上下文和候选变更只登记为待实现验收目录。
+- 浏览器验收已改为 Playwright 自动操纵 Chrome；当前覆盖 M3 主路径以及 M4 的模型设置、上下文预览和提示词预览最小路径，使用系统临时目录中的隔离作品库，不污染真实 `data/library`。未完成的 AI 调用和候选变更仍只登记为待实现验收目录。
 - M4 详细规划已写入 `docs/tasks/M4.md`，任务索引已拆成 `NS-401` 至 `NS-410`。
 - NS-401 已完成：M4 API 草案、数据格式草案、MockProvider 垂直切片、浏览器验收映射和安全不变量已写入仓库；未新增真实模型调用。
 - NS-402 已完成：AI 契约已从单体 contracts 拆到领域文件；storage 已支持模型配置、角色、提示词、Preset、上下文包和调用日志的最小 YAML 持久化；SQLite 可重建 M4 上下文包和调用日志索引。
 - NS-403 已完成：新增 `@novel-studio/ai`，实现 ProviderAdapter、ProviderRegistry、MockProvider、模型能力描述、流式输出、结构化输出、embedding、token 估算和统一错误分类；未接真实 Provider，未读取 API key，未新增正文或已确认设定写入能力。
 - NS-404 已完成：新增模型配置 API、作品级云端权限开关、凭据引用校验、Windows Credential Manager 存储抽象、Provider 连接测试、设置页“模型与资料权限”；云端禁用或缺少凭据引用时服务端拒绝调用测试，不会退回 MockProvider。
 - NS-405 已完成：新增场景级 `ContextBundle` 装配和预览 API；写作页右侧可生成最小上下文预览；预览包记录纳入项、排除项、来源、原因和用量估算；`never`、隐藏区段和后文信息不会进入当前场景上下文。
+- NS-406 已完成：新增 7 个内置智能编辑角色、提示词模板、Preset、声明式渲染、模板版本 API 和设置页“角色与提示词”；上下文预览会记录真实 PromptTemplate ID / version；模板缺少必填输入或包含表达式时拒绝渲染。
 - 完整产品、UX、AI 编辑团队、资料库、Word/版本和里程碑规格位于 `docs/product/`。
 
 ## 最近验证
@@ -82,15 +83,18 @@
 - 设置页 UI 修正后 `npm.cmd run test:e2e`：2026-06-21 通过；Playwright 生成 `m4-settings-model-profile.png` 和 `m4-write-context-preview.png` 截图附件。
 - 设置页 UI 修正后 `npm.cmd run check`：2026-06-21 通过；Server 10/10，Web 14/14，AI 10/10，Storage 41/41，生产构建通过。
 - 浏览器验收端口修正后 `npm.cmd run test:e2e`：2026-06-21 通过；E2E 默认监听 `127.0.0.1:4318`，不再占用日常服务端口 `4317`。
+- NS-406 局部验证：`npm.cmd run typecheck` 通过；`npm.cmd run test` 通过，Server 11/11、Web 14/14、AI 10/10、Storage 41/41；`npm.cmd run test -w @novel-studio/server` 通过，4 个文件、11 项测试。
+- NS-406 浏览器验收 `npm.cmd run test:e2e`：2026-06-21 通过；1 个 Chrome 用例，覆盖设置页“角色与提示词”、选择连续性编辑、生成提示词预览，并产出 `m4-prompt-template-preview.png` 截图。
+- NS-406 收口 `npm.cmd run check`：2026-06-21 通过；Server 11/11，Web 14/14，AI 10/10，Storage 41/41，生产构建通过。
 
-详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`、`docs/testing/NS-305_ACCEPTANCE.md`、`docs/testing/NS-306_ACCEPTANCE.md`、`docs/testing/NS-401_ACCEPTANCE.md`、`docs/testing/NS-402_ACCEPTANCE.md`、`docs/testing/NS-403_ACCEPTANCE.md`、`docs/testing/NS-404_ACCEPTANCE.md`、`docs/testing/NS-405_ACCEPTANCE.md`。
+详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`、`docs/testing/NS-305_ACCEPTANCE.md`、`docs/testing/NS-306_ACCEPTANCE.md`、`docs/testing/NS-401_ACCEPTANCE.md`、`docs/testing/NS-402_ACCEPTANCE.md`、`docs/testing/NS-403_ACCEPTANCE.md`、`docs/testing/NS-404_ACCEPTANCE.md`、`docs/testing/NS-405_ACCEPTANCE.md`、`docs/testing/NS-406_ACCEPTANCE.md`。
 
 ## 当前限制
 
 - 早前手工浏览器验收曾在本地示例作品库留下测试用系列、故事进展和角色所知记录；这些是本地权威数据文件，不进入 Git。新的 Playwright 验收改用隔离临时作品库。
 - 当前 Windows / Codex 沙箱环境可能拒绝改写固定 `data/server.*` 启动文件；启动脚本已对 pid 状态写入提供 `%TEMP%\novel-studio` fallback。Codex 自动化启动验收优先使用 `-SmokeTest`，正式发布前仍建议在普通 PowerShell 中复测一次双击启动器。
 - 编辑室、待确认页面尚无真实智能编辑工作流或候选变更。
-- NS-404/NS-405 只提供最小设置页和上下文预览入口；完整上下文分组 UI、调用后快照查看和浏览器自动验收属于 `NS-409`。
+- NS-404 至 NS-406 只提供最小设置页、上下文预览入口和提示词预览入口；完整上下文分组 UI、调用后快照查看、完整角色 / 变量 / Preset 编辑器和更多浏览器自动验收属于 `NS-409` 或后续 UI 整理。
 - 真实 Provider、真实密钥录入和非写入型调用尚未实现；分别属于 `NS-408` 和 `NS-407`。
 - 场景保存尚未回写系列 `updatedAt`。
 - 首次启动选择作品库、应用内停止服务和托盘入口尚未实现。
@@ -98,6 +102,6 @@
 
 ## 唯一下一任务
 
-`NS-406`：提示词模板、角色、Preset、声明式渲染和版本历史。
+`NS-407`：非写入型 AI 调用、SSE 流式输出和 ModelCallLog。
 
-说明：下一步应把当前上下文预览中的“编辑职责占位”替换为可审计的角色与提示词模板文件，并确保每次后续调用都能记录 PromptTemplate ID 和版本。
+说明：下一步应基于已实现的 ModelProfile、ContextBundle、PromptTemplate 和 MockProvider，完成一次不写正文 / Canon 的分析型调用，并保存可审计调用日志。

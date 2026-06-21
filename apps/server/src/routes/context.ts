@@ -20,6 +20,8 @@ import {
   ensureCredentialBoundary,
   providerErrorStatus,
 } from "../ai/policy.js";
+import { ensureBuiltInPrompts } from "../prompts/builtIns.js";
+import { PromptRenderError, renderPromptTemplate } from "../prompts/render.js";
 
 const registry = createDefaultProviderRegistry();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -159,10 +161,12 @@ async function buildContextBundle(
   rawInput: unknown,
 ): Promise<ContextBundle> {
   const input = ContextPreviewInputSchema.parse(rawInput);
-  const [series, currentScene, modelProfile] = await Promise.all([
+  await ensureBuiltInPrompts(repository, seriesId);
+  const [series, currentScene, modelProfile, promptTemplate] = await Promise.all([
     repository.getSeries(seriesId),
     repository.getScene(seriesId, input.sceneId),
     input.modelProfileId ? repository.getModelProfile(seriesId, input.modelProfileId) : Promise.resolve(null),
+    repository.getPromptTemplate(seriesId, input.promptTemplateId, input.promptTemplateVersion),
   ]);
 
   if (modelProfile) {
@@ -178,20 +182,27 @@ async function buildContextBundle(
   const manualIds = new Set(input.manualContextIds);
   const items: ContextItem[] = [];
   const excluded: ContextExclusion[] = [];
+  const selectionText = input.selection
+    ? input.selection.text || currentScene.content.slice(input.selection.start, input.selection.end)
+    : "";
 
-  let roleInstruction = `角色 ${input.roleId} 尚未配置完整职责。当前预览只提供占位职责：只做分析，不直接修改正文、已确认设定、摘要、故事进展或角色所知。`;
-  try {
-    const role = await repository.getAgentRole(seriesId, input.roleId);
-    roleInstruction = [
-      `角色：${role.title}`,
-      role.description,
-      role.duties.length ? `职责：\n${role.duties.map((duty) => `- ${duty}`).join("\n")}` : "",
-      role.challengeObligation ? `反对义务：${role.challengeObligation}` : "",
-      role.forbiddenActions.length ? `禁止行为：\n${role.forbiddenActions.map((item) => `- ${item}`).join("\n")}` : "",
-    ].filter(Boolean).join("\n\n");
-  } catch {
-    // NS-406 会补齐内置角色与模板；NS-405 只保留可审计占位。
-  }
+  const role = await repository.getAgentRole(seriesId, input.roleId);
+  const roleInstruction = [
+    `角色：${role.title}`,
+    role.description,
+    role.persona ? `工作人格：${role.persona}` : "",
+    role.duties.length ? `职责：\n${role.duties.map((duty) => `- ${duty}`).join("\n")}` : "",
+    role.nonDuties.length ? `不负责：\n${role.nonDuties.map((item) => `- ${item}`).join("\n")}` : "",
+    role.challengeObligation ? `反对义务：${role.challengeObligation}` : "",
+    role.forbiddenActions.length ? `禁止行为：\n${role.forbiddenActions.map((item) => `- ${item}`).join("\n")}` : "",
+    role.outputContract ? `输出约束：${role.outputContract}` : "",
+  ].filter(Boolean).join("\n\n");
+  const renderedPrompt = renderPromptTemplate(promptTemplate, {
+    user_request: input.userRequest,
+    scene_title: currentScene.metadata.title,
+    selected_text: selectionText,
+    context_summary: currentScene.metadata.summary,
+  });
   items.push(contextItem({
     kind: "role-instruction",
     sourceType: "system",
@@ -200,6 +211,21 @@ async function buildContextBundle(
     content: roleInstruction,
     inclusion: "required",
     inclusionReason: "模型调用必须先说明角色职责和禁止行为。",
+  }));
+
+  items.push(contextItem({
+    kind: "prompt-template",
+    sourceType: "prompt-template",
+    sourceId: promptTemplate.id,
+    sourceLabel: `${promptTemplate.name} v${promptTemplate.version}`,
+    title: `提示词模板：${promptTemplate.name} v${promptTemplate.version}`,
+    content: [
+      `模板 ID：${renderedPrompt.promptTemplateId}`,
+      `模板版本：${renderedPrompt.promptTemplateVersion}`,
+      renderedPrompt.finalPrompt,
+    ].join("\n\n"),
+    inclusion: "required",
+    inclusionReason: "用于审计本次上下文预览采用的提示词版本。",
   }));
 
   items.push(contextItem({
@@ -212,7 +238,6 @@ async function buildContextBundle(
   }));
 
   if (input.selection) {
-    const selectionText = input.selection.text || currentScene.content.slice(input.selection.start, input.selection.end);
     items.push(contextItem({
       kind: "scene-selection",
       sourceType: "scene",
@@ -469,6 +494,13 @@ export function registerContextRoutes(app: FastifyInstance, repository: ProjectR
           return reply.status(status).send({
             code: status === 403 ? "CLOUD_DISABLED" : "PROVIDER_ERROR",
             message: error.message,
+          });
+        }
+        if (error instanceof PromptRenderError) {
+          return reply.status(error.code === "PROMPT_INPUT_MISSING" ? 400 : 422).send({
+            code: error.code,
+            message: error.message,
+            details: error.details,
           });
         }
         throw error;

@@ -5,8 +5,8 @@
 ## 仓库状态
 
 - 分支：`main`
-- 最近相关提交：查看 `git log -5 --oneline`；应包含 NS-401、NS-402、NS-403、NS-404/NS-405 提交。
-- 当前任务：`NS-404` 与 `NS-405` 已完成；M4 已拆成 `NS-401` 至 `NS-410`。下一任务是 `NS-406`，目标是提示词模板、角色、Preset、声明式渲染和版本历史。
+- 最近相关提交：查看 `git log -5 --oneline`；应包含 NS-401、NS-402、NS-403、NS-404/NS-405、NS-406 提交。
+- 当前任务：`NS-406` 已完成；M4 已拆成 `NS-401` 至 `NS-410`。下一任务是 `NS-407`，目标是非写入型 AI 调用、SSE 流式输出和 ModelCallLog。
 - 预期脏文件：无。接手时运行 `git status --short` 核实；如不为空，先判断是否为用户未提交改动。
 
 ## 已完成
@@ -85,12 +85,12 @@
 - NS-400 浏览器验收补丁：
   - 已新增 `@playwright/test`、`playwright.config.ts`、`tests/e2e/` 和 `docs/testing/BROWSER_ACCEPTANCE.md`；
   - Playwright 全局 setup 在测试进程内启动 Fastify，并使用 `%TEMP%\novel-studio-browser-acceptance\library` 作为隔离作品库，测试结束后关闭服务；
-  - 当前自动化浏览器用例只覆盖 M3 已实现主路径：创建系列、切换主要工作区、专注模式、新建第二部 / 第二幕 / 第一章 / 场景，并用 API 校验第二部场景归属；
-  - M4/M5 的 AI、上下文和候选变更验收已写入待实现目录，不以跳过测试或占位断言冒充通过。
+  - 当前自动化浏览器用例覆盖 M3 已实现主路径，以及 M4 的模型设置、上下文预览和提示词预览最小路径；
+  - 未完成的 AI 调用、完整上下文日志和候选变更验收仍写入待实现目录，不以跳过测试或占位断言冒充通过。
 - M4 规划补丁：
   - 已新增 `docs/tasks/M4.md`；
   - `TASKS.md` 已将 M4 拆成 `NS-401` 至 `NS-410`；
-  - 下一步仍从 `NS-401` 开始，先做执行规格、接口草案、文件格式草案和 MockProvider 垂直切片设计。
+  - `NS-401` 至 `NS-406` 已完成，当前从 `NS-407` 继续非写入型调用闭环。
 - NS-401：
   - 已新增 `docs/tasks/NS-401.md`；
   - 已更新 `docs/architecture/API.md`，写入模型配置、提示词、上下文预览、非写入调用和调用日志 API 草案；
@@ -125,11 +125,20 @@
   - 已新增 `docs/tasks/NS-404.md` 和 `docs/testing/NS-404_ACCEPTANCE.md`。
 - NS-405：
   - 已新增 `POST /api/v1/series/:seriesId/context/preview` 和 `GET /api/v1/series/:seriesId/context/:contextBundleId`；
-  - 上下文预览包含编辑职责占位、用户请求、当前场景、可定位正文选区、前一场景摘要、可读设定条目、当前有效世界事实 / 关系变化 / 角色所知；
+  - 上下文预览包含角色职责、提示词模板、用户请求、当前场景、可定位正文选区、前一场景摘要、可读设定条目、当前有效世界事实 / 关系变化 / 角色所知；
   - `never`、隐藏区段、仅本机资料、未选择 manual 资料和后文信息会进入排除清单；
   - 后文进展和角色所知只记录被排除，不泄露未来摘要、证据或内部 ID；
   - 写作页右侧“场景资料”已提供最小上下文预览入口；
   - 已新增 `docs/tasks/NS-405.md` 和 `docs/testing/NS-405_ACCEPTANCE.md`。
+- NS-406：
+  - 已新增 `apps/server/src/prompts/builtIns.ts`，补齐主笔伙伴、结构编辑、人物编辑、连续性编辑、文风编辑、冷酷读者、研究员 7 个内置角色；
+  - 角色、提示词模板和 Preset 保存到 `prompts/roles`、`prompts/templates`、`prompts/presets`，内置角色只读，复制后可改；
+  - 已新增声明式渲染器，只允许 `{{变量名}}`，缺少必填输入返回 `PROMPT_INPUT_MISSING`，表达式或未闭合占位符返回 `PROMPT_TEMPLATE_INVALID`；
+  - 模板修改通过 `/ai/prompts/:promptTemplateId/versions` 生成新版本，不覆盖旧版本；
+  - 上下文预览现在会纳入 `prompt-template` 项，记录 PromptTemplate ID、version 和渲染结果；
+  - 设置页新增“角色与提示词”分区，可查看角色、复制角色、预览提示词、保存模板新版本；
+  - 浏览器验收发现首次并发读取角色 / 模板 / Preset 会抢写内置 YAML，已加入每作品补种锁并增加并发测试；
+  - 已新增 `docs/tasks/NS-406.md` 和 `docs/testing/NS-406_ACCEPTANCE.md`。
 
 ## 验证
 
@@ -171,6 +180,10 @@
 - 2026-06-21 NS-404/NS-405 `npm.cmd run test:e2e`：通过；1 个 Chrome 用例，覆盖添加本机验收模型、连接测试和写作页生成上下文预览。
 - 2026-06-21 设置页 UI 修正：`npm.cmd run test:e2e` 通过，并产出 `m4-settings-model-profile.png` 与 `m4-write-context-preview.png` 截图附件；`npm.cmd run check` 通过。
 - 2026-06-21 浏览器验收端口修正：Playwright E2E 默认监听 `127.0.0.1:4318`，避免和日常启动器的 `4317` 服务互相抢占；`NOVEL_STUDIO_E2E_PORT` 可覆盖。
+- 2026-06-21 NS-406 `npm.cmd run typecheck`：通过。
+- 2026-06-21 NS-406 `npm.cmd run test`：通过；Server 4 个文件、11 项测试；Web 5 个文件、14 项测试；AI 1 个文件、10 项测试；Storage 3 个文件、41 项测试。
+- 2026-06-21 NS-406 `npm.cmd run test:e2e`：通过；1 个 Chrome 用例，覆盖设置页“角色与提示词”和提示词预览，产出 `m4-prompt-template-preview.png` 截图附件。
+- 2026-06-21 NS-406 `npm.cmd run check`：通过；Server 11/11，Web 14/14，AI 10/10，Storage 41/41，生产构建通过。
 
 ## 已知限制
 
@@ -183,19 +196,18 @@
 - 当前没有应用内停止服务或托盘入口；启动脚本记录 PID 状态并会清理可确认属于本 checkout 的旧进程，但不会结束无法确认来源的端口占用者。
 - 早前手工浏览器验收留下了测试用系列、故事进展、未来隐藏记录和角色所知记录；它们位于本地示例作品库，不进入 Git。新的 Playwright 验收使用隔离临时作品库。
 - 当前 Codex 更新后内置 Browser 控制通道已恢复；若后续再次出现 `sandboxPolicy` 或 URL policy 错误，先用 `node_repl/js` 最小探针和 Browser 插件文档接口分层确认，不要再用本地代理绕过。Codex shell 中不要依赖“命令结束后仍保留后台服务”的假设；启动验收优先用 `-SmokeTest`，浏览器或 E2E 验收应由能托管服务生命周期的工具使用 `-Foreground`。
-- NS-404/NS-405 只实现最小设置页和写作页上下文预览入口；完整上下文分组、调用记录 UI 和浏览器 E2E 归入 `NS-409`。
+- NS-404 至 NS-406 只实现最小设置页、写作页上下文预览入口和提示词预览入口；完整上下文分组、调用记录 UI、完整角色 / 变量 / Preset 编辑器和更多浏览器 E2E 归入 `NS-409` 或后续 UI 整理。
 - UI 相关任务必须进行真实浏览器操作并保存截图证据；不要再只用 DOM 断言证明“按钮能点”。当前规则写在 `docs/testing/BROWSER_ACCEPTANCE.md`。
-- 当前上下文预览里的编辑职责仍是占位文本；`NS-406` 必须把角色职责、提示词模板和版本文件接入。
 - 真实 Provider、真实密钥录入和非写入型模型调用尚未实现；分别属于 `NS-408` 和 `NS-407`。
 
 ## 唯一下一任务
 
-`NS-406`：提示词模板、角色、Preset、声明式渲染和版本历史。
+`NS-407`：非写入型 AI 调用、SSE 流式输出和 ModelCallLog。
 
 当前优先级：
 
-1. 定义角色、提示词模板、Preset 和组件文件的读写边界，不把提示词硬编码进路由。
-2. 建立内置角色：主笔伙伴、结构编辑、人物编辑、连续性编辑、文风编辑、冷酷读者、研究员。
-3. 模板渲染必须是声明式输入替换，不执行任意 JavaScript。
-4. 每次预览或调用都能记录 PromptTemplate ID 和版本。
-5. 不调用真实 Provider，不生成正文，不写入已确认设定或故事进展。
+1. 基于已有 `ContextBundle`、`PromptTemplate` 和 `ModelProfile` 创建非写入型调用 API。
+2. 使用 MockProvider 完成流式输出和错误分类，不接真实密钥。
+3. 写入 `ModelCallLog`，记录模型、角色、PromptTemplate ID/version、ContextBundle ID、请求 / 响应哈希、状态和用量。
+4. 失败调用也必须留下失败日志，但不得保存密钥、认证头或未脱敏 SDK 原始错误。
+5. AI 结果只能作为分析回复显示，不得出现直接写正文、更新设定、更新摘要、更新进展或角色所知的入口。

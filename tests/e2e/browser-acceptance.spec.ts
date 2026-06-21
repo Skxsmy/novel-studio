@@ -132,6 +132,23 @@ test.describe("已实现能力浏览器验收", () => {
         contentType: "image/png",
       });
 
+      await page.getByRole("button", { name: "角色与提示词" }).click();
+      await expect(page.getByRole("heading", { name: "角色与提示词" })).toBeVisible();
+      await expect(page.locator(".prompt-role-list").getByRole("button", { name: /连续性编辑/ })).toBeVisible();
+      await page.locator(".prompt-role-list").getByRole("button", { name: /连续性编辑/ }).click();
+      await page.locator(".prompt-preview-card").getByLabel("作者要求").fill("检查旧钟声是否提前泄露。");
+      await clickAndWaitForPost(page, "/preview", async () => {
+        await page.getByRole("button", { name: "预览提示词" }).click();
+      });
+      await expect(page.getByText("最终提示词")).toBeVisible();
+      await expect(page.locator(".prompt-preview-result").getByText(/检查旧钟声是否提前泄露/)).toBeVisible();
+      const promptScreenshot = testInfo.outputPath("m4-prompt-template-preview.png");
+      await page.screenshot({ fullPage: true, path: promptScreenshot });
+      await testInfo.attach("m4-prompt-template-preview", {
+        path: promptScreenshot,
+        contentType: "image/png",
+      });
+
       await page.getByRole("button", { name: /写作/ }).click();
       await page.getByTitle("场景资料").click();
       await expect(page.getByRole("heading", { name: "场景资料" })).toBeVisible();

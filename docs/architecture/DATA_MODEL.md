@@ -177,18 +177,23 @@ schemaVersion: 1
 id: continuity-editor
 title: 连续性编辑
 description: 检查人物状态、线索回收、前后矛盾和未来信息泄漏。
+persona: 像冷静的连续性守门人，只认已经写下和已经确认的证据。
 duties:
   - 指出矛盾并给出证据。
   - 区分世界事实和角色此刻知道的内容。
+nonDuties:
+  - 不做修辞润色。
 challengeObligation: 必须指出不合逻辑处，不为了安慰作者而回避问题。
 forbiddenActions:
   - 直接改写正文
   - 直接更新已确认设定
+outputContract: 输出风险等级、证据、影响范围和建议动作。
 readScopes:
   scenes: true
   codex: true
   research: false
   hiddenSections: false
+builtIn: true
 createdAt: 2026-06-21T00:00:00.000Z
 updatedAt: 2026-06-21T00:00:00.000Z
 archivedAt: null
@@ -226,7 +231,28 @@ updatedAt: 2026-06-21T00:00:00.000Z
 archivedAt: null
 ```
 
-模板是声明式文件，只允许变量替换、组件拼接和条件化包含；不得执行任意 JavaScript。修改活动模板必须生成新版本，不能覆盖旧版本。
+模板是声明式文件。当前实现只允许 `{{变量名}}` 替换和组件拼接；不得执行任意 JavaScript。修改模板必须生成新版本，不能覆盖旧版本。
+
+### PromptPreset
+
+位置：`prompts/presets/<preset-id>.yaml`
+
+```yaml
+schemaVersion: 1
+id: 00000000-0000-4000-8000-000000001403
+title: 连续性编辑默认预设
+roleId: continuity-editor
+promptTemplateId: 00000000-0000-4000-8000-000000000405
+promptTemplateVersion: 1
+modelProfileId: null
+defaultInputs:
+  user_request: ""
+createdAt: 2026-06-21T00:00:00.000Z
+updatedAt: 2026-06-21T00:00:00.000Z
+archivedAt: null
+```
+
+Preset 只保存默认角色、模板版本、模型配置和输入项，不保存明文密钥。
 
 ### ContextBundle
 
@@ -245,6 +271,22 @@ userRequest: 检查这一场有没有和前文矛盾。
 promptTemplateId: 00000000-0000-0000-0000-000000000000
 promptTemplateVersion: 1
 items:
+  - id: prompt-template:00000000-0000-4000-8000-000000000405
+    kind: prompt-template
+    source:
+      type: prompt-template
+      id: 00000000-0000-4000-8000-000000000405
+      revision: null
+      label: 连续性检查 v1
+    title: 提示词模板：连续性检查 v1
+    content: 模板 ID、版本和渲染后的提示词……
+    inclusion: required
+    inclusionReason: 用于审计本次上下文预览采用的提示词版本。
+    access: local-only
+    contextPolicy: null
+    tokenEstimate: 300
+    manuallySelected: false
+    textHash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
   - id: current-scene
     kind: scene
     source:

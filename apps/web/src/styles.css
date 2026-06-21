@@ -248,6 +248,39 @@ button { color: inherit; }
 .model-capabilities dd { margin: 6px 0 0; font: 17px Georgia, "Songti SC", serif; }
 .empty-settings { display: grid; min-height: 220px; place-content: center; text-align: center; }
 .settings-message { position: sticky; bottom: 18px; display: inline-block; margin-top: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fffefa; color: var(--accent-dark); }
+.settings-tabs { display: inline-flex; gap: 6px; margin: 0 0 18px; padding: 5px; border: 1px solid var(--line); border-radius: 999px; background: #fffdf8; }
+.settings-tabs button { padding: 9px 15px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; }
+.settings-tabs button.active { background: var(--ink); color: white; }
+.prompt-settings { display: grid; grid-template-columns: 260px minmax(420px, 1fr) 340px; gap: 18px; align-items: start; }
+.prompt-role-list, .prompt-role-editor, .prompt-preview-card { border-radius: 18px; overflow: hidden; }
+.prompt-role-list { display: grid; align-content: start; gap: 8px; min-height: 560px; }
+.prompt-role-list > button { display: grid; gap: 5px; margin: 0 14px; padding: 14px; border: 1px solid transparent; border-radius: 14px; background: transparent; text-align: left; cursor: pointer; }
+.prompt-role-list > button.selected { border-color: #9b8775; background: #f4eadb; box-shadow: 0 8px 18px rgba(70,60,40,.05); }
+.prompt-role-list span, .prompt-template-box small, .prompt-role-form small, .prompt-preview-card p { color: var(--muted); font-size: 10px; line-height: 1.6; }
+.prompt-role-editor { display: grid; gap: 18px; min-height: 560px; padding: 24px; }
+.prompt-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.prompt-section-heading h3 { margin: 0; font: 24px Georgia, "Songti SC", serif; }
+.prompt-section-heading > span { color: var(--muted); font-size: 11px; }
+.prompt-section-heading button, .prompt-role-form button, .prompt-template-box button, .prompt-preview-card > button { padding: 9px 13px; border: 1px solid var(--ink); border-radius: 999px; background: var(--ink); color: white; cursor: pointer; font-size: 10px; }
+.prompt-section-heading button { background: transparent; color: var(--ink); }
+.prompt-section-heading button:disabled, .prompt-role-form button:disabled, .prompt-template-box button:disabled, .prompt-preview-card > button:disabled { opacity: .45; cursor: default; }
+.prompt-role-summary { margin: 0; padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: #faf7ef; color: #5d584f; white-space: pre-wrap; font-size: 12px; line-height: 1.7; }
+.prompt-role-form, .prompt-template-box, .prompt-preview-card { display: grid; gap: 13px; }
+.prompt-role-form { grid-template-columns: 1fr 1fr; }
+.prompt-role-form label:first-child, .prompt-role-form button, .prompt-role-form small { grid-column: 1 / -1; }
+.prompt-role-form label, .prompt-template-box label, .prompt-preview-card label { display: grid; gap: 6px; color: var(--muted); font-size: 10px; }
+.prompt-role-form input, .prompt-role-form textarea, .prompt-template-box select, .prompt-template-box textarea, .prompt-preview-card textarea { width: 100%; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: #fffefa; color: var(--ink); }
+.prompt-role-form textarea { min-height: 96px; resize: vertical; line-height: 1.6; }
+.prompt-role-form input:disabled, .prompt-role-form textarea:disabled { color: #8d8679; background: #f4efe6; }
+.prompt-template-box { padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: #fffdf8; }
+.prompt-template-box textarea { min-height: 170px; resize: vertical; font: 12px/1.7 ui-monospace, "SFMono-Regular", Consolas, monospace; }
+.prompt-preview-card { position: sticky; top: 84px; padding-bottom: 18px; }
+.prompt-preview-card label, .prompt-preview-card > button, .prompt-preview-card > p, .prompt-preview-result { margin-left: 18px; margin-right: 18px; }
+.prompt-preview-card textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
+.prompt-preview-result { display: grid; gap: 8px; }
+.prompt-preview-result span { color: var(--accent-dark); word-break: break-all; font-size: 9px; }
+.prompt-preview-result strong { font: 18px Georgia, "Songti SC", serif; }
+.prompt-preview-result pre { max-height: 420px; margin: 0; overflow: auto; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: #2b2c27; color: #f2eadb; white-space: pre-wrap; font: 11px/1.65 ui-monospace, "SFMono-Regular", Consolas, monospace; }
 .scene-context-panel { display: grid; gap: 14px; }
 .context-preview-panel { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fffefa; }
 .context-preview-panel small { color: var(--muted); line-height: 1.5; }
@@ -266,8 +299,9 @@ button { color: inherit; }
 @media (max-width: 1100px) {
   .planning-layout { grid-template-columns: 1fr; }
   .planning-inspector { position: static; }
-  .settings-command-bar, .settings-layout, .model-editor-body { grid-template-columns: 1fr; }
+  .settings-command-bar, .settings-layout, .model-editor-body, .prompt-settings { grid-template-columns: 1fr; }
   .settings-cloud-card, .settings-quick-card { align-items: flex-start; flex-direction: column; }
+  .prompt-preview-card { position: static; }
 }
 
 @media (max-width: 760px) {
@@ -275,5 +309,5 @@ button { color: inherit; }
   .event-composer, .unplaced-scenes { grid-column: 1; }
   .event-composer { grid-template-columns: 1fr; }
   .event-composer h3 { grid-column: 1; }
-  .model-form-grid, .context-result-summary { grid-template-columns: 1fr; }
+  .model-form-grid, .context-result-summary, .prompt-role-form { grid-template-columns: 1fr; }
 }

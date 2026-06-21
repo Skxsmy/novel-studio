@@ -1,9 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
+import { BUILT_IN_PROMPT_IDS } from "../src/prompts/builtIns.js";
 
 const roots: string[] = [];
 
@@ -132,7 +132,6 @@ describe("M4 context preview API", () => {
     });
     expect(profile.statusCode).toBe(201);
 
-    const promptTemplateId = randomUUID();
     const preview = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/context/preview`,
@@ -141,7 +140,7 @@ describe("M4 context preview API", () => {
         roleId: "continuity-editor",
         taskKind: "continuity-check",
         userRequest: "检查旧钟声这一场是否泄露后文。",
-        promptTemplateId,
+        promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
         promptTemplateVersion: 1,
         manualContextIds: [
           `codex:${forbidden.json().metadata.id}`,
@@ -155,6 +154,7 @@ describe("M4 context preview API", () => {
     expect(bundle.sceneId).toBe(firstScene.metadata.id);
     expect(bundle.items.map((item: { kind: string }) => item.kind)).toEqual(expect.arrayContaining([
       "role-instruction",
+      "prompt-template",
       "user-request",
       "scene",
       "codex-entry",

@@ -14,6 +14,7 @@ const DEFAULT_CONTEXT_PROMPT_TEMPLATE_ID = "00000000-0000-4000-8000-000000000405
 
 const contextItemLabels: Partial<Record<ContextItemKind, string>> = {
   "role-instruction": "编辑职责",
+  "prompt-template": "提示词模板",
   "user-request": "当前请求",
   "scene-selection": "正文选区",
   scene: "当前场景",

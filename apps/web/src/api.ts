@@ -1,9 +1,11 @@
 import type {
   ActManifest,
+  AgentRole,
   ArchiveCodexDocumentInput,
   BookManifest,
   ChapterManifest,
   ArchiveSceneSectionInput,
+  CloneAgentRoleInput,
   CreateActInput,
   CreateBookInput,
   CodexCategoryDocument,
@@ -25,6 +27,9 @@ import type {
   CreateCodexRelationInput,
   CreateChapterInput,
   CreateModelProfileInput,
+  CreatePromptPresetInput,
+  CreatePromptTemplateInput,
+  CreatePromptTemplateVersionInput,
   CreateReviewAnchorInput,
   CreateSceneInput,
   CreateSceneSectionInput,
@@ -36,6 +41,10 @@ import type {
   PlanningBoard,
   ProviderConnectionResult,
   ProviderModelDescriptor,
+  PromptPreset,
+  PromptTemplate,
+  PromptTemplatePreviewInput,
+  PromptTemplatePreviewResult,
   ReorderInput,
   RestoreSceneSectionInput,
   SceneCodexMentions,
@@ -48,6 +57,7 @@ import type {
   SeriesSummary,
   TimelineEventDocument,
   UpdateActInput,
+  UpdateAgentRoleInput,
   UpdateCodexCategoryInput,
   UpdateCodexEntryInput,
   UpdateCodexKnowledgeInput,
@@ -128,6 +138,53 @@ export const api = {
     request<ProviderModelDescriptor[]>(
       `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/models`,
     ),
+  listAgentRoles: (seriesId: string) =>
+    request<AgentRole[]>(`/api/v1/series/${seriesId}/ai/roles`),
+  cloneAgentRole: (seriesId: string, roleId: string, input: CloneAgentRoleInput = {}) =>
+    request<AgentRole>(`/api/v1/series/${seriesId}/ai/roles/${roleId}/clone`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateAgentRole: (seriesId: string, roleId: string, input: UpdateAgentRoleInput) =>
+    request<AgentRole>(`/api/v1/series/${seriesId}/ai/roles/${roleId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  listPromptTemplates: (seriesId: string) =>
+    request<PromptTemplate[]>(`/api/v1/series/${seriesId}/ai/prompts`),
+  createPromptTemplate: (seriesId: string, input: CreatePromptTemplateInput) =>
+    request<PromptTemplate>(`/api/v1/series/${seriesId}/ai/prompts`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  createPromptTemplateVersion: (
+    seriesId: string,
+    promptTemplateId: string,
+    input: CreatePromptTemplateVersionInput,
+  ) =>
+    request<PromptTemplate>(`/api/v1/series/${seriesId}/ai/prompts/${promptTemplateId}/versions`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  previewPromptTemplate: (
+    seriesId: string,
+    promptTemplateId: string,
+    input: PromptTemplatePreviewInput,
+  ) =>
+    request<PromptTemplatePreviewResult>(
+      `/api/v1/series/${seriesId}/ai/prompts/${promptTemplateId}/preview`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
+    ),
+  listPromptPresets: (seriesId: string) =>
+    request<PromptPreset[]>(`/api/v1/series/${seriesId}/ai/presets`),
+  createPromptPreset: (seriesId: string, input: CreatePromptPresetInput) =>
+    request<PromptPreset>(`/api/v1/series/${seriesId}/ai/presets`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   previewContext: (seriesId: string, input: ContextPreviewInput) =>
     request<ContextBundle>(`/api/v1/series/${seriesId}/context/preview`, {
       method: "POST",

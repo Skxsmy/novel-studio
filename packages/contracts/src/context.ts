@@ -4,6 +4,7 @@ import { AiTaskKindSchema, TokenUsageSchema } from "./ai.js";
 
 export const ContextItemKindSchema = z.enum([
   "role-instruction",
+  "prompt-template",
   "user-request",
   "scene-selection",
   "scene",
