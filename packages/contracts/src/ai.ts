@@ -216,3 +216,50 @@ export const ModelCallLogSchema = z.object({
   completedAt: z.string().datetime().nullable().default(null),
 });
 export type ModelCallLog = z.infer<typeof ModelCallLogSchema>;
+
+export const CreateModelCallInputSchema = z.object({
+  contextBundleId: z.string().uuid(),
+  modelProfileId: z.string().uuid(),
+  roleId: z.string().min(1).max(120),
+  taskKind: AiTaskKindSchema,
+  promptTemplateId: z.string().uuid(),
+  promptTemplateVersion: z.number().int().positive(),
+  parameters: ModelParametersSchema.default({}),
+});
+export type CreateModelCallInput = z.input<typeof CreateModelCallInputSchema>;
+
+export const ModelCallStreamEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("metadata"),
+    callId: z.string().uuid(),
+    contextBundleId: z.string().uuid(),
+    modelProfileId: z.string().uuid(),
+    provider: AiProviderSchema,
+    model: z.string(),
+    roleId: z.string(),
+    taskKind: AiTaskKindSchema,
+    promptTemplateId: z.string().uuid(),
+    promptTemplateVersion: z.number().int().positive(),
+  }),
+  z.object({
+    type: z.literal("delta"),
+    text: z.string(),
+  }),
+  z.object({
+    type: z.literal("usage"),
+    estimatedUsage: TokenUsageSchema,
+    actualUsage: TokenUsageSchema.nullable().default(null),
+  }),
+  z.object({
+    type: z.literal("error"),
+    error: ModelCallErrorSchema,
+  }),
+  z.object({
+    type: z.literal("done"),
+    callId: z.string().uuid(),
+    status: ModelCallStatusSchema,
+    responseHash: RevisionHashSchema.nullable().default(null),
+    actualUsage: TokenUsageSchema.nullable().default(null),
+  }),
+]);
+export type ModelCallStreamEvent = z.infer<typeof ModelCallStreamEventSchema>;

@@ -16,6 +16,7 @@ export interface SeriesDetail {
       actId: string;
       chapterId: string;
     };
+    content: string;
   }>;
 }
 

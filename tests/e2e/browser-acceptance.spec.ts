@@ -150,6 +150,15 @@ test.describe("已实现能力浏览器验收", () => {
       });
 
       await page.getByRole("button", { name: /写作/ }).click();
+      const editor = page.locator(".ProseMirror");
+      await editor.click();
+      const sceneSave = page.waitForResponse((response) =>
+        response.request().method() === "PUT" && response.url().includes("/scenes/"),
+      );
+      await page.keyboard.insertText("旧钟声贴着雨幕往下坠。林岚没有回头，只把那枚铜钥匙攥得更紧。");
+      await sceneSave;
+      await expect(page.getByText(/● 已保存/)).toBeVisible();
+
       await page.getByTitle("场景资料").click();
       await expect(page.getByRole("heading", { name: "场景资料" })).toBeVisible();
       await clickAndWaitForPost(page, "/context/preview", async () => {
@@ -163,6 +172,68 @@ test.describe("已实现能力浏览器验收", () => {
         path: contextScreenshot,
         contentType: "image/png",
       });
+
+      await page.getByRole("button", { name: "AI 审阅" }).click();
+      await expect(page.getByRole("heading", { name: "审稿" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "审稿" })).toBeVisible();
+      const aiReadyScreenshot = testInfo.outputPath("m4-ai-panel-ready.png");
+      await page.screenshot({ fullPage: true, path: aiReadyScreenshot });
+      await testInfo.attach("m4-ai-panel-ready", {
+        path: aiReadyScreenshot,
+        contentType: "image/png",
+      });
+
+      await clickAndWaitForPost(page, "/ai/calls", async () => {
+        await page.getByRole("button", { name: "开始" }).click();
+      });
+      await expect(page.getByText(/这是一段非写入型分析结果/)).toBeVisible();
+      await expect(page.getByText(/审稿完成/)).toBeVisible();
+      await expect(page.locator(".writing-inspector")).not.toContainText(/来源调用|来源使用|基于版本|调用 ID|用量/);
+      await page.getByText(/这是一段非写入型分析结果/).scrollIntoViewIfNeeded();
+      const aiReviewScreenshot = testInfo.outputPath("m4-ai-review-result.png");
+      await page.screenshot({ fullPage: true, path: aiReviewScreenshot });
+      await testInfo.attach("m4-ai-review-result", {
+        path: aiReviewScreenshot,
+        contentType: "image/png",
+      });
+
+      await editor.click();
+      await page.keyboard.press("Control+A");
+      await page.getByRole("button", { name: "改写" }).click();
+      await expect(page.locator(".ai-selection-card").getByText("将改写选区")).toBeVisible();
+      const inlineCandidateResponse = page.waitForResponse((response) =>
+        response.request().method() === "POST" && response.url().includes("/ai/calls"),
+      );
+      await page.getByRole("button", { name: "生成" }).click();
+      const inlineResponse = await inlineCandidateResponse;
+      expect(inlineResponse.ok()).toBe(true);
+      await expect(page.locator(".inline-candidate-banner").getByText("候选待确认")).toBeVisible();
+      await expect(page.locator(".inline-candidate-banner")).not.toContainText(/来源调用|来源使用|基于版本|调用 ID|用量/);
+      await expect(page.getByRole("button", { name: "保留" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "撤回" })).toBeVisible();
+      await expect(editor).toContainText("MockProvider 候选正文");
+      await expect.poll(
+        () => page.evaluate(() => window.getSelection()?.toString() ?? ""),
+        { timeout: 3_000 },
+      ).toContain("MockProvider 候选正文");
+      const selectedCandidate = await page.evaluate(() => window.getSelection()?.toString() ?? "");
+      expect(selectedCandidate).toContain("MockProvider 候选正文");
+      const inlineCandidateScreenshot = testInfo.outputPath("m4-ai-inline-candidate-selected.png");
+      await page.screenshot({ fullPage: true, path: inlineCandidateScreenshot });
+      await testInfo.attach("m4-ai-inline-candidate-selected", {
+        path: inlineCandidateScreenshot,
+        contentType: "image/png",
+      });
+
+      const acceptSave = page.waitForResponse((response) =>
+        response.request().method() === "PUT" && response.url().includes("/scenes/"),
+      );
+      await page.getByRole("button", { name: "保留" }).click();
+      await acceptSave;
+      await expect(page.getByText(/● 已保存/)).toBeVisible();
+      const savedScene = await getJson<SeriesDetail>(request, `/api/v1/series/${seriesId}`);
+      const activeSavedScene = savedScene.scenes.find((scene) => scene.metadata.title === "场景 3");
+      expect(activeSavedScene?.content).toContain("MockProvider 候选正文");
 
       seriesList = await getJson<SeriesSummary[]>(request, "/api/v1/series");
       expect(seriesList.map((series) => series.title)).toContain("浏览器验收故事");

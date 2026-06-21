@@ -112,13 +112,13 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 
 ## M4 AI 基础设施
 
-`NS-404` 至 `NS-406` 已实现模型配置、权限边界、上下文预览、角色与提示词模板版本；非写入型调用、真实 Provider 和调用日志仍在后续 M4 任务中完成。M4 的第一条纵向闭环使用 MockProvider 完成“上下文预览 → 非写入型调用 → 调用日志”。
+`NS-404` 至 `NS-407` 已实现模型配置、权限边界、上下文预览、角色与提示词模板版本、MockProvider 流式调用和调用日志。真实 Provider 和完整调用记录 UI 仍在后续 M4 任务中完成。M4 的第一条纵向闭环已使用 MockProvider 完成“上下文预览 → 流式调用 → 调用日志 → 写作页结果展示”。
 
 所有 M4 AI 接口必须满足：
 
 - 调用前可预览 `ContextBundle` 和用量估算。
 - 调用后必须保存 `ModelCallLog`，包含模型、提示词版本、上下文包 ID、请求 / 响应哈希、状态和用量。
-- AI 输出不得直接写正文、已确认设定、摘要、故事进展或角色所知。
+- AI 输出不得未经作者确认直接写正文、已确认设定、摘要、故事进展或角色所知。正文类任务可以生成候选文本；候选必须在编辑器内选中，并由作者保留后才保存。
 - 云端禁用时不得调用云端 Provider，也不得从本地模型静默回退到云端模型。
 - 错误必须分类为认证失败、权限禁止、模型不可用、网络失败、上下文过长、限流、结构化输出失败或未知错误。
 
@@ -193,7 +193,6 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 - `GET /series/:seriesId/ai/calls`
 - `GET /series/:seriesId/ai/calls/:modelCallId`
 - `GET /series/:seriesId/ai/calls/:modelCallId/context`
-- `GET /series/:seriesId/ai/calls/:modelCallId/events`
 
 `POST /ai/calls` 输入：
 
@@ -205,7 +204,12 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 - `promptTemplateVersion`
 - `parameters`
 
-首版只允许非写入任务：`analysis`、`critique`、`continuity-check`、`style-review`、`brainstorm`。续写、改写、应用补丁和候选事实收件箱属于 M5。
+NS-407 已允许两类调用：
+
+- 分析型任务：`analysis`、`critique`、`continuity-check`、`style-review`、`brainstorm` 等，只在写作页侧栏显示结果，不写入正文或设定。
+- 正文候选任务：`rewrite` 等可以生成候选文本，但服务端只返回流式文本和调用日志；前端必须把候选放入正文编辑器并整段选中，作者点击“保留”后才按普通场景保存流程写入 Markdown。写作主界面不展示调用来源、基准版本、用量或调用 ID。
+
+应用补丁、候选事实收件箱、摘要 / 人物状态 / 设定更新仍属于 M5。
 
 调用开始时先创建 `ModelCallLog(status=pending)`，然后转为 `streaming`。SSE 事件至少包含：
 
@@ -223,7 +227,7 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 
 M4 只允许保留 `Proposal` 契约和未来接口草案，不实现应用流程。
 
-任何 AI 输出如需影响正文、设定、摘要或人物状态，必须在 M5 进入 `Proposal` 或候选事实收件箱。应用 `Proposal` 前必须比较每个 `ProposalPatch.baseRevision`；目标已变化时返回冲突，不能静默合并。
+正文候选可以在 NS-407 通过写作页内联确认后保存；其他 AI 输出如需影响设定、摘要、人物状态、故事进展或角色所知，必须在 M5 进入 `Proposal` 或候选事实收件箱。应用 `Proposal` 前必须比较每个 `ProposalPatch.baseRevision`；目标已变化时返回冲突，不能静默合并。
 
 ## 后续长任务
 

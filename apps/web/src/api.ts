@@ -25,6 +25,7 @@ import type {
   CreateCodexKnowledgeInput,
   CreateCodexProgressionInput,
   CreateCodexRelationInput,
+  CreateModelCallInput,
   CreateChapterInput,
   CreateModelProfileInput,
   CreatePromptPresetInput,
@@ -36,6 +37,8 @@ import type {
   CreateSeriesInput,
   CreateTimelineEventInput,
   MoveSceneInput,
+  ModelCallLog,
+  ModelCallStreamEvent,
   ModelProfile,
   HierarchyValidationResult,
   PlanningBoard,
@@ -98,6 +101,63 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     );
   }
   return body as T;
+}
+
+export interface ModelCallStreamHandlers {
+  signal?: AbortSignal;
+  onEvent?: (event: ModelCallStreamEvent) => void;
+  onDelta?: (text: string) => void;
+}
+
+function dispatchModelCallEvent(
+  raw: string,
+  handlers: ModelCallStreamHandlers,
+): void {
+  const dataLines = raw
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart());
+  if (!dataLines.length) return;
+  const event = JSON.parse(dataLines.join("\n")) as ModelCallStreamEvent;
+  handlers.onEvent?.(event);
+  if (event.type === "delta") handlers.onDelta?.(event.text);
+}
+
+async function streamModelCall(
+  seriesId: string,
+  input: CreateModelCallInput,
+  handlers: ModelCallStreamHandlers = {},
+): Promise<void> {
+  const init: RequestInit = {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  };
+  if (handlers.signal) init.signal = handlers.signal;
+  const response = await fetch(`/api/v1/series/${seriesId}/ai/calls`, init);
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { message?: string };
+    throw new ApiError(body.message ?? `请求失败 (${response.status})`, response.status, body);
+  }
+  if (!response.body) throw new ApiError("模型调用没有返回事件流", response.status, null);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let delimiter = buffer.match(/\r?\n\r?\n/u);
+    while (delimiter && delimiter.index !== undefined) {
+      const rawEvent = buffer.slice(0, delimiter.index).trim();
+      buffer = buffer.slice(delimiter.index + delimiter[0].length);
+      if (rawEvent) dispatchModelCallEvent(rawEvent, handlers);
+      delimiter = buffer.match(/\r?\n\r?\n/u);
+    }
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) dispatchModelCallEvent(buffer.trim(), handlers);
 }
 
 export const api = {
@@ -192,6 +252,13 @@ export const api = {
     }),
   getContextBundle: (seriesId: string, contextBundleId: string) =>
     request<ContextBundle>(`/api/v1/series/${seriesId}/context/${contextBundleId}`),
+  streamModelCall,
+  listModelCalls: (seriesId: string) =>
+    request<ModelCallLog[]>(`/api/v1/series/${seriesId}/ai/calls`),
+  getModelCall: (seriesId: string, modelCallId: string) =>
+    request<ModelCallLog>(`/api/v1/series/${seriesId}/ai/calls/${modelCallId}`),
+  getModelCallContext: (seriesId: string, modelCallId: string) =>
+    request<ContextBundle>(`/api/v1/series/${seriesId}/ai/calls/${modelCallId}/context`),
   createBook: (seriesId: string, input: CreateBookInput) =>
     request<BookManifest>(`/api/v1/series/${seriesId}/books`, {
       method: "POST",

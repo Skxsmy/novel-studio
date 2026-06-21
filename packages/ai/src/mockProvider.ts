@@ -115,12 +115,19 @@ export class MockProvider implements ProviderAdapter {
     this.assertProfileProvider(request.modelProfile);
     this.throwForScenario(request.modelProfile);
     this.assertContextFits(request);
-    const response = [
-      "【MockProvider】",
-      `模型：${request.modelProfile.model}`,
-      "这是一段非写入型分析结果。",
-      "它不会修改正文、已确认设定或任何故事资料文件。",
-    ].join("\n");
+    const writingCandidateTasks = new Set(["draft", "rewrite", "expand", "compress"]);
+    const response = writingCandidateTasks.has(request.contextBundle?.taskKind ?? "")
+      ? [
+        "【MockProvider 候选正文】",
+        "旧钟声贴着雨幕往下坠，像有人在城墙深处轻轻合上了一扇门。",
+        "林岚没有回头，只把那枚铜钥匙攥得更紧。",
+      ].join("\n")
+      : [
+        "【MockProvider】",
+        `模型：${request.modelProfile.model}`,
+        "这是一段非写入型分析结果。",
+        "它不会修改正文、已确认设定或任何故事资料文件。",
+      ].join("\n");
     for (const chunk of textToChunks(response)) {
       if (request.abortSignal?.aborted) {
         throw new ProviderAdapterError("provider-error", "MockProvider 调用已取消", {

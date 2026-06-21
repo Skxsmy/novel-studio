@@ -14,7 +14,7 @@ Codex 同时包含作者确认的 Canon、仅供参考的 Research、结构化�
 4. 关系使用 `codex/relations/<relationId>.yaml` 独立保存。方向由 `sourceEntryId`、`targetEntryId` 与 `directed` 明确表达。
 5. SQLite 保存 Codex 搜索、名称候选、正文提及和歧义；全部可从权威文件重建。
 6. 提及匹配采用显式名称规则、排除范围、最长词优先和同范围歧义拒绝。它不做指代消解，也不写回场景关联。
-7. AI 上下文策略为 `always/on-mention/manual/never`，由统一纯函数判定。`never` 的排除优先级高于手工钉住。
+7. AI 上下文策略为 `always/on-mention/manual/never`，由统一纯函数判定。`never` 的排除优先级高于作者主动选择。
 8. 普通生命周期使用归档与恢复，不以删除文件表示移除。
 
 ## 后果

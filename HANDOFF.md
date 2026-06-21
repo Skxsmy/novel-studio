@@ -139,6 +139,16 @@
   - 设置页新增“角色与提示词”分区，可查看角色、复制角色、预览提示词、保存模板新版本；
   - 浏览器验收发现首次并发读取角色 / 模板 / Preset 会抢写内置 YAML，已加入每作品补种锁并增加并发测试；
   - 已新增 `docs/tasks/NS-406.md` 和 `docs/testing/NS-406_ACCEPTANCE.md`。
+- NS-407：
+  - 已新增 `apps/server/src/routes/modelCalls.ts` 并注册 `/api/v1/series/:seriesId/ai/calls`、调用列表、调用详情和调用上下文快照 API；
+  - `POST /ai/calls` 使用 SSE 返回 `metadata / delta / usage / done`，失败时返回 `error` 并保存失败日志；
+  - 调用日志记录模型、角色、PromptTemplate ID/version、ContextBundle ID、请求 / 响应哈希、状态、错误分类和用量，不保存密钥或认证头；
+  - MockProvider 的分析任务返回非写入审稿结果，`rewrite` 等正文任务只返回候选正文；
+  - 写作页右侧新增“AI 审阅”面板，提供“审稿 / 改写”最小闭环；
+  - 改写候选直接进入正文编辑器并整段选中，作者点击“保留”后才保存，点击“撤回”恢复生成前正文；
+  - 写作主界面不显示调用来源、基准版本、用量或调用 ID；完整日志 UI 留给 `NS-409`；
+  - 已将用户视角、风格统一、图像模型预览和 UI 预览资产管理规则补入 `docs/product/USER_EXPERIENCE_SPEC.md`、`docs/product/PRODUCT_SPEC.md`、`AGENTS.md` 和 `docs/testing/BROWSER_ACCEPTANCE.md`；
+  - 已新增 `docs/tasks/NS-407.md` 和 `docs/testing/NS-407_ACCEPTANCE.md`。
 
 ## 验证
 
@@ -184,6 +194,10 @@
 - 2026-06-21 NS-406 `npm.cmd run test`：通过；Server 4 个文件、11 项测试；Web 5 个文件、14 项测试；AI 1 个文件、10 项测试；Storage 3 个文件、41 项测试。
 - 2026-06-21 NS-406 `npm.cmd run test:e2e`：通过；1 个 Chrome 用例，覆盖设置页“角色与提示词”和提示词预览，产出 `m4-prompt-template-preview.png` 截图附件。
 - 2026-06-21 NS-406 `npm.cmd run check`：通过；Server 11/11，Web 14/14，AI 10/10，Storage 41/41，生产构建通过。
+- 2026-06-21 NS-407 `npm.cmd run typecheck`：通过。
+- 2026-06-21 NS-407 `npm.cmd run test`：通过；Server 5 个文件、13 项测试；Web 5 个文件、14 项测试；AI 1 个文件、10 项测试；Storage 3 个文件、41 项测试。
+- 2026-06-21 NS-407 `npm.cmd run test:e2e`：通过；1 个 Chrome 用例，覆盖 AI 审稿、选区改写、正文内联候选、真实选区和保留后保存，产出 `m4-ai-panel-ready.png`、`m4-ai-review-result.png`、`m4-ai-inline-candidate-selected.png` 截图附件；人工查看确认候选条只显示“候选待确认 / 保留 / 撤回”。
+- 2026-06-21 NS-407 `npm.cmd run check`：通过；Server 13/13，Web 14/14，AI 10/10，Storage 41/41，生产构建通过。
 
 ## 已知限制
 
@@ -196,18 +210,19 @@
 - 当前没有应用内停止服务或托盘入口；启动脚本记录 PID 状态并会清理可确认属于本 checkout 的旧进程，但不会结束无法确认来源的端口占用者。
 - 早前手工浏览器验收留下了测试用系列、故事进展、未来隐藏记录和角色所知记录；它们位于本地示例作品库，不进入 Git。新的 Playwright 验收使用隔离临时作品库。
 - 当前 Codex 更新后内置 Browser 控制通道已恢复；若后续再次出现 `sandboxPolicy` 或 URL policy 错误，先用 `node_repl/js` 最小探针和 Browser 插件文档接口分层确认，不要再用本地代理绕过。Codex shell 中不要依赖“命令结束后仍保留后台服务”的假设；启动验收优先用 `-SmokeTest`，浏览器或 E2E 验收应由能托管服务生命周期的工具使用 `-Foreground`。
-- NS-404 至 NS-406 只实现最小设置页、写作页上下文预览入口和提示词预览入口；完整上下文分组、调用记录 UI、完整角色 / 变量 / Preset 编辑器和更多浏览器 E2E 归入 `NS-409` 或后续 UI 整理。
+- NS-404 至 NS-407 只实现最小设置页、写作页上下文预览入口、提示词预览入口和 AI 审稿 / 改写入口；完整上下文分组、调用记录 UI、完整角色 / 变量 / Preset 编辑器和更多浏览器 E2E 归入 `NS-409` 或后续 UI 整理。
 - UI 相关任务必须进行真实浏览器操作并保存截图证据；不要再只用 DOM 断言证明“按钮能点”。当前规则写在 `docs/testing/BROWSER_ACCEPTANCE.md`。
-- 真实 Provider、真实密钥录入和非写入型模型调用尚未实现；分别属于 `NS-408` 和 `NS-407`。
+- UI 方向不清晰时应先用当前截图和 UX 要求生成少量视觉预览；预览图必须按 `USER_EXPERIENCE_SPEC.md` 管理，未采纳探索图不进入项目。
+- 真实 Provider、真实密钥录入尚未实现；属于 `NS-408`。
 
 ## 唯一下一任务
 
-`NS-407`：非写入型 AI 调用、SSE 流式输出和 ModelCallLog。
+`NS-408`：OpenAI-compatible、Ollama、OpenAI、OpenRouter、Anthropic、Gemini Provider 接入。
 
 当前优先级：
 
-1. 基于已有 `ContextBundle`、`PromptTemplate` 和 `ModelProfile` 创建非写入型调用 API。
-2. 使用 MockProvider 完成流式输出和错误分类，不接真实密钥。
-3. 写入 `ModelCallLog`，记录模型、角色、PromptTemplate ID/version、ContextBundle ID、请求 / 响应哈希、状态和用量。
-4. 失败调用也必须留下失败日志，但不得保存密钥、认证头或未脱敏 SDK 原始错误。
-5. AI 结果只能作为分析回复显示，不得出现直接写正文、更新设定、更新摘要、更新进展或角色所知的入口。
+1. 在统一 `ProviderAdapter` 下接入真实 Provider 协议层，优先 OpenAI-compatible 和 Ollama。
+2. 继续复用 NS-404 的云端权限和凭据引用边界，不得从本地模型静默回退云端。
+3. 单元测试覆盖连接测试、模型列表、流式文本、结构化输出能力声明和错误分类。
+4. 不把真实 API 密钥写入作品目录、日志、浏览器控制台或 Git。
+5. 浏览器 UI 若有改动，必须截图并检查风格统一与中文文案。

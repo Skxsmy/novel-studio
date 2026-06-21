@@ -11,7 +11,7 @@ import type {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "./api";
 import { readableSceneStatus, sectionPolicyLabels } from "./copy";
-import { MarkdownEditor, type MarkdownSelection } from "./MarkdownEditor";
+import { MarkdownEditor, type MarkdownSelection, type MarkdownTextSelectionRequest } from "./MarkdownEditor";
 import {
   clearRecoveryDraft,
   loadRecoveryDraft,
@@ -20,10 +20,11 @@ import {
   type RecoveryDecision,
   type RecoveryDraft,
 } from "./recoveryDraft";
+import { SceneAiPanel, type InlineAiCandidateInput } from "./SceneAiPanel";
 import { SceneContextPanel } from "./SceneContextPanel";
 
-type SaveState = "saved" | "dirty" | "saving" | "conflict" | "error";
-type InspectorTab = "context" | "sections" | "anchors";
+type SaveState = "saved" | "dirty" | "saving" | "conflict" | "error" | "candidate";
+type InspectorTab = "context" | "ai" | "sections" | "anchors";
 interface SceneCreateLocation {
   bookId: string;
   actId: string;
@@ -51,6 +52,7 @@ function statusLabel(state: SaveState): string {
     saving: "正在保存…",
     conflict: "检测到版本冲突",
     error: "保存失败",
+  candidate: "候选待确认",
   }[state];
 }
 
@@ -73,6 +75,18 @@ interface WriteViewProps {
 interface RecoveryPrompt {
   draft: RecoveryDraft;
   decision: Exclude<RecoveryDecision, "none">;
+}
+
+interface InlineCandidateState {
+  id: string;
+  baseRevision: string;
+  beforeContent: string;
+  afterContent: string;
+  candidateText: string;
+  replacedText: string;
+  sourceCallId: string;
+  start: number;
+  end: number;
 }
 
 export function WriteView({
@@ -102,6 +116,8 @@ export function WriteView({
   const [anchors, setAnchors] = useState<ResolvedReviewAnchor[]>([]);
   const [selectedText, setSelectedText] = useState("");
   const [sideMessage, setSideMessage] = useState("");
+  const [inlineCandidate, setInlineCandidate] = useState<InlineCandidateState | null>(null);
+  const [selectTextRequest, setSelectTextRequest] = useState<MarkdownTextSelectionRequest | null>(null);
 
   useEffect(() => {
     setTitle(activeScene.metadata.title);
@@ -111,6 +127,7 @@ export function WriteView({
     setMessage("");
     setSelectedText("");
     setSideMessage("");
+    setInlineCandidate(null);
     setEditorVersion((value) => value + 1);
     const draft = loadRecoveryDraft(
       window.localStorage,
@@ -188,12 +205,25 @@ export function WriteView({
   }, [content, save, saveState, title]);
 
   function changeContent(value: string) {
+    if (inlineCandidate) {
+      setContent(value);
+      if (value === inlineCandidate.afterContent) return;
+      setInlineCandidate(null);
+      setSaveState("dirty");
+      persistDraft(title, value);
+      setMessage("已手动编辑 AI 候选，后续按作者草稿保存。");
+      return;
+    }
     setContent(value);
     setSaveState("dirty");
     persistDraft(title, value);
   }
 
   function changeTitle(value: string) {
+    if (inlineCandidate) {
+      setMessage("请先保留或撤回 AI 候选，再修改场景标题。");
+      return;
+    }
     setTitle(value);
     setSaveState("dirty");
     persistDraft(value, content);
@@ -235,6 +265,56 @@ export function WriteView({
     setRecoveryPrompt(null);
     setSaveState("dirty");
     setMessage(prompt.decision === "stale" ? "这是基于旧磁盘版本的草稿；保存时会先进行冲突检查。" : "已恢复未保存草稿。");
+    setEditorVersion((value) => value + 1);
+  }
+
+  function placeInlineCandidate(candidate: InlineAiCandidateInput) {
+    if (saveState !== "saved") {
+      setSideMessage("请先等待当前正文保存完成，再放入 AI 候选。");
+      return;
+    }
+    const { start, end, text } = candidate.selection;
+    if (content.slice(start, end) !== text) {
+      setSideMessage("正文选区已经变化，AI 候选没有放入正文。请重新选择后再试。");
+      return;
+    }
+    const nextContent = `${content.slice(0, start)}${candidate.text}${content.slice(end)}`;
+    const candidateId = `${candidate.sourceCallId}:${Date.now()}`;
+    setInlineCandidate({
+      id: candidateId,
+      baseRevision: editingBaseRevision,
+      beforeContent: content,
+      afterContent: nextContent,
+      candidateText: candidate.text,
+      replacedText: text,
+      sourceCallId: candidate.sourceCallId,
+      start,
+      end: start + candidate.text.length,
+    });
+    setSelectTextRequest({
+      key: candidateId,
+      text: candidate.text,
+    });
+    setContent(nextContent);
+    setSaveState("candidate");
+    setMessage("候选已放入正文并选中，确认后保存。");
+    setEditorVersion((value) => value + 1);
+  }
+
+  function acceptInlineCandidate() {
+    if (!inlineCandidate) return;
+    setInlineCandidate(null);
+    setSaveState("dirty");
+    persistDraft(title, content);
+    setMessage("已保留 AI 候选，正在保存到 Markdown 原稿。");
+  }
+
+  function rejectInlineCandidate() {
+    if (!inlineCandidate) return;
+    setContent(inlineCandidate.beforeContent);
+    setInlineCandidate(null);
+    setSaveState("saved");
+    setMessage("已撤回 AI 候选，正文恢复到生成前。");
     setEditorVersion((value) => value + 1);
   }
 
@@ -406,12 +486,21 @@ export function WriteView({
       <article className="editor-shell">
         {focusMode && <button className="focus-exit" onClick={onExitFocus}>退出专注模式</button>}
         <div className="editor-breadcrumb">{bookTitle}&nbsp;&nbsp;/&nbsp;&nbsp;{activeAct?.title ?? "幕"}&nbsp;&nbsp;/&nbsp;&nbsp;{activeChapter?.title ?? "章"}</div>
-        <input className="scene-title-input" value={title} onChange={(event) => changeTitle(event.target.value)} aria-label="场景标题" />
+        <input className="scene-title-input" value={title} disabled={Boolean(inlineCandidate)} onChange={(event) => changeTitle(event.target.value)} aria-label="场景标题" />
         {recoveryPrompt && (
           <div className={`recovery-banner ${recoveryPrompt.decision}`}>
             <div><strong>{recoveryPrompt.decision === "stale" ? "发现基于旧版本的恢复草稿" : "发现未保存草稿"}</strong><span>{new Date(recoveryPrompt.draft.updatedAt).toLocaleString("zh-CN")}</span></div>
             <button onClick={() => restoreDraft(recoveryPrompt)}>恢复草稿</button>
             <button onClick={discardDraft}>使用磁盘版本</button>
+          </div>
+        )}
+        {inlineCandidate && (
+          <div className="inline-candidate-banner">
+            <div>
+              <strong>候选待确认</strong>
+            </div>
+            <button onClick={acceptInlineCandidate}>保留</button>
+            <button onClick={rejectInlineCandidate}>撤回</button>
           </div>
         )}
         <div className="markdown-editor" data-testid="markdown-editor">
@@ -420,6 +509,7 @@ export function WriteView({
             initialValue={content}
             onChange={changeContent}
             onSelectionChange={(selection: MarkdownSelection | null) => setSelectedText(selection?.text ?? "")}
+            selectTextRequest={selectTextRequest}
           />
         </div>
         {message && <div className={`save-message ${saveState}`}>{message}{saveState === "conflict" && <button onClick={() => void reloadDiskVersion()}>重新载入磁盘版本</button>}</div>}
@@ -429,6 +519,7 @@ export function WriteView({
         <aside className="inspector writing-inspector">
           <div className="inspector-tabs">
             <button className={inspectorTab === "context" ? "active" : ""} onClick={() => setInspectorTab("context")}>场景</button>
+            <button className={inspectorTab === "ai" ? "active" : ""} onClick={() => setInspectorTab("ai")}>AI 审阅</button>
             <button className={inspectorTab === "sections" ? "active" : ""} onClick={() => setInspectorTab("sections")}>附属文档</button>
             <button className={inspectorTab === "anchors" ? "active" : ""} onClick={() => setInspectorTab("anchors")}>锚点</button>
           </div>
@@ -438,6 +529,16 @@ export function WriteView({
             content={content}
             selectedText={selectedText}
             rightOpen={rightOpen}
+            onMessage={setSideMessage}
+          />}
+          {inspectorTab === "ai" && <SceneAiPanel
+            detail={detail}
+            activeScene={activeScene}
+            content={content}
+            selectedText={selectedText}
+            rightOpen={rightOpen}
+            canCreateInlineCandidate={saveState === "saved" && !inlineCandidate}
+            onInlineCandidate={placeInlineCandidate}
             onMessage={setSideMessage}
           />}
           {inspectorTab === "sections" && <SectionPanel sections={sections} onCreate={createSection} onUpdate={updateSection} onArchive={archiveSection} onRestore={restoreSection} />}
