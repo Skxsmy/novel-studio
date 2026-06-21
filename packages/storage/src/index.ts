@@ -52,6 +52,7 @@ import {
   PlanningSceneSchema,
   ReorderInputSchema,
   RestoreSceneSectionInputSchema,
+  type AgentRole,
   SceneDocumentSchema,
   SceneFrontmatterSchema,
   SceneSectionDocumentSchema,
@@ -118,11 +119,16 @@ import {
   type HierarchyIssue,
   type HierarchyValidationResult,
   type MoveSceneInput,
+  type ContextBundle,
+  type ModelCallLog,
+  type ModelProfile,
   type PlanningBoard,
   type PlanningAct,
   type PlanningBook,
   type PlanningChapter,
   type PlanningScene,
+  type PromptPreset,
+  type PromptTemplate,
   type ReorderInput,
   type RestoreSceneSectionInput,
   type SceneDocument,
@@ -161,6 +167,28 @@ import {
   recoverFileTransactions,
   type FileMutation,
 } from "./fileTransactions.js";
+import {
+  ensureAiIndexTables,
+  getAgentRole,
+  getContextBundle,
+  getModelCallLog,
+  getModelProfile,
+  getPromptPreset,
+  getPromptTemplate,
+  listAgentRoles,
+  listContextBundles,
+  listModelCallLogs,
+  listModelProfiles,
+  listPromptPresets,
+  listPromptTemplates,
+  rebuildAiIndex,
+  saveAgentRole,
+  saveContextBundle,
+  saveModelCallLog,
+  saveModelProfile,
+  savePromptPreset,
+  savePromptTemplate,
+} from "./aiFiles.js";
 
 export { StorageError } from "./errors.js";
 export { pathExists } from "./fileSystem.js";
@@ -2396,6 +2424,95 @@ export class ProjectRepository {
     return CodexContextPreviewSchema.parse({ sceneId, included, excluded });
   }
 
+  async saveModelProfile(seriesId: string, profile: ModelProfile): Promise<ModelProfile> {
+    return saveModelProfile(await this.findSeriesRoot(seriesId), profile);
+  }
+
+  async getModelProfile(seriesId: string, profileId: string): Promise<ModelProfile> {
+    return getModelProfile(await this.findSeriesRoot(seriesId), profileId);
+  }
+
+  async listModelProfiles(seriesId: string): Promise<ModelProfile[]> {
+    return listModelProfiles(await this.findSeriesRoot(seriesId));
+  }
+
+  async saveAgentRole(seriesId: string, role: AgentRole): Promise<AgentRole> {
+    return saveAgentRole(await this.findSeriesRoot(seriesId), role);
+  }
+
+  async getAgentRole(seriesId: string, roleId: string): Promise<AgentRole> {
+    return getAgentRole(await this.findSeriesRoot(seriesId), roleId);
+  }
+
+  async listAgentRoles(seriesId: string): Promise<AgentRole[]> {
+    return listAgentRoles(await this.findSeriesRoot(seriesId));
+  }
+
+  async savePromptTemplate(seriesId: string, template: PromptTemplate): Promise<PromptTemplate> {
+    return savePromptTemplate(await this.findSeriesRoot(seriesId), template);
+  }
+
+  async getPromptTemplate(
+    seriesId: string,
+    promptTemplateId: string,
+    version: number,
+  ): Promise<PromptTemplate> {
+    return getPromptTemplate(await this.findSeriesRoot(seriesId), promptTemplateId, version);
+  }
+
+  async listPromptTemplates(seriesId: string): Promise<PromptTemplate[]> {
+    return listPromptTemplates(await this.findSeriesRoot(seriesId));
+  }
+
+  async savePromptPreset(seriesId: string, preset: PromptPreset): Promise<PromptPreset> {
+    return savePromptPreset(await this.findSeriesRoot(seriesId), preset);
+  }
+
+  async getPromptPreset(seriesId: string, presetId: string): Promise<PromptPreset> {
+    return getPromptPreset(await this.findSeriesRoot(seriesId), presetId);
+  }
+
+  async listPromptPresets(seriesId: string): Promise<PromptPreset[]> {
+    return listPromptPresets(await this.findSeriesRoot(seriesId));
+  }
+
+  async saveContextBundle(seriesId: string, bundle: ContextBundle): Promise<ContextBundle> {
+    return saveContextBundle(await this.findSeriesRoot(seriesId), bundle);
+  }
+
+  async getContextBundle(seriesId: string, contextBundleId: string): Promise<ContextBundle> {
+    return getContextBundle(await this.findSeriesRoot(seriesId), contextBundleId);
+  }
+
+  async listContextBundles(seriesId: string): Promise<ContextBundle[]> {
+    return listContextBundles(await this.findSeriesRoot(seriesId));
+  }
+
+  async saveModelCallLog(seriesId: string, log: ModelCallLog): Promise<ModelCallLog> {
+    return saveModelCallLog(await this.findSeriesRoot(seriesId), log);
+  }
+
+  async getModelCallLog(seriesId: string, modelCallId: string): Promise<ModelCallLog> {
+    return getModelCallLog(await this.findSeriesRoot(seriesId), modelCallId);
+  }
+
+  async listModelCallLogs(seriesId: string): Promise<ModelCallLog[]> {
+    return listModelCallLogs(await this.findSeriesRoot(seriesId));
+  }
+
+  async rebuildAiIndex(seriesId: string): Promise<{
+    indexedContextBundles: number;
+    indexedModelCalls: number;
+  }> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const database = this.openIndex(seriesRoot);
+    try {
+      return await rebuildAiIndex(seriesRoot, database);
+    } finally {
+      database.close();
+    }
+  }
+
   async searchCodex(seriesId: string, query: string): Promise<CodexSearchResult[]> {
     const trimmed = query.trim();
     if (!trimmed) return [];
@@ -2436,6 +2553,8 @@ export class ProjectRepository {
     indexedCodexEntries: number;
     indexedMentions: number;
     ambiguousMentions: number;
+    indexedContextBundles: number;
+    indexedModelCalls: number;
   }> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const database = this.openIndex(seriesRoot);
@@ -2454,7 +2573,8 @@ export class ProjectRepository {
       await this.indexScene(seriesRoot, scene, false);
     }
     const codex = await this.rebuildCodexIndex(seriesRoot);
-    return { indexedScenes: sceneFiles.length, ...codex };
+    const ai = await this.rebuildAiIndex(seriesId);
+    return { indexedScenes: sceneFiles.length, ...codex, ...ai };
   }
 
   async search(seriesId: string, query: string): Promise<SearchResult[]> {
@@ -4594,6 +4714,7 @@ export class ProjectRepository {
         PRIMARY KEY (scene_id, start, end)
       );
     `);
+    ensureAiIndexTables(database);
     return database;
   }
 

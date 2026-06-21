@@ -6,7 +6,7 @@
 
 - 分支：`main`
 - 最近相关提交：查看 `git log -4 --oneline`；应包含 NS-400 收口和 NS-307 写作页布局 / 定向新建场景提交。
-- 当前任务：`NS-401` 已完成；M4 已拆成 `NS-401` 至 `NS-410`。下一任务是 `NS-402`，目标是 AI 契约分区与模型配置、提示词、上下文包、调用日志的最小持久化。
+- 当前任务：`NS-402` 已完成；M4 已拆成 `NS-401` 至 `NS-410`。下一任务是 `NS-403`，目标是 ProviderAdapter 核心、能力描述、错误分类和 MockProvider。
 - 预期脏文件：无。接手时运行 `git status --short` 核实；如不为空，先判断是否为用户未提交改动。
 
 ## 已完成
@@ -98,6 +98,14 @@
   - 已更新 `docs/testing/BROWSER_ACCEPTANCE.md`，把 M4 浏览器验收映射到后续任务；
   - 已新增 `docs/testing/NS-401_ACCEPTANCE.md`；
   - 未新增真实 Provider、模型调用代码、API key 文件或正文 / Canon 写入能力。
+- NS-402：
+  - 已新增 `packages/contracts/src/common.ts`、`ai.ts`、`context.ts`、`prompts.ts`、`proposals.ts`，并让 `index.ts` 继续 re-export；
+  - 已新增 `packages/storage/src/aiFiles.ts`；
+  - `ProjectRepository` 已暴露模型配置、角色、提示词、Preset、上下文包和调用日志的最小读写方法；
+  - `openIndex` 已创建 `ai_context_bundles` 和 `ai_model_calls`，`rebuildIndex` 会重建 M4 派生索引；
+  - 已新增 `packages/storage/test/ai-files.test.ts`；
+  - 已新增 `docs/tasks/NS-402.md` 和 `docs/testing/NS-402_ACCEPTANCE.md`；
+  - 未新增真实 Provider、模型调用代码、API key 文件或正文 / Canon 写入能力。
 
 ## 验证
 
@@ -123,6 +131,10 @@
 - 2026-06-21 最终收口 `npm.cmd run check`：通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。
 - 2026-06-21 最终收口 `npm.cmd run test:e2e`：通过；构建后 1 个 Chrome 用例通过，命令自然退出；端口只剩 `TIME_WAIT`，无监听进程。
 - 2026-06-21 NS-401 收口 `npm.cmd run check`：通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。
+- 2026-06-21 NS-402 `npm.cmd run typecheck -w @novel-studio/contracts`：通过。
+- 2026-06-21 NS-402 `npm.cmd run typecheck -w @novel-studio/storage`：通过。
+- 2026-06-21 NS-402 `npm.cmd run test -w @novel-studio/storage`：通过；3 个文件、41 项测试。
+- 2026-06-21 NS-402 `npm.cmd run check`：通过；Server 7/7，Web 14/14，Storage 41/41，生产构建通过。
 
 ## 已知限制
 
@@ -138,9 +150,9 @@
 
 ## 唯一下一任务
 
-`NS-402`：AI 契约分区与模型配置、提示词、上下文包、调用日志的最小持久化。当前优先级：
+`NS-403`：ProviderAdapter 核心、能力描述、错误分类和 MockProvider。当前优先级：
 
-1. 从 `packages/contracts/src/index.ts` 拆出 AI / context / prompts / proposals 契约文件，保持公共导出兼容。
-2. 增加模型配置、提示词模板、上下文包和调用日志的存储读写，但不接真实 Provider。
-3. 保证删除 SQLite 后，M4 索引可从权威文件重建。
-4. 继续防止大文件回潮：不得把 M4 持久化逻辑塞回单体 `ProjectRepository`。
+1. 新增 ProviderAdapter 接口，不依赖 Fastify、不读写小说文件。
+2. 实现 MockProvider，覆盖成功、流式输出、结构化输出、认证失败、限流、上下文过长和模型不可用。
+3. 建立 Provider registry 和错误分类测试。
+4. 不接真实 Provider，不读取 API key。
