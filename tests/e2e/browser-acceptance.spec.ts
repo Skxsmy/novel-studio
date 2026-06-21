@@ -10,7 +10,7 @@ import {
 } from "./helpers/browserAcceptance.js";
 
 test.describe("已实现能力浏览器验收", () => {
-  test("创建系列、维护第二部结构，并完成 M4 最小模型与上下文预览路径", async ({ page, request }) => {
+  test("创建系列、维护第二部结构，并完成 M4 最小模型与上下文预览路径", async ({ page, request }, testInfo) => {
     await expectNoBrowserErrors(page, async () => {
       const health = await getJson<{ ok: boolean; workspaceRoot: string; libraryRoot: string }>(
         request,
@@ -125,6 +125,12 @@ test.describe("已实现能力浏览器验收", () => {
         await page.getByRole("button", { name: "测试连接" }).click();
       });
       await expect(page.getByText(/连接正常/)).toBeVisible();
+      const settingsScreenshot = testInfo.outputPath("m4-settings-model-profile.png");
+      await page.screenshot({ fullPage: true, path: settingsScreenshot });
+      await testInfo.attach("m4-settings-model-profile", {
+        path: settingsScreenshot,
+        contentType: "image/png",
+      });
 
       await page.getByRole("button", { name: /写作/ }).click();
       await page.getByTitle("场景资料").click();
@@ -134,6 +140,12 @@ test.describe("已实现能力浏览器验收", () => {
       });
       await expect(page.getByText("纳入资料")).toBeVisible();
       await expect(page.getByText(/项纳入/)).toBeVisible();
+      const contextScreenshot = testInfo.outputPath("m4-write-context-preview.png");
+      await page.screenshot({ fullPage: true, path: contextScreenshot });
+      await testInfo.attach("m4-write-context-preview", {
+        path: contextScreenshot,
+        contentType: "image/png",
+      });
 
       seriesList = await getJson<SeriesSummary[]>(request, "/api/v1/series");
       expect(seriesList.map((series) => series.title)).toContain("浏览器验收故事");

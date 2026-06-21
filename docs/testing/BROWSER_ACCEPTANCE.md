@@ -17,6 +17,23 @@
 - 检查浏览器 `console.error` 与 `pageerror`。
 - 使用隔离作品库，不污染作者真实数据。
 - 只验证当前任务声明已经完成的能力；不得把未来 M4/M5 页面占位当作“通过”。
+- 凡涉及 UI 或布局变更，必须产出截图证据；截图应覆盖变更后的实际页面，而不是只截测试失败画面。
+
+## UI 截图验收规则
+
+UI 相关任务不能只用 DOM 断言证明“按钮能点”。每次 UI 变更至少需要：
+
+1. 用 Playwright 或 Codex Browser 实际进入页面。
+2. 完成与用户路径一致的点击、输入或切换。
+3. 保存截图证据，并在任务验收记录中写明截图名称。
+4. 人工查看截图，判断层级、留白、按钮位置、文案和状态反馈是否可接受。
+
+当前 Playwright 用例会在 M4 路径中保存：
+
+- `m4-settings-model-profile.png`：设置页模型配置与连接测试结果。
+- `m4-write-context-preview.png`：写作页右侧上下文预览入口与结果。
+
+这些截图会作为 Playwright 附件写入 `%TEMP%\novel-studio-browser-acceptance\test-results`。如果测试命令失败，失败截图和 trace 也会放在同一测试结果目录。
 
 ## 命令
 

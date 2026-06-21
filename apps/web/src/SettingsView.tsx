@@ -194,39 +194,40 @@ export function SettingsView({
 
   return (
     <section className="content-page settings-page">
-      <div className="page-heading">
+      <header className="settings-hero">
         <div>
           <p className="eyebrow">设置</p>
           <h2>模型与资料权限</h2>
+          <p>
+            这里只管理模型入口和资料边界。真正调用前仍会预览上下文，智能编辑也不能直接改写正文或已确认设定。
+          </p>
         </div>
         <span className="phase-chip">M4</span>
-      </div>
+      </header>
 
-      <div className="settings-grid">
-        <article className="panel settings-card">
-          <p className="eyebrow">作品级权限</p>
-          <h3>云端模型开关</h3>
-          <p>
-            默认只允许本机模型。即使某个角色或任务配置了云端模型，只要这里没有打开，服务端也会拒绝调用。
-          </p>
-          <label>
-            当前权限
-            <select
-              value={cloudPolicy}
-              disabled={busy === "cloud-policy"}
-              onChange={(event) => void saveCloudPolicy(event.target.value as CloudPolicy)}
-            >
-              {Object.entries(cloudPolicyLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <small>密钥只允许保存为系统凭据引用，不能写进作品目录、日志或 Git。</small>
-        </article>
-
-        <article className="panel settings-card">
-          <p className="eyebrow">快速添加</p>
-          <h3>模型配置</h3>
+      <div className="settings-command-bar">
+        <div className="settings-cloud-card">
+          <div>
+            <span>作品级权限</span>
+            <strong>{cloudPolicyLabels[cloudPolicy]}</strong>
+            <small>云端未打开时，服务端会拒绝云端模型连接和调用。</small>
+          </div>
+          <select
+            value={cloudPolicy}
+            disabled={busy === "cloud-policy"}
+            onChange={(event) => void saveCloudPolicy(event.target.value as CloudPolicy)}
+            aria-label="当前权限"
+          >
+            {Object.entries(cloudPolicyLabels).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="settings-quick-card">
+          <div>
+            <span>快速添加</span>
+            <strong>建立模型配置</strong>
+          </div>
           <div className="settings-actions">
             <button onClick={() => void createMockProfile()} disabled={busy === "create-mock"}>
               添加本机验收模型
@@ -238,8 +239,7 @@ export function SettingsView({
               添加 Ollama 配置
             </button>
           </div>
-          <small>真实供应商调用仍处于后续任务；这里先建立可审计的配置边界。</small>
-        </article>
+        </div>
       </div>
 
       <div className="settings-layout">
@@ -278,57 +278,57 @@ export function SettingsView({
                   </button>
                 </div>
               </div>
-              <p>{providerDescription(selectedProfile.provider)}</p>
-              <div className="model-form-grid">
-                <label>
-                  显示名称
-                  <input
-                    value={profileDraft.title}
-                    onChange={(event) => setProfileDraft((current) => ({ ...current, title: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  模型代号
-                  <input
-                    value={profileDraft.model}
-                    onChange={(event) => setProfileDraft((current) => ({ ...current, model: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  调用权限
-                  <select
-                    value={profileDraft.cloudPolicy}
-                    onChange={(event) => setProfileDraft((current) => ({ ...current, cloudPolicy: event.target.value as CloudPolicy }))}
-                  >
-                    {Object.entries(cloudPolicyLabels).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  系统凭据引用
-                  <input
-                    value={profileDraft.credentialRef}
-                    placeholder="例如：novel-studio/openai/main"
-                    onChange={(event) => setProfileDraft((current) => ({ ...current, credentialRef: event.target.value }))}
-                  />
-                </label>
+              <div className="model-editor-body">
+                <div className="model-form-column">
+                  <p>{providerDescription(selectedProfile.provider)}</p>
+                  <div className="model-form-grid">
+                    <label>
+                      显示名称
+                      <input
+                        value={profileDraft.title}
+                        onChange={(event) => setProfileDraft((current) => ({ ...current, title: event.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      模型代号
+                      <input
+                        value={profileDraft.model}
+                        onChange={(event) => setProfileDraft((current) => ({ ...current, model: event.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      调用权限
+                      <select
+                        value={profileDraft.cloudPolicy}
+                        onChange={(event) => setProfileDraft((current) => ({ ...current, cloudPolicy: event.target.value as CloudPolicy }))}
+                      >
+                        {Object.entries(cloudPolicyLabels).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      系统凭据引用
+                      <input
+                        value={profileDraft.credentialRef}
+                        placeholder="例如：novel-studio/openai/main"
+                        onChange={(event) => setProfileDraft((current) => ({ ...current, credentialRef: event.target.value }))}
+                      />
+                    </label>
+                  </div>
+                  <div className={`connection-result ${testResults[selectedProfile.id]?.ok ? "ok" : ""}`}>
+                    <strong>连接结果</strong>
+                    <p>{connectionMessage(testResults[selectedProfile.id] ?? null, testErrors[selectedProfile.id] ?? "")}</p>
+                    <small>不会因为失败而改用其他供应商；回退策略必须另行显式配置。</small>
+                  </div>
+                </div>
+                <dl className="model-capabilities">
+                  <div><dt>上下文窗口</dt><dd>{selectedProfile.contextWindowTokens.toLocaleString("zh-CN")} tokens</dd></div>
+                  <div><dt>流式文本</dt><dd>{selectedProfile.capabilities.streamText ? "支持" : "未声明"}</dd></div>
+                  <div><dt>结构化输出</dt><dd>{selectedProfile.capabilities.structuredOutput ? "支持" : "未声明"}</dd></div>
+                  <div><dt>Token 估算</dt><dd>{selectedProfile.capabilities.tokenEstimate ? "支持" : "未声明"}</dd></div>
+                </dl>
               </div>
-              <div className={`connection-result ${testResults[selectedProfile.id]?.ok ? "ok" : ""}`}>
-                <strong>连接结果</strong>
-                <p>{connectionMessage(testResults[selectedProfile.id] ?? null, testErrors[selectedProfile.id] ?? "")}</p>
-                <small>不会因为失败而改用其他供应商；回退策略必须另行显式配置。</small>
-              </div>
-              <dl className="model-capabilities">
-                <dt>上下文窗口</dt>
-                <dd>{selectedProfile.contextWindowTokens.toLocaleString("zh-CN")} tokens</dd>
-                <dt>流式文本</dt>
-                <dd>{selectedProfile.capabilities.streamText ? "支持" : "未声明"}</dd>
-                <dt>结构化输出</dt>
-                <dd>{selectedProfile.capabilities.structuredOutput ? "支持" : "未声明"}</dd>
-                <dt>Token 估算</dt>
-                <dd>{selectedProfile.capabilities.tokenEstimate ? "支持" : "未声明"}</dd>
-              </dl>
             </>
           ) : (
             <div className="empty-settings">

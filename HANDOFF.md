@@ -169,6 +169,7 @@
 - 2026-06-21 NS-404/NS-405 `npm.cmd run test -w @novel-studio/web`：通过；5 个文件、14 项测试。首次沙箱内运行因 Vite 临时文件写入 EPERM 失败，提升权限后通过。
 - 2026-06-21 NS-404/NS-405 `npm.cmd run check`：通过；Server 10/10，Web 14/14，AI 10/10，Storage 41/41，生产构建通过。
 - 2026-06-21 NS-404/NS-405 `npm.cmd run test:e2e`：通过；1 个 Chrome 用例，覆盖添加本机验收模型、连接测试和写作页生成上下文预览。
+- 2026-06-21 设置页 UI 修正：`npm.cmd run test:e2e` 通过，并产出 `m4-settings-model-profile.png` 与 `m4-write-context-preview.png` 截图附件；`npm.cmd run check` 通过。
 
 ## 已知限制
 
@@ -182,6 +183,7 @@
 - 早前手工浏览器验收留下了测试用系列、故事进展、未来隐藏记录和角色所知记录；它们位于本地示例作品库，不进入 Git。新的 Playwright 验收使用隔离临时作品库。
 - 当前 Codex 更新后内置 Browser 控制通道已恢复；若后续再次出现 `sandboxPolicy` 或 URL policy 错误，先用 `node_repl/js` 最小探针和 Browser 插件文档接口分层确认，不要再用本地代理绕过。Codex shell 中不要依赖“命令结束后仍保留后台服务”的假设；启动验收优先用 `-SmokeTest`，浏览器或 E2E 验收应由能托管服务生命周期的工具使用 `-Foreground`。
 - NS-404/NS-405 只实现最小设置页和写作页上下文预览入口；完整上下文分组、调用记录 UI 和浏览器 E2E 归入 `NS-409`。
+- UI 相关任务必须进行真实浏览器操作并保存截图证据；不要再只用 DOM 断言证明“按钮能点”。当前规则写在 `docs/testing/BROWSER_ACCEPTANCE.md`。
 - 当前上下文预览里的编辑职责仍是占位文本；`NS-406` 必须把角色职责、提示词模板和版本文件接入。
 - 真实 Provider、真实密钥录入和非写入型模型调用尚未实现；分别属于 `NS-408` 和 `NS-407`。
 

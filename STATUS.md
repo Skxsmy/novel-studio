@@ -79,6 +79,8 @@
 - NS-404/NS-405 局部验证：`npm.cmd run test -w @novel-studio/ai` 通过，1 个文件、10 项测试；`npm.cmd run test -w @novel-studio/server` 通过，3 个文件、10 项测试；`npm.cmd run typecheck -w @novel-studio/web` 通过；`npm.cmd run test -w @novel-studio/web` 通过，5 个文件、14 项测试。
 - NS-404/NS-405 收口 `npm.cmd run check`：2026-06-21 通过；Server 10/10，Web 14/14，AI 10/10，Storage 41/41，生产构建通过。
 - NS-404/NS-405 浏览器验收 `npm.cmd run test:e2e`：2026-06-21 通过；1 个 Chrome 用例，覆盖添加本机验收模型、连接测试和写作页生成上下文预览。
+- 设置页 UI 修正后 `npm.cmd run test:e2e`：2026-06-21 通过；Playwright 生成 `m4-settings-model-profile.png` 和 `m4-write-context-preview.png` 截图附件。
+- 设置页 UI 修正后 `npm.cmd run check`：2026-06-21 通过；Server 10/10，Web 14/14，AI 10/10，Storage 41/41，生产构建通过。
 
 详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`、`docs/testing/NS-305_ACCEPTANCE.md`、`docs/testing/NS-306_ACCEPTANCE.md`、`docs/testing/NS-401_ACCEPTANCE.md`、`docs/testing/NS-402_ACCEPTANCE.md`、`docs/testing/NS-403_ACCEPTANCE.md`、`docs/testing/NS-404_ACCEPTANCE.md`、`docs/testing/NS-405_ACCEPTANCE.md`。
 
