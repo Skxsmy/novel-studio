@@ -2,7 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-const baseURL = "http://127.0.0.1:4317";
+const e2ePort = Number(process.env.NOVEL_STUDIO_E2E_PORT || 4318);
+const baseURL = `http://127.0.0.1:${e2ePort}`;
 const acceptanceRoot = path.join(
   process.env.NOVEL_STUDIO_BROWSER_REPORT_DIR || process.env.TEMP || process.env.TMP || tmpdir(),
   "novel-studio-browser-acceptance",

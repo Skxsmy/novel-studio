@@ -81,6 +81,7 @@
 - NS-404/NS-405 浏览器验收 `npm.cmd run test:e2e`：2026-06-21 通过；1 个 Chrome 用例，覆盖添加本机验收模型、连接测试和写作页生成上下文预览。
 - 设置页 UI 修正后 `npm.cmd run test:e2e`：2026-06-21 通过；Playwright 生成 `m4-settings-model-profile.png` 和 `m4-write-context-preview.png` 截图附件。
 - 设置页 UI 修正后 `npm.cmd run check`：2026-06-21 通过；Server 10/10，Web 14/14，AI 10/10，Storage 41/41，生产构建通过。
+- 浏览器验收端口修正后 `npm.cmd run test:e2e`：2026-06-21 通过；E2E 默认监听 `127.0.0.1:4318`，不再占用日常服务端口 `4317`。
 
 详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`、`docs/testing/NS-305_ACCEPTANCE.md`、`docs/testing/NS-306_ACCEPTANCE.md`、`docs/testing/NS-401_ACCEPTANCE.md`、`docs/testing/NS-402_ACCEPTANCE.md`、`docs/testing/NS-403_ACCEPTANCE.md`、`docs/testing/NS-404_ACCEPTANCE.md`、`docs/testing/NS-405_ACCEPTANCE.md`。
 

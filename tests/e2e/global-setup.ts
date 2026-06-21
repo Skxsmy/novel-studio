@@ -27,6 +27,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     ? path.resolve(process.env.NOVEL_STUDIO_E2E_LIBRARY)
     : path.join(acceptanceRoot, "library");
   const webRoot = path.join(projectRoot, "apps", "web", "dist");
+  const port = Number(process.env.NOVEL_STUDIO_E2E_PORT || 4318);
   await rm(libraryRoot, { recursive: true, force: true });
   await mkdir(libraryRoot, { recursive: true });
 
@@ -39,7 +40,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     startedAt: process.env.NOVEL_STUDIO_STARTED_AT ?? new Date().toISOString(),
     workspaceRoot: process.env.NOVEL_STUDIO_WORKSPACE_ROOT ?? projectRoot,
   });
-  await app.listen({ host: "127.0.0.1", port: 4317 });
+  await app.listen({ host: "127.0.0.1", port });
 
   return async () => {
     await app.close();

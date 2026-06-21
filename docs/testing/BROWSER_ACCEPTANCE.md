@@ -85,12 +85,20 @@ Playwright 验收不使用 `data/library`。测试启动时会在系统临时目
 
 ## 服务生命周期
 
-Playwright 不再通过 PowerShell 间接启动后台服务。`tests/e2e/global-setup.ts` 会在测试进程内直接创建 Fastify 应用，监听 `127.0.0.1:4317`，并在测试结束后关闭。
+Playwright 不再通过 PowerShell 间接启动后台服务。`tests/e2e/global-setup.ts` 会在测试进程内直接创建 Fastify 应用，默认监听 `127.0.0.1:4318`，并在测试结束后关闭。这样不会和正常双击启动器使用的 `4317` 端口互相抢占。
+
+如需改端口，可设置：
+
+```powershell
+$env:NOVEL_STUDIO_E2E_PORT = "4328"
+npm.cmd run test:e2e
+```
 
 这样做的目的：
 
 - 避免 Windows 上 PowerShell → npm → node 的父子进程残留。
 - 避免固定 `data/server.*` 文件锁影响浏览器验收。
+- 避免验收命令和日常使用中的本地服务抢同一个端口。
 - 让测试命令自然退出，不依赖后台进程继续存活。
 
 `scripts/start.ps1` 仍用于双击启动、手工验收和 Codex Browser 连接本地页面。

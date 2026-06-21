@@ -170,6 +170,7 @@
 - 2026-06-21 NS-404/NS-405 `npm.cmd run check`：通过；Server 10/10，Web 14/14，AI 10/10，Storage 41/41，生产构建通过。
 - 2026-06-21 NS-404/NS-405 `npm.cmd run test:e2e`：通过；1 个 Chrome 用例，覆盖添加本机验收模型、连接测试和写作页生成上下文预览。
 - 2026-06-21 设置页 UI 修正：`npm.cmd run test:e2e` 通过，并产出 `m4-settings-model-profile.png` 与 `m4-write-context-preview.png` 截图附件；`npm.cmd run check` 通过。
+- 2026-06-21 浏览器验收端口修正：Playwright E2E 默认监听 `127.0.0.1:4318`，避免和日常启动器的 `4317` 服务互相抢占；`NOVEL_STUDIO_E2E_PORT` 可覆盖。
 
 ## 已知限制
 
