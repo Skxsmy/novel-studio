@@ -17,3 +17,8 @@
 - **启动器防重复启动**：Windows 启动脚本增加启动互斥锁，健康服务会被复用；端口被旧进程占用但健康检查失败时不再另起冗余后台服务。
 - **NS-400 启动与验收可靠性补丁**：健康检查返回 version、commit、startedAt、workspaceRoot 和 libraryRoot；Windows 启动脚本会校验当前 checkout、清理可确认的旧进程、提供 `-Wait` 自动化验收模式，并在固定日志 / pid 文件被锁住时切换到 `%TEMP%\novel-studio`。
 - **NS-306**：补齐已有层级能力的界面入口；作品库非空时可新建系列，写作抽屉可新建部、幕和章，新部会同步建立第一幕和第一章。
+- **NS-307**：修整写作页部 / 幕 / 章 / 场景结构栏，新建场景可明确落到目标部、幕和章，第二部场景不再回落到第一部。
+- **NS-400**：完成 M3→M4 整备，拆分服务端设定库路由、storage 事务与文件模块、前端设定库视图，并建立可重复烟测和 Playwright 浏览器验收流程。
+- **NS-401**：写入 M4 执行规格、API 草案、数据格式草案、MockProvider 垂直切片和浏览器验收映射。
+- **NS-402**：拆分 AI 契约文件，新增模型配置、角色、提示词、Preset、上下文包和调用日志的 YAML 持久化与可重建索引。
+- **NS-403**：新增 `@novel-studio/ai`，实现 ProviderAdapter、ProviderRegistry、MockProvider、能力描述、流式/结构化/embedding 模拟和统一错误分类；不接真实 Provider，不读取密钥。

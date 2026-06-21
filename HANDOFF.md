@@ -5,8 +5,8 @@
 ## 仓库状态
 
 - 分支：`main`
-- 最近相关提交：查看 `git log -4 --oneline`；应包含 NS-400 收口和 NS-307 写作页布局 / 定向新建场景提交。
-- 当前任务：`NS-402` 已完成；M4 已拆成 `NS-401` 至 `NS-410`。下一任务是 `NS-403`，目标是 ProviderAdapter 核心、能力描述、错误分类和 MockProvider。
+- 最近相关提交：查看 `git log -5 --oneline`；应包含 NS-401、NS-402 和 NS-403 提交。
+- 当前任务：`NS-403` 已完成；M4 已拆成 `NS-401` 至 `NS-410`。按推荐实现顺序，下一任务是 `NS-405`，目标是场景级上下文装配器、权限过滤、未来剧情隔离和用量估算。
 - 预期脏文件：无。接手时运行 `git status --short` 核实；如不为空，先判断是否为用户未提交改动。
 
 ## 已完成
@@ -106,6 +106,15 @@
   - 已新增 `packages/storage/test/ai-files.test.ts`；
   - 已新增 `docs/tasks/NS-402.md` 和 `docs/testing/NS-402_ACCEPTANCE.md`；
   - 未新增真实 Provider、模型调用代码、API key 文件或正文 / Canon 写入能力。
+- NS-403：
+  - 已新增 `packages/ai` workspace；
+  - 已实现 `ProviderAdapter`、`ProviderRegistry`、默认 registry 和 `MockProvider`；
+  - MockProvider 支持连接测试、模型列表、能力描述、流式输出、结构化输出、embedding 和 token 估算；
+  - MockProvider 可模拟认证失败、限流、模型不可用、结构化输出失败、上下文过长和未知错误；
+  - 已新增统一 `ProviderAdapterError` 与 `classifyProviderError`，错误会归类为 `ModelCallError`；
+  - 根目录 `build:packages` 已把 `@novel-studio/ai` 加入 contracts 与 storage 之间；
+  - 已新增 `packages/ai/test/mockProvider.test.ts`、`docs/tasks/NS-403.md` 和 `docs/testing/NS-403_ACCEPTANCE.md`；
+  - 未新增真实 Provider、模型设置 UI、API key 文件、网络调用或正文 / 已确认设定写入能力。
 
 ## 验证
 
@@ -135,6 +144,10 @@
 - 2026-06-21 NS-402 `npm.cmd run typecheck -w @novel-studio/storage`：通过。
 - 2026-06-21 NS-402 `npm.cmd run test -w @novel-studio/storage`：通过；3 个文件、41 项测试。
 - 2026-06-21 NS-402 `npm.cmd run check`：通过；Server 7/7，Web 14/14，Storage 41/41，生产构建通过。
+- 2026-06-21 NS-403 `npm.cmd run typecheck -w @novel-studio/ai`：通过。
+- 2026-06-21 NS-403 `npm.cmd run test -w @novel-studio/ai`：通过；1 个文件、9 项测试。
+- 2026-06-21 NS-403 `npm.cmd install --package-lock-only --ignore-scripts`：通过；沙箱内首次因 `package-lock.json` 写入 EPERM 失败，提升权限后更新 lockfile。
+- 2026-06-21 NS-403 `npm.cmd run check`：通过；Server 7/7，Web 14/14，AI 9/9，Storage 41/41，生产构建通过。
 
 ## 已知限制
 
@@ -150,9 +163,12 @@
 
 ## 唯一下一任务
 
-`NS-403`：ProviderAdapter 核心、能力描述、错误分类和 MockProvider。当前优先级：
+`NS-405`：场景级上下文装配器、权限过滤、未来剧情隔离和用量估算。
 
-1. 新增 ProviderAdapter 接口，不依赖 Fastify、不读写小说文件。
-2. 实现 MockProvider，覆盖成功、流式输出、结构化输出、认证失败、限流、上下文过长和模型不可用。
-3. 建立 Provider registry 和错误分类测试。
-4. 不接真实 Provider，不读取 API key。
+当前优先级：
+
+1. 新增上下文装配模块，不塞回 `apps/server/src/app.ts` 或 `WriteView.tsx`。
+2. 先支持当前场景、用户请求、角色职责占位、场景正文、相邻摘要、已确认设定有效状态和排除项。
+3. 明确排除 `never`、隐藏区段、未来进展和未来角色所知，并记录人类可读理由。
+4. 为 `POST /api/v1/series/:seriesId/context/preview` 做最小 API 与测试。
+5. 不调用真实 Provider，不生成正文，不写入已确认设定或故事进展。

@@ -7,8 +7,9 @@
 - M0：完成。完整产品意图、架构、治理和验收追踪已写入仓库。
 - M1：完成。可点击交互骨架已经浏览器验收。
 - M2：完成。文件存储、API、冲突保护、索引重建与搜索已有自动化测试。
-- M3：完成。`NS-301` 至 `NS-306` 均已实现并通过自动化与浏览器验收。
+- M3：完成。`NS-301` 至 `NS-307` 均已实现并通过自动化与浏览器验收。
 - M3 → M4 整备：`NS-400` 完成。当前架构、拆分基线、可重复烟测和 M4 最小契约均已写入仓库。
+- M4：进行中。`NS-401` 至 `NS-403` 已完成；按推荐实现顺序下一任务是 `NS-405`。
 
 ## 当前已实现
 
@@ -44,6 +45,7 @@
 - M4 详细规划已写入 `docs/tasks/M4.md`，任务索引已拆成 `NS-401` 至 `NS-410`。
 - NS-401 已完成：M4 API 草案、数据格式草案、MockProvider 垂直切片、浏览器验收映射和安全不变量已写入仓库；未新增真实模型调用。
 - NS-402 已完成：AI 契约已从单体 contracts 拆到领域文件；storage 已支持模型配置、角色、提示词、Preset、上下文包和调用日志的最小 YAML 持久化；SQLite 可重建 M4 上下文包和调用日志索引。
+- NS-403 已完成：新增 `@novel-studio/ai`，实现 ProviderAdapter、ProviderRegistry、MockProvider、模型能力描述、流式输出、结构化输出、embedding、token 估算和统一错误分类；未接真实 Provider，未读取 API key，未新增正文或已确认设定写入能力。
 - 完整产品、UX、AI 编辑团队、资料库、Word/版本和里程碑规格位于 `docs/product/`。
 
 ## 最近验证
@@ -70,8 +72,10 @@
 - NS-401 收口 `npm.cmd run check`：2026-06-21 通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。
 - NS-402 storage 验证：`npm.cmd run typecheck -w @novel-studio/contracts`、`npm.cmd run typecheck -w @novel-studio/storage` 和 `npm.cmd run test -w @novel-studio/storage` 通过；Storage 3 个文件、41 项测试。
 - NS-402 收口 `npm.cmd run check`：2026-06-21 通过；Server 7/7，Web 14/14，Storage 41/41，生产构建通过。
+- NS-403 AI 验证：`npm.cmd run typecheck -w @novel-studio/ai` 通过；`npm.cmd run test -w @novel-studio/ai` 通过，1 个文件、9 项测试。
+- NS-403 收口 `npm.cmd run check`：2026-06-21 通过；Server 7/7，Web 14/14，AI 9/9，Storage 41/41，生产构建通过。
 
-详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`、`docs/testing/NS-305_ACCEPTANCE.md`、`docs/testing/NS-306_ACCEPTANCE.md`、`docs/testing/NS-401_ACCEPTANCE.md`、`docs/testing/NS-402_ACCEPTANCE.md`。
+详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`、`docs/testing/NS-305_ACCEPTANCE.md`、`docs/testing/NS-306_ACCEPTANCE.md`、`docs/testing/NS-401_ACCEPTANCE.md`、`docs/testing/NS-402_ACCEPTANCE.md`、`docs/testing/NS-403_ACCEPTANCE.md`。
 
 ## 当前限制
 
@@ -84,4 +88,6 @@
 
 ## 唯一下一任务
 
-`NS-403`：ProviderAdapter 核心、能力描述、错误分类和 MockProvider。禁止直接接真实 Provider；先用 MockProvider 打通成功、流式、结构化输出、认证失败、限流和上下文过长等分支。
+`NS-405`：场景级上下文装配器、权限过滤、未来剧情隔离和用量估算。
+
+说明：`NS-404` 仍然待办；当前按 `docs/tasks/M4.md` 推荐顺序，先用已完成的 MockProvider 建立上下文预览与审计基础，再进入模型设置、密钥和真实 Provider。

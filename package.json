@@ -12,7 +12,7 @@
     "dev": "concurrently -k -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "npm run dev -w @novel-studio/server",
     "dev:web": "npm run dev -w @novel-studio/web",
-    "build:packages": "npm run build -w @novel-studio/contracts && npm run build -w @novel-studio/storage",
+    "build:packages": "npm run build -w @novel-studio/contracts && npm run build -w @novel-studio/ai && npm run build -w @novel-studio/storage",
     "build": "npm run build:packages && npm run build -w @novel-studio/server && npm run build -w @novel-studio/web",
     "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
     "test": "npm run build:packages && npm run test --workspaces --if-present",
