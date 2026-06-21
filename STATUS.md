@@ -41,6 +41,7 @@
 - NS-307 已完成：写作页左侧作品结构栏改为更清晰的部 / 幕 / 章 / 场景布局；新建场景可以明确指定目标部、幕和章，第二部章节内新建场景不再回落到第一部。
 - 启动器已再次瘦身：`scripts/start.ps1` 直接启动 Node 服务产物，不再通过 `npm start` 父进程；新增 `-SmokeTest` 启动验收模式、`-Foreground` 测试托管模式和 `-Stop` 清理模式，并保留轻量互斥锁，减少 Codex / 自动化测试中的后台进程和并发启动风险。
 - 浏览器验收已改为 Playwright 自动操纵 Chrome；当前只运行 M3 已实现主路径，使用系统临时目录中的隔离作品库，不污染真实 `data/library`。M4/M5 的 AI、上下文和候选变更只登记为待实现验收目录。
+- M4 详细规划已写入 `docs/tasks/M4.md`，任务索引已拆成 `NS-401` 至 `NS-410`。
 - 完整产品、UX、AI 编辑团队、资料库、Word/版本和里程碑规格位于 `docs/product/`。
 
 ## 最近验证
@@ -78,4 +79,4 @@
 
 ## 唯一下一任务
 
-`NS-401`：开始模型连接、上下文装配、权限边界、提示词版本和调用日志的执行规格与最小纵向闭环。禁止跳过 `ContextBundle` / `ModelCallLog` / `Proposal` 契约直接调用模型或写入正文。
+`NS-401`：按 `docs/tasks/M4.md` 完成 M4 执行规格、接口草案、文件格式草案和第一条 MockProvider 垂直切片设计。禁止跳过 `ContextBundle` / `ModelCallLog` / `Proposal` 契约直接调用模型或写入正文。
