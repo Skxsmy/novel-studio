@@ -39,6 +39,8 @@
 - 作品库非空时可显示新建系列表单；写作抽屉已增加新建部、新建幕和新建章入口，新部会同步建立第一幕和第一章。
 - NS-400 已完成：当前架构文档已更新到 M3；服务端 Codex 路由已从 `app.ts` 拆入 `apps/server/src/routes/codex.ts`，`app.ts` 从约 718 行降到 363 行；storage 的错误、路径安全、原子写入和多文件事务已拆入独立模块；前端设定库已拆为顶层视图、条目编辑器和条目面板；已新增三条 M3→M4 核心烟测；M4 的 Context、Prompt、ModelCallLog 和 Proposal 最小契约已定义。
 - NS-307 已完成：写作页左侧作品结构栏改为更清晰的部 / 幕 / 章 / 场景布局；新建场景可以明确指定目标部、幕和章，第二部章节内新建场景不再回落到第一部。
+- 启动器已再次瘦身：`scripts/start.ps1` 直接启动 Node 服务产物，不再通过 `npm start` 父进程；新增 `-SmokeTest` 启动验收模式、`-Foreground` 测试托管模式和 `-Stop` 清理模式，并保留轻量互斥锁，减少 Codex / 自动化测试中的后台进程和并发启动风险。
+- 浏览器验收已改为 Playwright 自动操纵 Chrome；当前只运行 M3 已实现主路径，使用系统临时目录中的隔离作品库，不污染真实 `data/library`。M4/M5 的 AI、上下文和候选变更只登记为待实现验收目录。
 - 完整产品、UX、AI 编辑团队、资料库、Word/版本和里程碑规格位于 `docs/product/`。
 
 ## 最近验证
@@ -58,13 +60,17 @@
 - 启动器：`scripts/start.ps1 -NoBrowser -SkipBuild -Wait` 能保持服务供浏览器验收；固定 `data/server.*` 文件被当前 Windows 环境拒写时，脚本切换到 `%TEMP%\novel-studio` 记录本次启动状态。
 - 浏览器：in-app browser 打开 `http://127.0.0.1:4317/` 并读取 DOM；点击“雾港纪事 10 个场景 · 更新于 6月20日”后进入作品概览，页面 heading 为“雾港纪事”。
 - `npm.cmd run check`：2026-06-21 通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。沙箱内同一命令曾因 `dist` 写入 EPERM 失败，使用已批准前缀在沙箱外重跑通过。
+- `scripts/start.ps1 -NoBrowser -SkipBuild -SmokeTest`：2026-06-21 通过；脚本启动临时服务、读取 `/api/v1/health`，确认 `workspaceRoot=E:\Codex\projects\novel-studio` 和 `libraryRoot=E:\Codex\projects\novel-studio\data\library`，随后停止临时服务。
+- 最终收口 `npm.cmd run check`：2026-06-21 通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。
+- 最终收口 `npm.cmd run test:e2e`：2026-06-21 通过；Playwright/Chrome 验证创建系列、切换主要工作区、专注模式、新建第二部 / 第二幕 / 第一章 / 场景，并用 API 校验第二部内场景归属；命令自然退出。
+- 端口检查：浏览器验收和启动器烟测后 `127.0.0.1:4317` 无监听进程，仅剩系统 `TIME_WAIT` 连接记录。
 
 详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`、`docs/testing/NS-305_ACCEPTANCE.md`、`docs/testing/NS-306_ACCEPTANCE.md`。
 
 ## 当前限制
 
-- 当前浏览器验收留下了测试用系列、故事进展和角色所知记录，位于本地示例作品库；它们是权威数据文件，不进入 Git。
-- 当前 Windows / Codex 沙箱环境拒绝在 `data` 目录中新建 JSON 探针文件；启动脚本已对 pid 状态写入提供 `%TEMP%\novel-studio` fallback，但正式发布前仍建议在普通 PowerShell 中复测一次双击启动器。
+- 早前手工浏览器验收曾在本地示例作品库留下测试用系列、故事进展和角色所知记录；这些是本地权威数据文件，不进入 Git。新的 Playwright 验收改用隔离临时作品库。
+- 当前 Windows / Codex 沙箱环境可能拒绝改写固定 `data/server.*` 启动文件；启动脚本已对 pid 状态写入提供 `%TEMP%\novel-studio` fallback。Codex 自动化启动验收优先使用 `-SmokeTest`，正式发布前仍建议在普通 PowerShell 中复测一次双击启动器。
 - 编辑室、待确认页面尚无真实智能编辑工作流或候选变更。
 - 场景保存尚未回写系列 `updatedAt`。
 - 首次启动选择作品库、应用内停止服务和托盘入口尚未实现。

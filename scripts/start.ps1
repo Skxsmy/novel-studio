@@ -2,7 +2,11 @@ param(
     [switch]$NoBrowser,
     [switch]$SkipBuild,
     [switch]$ReuseExisting,
-    [switch]$Wait
+    [switch]$Wait,
+    [switch]$Foreground,
+    [switch]$SmokeTest,
+    [switch]$Stop,
+    [string]$LibraryRoot
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,8 +25,23 @@ $stdout = Join-Path $dataDirectory "server.stdout.log"
 $stderr = Join-Path $dataDirectory "server.stderr.log"
 $pidFile = Join-Path $dataDirectory "server.pid.json"
 $fallbackDataDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "novel-studio"
-$mutex = New-Object System.Threading.Mutex($false, "Local\NovelStudioStartLock")
+$serverEntry = Join-Path $root "apps\server\dist\index.js"
+$startupMutex = New-Object System.Threading.Mutex($false, "Local\NovelStudioStartLock")
 $lockAcquired = $false
+
+function Resolve-OptionalPath {
+    param([string]$PathValue)
+
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return $null
+    }
+
+    if ([System.IO.Path]::IsPathRooted($PathValue)) {
+        return [System.IO.Path]::GetFullPath($PathValue)
+    }
+
+    return [System.IO.Path]::GetFullPath((Join-Path $root $PathValue))
+}
 
 function Get-CurrentCommit {
     try {
@@ -48,12 +67,21 @@ function Get-PackageVersion {
     return "0.1.0"
 }
 
-function Get-NovelStudioHealth {
+function Get-NodeExe {
     try {
-        return Invoke-RestMethod -Uri $healthUrl -TimeoutSec 1 -ErrorAction Stop
+        return (Get-Command node.exe -ErrorAction Stop).Source
     }
     catch {
-        return $null
+        throw "Node.js was not found on PATH. Install Node.js or open a shell where node.exe is available."
+    }
+}
+
+function Get-NpmCmd {
+    try {
+        return (Get-Command npm.cmd -ErrorAction Stop).Source
+    }
+    catch {
+        throw "npm.cmd was not found on PATH. Install Node.js/npm or open a shell where npm.cmd is available."
     }
 }
 
@@ -73,7 +101,16 @@ function Get-JsonProperty {
     return $null
 }
 
-function Test-HealthMatchesCurrentRun {
+function Get-NovelStudioHealth {
+    try {
+        return Invoke-RestMethod -Uri $healthUrl -TimeoutSec 1 -ErrorAction Stop
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-HealthMatchesWorkspace {
     param($Health)
 
     if ($null -eq $Health -or (Get-JsonProperty $Health "ok") -ne $true) {
@@ -86,12 +123,17 @@ function Test-HealthMatchesCurrentRun {
     }
 
     try {
-        $reportedRoot = (Resolve-Path $workspaceRoot).Path
-        if ($reportedRoot -ne $root) {
-            return $false
-        }
+        return (Resolve-Path $workspaceRoot).Path -eq $root
     }
     catch {
+        return $false
+    }
+}
+
+function Test-HealthMatchesCurrentRun {
+    param($Health)
+
+    if (-not (Test-HealthMatchesWorkspace -Health $Health)) {
         return $false
     }
 
@@ -105,51 +147,37 @@ function Test-HealthMatchesCurrentRun {
     return $true
 }
 
-function Test-HealthLooksLikeThisProject {
-    param($Health)
-
-    if ($null -eq $Health -or (Get-JsonProperty $Health "ok") -ne $true) {
-        return $false
-    }
-
-    $workspaceRoot = Get-JsonProperty $Health "workspaceRoot"
-    if ($workspaceRoot) {
-        try {
-            return (Resolve-Path $workspaceRoot).Path -eq $root
-        }
-        catch {
-        }
-    }
-
-    $libraryRoot = Get-JsonProperty $Health "libraryRoot"
-    if ($libraryRoot) {
-        try {
-            $reportedLibraryRoot = (Resolve-Path $libraryRoot).Path
-            $expectedLibraryRoot = (Resolve-Path (Join-Path $root "data\library")).Path
-            return $reportedLibraryRoot -eq $expectedLibraryRoot
-        }
-        catch {
-        }
-    }
-
-    return $false
-}
-
 function Get-PortOwnerProcessIds {
+    $owners = @()
     try {
         $connections = @(Get-NetTCPConnection -LocalAddress $hostName -LocalPort $port -State Listen -ErrorAction Stop)
-        return @($connections | ForEach-Object { $_.OwningProcess } | Where-Object { $_ -gt 0 } | Sort-Object -Unique)
+        $owners += @($connections | ForEach-Object { $_.OwningProcess } | Where-Object { $_ -gt 0 })
     }
     catch {
-        return @()
     }
+
+    if ($owners.Count -eq 0) {
+        try {
+            $escapedEndpoint = [regex]::Escape("${hostName}:$port")
+            foreach ($line in @(& netstat -ano | Select-String -Pattern $escapedEndpoint)) {
+                $text = $line.ToString().Trim()
+                if ($text -match "\sLISTENING\s+(\d+)$") {
+                    $owners += [int]$Matches[1]
+                }
+            }
+        }
+        catch {
+        }
+    }
+
+    return @($owners | Where-Object { $_ -gt 0 } | Sort-Object -Unique)
 }
 
 function Test-NovelStudioPortInUse {
-    $owners = @(Get-PortOwnerProcessIds)
-    if ($owners.Count -gt 0) {
+    if (@(Get-PortOwnerProcessIds).Count -gt 0) {
         return $true
     }
+
     try {
         $client = New-Object System.Net.Sockets.TcpClient
         $connect = $client.BeginConnect($hostName, $port, $null, $null)
@@ -165,147 +193,101 @@ function Test-NovelStudioPortInUse {
     }
 }
 
-function Get-ProcessMetadata {
+function Get-ProcessCommandLine {
     param([Parameter(Mandatory = $true)][int]$ProcessId)
-
-    $metadata = [ordered]@{
-        ProcessId = $ProcessId
-        CommandLine = $null
-        ExecutablePath = $null
-        Path = $null
-    }
 
     try {
         $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction Stop
-        $metadata.CommandLine = $processInfo.CommandLine
-        $metadata.ExecutablePath = $processInfo.ExecutablePath
+        return [string]$processInfo.CommandLine
     }
     catch {
+        return ""
     }
-
-    try {
-        $process = Get-Process -Id $ProcessId -ErrorAction Stop
-        $metadata.Path = $process.Path
-    }
-    catch {
-    }
-
-    return [pscustomobject]$metadata
 }
 
-function Get-ServerPidStateFiles {
-    $files = @()
+function Test-ProcessLooksLikeThisCheckout {
+    param([Parameter(Mandatory = $true)][int]$ProcessId)
 
-    try {
-        if (Test-Path -LiteralPath $pidFile) {
-            $files += (Get-Item -LiteralPath $pidFile -ErrorAction Stop)
-        }
-        foreach ($directory in @($dataDirectory, $fallbackDataDirectory)) {
-            if (Test-Path -LiteralPath $directory) {
-                $files += @(Get-ChildItem -LiteralPath $directory -Filter "server.*.pid.json" -File -ErrorAction Stop)
-            }
-        }
-    }
-    catch {
+    $commandLine = Get-ProcessCommandLine -ProcessId $ProcessId
+    if ([string]::IsNullOrWhiteSpace($commandLine)) {
+        return $false
     }
 
-    return @($files | Sort-Object FullName -Unique)
+    return $commandLine.ToLowerInvariant().Contains($root.ToLowerInvariant())
 }
 
-function Get-RecordedServerPidStates {
+function Get-RecordedServerPids {
     $records = @()
+    $candidateFiles = @()
 
-    foreach ($file in @(Get-ServerPidStateFiles)) {
+    foreach ($path in @($pidFile)) {
+        if (Test-Path -LiteralPath $path) {
+            $candidateFiles += Get-Item -LiteralPath $path
+        }
+    }
+
+    foreach ($directory in @($dataDirectory, $fallbackDataDirectory)) {
+        if (Test-Path -LiteralPath $directory) {
+            $candidateFiles += @(Get-ChildItem -LiteralPath $directory -Filter "server.*.pid.json" -File -ErrorAction SilentlyContinue)
+        }
+    }
+
+    foreach ($file in @($candidateFiles | Sort-Object FullName -Unique)) {
         try {
             $state = Get-Content -Encoding UTF8 -Raw -LiteralPath $file.FullName | ConvertFrom-Json
-            if ($state.starterPid) {
-                $records += [pscustomobject]@{
-                    ProcessId = [int]$state.starterPid
-                    StateWriteTime = $file.LastWriteTime
-                    StateFile = $file.FullName
+            foreach ($name in @("serverPid", "starterPid")) {
+                $value = Get-JsonProperty $state $name
+                if ($value) {
+                    $records += [int]$value
                 }
             }
-            if ($state.portOwnerPids) {
-                $state.portOwnerPids | ForEach-Object {
-                    $records += [pscustomobject]@{
-                        ProcessId = [int]$_
-                        StateWriteTime = $file.LastWriteTime
-                        StateFile = $file.FullName
-                    }
-                }
+            $portOwnerPids = Get-JsonProperty $state "portOwnerPids"
+            if ($portOwnerPids) {
+                $portOwnerPids | ForEach-Object { $records += [int]$_ }
             }
         }
         catch {
         }
     }
 
-    return @($records)
+    return @($records | Sort-Object -Unique)
 }
 
-function Get-RecordedServerPids {
+function Stop-ProcessIfRunning {
+    param([Parameter(Mandatory = $true)][int]$ProcessId)
+
     try {
-        return @(Get-RecordedServerPidStates | ForEach-Object { $_.ProcessId } | Sort-Object -Unique)
+        $process = Get-Process -Id $ProcessId -ErrorAction Stop
+        Write-Output "Stopping Novel Studio process PID ${ProcessId}: $(Get-ProcessCommandLine -ProcessId $ProcessId)"
+        Stop-Process -Id $ProcessId -Force -ErrorAction Stop
+        $process.WaitForExit(5000) | Out-Null
     }
     catch {
-        return @()
     }
 }
 
-function Test-ProcessLooksLikeThisProject {
-    param($Metadata)
-
-    $text = @(
-        $Metadata.CommandLine,
-        $Metadata.ExecutablePath,
-        $Metadata.Path
-    ) -join " "
-
-    if ([string]::IsNullOrWhiteSpace($text)) {
-        return $false
-    }
-
-    return $text.ToLowerInvariant().Contains($root.ToLowerInvariant())
-}
-
-function Format-ProcessMetadata {
-    param($Metadata)
-
-    $detail = $Metadata.CommandLine
-    if (-not $detail) {
-        $detail = $Metadata.Path
-    }
-    if (-not $detail) {
-        $detail = "command line unavailable"
-    }
-    return "PID $($Metadata.ProcessId): $detail"
-}
-
-function Stop-StalePortOwners {
-    param(
-        [Parameter(Mandatory = $true)][string]$Reason,
-        $Health = $null
-    )
-
-    $owners = @(Get-PortOwnerProcessIds)
-    if ($owners.Count -eq 0) {
-        return
-    }
-
+function Stop-LocalNovelStudio {
+    $health = Get-NovelStudioHealth
+    $healthMatchesWorkspace = Test-HealthMatchesWorkspace -Health $health
     $recorded = @(Get-RecordedServerPids)
-    $healthLooksLocal = Test-HealthLooksLikeThisProject -Health $Health
+    $portOwners = @(Get-PortOwnerProcessIds)
     $blocked = @()
 
-    foreach ($owner in $owners) {
-        $metadata = Get-ProcessMetadata -ProcessId $owner
+    foreach ($owner in $portOwners) {
+        $looksLocal = Test-ProcessLooksLikeThisCheckout -ProcessId $owner
         $isRecorded = $recorded -contains $owner
-        $looksLocal = Test-ProcessLooksLikeThisProject -Metadata $metadata
 
-        if ($isRecorded -or $looksLocal -or $healthLooksLocal) {
-            Write-Output "Stopping stale Novel Studio process on port ${port}: $(Format-ProcessMetadata $metadata)"
-            Stop-Process -Id $owner -Force -ErrorAction Stop
+        if ($healthMatchesWorkspace -or $looksLocal -or $isRecorded) {
+            Stop-ProcessIfRunning -ProcessId $owner
         }
         else {
-            $blocked += (Format-ProcessMetadata $metadata)
+            $blocked += "PID ${owner}: $(Get-ProcessCommandLine -ProcessId $owner)"
+        }
+    }
+
+    foreach ($recordedPid in @($recorded | Where-Object { $portOwners -notcontains $_ })) {
+        if (Test-ProcessLooksLikeThisCheckout -ProcessId $recordedPid) {
+            Stop-ProcessIfRunning -ProcessId $recordedPid
         }
     }
 
@@ -314,50 +296,13 @@ function Stop-StalePortOwners {
     }
 
     $deadline = (Get-Date).AddSeconds(5)
-    while ((Get-Date) -lt $deadline -and (Test-NovelStudioPortInUse)) {
+    while ((Get-Date) -lt $deadline -and @(Get-PortOwnerProcessIds).Count -gt 0) {
         Start-Sleep -Milliseconds 200
     }
 
-    if (Test-NovelStudioPortInUse) {
-        throw "Port $port is still in use after stopping stale Novel Studio processes."
-    }
-}
-
-function Test-RecordedProcessBelongsToState {
-    param([Parameter(Mandatory = $true)][int]$ProcessId)
-
-    foreach ($record in @(Get-RecordedServerPidStates | Where-Object { $_.ProcessId -eq $ProcessId })) {
-        try {
-            $process = Get-Process -Id $ProcessId -ErrorAction Stop
-            if ($process.StartTime -le $record.StateWriteTime.AddMinutes(1)) {
-                return $true
-            }
-        }
-        catch {
-        }
-    }
-
-    return $false
-}
-
-function Stop-RecordedServerProcesses {
-    param([int[]]$ExcludeProcessIds = @())
-
-    $recorded = @(Get-RecordedServerPids | Where-Object { $ExcludeProcessIds -notcontains $_ })
-    foreach ($recordedPid in $recorded) {
-        $metadata = Get-ProcessMetadata -ProcessId $recordedPid
-        $looksLocal = Test-ProcessLooksLikeThisProject -Metadata $metadata
-        $belongsToState = Test-RecordedProcessBelongsToState -ProcessId $recordedPid
-
-        if ($looksLocal -or $belongsToState) {
-            try {
-                Write-Output "Stopping recorded Novel Studio starter process: $(Format-ProcessMetadata $metadata)"
-                Stop-Process -Id $recordedPid -Force -ErrorAction Stop
-            }
-            catch {
-                Write-Warning "Could not stop recorded Novel Studio process ${recordedPid}: $($_.Exception.Message)"
-            }
-        }
+    $remainingOwners = @(Get-PortOwnerProcessIds)
+    if ($remainingOwners.Count -gt 0) {
+        throw "Port $port still has listening process(es): $($remainingOwners -join ', ')"
     }
 }
 
@@ -368,15 +313,15 @@ function Invoke-ProjectBuild {
     }
 
     Write-Output "Building current Novel Studio checkout before startup..."
-    $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
+    $npm = Get-NpmCmd
     & $npm run build
     if ($LASTEXITCODE -ne 0) {
-        throw "Production build failed; server was not started. If this was an EPERM write to dist, close the process locking the build output or use -SkipBuild only for a smoke test against existing artifacts."
+        throw "Production build failed; server was not started."
     }
 }
 
 function Clear-StartupArtifacts {
-    $blocked = $false
+    $blockedPaths = @()
     foreach ($path in @($stdout, $stderr, $pidFile)) {
         try {
             if (Test-Path -LiteralPath $path) {
@@ -384,100 +329,83 @@ function Clear-StartupArtifacts {
             }
         }
         catch {
-            $blocked = $true
-            Write-Warning "Could not remove stale startup artifact ${path}: $($_.Exception.Message)"
+            $blockedPaths += $path
         }
     }
 
-    if ($blocked) {
+    if ($blockedPaths.Count -gt 0) {
         $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
         New-Item -ItemType Directory -Path $fallbackDataDirectory -Force | Out-Null
         $script:stdout = Join-Path $fallbackDataDirectory "server.${stamp}.stdout.log"
         $script:stderr = Join-Path $fallbackDataDirectory "server.${stamp}.stderr.log"
         $script:pidFile = Join-Path $fallbackDataDirectory "server.${stamp}.pid.json"
-        Write-Output "Using per-run startup artifacts because fixed startup artifacts are locked: $script:stdout"
+        Write-Output "Fixed startup artifacts are locked; using per-run startup state in $fallbackDataDirectory."
     }
 }
 
-function Get-StartupDiagnostics {
-    $sections = @()
-    foreach ($path in @($stderr, $stdout)) {
-        if (Test-Path -LiteralPath $path) {
-            try {
-                $tail = @(Get-Content -Encoding UTF8 -LiteralPath $path -Tail 40)
-                if ($tail.Count -gt 0) {
-                    $sections += "---- $path ----"
-                    $sections += $tail
-                }
-            }
-            catch {
-                $sections += "Could not read ${path}: $($_.Exception.Message)"
-            }
-        }
-    }
+function New-ServerProcessInfo {
+    $node = Get-NodeExe
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $node
+    $psi.Arguments = "`"$serverEntry`""
+    $psi.WorkingDirectory = $root
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
 
-    if ($sections.Count -eq 0) {
-        return "No startup logs were written."
-    }
-
-    return ($sections -join [Environment]::NewLine)
+    return $psi
 }
 
-function Test-ProcessHasExited {
-    param($Process)
-
-    if ($null -eq $Process) {
-        return $true
+function Start-ServerDetached {
+    Clear-StartupArtifacts
+    $env:NODE_ENV = "production"
+    $env:NOVEL_STUDIO_VERSION = $packageVersion
+    $env:NOVEL_STUDIO_COMMIT = $currentCommit
+    $env:NOVEL_STUDIO_STARTED_AT = $startedAt
+    $env:NOVEL_STUDIO_WORKSPACE_ROOT = $root
+    if ($effectiveLibraryRoot) {
+        $env:NOVEL_STUDIO_LIBRARY = $effectiveLibraryRoot
+    }
+    else {
+        Remove-Item Env:\NOVEL_STUDIO_LIBRARY -ErrorAction SilentlyContinue
     }
 
-    try {
-        $Process.Refresh()
-        return $Process.HasExited
-    }
-    catch {
-        return $true
-    }
+    $psi = New-ServerProcessInfo
+    $server = [System.Diagnostics.Process]::Start($psi)
+
+    return $server
 }
 
-function Wait-HealthyStartedServer {
-    param([Parameter(Mandatory = $true)]$Starter)
+function Wait-HealthyServer {
+    param([Parameter(Mandatory = $true)]$Server)
 
     $deadline = (Get-Date).AddSeconds(20)
-    $stableHealthChecks = 0
-    $health = $null
-
     while ((Get-Date) -lt $deadline) {
-        if (Test-ProcessHasExited -Process $Starter) {
-            throw "Novel Studio starter exited before the service became stable. $(Get-StartupDiagnostics)"
+        if ($Server.HasExited) {
+            throw "Novel Studio server exited before it became healthy. Exit code: $($Server.ExitCode)"
         }
 
         $health = Get-NovelStudioHealth
-        if ((Test-HealthMatchesCurrentRun -Health $health) -and (Test-NovelStudioPortInUse)) {
-            $stableHealthChecks += 1
-            if ($stableHealthChecks -ge 3) {
-                return $health
-            }
-        }
-        else {
-            $stableHealthChecks = 0
+        if (Test-HealthMatchesCurrentRun -Health $health) {
+            return $health
         }
 
-        Start-Sleep -Milliseconds 500
+        Start-Sleep -Milliseconds 300
     }
 
-    throw "Novel Studio did not become healthy within 20 seconds. $(Get-StartupDiagnostics)"
+    throw "Novel Studio did not become healthy within 20 seconds."
 }
 
 function Save-ServerPidState {
-    param([int]$StarterPid)
+    param([Parameter(Mandatory = $true)][int]$ServerPid)
 
     try {
-        New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
+        New-Item -ItemType Directory -Path (Split-Path -Parent $pidFile) -Force | Out-Null
         $state = [ordered]@{
-            starterPid = $StarterPid
+            serverPid = $ServerPid
             portOwnerPids = @(Get-PortOwnerProcessIds)
             commit = $currentCommit
             workspaceRoot = $root
+            libraryRoot = $effectiveLibraryRoot
             startedAt = $startedAt
             url = $url
         }
@@ -502,8 +430,40 @@ function Write-HealthSummary {
     }
 }
 
+function Open-Browser {
+    if ($NoBrowser) {
+        return
+    }
+
+    try {
+        & cmd.exe /c start "" $url | Out-Null
+    }
+    catch {
+        Write-Warning "Could not open browser automatically: $($_.Exception.Message)"
+    }
+}
+
+function Start-ForegroundServer {
+    $node = Get-NodeExe
+    $env:NODE_ENV = "production"
+    $env:NOVEL_STUDIO_VERSION = $packageVersion
+    $env:NOVEL_STUDIO_COMMIT = $currentCommit
+    $env:NOVEL_STUDIO_STARTED_AT = $startedAt
+    $env:NOVEL_STUDIO_WORKSPACE_ROOT = $root
+    if ($effectiveLibraryRoot) {
+        $env:NOVEL_STUDIO_LIBRARY = $effectiveLibraryRoot
+    }
+    else {
+        Remove-Item Env:\NOVEL_STUDIO_LIBRARY -ErrorAction SilentlyContinue
+    }
+
+    Write-Output "Starting Novel Studio in the foreground at $url. Stop this command to stop the server."
+    & $node $serverEntry
+    exit $LASTEXITCODE
+}
+
 try {
-    $lockAcquired = $mutex.WaitOne([TimeSpan]::FromSeconds(30))
+    $lockAcquired = $startupMutex.WaitOne([TimeSpan]::FromSeconds(30))
     if (-not $lockAcquired) {
         throw "Another Novel Studio startup is already in progress. Please wait a few seconds and try again."
     }
@@ -515,72 +475,71 @@ try {
     $currentCommit = Get-CurrentCommit
     $packageVersion = Get-PackageVersion
     $startedAt = [DateTimeOffset]::UtcNow.ToString("o")
-    $starter = $null
+    $effectiveLibraryRoot = Resolve-OptionalPath -PathValue $LibraryRoot
 
-    $health = Get-NovelStudioHealth
-    if ((Test-HealthMatchesCurrentRun -Health $health) -and $ReuseExisting) {
-    }
-    else {
-        if ($null -ne $health) {
-            Stop-StalePortOwners -Reason "refreshing local service before startup" -Health $health
-        }
-        elseif (Test-NovelStudioPortInUse) {
-            Stop-StalePortOwners -Reason "port occupied without healthy response"
-        }
-        Stop-RecordedServerProcesses
-
-        Invoke-ProjectBuild
-
-        if (Test-NovelStudioPortInUse) {
-            throw "Port $port is already in use after stale process cleanup."
-        }
-
-        New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
-        Clear-StartupArtifacts
-        $pathValue = [Environment]::GetEnvironmentVariable("PATH", "Process")
-        if (-not $pathValue) {
-            $pathValue = [Environment]::GetEnvironmentVariable("Path", "Process")
-        }
-        if ($pathValue) {
-            [Environment]::SetEnvironmentVariable("Path", $null, "Process")
-            [Environment]::SetEnvironmentVariable("PATH", $pathValue, "Process")
-        }
-        $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
-        [Environment]::SetEnvironmentVariable("NOVEL_STUDIO_VERSION", $packageVersion, "Process")
-        [Environment]::SetEnvironmentVariable("NOVEL_STUDIO_COMMIT", $currentCommit, "Process")
-        [Environment]::SetEnvironmentVariable("NOVEL_STUDIO_STARTED_AT", $startedAt, "Process")
-        [Environment]::SetEnvironmentVariable("NOVEL_STUDIO_WORKSPACE_ROOT", $root, "Process")
-        $starter = Start-Process -FilePath $npm `
-            -ArgumentList @("start") `
-            -WorkingDirectory $root `
-            -WindowStyle Hidden `
-            -RedirectStandardOutput $stdout `
-            -RedirectStandardError $stderr `
-            -PassThru
-
-        $health = Wait-HealthyStartedServer -Starter $starter
-        Save-ServerPidState -StarterPid $starter.Id
+    if ($Stop) {
+        Stop-LocalNovelStudio
+        Write-Output "Novel Studio local service is stopped."
+        exit 0
     }
 
-    $health = Get-NovelStudioHealth
-    if (-not (Test-HealthMatchesCurrentRun -Health $health)) {
-        throw "Novel Studio failed to start. See data/server.stderr.log."
+    if ($ReuseExisting) {
+        $existingHealth = Get-NovelStudioHealth
+        if (Test-HealthMatchesCurrentRun -Health $existingHealth) {
+            Write-HealthSummary -Health $existingHealth
+            Open-Browser
+            exit 0
+        }
     }
 
-    if (-not $NoBrowser) {
-        Start-Process $url
+    Stop-LocalNovelStudio
+    Invoke-ProjectBuild
+
+    if (-not (Test-Path -LiteralPath $serverEntry)) {
+        throw "Server build output is missing: $serverEntry. Run without -SkipBuild or run npm.cmd run build first."
     }
 
-    Write-HealthSummary -Health $health
+    if ($Foreground) {
+        Start-ForegroundServer
+    }
 
-    if ($Wait -and $null -ne $starter) {
-        Write-Output "Keeping Novel Studio attached because -Wait was provided. Stop this process to stop the server."
-        Wait-Process -Id $starter.Id
+    $server = Start-ServerDetached
+    $health = $null
+    try {
+        $health = Wait-HealthyServer -Server $server
+        Write-HealthSummary -Health $health
+
+        if ($SmokeTest) {
+            Write-Output "Startup smoke test passed; stopping the temporary server."
+            Stop-ProcessIfRunning -ProcessId $server.Id
+            exit 0
+        }
+
+        Save-ServerPidState -ServerPid $server.Id
+        Open-Browser
+    }
+    catch {
+        if ($SmokeTest -or $Wait) {
+            Stop-ProcessIfRunning -ProcessId $server.Id
+        }
+        throw
+    }
+
+    if ($Wait) {
+        Write-Output "Keeping Novel Studio attached because -Wait was provided. Stop this command to stop the server."
+        try {
+            $server.WaitForExit()
+        }
+        finally {
+            if (-not $server.HasExited) {
+                Stop-ProcessIfRunning -ProcessId $server.Id
+            }
+        }
     }
 }
 finally {
     if ($lockAcquired) {
-        $mutex.ReleaseMutex()
+        $startupMutex.ReleaseMutex()
     }
-    $mutex.Dispose()
+    $startupMutex.Dispose()
 }

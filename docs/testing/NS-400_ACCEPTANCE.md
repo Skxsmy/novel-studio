@@ -35,6 +35,10 @@ NS-400 是 M3 与 M4 之间的整备门。它不新增小说功能，而是降�
 | NS400-G02 | 通过 | `scripts/start.ps1` 支持 `-Wait`，用于 Codex Browser / 自动化验收期间保持服务前台存活 |
 | NS400-G03 | 通过 | 固定 `data/server.*` 启动文件被锁住时，脚本改用 `%TEMP%\novel-studio\server.<timestamp>.*`，不会把 pid 写入失败误判为服务失败 |
 | NS400-G04 | 通过 | Codex Browser 更新后复测：`node_repl/js` 最小探针通过，in-app browser 可读取 Novel Studio DOM 并点击进入作品概览 |
+| NS400-H01 | 通过 | 启动器瘦身：脚本直接启动 Node 服务产物，不再通过 `npm start` 父进程；新增 `-SmokeTest`、`-Foreground` 和 `-Stop` |
+| NS400-H02 | 通过 | `-SmokeTest` 启动临时服务、读取 health、停止服务，结束后 `127.0.0.1:4317` 无残留监听 |
+| NS400-H03 | 通过 | Playwright 浏览器验收改为进程内测试服务和隔离作品库；M3 已实现交互自动执行，M4/M5 能力进入待实现验收目录 |
+| NS400-H04 | 通过 | 启动器保留轻量互斥锁，并用当前工作区与 commit 校验健康服务，避免并发启动和误复用旧服务 |
 
 ## 本轮命令记录
 
@@ -60,10 +64,15 @@ NS-400 是 M3 与 M4 之间的整备门。它不新增小说功能，而是降�
 - 2026-06-21 `scripts/start.ps1 -NoBrowser -SkipBuild -Wait`：能保持 `127.0.0.1:4317` 服务供浏览器验收；固定 `data/server.*` 文件被当前 Windows 环境拒写时切换到 `%TEMP%\novel-studio`。
 - 2026-06-21 in-app browser：打开 `http://127.0.0.1:4317/`，DOM 显示 heading `选择一个系列`；点击“雾港纪事 10 个场景 · 更新于 6月20日”后 heading 变为“雾港纪事”。
 - 2026-06-21 `npm.cmd run check`：通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。沙箱内同一命令因 `dist` 目录 EPERM 失败，沙箱外使用已批准前缀重跑通过。
+- 2026-06-21 `scripts/start.ps1 -NoBrowser -SkipBuild -SmokeTest`：通过；临时服务 health 返回当前工作区和作品库，脚本随后停止服务；端口检查确认无残留监听。
+- 2026-06-21 `npm.cmd run test:e2e:quick`：通过；1 个 Chrome 用例验证创建系列、切换工作区、专注模式、新建第二部 / 第二幕 / 第一章 / 场景，并用 API 校验第二部场景归属；命令自然退出。
+- 2026-06-21 最终收口 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1 -NoBrowser -SkipBuild -SmokeTest`：通过；互斥锁版本脚本启动并停止临时服务，端口只剩 `TIME_WAIT`。
+- 2026-06-21 最终收口 `npm.cmd run check`：通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。
+- 2026-06-21 最终收口 `npm.cmd run test:e2e`：通过；构建后 1 个 Chrome 浏览器验收用例通过，命令自然退出。
 
 ## 已知风险
 
 - 本任务会移动较多代码，必须优先保持行为不变。
 - 拆分 storage 前不得修改文件格式。
-- E2E 建立前，浏览器验收仍是重要补充证据，但不能作为唯一回归机制。
-- 当前 Codex / Windows 沙箱中，`E:\Codex\projects\novel-studio\data` 拒绝新建 JSON 探针文件；脚本已使用 `%TEMP%\novel-studio` 作为启动状态 fallback，但双击启动器仍应在普通 PowerShell 环境中抽样复测。
+- 当前浏览器 E2E 只覆盖 M3 已实现主路径；M4/M5 的 AI、上下文、候选变更仍是待实现验收目录，不能视为已完成。
+- 当前 Codex / Windows 沙箱中，固定 `data/server.*` 文件可能拒绝改写；脚本已使用 `%TEMP%\novel-studio` 作为启动状态 fallback。Codex 自动化启动验收优先使用 `-SmokeTest`，双击启动器仍应在普通 PowerShell 环境中抽样复测。

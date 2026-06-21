@@ -60,6 +60,9 @@ NS-400 的目标是把 M3 产物整理成 M4 可以安全承载 AI 能力的形�
      2. 新建部 / 幕 / 章 → 移动场景 → 稳定 ID → 层级校验 `valid=true` → PlanningBoard 投影正确。
      3. 创建设定条目 → 正文提及索引 → `on-mention/manual/never` 资料范围预览 → 后文进展和角色所知不向前泄漏。
    - 这些测试不替代人工 UX 验收，但必须能在重构后自动报警。
+   - 启动器验收优先使用 `scripts/start.ps1 -NoBrowser -SkipBuild -SmokeTest`。它会启动临时服务、检查 `/api/v1/health` 并停止服务，适合 Codex / 自动化环境，不依赖后台进程在命令结束后继续存活。
+   - 项目内 Playwright 验收使用隔离作品库和进程内 Fastify 服务，详见 `docs/testing/BROWSER_ACCEPTANCE.md`。它只运行已实现能力，不把 M4/M5 待办页面占位伪装成通过。
+   - 需要 Codex Browser 或其他外部工具连接本地页面时，使用 `scripts/start.ps1 -NoBrowser -SkipBuild -Foreground`，由调用方负责结束命令。
 
 6. **NS400-F：M4 契约先行**
    - 在实现模型前先定义最小：
@@ -89,6 +92,7 @@ NS-400 的目标是把 M3 产物整理成 M4 可以安全承载 AI 能力的形�
 | NS400-C01 | 至少一个 storage 领域辅助被提取并保留测试 | 后续代码 diff |
 | NS400-D01 | 至少一个前端大视图被拆出子组件且行为不变 | 后续代码 diff + web 测试 |
 | NS400-E01 | 三条核心烟测以自动化脚本或测试形式存在 | `packages/storage/test/smoke.test.ts` + `npm.cmd run test:smoke` |
+| NS400-E02 | 已实现主路径有浏览器自动验收，未来能力有待实现验收目录 | `tests/e2e/browser-acceptance.spec.ts` + `docs/testing/BROWSER_ACCEPTANCE.md` |
 | NS400-F01 | M4 最小 AI 契约写入 contracts/docs，且不接真实模型 | `packages/contracts/src/index.ts` + 架构/API/数据模型文档 |
 
 ## 完成定义

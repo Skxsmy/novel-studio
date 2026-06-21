@@ -75,6 +75,18 @@
   - 启动脚本会清理记录过的 starter / port owner 进程，避免 npm 父进程占住日志句柄；
   - 当 `data/server.*` 文件被 Windows 或宿主环境锁住时，启动脚本会把本次日志和 pid 状态写到 `%TEMP%\novel-studio`；
   - 新增 `docs/DEVELOPMENT.md` 和 `scripts/dev-shell.ps1`，统一 PowerShell UTF-8 文本读取约定。
+- NS-400 启动器瘦身补丁：
+  - `scripts/start.ps1` 不再通过 `npm start` 父进程间接启动服务，改为直接运行 `apps/server/dist/index.js`；
+  - 新增 `-SmokeTest`，用于 Codex / 自动化环境中的启动验收：启动、等待 health、输出身份、停止临时服务；
+  - 新增 `-Foreground`，用于 Playwright 或其他测试工具托管服务生命周期；
+  - 新增 `-Stop`，用于显式停止当前 checkout 的本地服务；
+  - 保留轻量 `Local\NovelStudioStartLock` 互斥锁，并恢复当前工作区 + commit 健康校验，避免并发启动和误复用旧服务；
+  - 固定 `data/server.*` 文件被锁住时不再刷出多条 warning，改为简短提示并使用 `%TEMP%\novel-studio`。
+- NS-400 浏览器验收补丁：
+  - 已新增 `@playwright/test`、`playwright.config.ts`、`tests/e2e/` 和 `docs/testing/BROWSER_ACCEPTANCE.md`；
+  - Playwright 全局 setup 在测试进程内启动 Fastify，并使用 `%TEMP%\novel-studio-browser-acceptance\library` 作为隔离作品库，测试结束后关闭服务；
+  - 当前自动化浏览器用例只覆盖 M3 已实现主路径：创建系列、切换主要工作区、专注模式、新建第二部 / 第二幕 / 第一章 / 场景，并用 API 校验第二部场景归属；
+  - M4/M5 的 AI、上下文和候选变更验收已写入待实现目录，不以跳过测试或占位断言冒充通过。
 
 ## 验证
 
@@ -95,6 +107,10 @@
   - Browser 插件 `26.616.51431` 文档接口可返回；
   - in-app browser 打开 `http://127.0.0.1:4317/`，读取作品库 DOM，并点击“雾港纪事 10 个场景 · 更新于 6月20日”进入作品概览，heading 为“雾港纪事”。
 - 2026-06-21 `npm.cmd run check`：通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。沙箱内首次运行因 `dist` 目录 EPERM 失败，沙箱外使用已批准前缀重跑通过。
+- 2026-06-21 `scripts/start.ps1 -NoBrowser -SkipBuild -SmokeTest`：通过；临时服务返回 health，随后脚本停止该服务；检查 `127.0.0.1:4317` 无残留监听进程。
+- 2026-06-21 最终收口 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1 -NoBrowser -SkipBuild -SmokeTest`：通过；互斥锁版本脚本启动并停止临时服务，端口只剩 `TIME_WAIT`，无监听进程。
+- 2026-06-21 最终收口 `npm.cmd run check`：通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。
+- 2026-06-21 最终收口 `npm.cmd run test:e2e`：通过；构建后 1 个 Chrome 用例通过，命令自然退出；端口只剩 `TIME_WAIT`，无监听进程。
 
 ## 已知限制
 
@@ -105,8 +121,8 @@
 - 正文提及只表示名称出现在正文，不自动把条目加入场景的人物、地点或情节线显式关联。
 - 同名同范围被记录为歧义并不分配给任一条目；人工消歧 UI 尚未实现。
 - 当前没有应用内停止服务或托盘入口；启动脚本记录 PID 状态并会清理可确认属于本 checkout 的旧进程，但不会结束无法确认来源的端口占用者。
-- 浏览器验收留下了测试用系列、故事进展、未来隐藏记录和角色所知记录；它们位于本地示例作品库，不进入 Git。
-- 当前 Codex 更新后内置 Browser 控制通道已恢复；若后续再次出现 `sandboxPolicy` 或 URL policy 错误，先用 `node_repl/js` 最小探针和 Browser 插件文档接口分层确认，不要再用本地代理绕过。
+- 早前手工浏览器验收留下了测试用系列、故事进展、未来隐藏记录和角色所知记录；它们位于本地示例作品库，不进入 Git。新的 Playwright 验收使用隔离临时作品库。
+- 当前 Codex 更新后内置 Browser 控制通道已恢复；若后续再次出现 `sandboxPolicy` 或 URL policy 错误，先用 `node_repl/js` 最小探针和 Browser 插件文档接口分层确认，不要再用本地代理绕过。Codex shell 中不要依赖“命令结束后仍保留后台服务”的假设；启动验收优先用 `-SmokeTest`，浏览器或 E2E 验收应由能托管服务生命周期的工具使用 `-Foreground`。
 
 ## 唯一下一任务
 

@@ -17,10 +17,14 @@
     "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
     "test": "npm run build:packages && npm run test --workspaces --if-present",
     "test:smoke": "npm run test:smoke -w @novel-studio/storage",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:quick": "playwright test",
+    "test:e2e:headed": "npm run build && playwright test --headed",
     "start": "npm run start -w @novel-studio/server",
     "check": "npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.0",
     "concurrently": "^9.2.1",
     "typescript": "^5.9.3"
   },

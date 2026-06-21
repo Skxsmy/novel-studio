@@ -1,7 +1,11 @@
 node_modules/
+.npm-cache/
 dist/
 .vite/
 coverage/
+.browser-acceptance/
+playwright-report/
+test-results/
 *.log
 *.tsbuildinfo
 data/library/
