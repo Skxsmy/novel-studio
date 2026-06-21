@@ -25,7 +25,9 @@ import {
   UpdateTimelineEventInputSchema,
 } from "@novel-studio/contracts";
 import { ProjectRepository, StorageError } from "@novel-studio/storage";
+import { registerAiRoutes } from "./routes/ai.js";
 import { registerCodexRoutes } from "./routes/codex.js";
+import { registerContextRoutes } from "./routes/context.js";
 
 export interface BuildAppOptions {
   libraryRoot: string;
@@ -260,6 +262,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   );
 
   registerCodexRoutes(app, repository);
+  registerAiRoutes(app, repository);
+  registerContextRoutes(app, repository);
 
   app.post<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/timeline/events",

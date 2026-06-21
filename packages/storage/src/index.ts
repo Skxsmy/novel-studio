@@ -75,6 +75,7 @@ import {
   UpdateScenePlanningInputSchema,
   UpdateSceneInputSchema,
   UpdateSceneSectionInputSchema,
+  UpdateSeriesCloudPolicyInputSchema,
   UpdateTimelineEventInputSchema,
   type ActManifest,
   type ArchiveCodexDocumentInput,
@@ -158,6 +159,7 @@ import {
   type UpdateScenePlanningInput,
   type UpdateSceneInput,
   type UpdateSceneSectionInput,
+  type UpdateSeriesCloudPolicyInput,
   type UpdateTimelineEventInput,
 } from "@novel-studio/contracts";
 import { StorageError } from "./errors.js";
@@ -1102,6 +1104,24 @@ export class ProjectRepository {
       }
     }
     return { manifest, books, scenes };
+  }
+
+  async updateSeriesCloudPolicy(
+    seriesId: string,
+    rawInput: UpdateSeriesCloudPolicyInput,
+  ): Promise<SeriesManifest> {
+    const input = UpdateSeriesCloudPolicyInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+      SeriesManifestSchema.parse(value),
+    );
+    const updatedManifest = SeriesManifestSchema.parse({
+      ...manifest,
+      cloudPolicy: input.cloudPolicy,
+      updatedAt: new Date().toISOString(),
+    });
+    await atomicWrite(path.join(seriesRoot, SERIES_FILE), serializeYaml(updatedManifest));
+    return updatedManifest;
   }
 
   async getScene(seriesId: string, sceneId: string): Promise<SceneDocument> {

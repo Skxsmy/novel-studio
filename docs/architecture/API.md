@@ -110,9 +110,9 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 
 进展记录和角色所知均为权威 YAML 文件，更新、归档和恢复要求自身 `baseRevision`。有效状态查询只按当前叙事位置返回已生效记录；未来记录只返回数量，不返回摘要、证据或 ID。
 
-## M4 AI 基础设施草案
+## M4 AI 基础设施
 
-NS-401 只确定接口草案，不接真实模型。M4 的第一条纵向闭环使用 MockProvider 完成“上下文预览 → 非写入型调用 → 调用日志”。
+`NS-404` 与 `NS-405` 已实现模型配置、权限边界和上下文预览；非写入型调用、提示词版本、真实 Provider 和调用日志仍在后续 M4 任务中完成。M4 的第一条纵向闭环使用 MockProvider 完成“上下文预览 → 非写入型调用 → 调用日志”。
 
 所有 M4 AI 接口必须满足：
 
@@ -127,10 +127,13 @@ NS-401 只确定接口草案，不接真实模型。M4 的第一条纵向闭环�
 - `GET /series/:seriesId/ai/model-profiles`
 - `POST /series/:seriesId/ai/model-profiles`
 - `PUT /series/:seriesId/ai/model-profiles/:profileId`
+- `PUT /series/:seriesId/ai/cloud-policy`
 - `POST /series/:seriesId/ai/model-profiles/:profileId/test`
 - `GET /series/:seriesId/ai/model-profiles/:profileId/models`
 
 `ModelProfile` 描述一个可选模型配置，包括 Provider、模型名、能力、默认参数、云端策略和凭据引用。API 不接收也不返回明文 API key。
+
+`PUT /ai/cloud-policy` 更新作品级云端权限，当前取值为 `local-only` 或 `cloud-allowed`。作品处于 `local-only` 时，云端 Provider 的连接测试和后续调用都必须返回权限错误。
 
 `POST /model-profiles/:profileId/test` 只做连接测试和能力读取。云端被禁用时直接返回 403；凭据缺失返回 422；Provider 认证失败返回 401 或 502，并附错误分类。
 
@@ -163,9 +166,11 @@ NS-401 只确定接口草案，不接真实模型。M4 的第一条纵向闭环�
 - `taskKind`
 - `userRequest`
 - `promptTemplateId`
+- `promptTemplateVersion`
 - `selection`，可选正文选区
 - `manualContextIds`，作者主动选择资料
 - `modelProfileId`，用于估算用量和上下文窗口
+- `tokenBudget`，可选 token 预算
 
 响应返回 `ContextBundle`。每个 `ContextItem` 必须说明：
 

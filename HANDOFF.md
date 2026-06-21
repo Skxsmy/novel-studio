@@ -5,8 +5,8 @@
 ## 仓库状态
 
 - 分支：`main`
-- 最近相关提交：查看 `git log -5 --oneline`；应包含 NS-401、NS-402 和 NS-403 提交。
-- 当前任务：`NS-403` 已完成；M4 已拆成 `NS-401` 至 `NS-410`。按推荐实现顺序，下一任务是 `NS-405`，目标是场景级上下文装配器、权限过滤、未来剧情隔离和用量估算。
+- 最近相关提交：查看 `git log -5 --oneline`；应包含 NS-401、NS-402、NS-403、NS-404/NS-405 提交。
+- 当前任务：`NS-404` 与 `NS-405` 已完成；M4 已拆成 `NS-401` 至 `NS-410`。下一任务是 `NS-406`，目标是提示词模板、角色、Preset、声明式渲染和版本历史。
 - 预期脏文件：无。接手时运行 `git status --short` 核实；如不为空，先判断是否为用户未提交改动。
 
 ## 已完成
@@ -115,6 +115,21 @@
   - 根目录 `build:packages` 已把 `@novel-studio/ai` 加入 contracts 与 storage 之间；
   - 已新增 `packages/ai/test/mockProvider.test.ts`、`docs/tasks/NS-403.md` 和 `docs/testing/NS-403_ACCEPTANCE.md`；
   - 未新增真实 Provider、模型设置 UI、API key 文件、网络调用或正文 / 已确认设定写入能力。
+- NS-404：
+  - 已新增模型配置 API、作品级云端权限 API 和 Provider 连接测试路由；
+  - 已新增 `apps/server/src/ai/policy.ts`，集中处理云端禁用、凭据引用和错误状态；
+  - 已新增 `packages/ai/src/credentials.ts`，提供凭据存储抽象与 Windows Credential Manager 实现，不落明文文件；
+  - `CredentialRefSchema` 会拒绝明显的明文密钥字符串；
+  - 设置页“模型与资料权限”可添加本机验收模型、建立 Provider 配置占位、保存模型代号和凭据引用、测试连接；
+  - 云端禁用或缺少凭据引用时服务端拒绝连接测试，不会退回 MockProvider；
+  - 已新增 `docs/tasks/NS-404.md` 和 `docs/testing/NS-404_ACCEPTANCE.md`。
+- NS-405：
+  - 已新增 `POST /api/v1/series/:seriesId/context/preview` 和 `GET /api/v1/series/:seriesId/context/:contextBundleId`；
+  - 上下文预览包含编辑职责占位、用户请求、当前场景、可定位正文选区、前一场景摘要、可读设定条目、当前有效世界事实 / 关系变化 / 角色所知；
+  - `never`、隐藏区段、仅本机资料、未选择 manual 资料和后文信息会进入排除清单；
+  - 后文进展和角色所知只记录被排除，不泄露未来摘要、证据或内部 ID；
+  - 写作页右侧“场景资料”已提供最小上下文预览入口；
+  - 已新增 `docs/tasks/NS-405.md` 和 `docs/testing/NS-405_ACCEPTANCE.md`。
 
 ## 验证
 
@@ -148,6 +163,12 @@
 - 2026-06-21 NS-403 `npm.cmd run test -w @novel-studio/ai`：通过；1 个文件、9 项测试。
 - 2026-06-21 NS-403 `npm.cmd install --package-lock-only --ignore-scripts`：通过；沙箱内首次因 `package-lock.json` 写入 EPERM 失败，提升权限后更新 lockfile。
 - 2026-06-21 NS-403 `npm.cmd run check`：通过；Server 7/7，Web 14/14，AI 9/9，Storage 41/41，生产构建通过。
+- 2026-06-21 NS-404/NS-405 `npm.cmd run test -w @novel-studio/ai`：通过；1 个文件、10 项测试。
+- 2026-06-21 NS-404/NS-405 `npm.cmd run test -w @novel-studio/server`：通过；3 个文件、10 项测试。
+- 2026-06-21 NS-404/NS-405 `npm.cmd run typecheck -w @novel-studio/web`：通过；首次沙箱内运行因 `tsconfig.tsbuildinfo` 写入 EPERM 失败，提升权限后通过。
+- 2026-06-21 NS-404/NS-405 `npm.cmd run test -w @novel-studio/web`：通过；5 个文件、14 项测试。首次沙箱内运行因 Vite 临时文件写入 EPERM 失败，提升权限后通过。
+- 2026-06-21 NS-404/NS-405 `npm.cmd run check`：通过；Server 10/10，Web 14/14，AI 10/10，Storage 41/41，生产构建通过。
+- 2026-06-21 NS-404/NS-405 `npm.cmd run test:e2e`：通过；1 个 Chrome 用例，覆盖添加本机验收模型、连接测试和写作页生成上下文预览。
 
 ## 已知限制
 
@@ -160,15 +181,18 @@
 - 当前没有应用内停止服务或托盘入口；启动脚本记录 PID 状态并会清理可确认属于本 checkout 的旧进程，但不会结束无法确认来源的端口占用者。
 - 早前手工浏览器验收留下了测试用系列、故事进展、未来隐藏记录和角色所知记录；它们位于本地示例作品库，不进入 Git。新的 Playwright 验收使用隔离临时作品库。
 - 当前 Codex 更新后内置 Browser 控制通道已恢复；若后续再次出现 `sandboxPolicy` 或 URL policy 错误，先用 `node_repl/js` 最小探针和 Browser 插件文档接口分层确认，不要再用本地代理绕过。Codex shell 中不要依赖“命令结束后仍保留后台服务”的假设；启动验收优先用 `-SmokeTest`，浏览器或 E2E 验收应由能托管服务生命周期的工具使用 `-Foreground`。
+- NS-404/NS-405 只实现最小设置页和写作页上下文预览入口；完整上下文分组、调用记录 UI 和浏览器 E2E 归入 `NS-409`。
+- 当前上下文预览里的编辑职责仍是占位文本；`NS-406` 必须把角色职责、提示词模板和版本文件接入。
+- 真实 Provider、真实密钥录入和非写入型模型调用尚未实现；分别属于 `NS-408` 和 `NS-407`。
 
 ## 唯一下一任务
 
-`NS-405`：场景级上下文装配器、权限过滤、未来剧情隔离和用量估算。
+`NS-406`：提示词模板、角色、Preset、声明式渲染和版本历史。
 
 当前优先级：
 
-1. 新增上下文装配模块，不塞回 `apps/server/src/app.ts` 或 `WriteView.tsx`。
-2. 先支持当前场景、用户请求、角色职责占位、场景正文、相邻摘要、已确认设定有效状态和排除项。
-3. 明确排除 `never`、隐藏区段、未来进展和未来角色所知，并记录人类可读理由。
-4. 为 `POST /api/v1/series/:seriesId/context/preview` 做最小 API 与测试。
+1. 定义角色、提示词模板、Preset 和组件文件的读写边界，不把提示词硬编码进路由。
+2. 建立内置角色：主笔伙伴、结构编辑、人物编辑、连续性编辑、文风编辑、冷酷读者、研究员。
+3. 模板渲染必须是声明式输入替换，不执行任意 JavaScript。
+4. 每次预览或调用都能记录 PromptTemplate ID 和版本。
 5. 不调用真实 Provider，不生成正文，不写入已确认设定或故事进展。

@@ -105,3 +105,27 @@ export const ContextBundleSchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type ContextBundle = z.infer<typeof ContextBundleSchema>;
+
+export const ContextPreviewSelectionSchema = z.object({
+  start: z.number().int().nonnegative(),
+  end: z.number().int().positive(),
+  text: z.string().max(16000).default(""),
+}).refine((selection) => selection.end > selection.start, {
+  message: "选区结束位置必须大于开始位置",
+  path: ["end"],
+});
+export type ContextPreviewSelection = z.infer<typeof ContextPreviewSelectionSchema>;
+
+export const ContextPreviewInputSchema = z.object({
+  sceneId: z.string().uuid(),
+  roleId: z.string().min(1).max(120).default("continuity-editor"),
+  taskKind: AiTaskKindSchema.default("continuity-check"),
+  userRequest: z.string().trim().min(1).max(16000),
+  promptTemplateId: z.string().uuid(),
+  promptTemplateVersion: z.number().int().positive().default(1),
+  selection: ContextPreviewSelectionSchema.nullable().default(null),
+  manualContextIds: z.array(z.string().min(1).max(240)).default([]),
+  modelProfileId: z.string().uuid().nullable().default(null),
+  tokenBudget: z.number().int().positive().nullable().default(null),
+});
+export type ContextPreviewInput = z.input<typeof ContextPreviewInputSchema>;

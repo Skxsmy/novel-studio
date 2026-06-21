@@ -11,8 +11,10 @@ import {
 import {
   MockProvider,
   ProviderAdapterError,
+  assertSafeCredentialRef,
   classifyProviderError,
   createDefaultProviderRegistry,
+  isLikelySecret,
 } from "../src/index.js";
 
 const NOW = "2026-06-21T00:00:00.000Z";
@@ -272,5 +274,14 @@ describe("ProviderAdapter core and MockProvider", () => {
       ok: false,
       error: { code: "provider-error" },
     });
+  });
+
+  it("distinguishes credential references from likely plaintext secrets", () => {
+    expect(isLikelySecret("novel-studio:openai:default")).toBe(false);
+    expect(isLikelySecret("sk-this-looks-like-a-secret")).toBe(true);
+    expect(() => assertSafeCredentialRef("novel-studio:ollama:local")).not.toThrow();
+    expect(() => assertSafeCredentialRef("Bearer very-secret-token")).toThrow(
+      "凭据引用不能包含明文密钥",
+    );
   });
 });

@@ -164,7 +164,9 @@ updatedAt: 2026-06-21T00:00:00.000Z
 archivedAt: null
 ```
 
-`credentialRef` 是系统凭据引用，例如 `novel-studio:openai:default`。不得把 API key 写入 YAML、SQLite、调用日志、浏览器 localStorage 或 Git。
+`credentialRef` 是系统凭据引用，例如 `novel-studio:openai:default`。不得把 API key 写入 YAML、SQLite、调用日志、浏览器 localStorage 或 Git。模型配置校验会拒绝明显的明文密钥字符串，例如 `sk-...`、`api_key` 或 `bearer ...`。
+
+作品级 `series.yaml` 也保存 `cloudPolicy`。当作品为 `local-only` 时，云端 Provider 的连接测试和后续调用都必须被服务端拒绝。
 
 ### AgentRole
 
@@ -244,19 +246,30 @@ promptTemplateId: 00000000-0000-0000-0000-000000000000
 promptTemplateVersion: 1
 items:
   - id: current-scene
-    sourceType: scene
-    sourceId: 00000000-0000-0000-0000-000000000000
+    kind: scene
+    source:
+      type: scene
+      id: 00000000-0000-0000-0000-000000000000
+      revision: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      label: 当前场景
     title: 当前场景正文
+    content: 当前场景正文……
+    inclusion: required
     inclusionReason: 当前写作场景
+    access: local-only
     contextPolicy: always
-    textHash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-    estimatedTokens: 900
+    tokenEstimate: 900
     manuallySelected: false
+    textHash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 excluded:
-  - sourceType: codex-entry
-    sourceId: 00000000-0000-0000-0000-000000000000
+  - source:
+      type: codex-entry
+      id: 00000000-0000-0000-0000-000000000000
+      revision: null
+      label: 后文才揭示的身份
     title: 后文才揭示的身份
     reason: future-information
+    note: 后文信息不会向前提供。
 estimatedUsage:
   inputTokens: 1800
   outputTokens: 1200

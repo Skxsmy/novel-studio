@@ -212,10 +212,52 @@ button { color: inherit; }
 .event-composer input { border: 1px solid var(--line); border-radius: 8px; padding: 9px; }
 .event-composer > button { width: auto !important; margin: 0 !important; border: 0 !important; background: var(--ink) !important; color: white; cursor: pointer; }
 .milestone-notice.error { border-color: #c47a65; color: #8f3e2d; }
+.settings-page { padding-bottom: 70px; }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+.settings-card { display: grid; gap: 12px; }
+.settings-card h3, .model-editor h3 { margin: 0; font: 22px Georgia, "Songti SC", serif; }
+.settings-card p, .model-editor p, .empty-settings p { margin: 0; color: var(--muted); line-height: 1.7; }
+.settings-card label, .model-form-grid label, .context-preview-panel label { display: grid; gap: 6px; color: var(--muted); font-size: 10px; }
+.settings-card select, .model-form-grid input, .model-form-grid select, .context-preview-panel select { width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 8px; background: #fffefa; color: var(--ink); }
+.settings-actions, .model-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-actions button, .model-editor-actions button, .context-preview-panel button { padding: 9px 12px; border: 1px solid var(--ink); border-radius: 999px; background: var(--ink); color: white; cursor: pointer; font-size: 10px; }
+.settings-actions button:not(:first-child), .model-editor-actions button:first-child { background: transparent; color: var(--ink); }
+.settings-actions button:disabled, .model-editor-actions button:disabled, .context-preview-panel button:disabled { opacity: .5; cursor: default; }
+.settings-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; }
+.model-list { display: grid; align-content: start; gap: 8px; }
+.model-list > button { display: grid; gap: 4px; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); text-align: left; cursor: pointer; }
+.model-list > button.selected { border-color: var(--ink); background: #f4eadb; }
+.model-list span { color: var(--muted); font-size: 10px; }
+.model-editor { display: grid; gap: 16px; }
+.model-editor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.model-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.connection-result { padding: 12px; border: 1px solid #d8b79a; border-radius: 12px; background: #fff3df; }
+.connection-result.ok { border-color: #93b38c; background: #edf4ed; }
+.connection-result p { margin-top: 5px; color: var(--ink); }
+.model-capabilities { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; padding-top: 12px; border-top: 1px solid var(--line); }
+.model-capabilities dt { color: var(--muted); font-size: 10px; }
+.model-capabilities dd { margin: 0; }
+.empty-settings { display: grid; min-height: 220px; place-content: center; text-align: center; }
+.settings-message { position: sticky; bottom: 18px; display: inline-block; margin-top: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fffefa; color: var(--accent-dark); }
+.scene-context-panel { display: grid; gap: 14px; }
+.context-preview-panel { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fffefa; }
+.context-preview-panel small { color: var(--muted); line-height: 1.5; }
+.context-result { display: grid; gap: 12px; }
+.context-result h4 { margin: 4px 0 0; font: 15px Georgia, "Songti SC", serif; }
+.context-result-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.context-result-summary span { padding: 8px; border-radius: 8px; background: #f3eee4; color: var(--accent-dark); text-align: center; font-size: 10px; }
+.context-list { display: grid; gap: 8px; }
+.context-list article { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.context-list article span { color: var(--accent); font-size: 9px; }
+.context-list article strong { font-size: 12px; }
+.context-list article p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.context-list.excluded article { border-left: 3px solid #bd8450; }
+.context-list small { color: var(--muted); font-size: 10px; }
 
 @media (max-width: 1100px) {
   .planning-layout { grid-template-columns: 1fr; }
   .planning-inspector { position: static; }
+  .settings-grid, .settings-layout { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
@@ -223,4 +265,5 @@ button { color: inherit; }
   .event-composer, .unplaced-scenes { grid-column: 1; }
   .event-composer { grid-template-columns: 1fr; }
   .event-composer h3 { grid-column: 1; }
+  .model-form-grid, .context-result-summary { grid-template-columns: 1fr; }
 }

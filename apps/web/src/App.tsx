@@ -4,9 +4,10 @@ import { api } from "./api";
 import { CodexView } from "./CodexView";
 import { appName, readableSceneStatus } from "./copy";
 import { PlanView } from "./PlanView";
+import { SettingsView } from "./SettingsView";
 import { WriteView } from "./WriteView";
 
-type WorkspaceView = "overview" | "plan" | "write" | "codex" | "workshop" | "review";
+type WorkspaceView = "overview" | "plan" | "write" | "codex" | "workshop" | "review" | "settings";
 interface SceneCreateLocation {
   bookId: string;
   actId: string;
@@ -20,6 +21,7 @@ const navigation: Array<{ id: WorkspaceView; icon: string; label: string }> = [
   { id: "codex", icon: "◇", label: "设定库" },
   { id: "workshop", icon: "✦", label: "编辑室" },
   { id: "review", icon: "✓", label: "待确认" },
+  { id: "settings", icon: "⚙", label: "设置" },
 ];
 
 function formatDate(value: string): string {
@@ -395,8 +397,8 @@ export function App() {
       <aside className="app-sidebar">
         <div className="sidebar-brand"><div className="brand-mark small">书</div><div><strong>{appName}</strong><small>本地写作台</small></div></div>
         <button className="series-switcher" onClick={() => { setDetail(null); setActs([]); setChapters([]); setPlanningBoard(null); }}><span>{detail.manifest.title.slice(0, 1)}</span><div><strong>{detail.manifest.title}</strong><small>切换作品</small></div><b>⌄</b></button>
-        <nav>{navigation.map((item) => <button className={activeView === item.id ? "active" : ""} onClick={() => setActiveView(item.id)} key={item.id}><span>{item.icon}</span><b>{item.label}</b>{item.id === "review" && <i>0</i>}</button>)}</nav>
-        <div className="sidebar-footer"><button><span>⚙</span><b>设置</b></button><div className="local-status"><span /> 本地数据已连接</div></div>
+        <nav>{navigation.filter((item) => item.id !== "settings").map((item) => <button className={activeView === item.id ? "active" : ""} onClick={() => setActiveView(item.id)} key={item.id}><span>{item.icon}</span><b>{item.label}</b>{item.id === "review" && <i>0</i>}</button>)}</nav>
+        <div className="sidebar-footer"><button className={activeView === "settings" ? "active" : ""} onClick={() => setActiveView("settings")}><span>⚙</span><b>设置</b></button><div className="local-status"><span /> 本地数据已连接</div></div>
       </aside>
 
       <div className="main-stage">
@@ -424,6 +426,10 @@ export function App() {
         />}
         {activeView === "workshop" && <WorkshopView />}
         {activeView === "review" && <ReviewView />}
+        {activeView === "settings" && <SettingsView
+          detail={detail}
+          onSeriesManifestUpdated={(manifest) => setDetail((current) => current ? { ...current, manifest } : current)}
+        />}
       </div>
     </div>
   );

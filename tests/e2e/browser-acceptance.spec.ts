@@ -9,8 +9,8 @@ import {
   type SeriesSummary,
 } from "./helpers/browserAcceptance.js";
 
-test.describe("M3 已实现能力浏览器验收", () => {
-  test("创建系列、切换工作区、维护第二部结构与场景归属", async ({ page, request }) => {
+test.describe("已实现能力浏览器验收", () => {
+  test("创建系列、维护第二部结构，并完成 M4 最小模型与上下文预览路径", async ({ page, request }) => {
     await expectNoBrowserErrors(page, async () => {
       const health = await getJson<{ ok: boolean; workspaceRoot: string; libraryRoot: string }>(
         request,
@@ -111,6 +111,26 @@ test.describe("M3 已实现能力浏览器验收", () => {
 
       await page.getByRole("button", { name: /待确认/ }).click();
       await expect(page.getByRole("heading", { name: "待确认", exact: true })).toBeVisible();
+
+      await page.getByRole("button", { name: /设置/ }).click();
+      await expect(page.getByRole("heading", { name: "模型与资料权限" })).toBeVisible();
+      await clickAndWaitForPost(page, "/model-profiles", async () => {
+        await page.getByRole("button", { name: "添加本机验收模型" }).click();
+      });
+      await expect(page.locator(".model-list").getByRole("button", { name: /本机验收模型/ })).toBeVisible();
+      await clickAndWaitForPost(page, "/test", async () => {
+        await page.getByRole("button", { name: "测试连接" }).click();
+      });
+      await expect(page.getByText(/连接正常/)).toBeVisible();
+
+      await page.getByRole("button", { name: /写作/ }).click();
+      await page.getByTitle("场景资料").click();
+      await expect(page.getByRole("heading", { name: "场景资料" })).toBeVisible();
+      await clickAndWaitForPost(page, "/context/preview", async () => {
+        await page.getByRole("button", { name: "生成上下文预览" }).click();
+      });
+      await expect(page.getByText("纳入资料")).toBeVisible();
+      await expect(page.getByText(/项纳入/)).toBeVisible();
 
       seriesList = await getJson<SeriesSummary[]>(request, "/api/v1/series");
       expect(seriesList.map((series) => series.title)).toContain("浏览器验收故事");

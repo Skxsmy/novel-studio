@@ -22,3 +22,5 @@
 - **NS-401**：写入 M4 执行规格、API 草案、数据格式草案、MockProvider 垂直切片和浏览器验收映射。
 - **NS-402**：拆分 AI 契约文件，新增模型配置、角色、提示词、Preset、上下文包和调用日志的 YAML 持久化与可重建索引。
 - **NS-403**：新增 `@novel-studio/ai`，实现 ProviderAdapter、ProviderRegistry、MockProvider、能力描述、流式/结构化/embedding 模拟和统一错误分类；不接真实 Provider，不读取密钥。
+- **NS-404**：新增模型配置 API、作品级云端权限、凭据引用校验、Windows Credential Manager 存储抽象、Provider 连接测试和“模型与资料权限”设置页；云端禁用或缺少凭据引用时拒绝连接测试，不会静默退回 MockProvider。
+- **NS-405**：新增场景级 `ContextBundle` 装配与预览 API，写作页右侧可查看最小上下文预览；`never`、隐藏区段和后文信息默认排除，纳入项与排除项均记录来源、原因和用量估算。

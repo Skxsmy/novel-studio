@@ -20,6 +20,7 @@ import {
   type RecoveryDecision,
   type RecoveryDraft,
 } from "./recoveryDraft";
+import { SceneContextPanel } from "./SceneContextPanel";
 
 type SaveState = "saved" | "dirty" | "saving" | "conflict" | "error";
 type InspectorTab = "context" | "sections" | "anchors";
@@ -431,7 +432,14 @@ export function WriteView({
             <button className={inspectorTab === "sections" ? "active" : ""} onClick={() => setInspectorTab("sections")}>附属文档</button>
             <button className={inspectorTab === "anchors" ? "active" : ""} onClick={() => setInspectorTab("anchors")}>锚点</button>
           </div>
-          {inspectorTab === "context" && <><p className="eyebrow">场景资料</p><h3>场景资料</h3><dl><dt>状态</dt><dd>{readableSceneStatus(activeScene.metadata.status)}</dd><dt>视角</dt><dd>{activeScene.metadata.pov || "未设置"}</dd><dt>目标</dt><dd>{activeScene.metadata.goal || "尚未填写"}</dd><dt>摘要</dt><dd>{activeScene.metadata.summary || "等待作者确认"}</dd></dl><div className="inspector-note"><strong>资料保护</strong><p>智能编辑尚未接入；当前不会把正文发送到任何外部服务。</p></div></>}
+          {inspectorTab === "context" && <SceneContextPanel
+            detail={detail}
+            activeScene={activeScene}
+            content={content}
+            selectedText={selectedText}
+            rightOpen={rightOpen}
+            onMessage={setSideMessage}
+          />}
           {inspectorTab === "sections" && <SectionPanel sections={sections} onCreate={createSection} onUpdate={updateSection} onArchive={archiveSection} onRestore={restoreSection} />}
           {inspectorTab === "anchors" && <AnchorPanel anchors={anchors} selectedText={selectedText} canCreate={saveState === "saved"} onCreate={createAnchor} />}
           {sideMessage && <p className="side-message">{sideMessage}</p>}

@@ -16,20 +16,26 @@ import type {
   CodexProgressionDocument,
   CodexRelationDocument,
   CodexSearchResult,
+  ContextBundle,
+  ContextPreviewInput,
   CreateCodexCategoryInput,
   CreateCodexEntryInput,
   CreateCodexKnowledgeInput,
   CreateCodexProgressionInput,
   CreateCodexRelationInput,
   CreateChapterInput,
+  CreateModelProfileInput,
   CreateReviewAnchorInput,
   CreateSceneInput,
   CreateSceneSectionInput,
   CreateSeriesInput,
   CreateTimelineEventInput,
   MoveSceneInput,
+  ModelProfile,
   HierarchyValidationResult,
   PlanningBoard,
+  ProviderConnectionResult,
+  ProviderModelDescriptor,
   ReorderInput,
   RestoreSceneSectionInput,
   SceneCodexMentions,
@@ -48,10 +54,13 @@ import type {
   UpdateCodexProgressionInput,
   UpdateCodexRelationInput,
   UpdateChapterInput,
+  UpdateModelProfileInput,
   UpdateSceneInput,
   UpdateSceneSectionInput,
   UpdateScenePlanningInput,
+  UpdateSeriesCloudPolicyInput,
   UpdateTimelineEventInput,
+  SeriesManifest,
 } from "@novel-studio/contracts";
 
 export class ApiError extends Error {
@@ -89,6 +98,43 @@ export const api = {
       body: JSON.stringify(input),
     }),
   getSeries: (seriesId: string) => request<SeriesDetail>(`/api/v1/series/${seriesId}`),
+  updateSeriesCloudPolicy: (seriesId: string, input: UpdateSeriesCloudPolicyInput) =>
+    request<SeriesManifest>(`/api/v1/series/${seriesId}/ai/cloud-policy`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  listModelProfiles: (seriesId: string) =>
+    request<ModelProfile[]>(`/api/v1/series/${seriesId}/ai/model-profiles`),
+  createModelProfile: (seriesId: string, input: CreateModelProfileInput) =>
+    request<ModelProfile>(`/api/v1/series/${seriesId}/ai/model-profiles`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateModelProfile: (
+    seriesId: string,
+    modelProfileId: string,
+    input: UpdateModelProfileInput,
+  ) =>
+    request<ModelProfile>(
+      `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}`,
+      { method: "PUT", body: JSON.stringify(input) },
+    ),
+  testModelProfile: (seriesId: string, modelProfileId: string) =>
+    request<ProviderConnectionResult>(
+      `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/test`,
+      { method: "POST" },
+    ),
+  listProviderModels: (seriesId: string, modelProfileId: string) =>
+    request<ProviderModelDescriptor[]>(
+      `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/models`,
+    ),
+  previewContext: (seriesId: string, input: ContextPreviewInput) =>
+    request<ContextBundle>(`/api/v1/series/${seriesId}/context/preview`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  getContextBundle: (seriesId: string, contextBundleId: string) =>
+    request<ContextBundle>(`/api/v1/series/${seriesId}/context/${contextBundleId}`),
   createBook: (seriesId: string, input: CreateBookInput) =>
     request<BookManifest>(`/api/v1/series/${seriesId}/books`, {
       method: "POST",
