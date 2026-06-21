@@ -30,6 +30,7 @@ test.describe("已实现能力浏览器验收", () => {
       });
 
       await expect(page.getByRole("heading", { name: "浏览器验收故事" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "专注模式" })).toHaveCount(0);
       let seriesList = await getJson<SeriesSummary[]>(request, "/api/v1/series");
       expect(seriesList).toHaveLength(1);
       const seriesId = seriesList[0]!.id;
@@ -44,6 +45,7 @@ test.describe("已实现能力浏览器验收", () => {
       await page.getByRole("button", { name: /写作/ }).click();
       await expect(page.getByRole("button", { name: "本章新场景" })).toBeVisible();
       await expect(page.getByRole("button", { name: "新部" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "专注模式" })).toBeVisible();
 
       await page.getByRole("button", { name: "专注模式" }).click();
       await expect(page.getByRole("button", { name: "退出专注模式" })).toBeVisible();
@@ -114,6 +116,7 @@ test.describe("已实现能力浏览器验收", () => {
 
       await page.getByRole("button", { name: /设置/ }).click();
       await expect(page.getByRole("heading", { name: "模型与资料权限" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "专注模式" })).toHaveCount(0);
       await clickAndWaitForPost(page, "/model-profiles", async () => {
         await page.getByRole("button", { name: "添加本机验收模型" }).click();
       });

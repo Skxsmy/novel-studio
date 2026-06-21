@@ -381,6 +381,10 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [detail, searchQuery]);
 
+  useEffect(() => {
+    if (activeView !== "write" && focusMode) setFocusMode(false);
+  }, [activeView, focusMode]);
+
   if (loading && !detail && seriesList.length === 0) return <div className="loading-screen"><span>书</span><p>正在打开本地写作室…</p></div>;
   if (fatalError) return <div className="fatal-screen"><h1>本地服务没有准备好</h1><p>{fatalError}</p><button onClick={() => window.location.reload()}>重新连接</button></div>;
   if (!detail) {
@@ -406,7 +410,7 @@ export function App() {
           <button className="icon-button" onClick={() => setSidebarOpen((value) => !value)} title="收起导航">☰</button>
           <div className="topbar-title"><strong>{navigation.find((item) => item.id === activeView)?.label}</strong><span>/ {detail.manifest.title}</span></div>
           <div className="search-box"><span>⌕</span><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索当前作品" /></div>
-          <button className={`text-button ${focusMode ? "active" : ""}`} onClick={() => setFocusMode((value) => !value)}>专注模式</button>
+          {activeView === "write" && <button className={`text-button ${focusMode ? "active" : ""}`} onClick={() => setFocusMode((value) => !value)}>专注模式</button>}
           <button className={`icon-button ${rightOpen ? "active" : ""}`} onClick={() => setRightOpen((value) => !value)} title="场景资料">◫</button>
           {searchQuery && <div className="search-popover">{searchResults.length ? searchResults.map((result) => <button key={result.sceneId} onClick={() => { setActiveSceneId(result.sceneId); setActiveView("write"); setSearchQuery(""); }}><strong>{result.title}</strong><span dangerouslySetInnerHTML={{ __html: result.excerpt }} /></button>) : <p>没有找到匹配场景</p>}</div>}
         </header>
