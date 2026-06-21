@@ -17,6 +17,8 @@
 - `GET /health`
 - `GET /system/config`
 
+`GET /health` 返回本地服务身份：`ok`、`version`、`commit`、`startedAt`、`workspaceRoot` 和 `libraryRoot`。启动脚本用这些字段确认端口上的服务来自当前工作区和当前提交。
+
 `PUT /system/config` 属于后续首次启动目录设置，目前未实现。
 
 ## 系列与场景

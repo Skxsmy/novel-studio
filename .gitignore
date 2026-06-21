@@ -7,6 +7,8 @@ coverage/
 data/library/
 data/backups/
 data/app-config.json
+data/server.pid.json
+data/server.*.pid.json
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

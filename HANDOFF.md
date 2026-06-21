@@ -1,12 +1,12 @@
 # 最新交接
 
-更新时间：2026-06-20
+更新时间：2026-06-21
 
 ## 仓库状态
 
 - 分支：`main`
 - 最近相关提交：查看 `git log -4 --oneline`；应包含 NS-400 收口和 NS-307 写作页布局 / 定向新建场景提交。
-- 当前任务：`NS-307` 已完成；下一任务仍是 `NS-401`，目标是模型连接、上下文装配、权限边界、提示词版本和调用日志的最小纵向闭环。
+- 当前任务：`NS-307` 已完成；`NS-400` 增补了启动 / 浏览器验收可靠性修复；下一任务仍是 `NS-401`，目标是模型连接、上下文装配、权限边界、提示词版本和调用日志的最小纵向闭环。
 - 预期脏文件：无。接手时运行 `git status --short` 核实；如不为空，先判断是否为用户未提交改动。
 
 ## 已完成
@@ -68,6 +68,13 @@
   - 已在 `packages/contracts/src/index.ts` 定义 `ContextBundle`、`ContextItem`、`PromptTemplate`、`ModelCallLog`、`Proposal` 与 `ProposalPatch` 最小契约，并写入架构/API/数据模型文档；
   - NS-307：写作页结构栏已改为更清晰的部 / 幕 / 章 / 场景布局；`CreateSceneInput` 支持 `bookId`、`actId`、`chapterId`，第二部章节内可以直接新建场景；
   - server typecheck、server test、storage typecheck、storage test、web typecheck、web test 和全量 `npm.cmd run check` 通过。
+- NS-400 启动 / 浏览器验收补丁：
+  - `/api/v1/health` 现在返回 `version`、`commit`、`startedAt`、`workspaceRoot` 和 `libraryRoot`，启动脚本用这些字段确认端口上的服务来自当前工作区和当前提交；
+  - `scripts/start.ps1` 默认会重启当前 checkout 的服务，只有显式 `-ReuseExisting` 才复用身份匹配的已有服务；
+  - `scripts/start.ps1 -Wait` 会让服务保持在当前命令生命周期内，供 Codex Browser 或其他自动化验收使用；
+  - 启动脚本会清理记录过的 starter / port owner 进程，避免 npm 父进程占住日志句柄；
+  - 当 `data/server.*` 文件被 Windows 或宿主环境锁住时，启动脚本会把本次日志和 pid 状态写到 `%TEMP%\novel-studio`；
+  - 新增 `docs/DEVELOPMENT.md` 和 `scripts/dev-shell.ps1`，统一 PowerShell UTF-8 文本读取约定。
 
 ## 验证
 
@@ -83,6 +90,11 @@
 - 浏览器 NS-306：通过。非空作品库新建系列、新建第二部、第二部下新建第二幕、空幕新建第一章，本地 API 校验为 2 部、3 幕、3 章、`valid=true`。
 - 进程：用户授权后停止旧 PID 52088；沙箱外启动最新服务，当前 `127.0.0.1:4317` 由 PID 50388 监听。
 - `git diff --check`：通过（仅 Windows 换行转换提示）。
+- Codex Browser 更新后复测：
+  - `node_repl/js` 最小探针通过，`sandboxPolicy` 错误不再出现；
+  - Browser 插件 `26.616.51431` 文档接口可返回；
+  - in-app browser 打开 `http://127.0.0.1:4317/`，读取作品库 DOM，并点击“雾港纪事 10 个场景 · 更新于 6月20日”进入作品概览，heading 为“雾港纪事”。
+- 2026-06-21 `npm.cmd run check`：通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。沙箱内首次运行因 `dist` 目录 EPERM 失败，沙箱外使用已批准前缀重跑通过。
 
 ## 已知限制
 
@@ -92,9 +104,9 @@
 - 设定库关系当前表示静态基础关系；关系随剧情变化必须由 NS-305 进展记录追加历史，不能覆盖基础事实。
 - 正文提及只表示名称出现在正文，不自动把条目加入场景的人物、地点或情节线显式关联。
 - 同名同范围被记录为歧义并不分配给任一条目；人工消歧 UI 尚未实现。
-- 当前没有应用内停止服务、托盘入口或 PID 文件；启动脚本只做安全复用和防重复启动，不主动杀进程。
+- 当前没有应用内停止服务或托盘入口；启动脚本记录 PID 状态并会清理可确认属于本 checkout 的旧进程，但不会结束无法确认来源的端口占用者。
 - 浏览器验收留下了测试用系列、故事进展、未来隐藏记录和角色所知记录；它们位于本地示例作品库，不进入 Git。
-- 本轮 Codex 内置浏览器控制通道不可用，错误为宿主元数据缺少 `sandboxPolicy`；NS-307 已用自动化测试、API 验证和生产构建替代，后续浏览器通道恢复后应补看写作页布局。
+- 当前 Codex 更新后内置 Browser 控制通道已恢复；若后续再次出现 `sandboxPolicy` 或 URL policy 错误，先用 `node_repl/js` 最小探针和 Browser 插件文档接口分层确认，不要再用本地代理绕过。
 
 ## 唯一下一任务
 

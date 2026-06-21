@@ -31,6 +31,19 @@ export interface BuildAppOptions {
   libraryRoot: string;
   webRoot?: string;
   logger?: boolean;
+  version?: string;
+  commit?: string | null;
+  startedAt?: string;
+  workspaceRoot?: string | null;
+}
+
+function firstNonEmpty(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
 }
 
 function errorStatus(error: StorageError): number {
@@ -50,6 +63,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const app = Fastify({ logger: options.logger ?? false });
   const repository = new ProjectRepository(options.libraryRoot);
   await repository.initialize();
+  const version = firstNonEmpty(options.version, process.env.NOVEL_STUDIO_VERSION) ?? "0.1.0";
+  const commit = firstNonEmpty(options.commit, process.env.NOVEL_STUDIO_COMMIT);
+  const startedAt =
+    firstNonEmpty(options.startedAt, process.env.NOVEL_STUDIO_STARTED_AT) ?? new Date().toISOString();
+  const workspaceRoot = firstNonEmpty(options.workspaceRoot, process.env.NOVEL_STUDIO_WORKSPACE_ROOT);
 
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof StorageError) {
@@ -74,13 +92,17 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   app.get("/api/v1/health", async () => ({
     ok: true,
-    version: "0.1.0",
+    version,
+    commit,
+    startedAt,
+    workspaceRoot,
     libraryRoot: repository.libraryRoot,
   }));
 
   app.get("/api/v1/system/config", async () => ({
     initialized: true,
     libraryRoot: repository.libraryRoot,
+    workspaceRoot,
     backupRoot: null,
     bindAddress: "127.0.0.1",
   }));

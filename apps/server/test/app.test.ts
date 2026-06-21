@@ -11,6 +11,35 @@ afterEach(async () => {
 });
 
 describe("local API", () => {
+  it("reports runtime identity in health checks", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
+    roots.push(root);
+    const startedAt = "2026-06-20T12:00:00.000Z";
+    const app = await buildApp({
+      libraryRoot: root,
+      version: "test-version",
+      commit: "abc123def456",
+      startedAt,
+      workspaceRoot: path.dirname(root),
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/health",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      ok: true,
+      version: "test-version",
+      commit: "abc123def456",
+      startedAt,
+      workspaceRoot: path.dirname(root),
+      libraryRoot: root,
+    });
+    await app.close();
+  });
+
   it("creates, reads and safely updates a scene", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
     roots.push(root);

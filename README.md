@@ -7,6 +7,7 @@ Novel Studio 是一个面向中文长篇与系列小说的本地优先写作工�
 ## 开发运行
 
 ```powershell
+.\scripts\dev-shell.ps1
 npm.cmd install
 npm.cmd run dev
 ```
@@ -14,6 +15,7 @@ npm.cmd run dev
 浏览器访问 `http://127.0.0.1:5173`。服务端 API 默认位于 `http://127.0.0.1:4317/api/v1`。
 
 日常体验可直接双击 `start-novel-studio.cmd`，它会启动生产构建并打开 `http://127.0.0.1:4317`。
+Windows PowerShell、UTF-8 文本查看和启动脚本细节见 `docs/DEVELOPMENT.md`。
 
 完整检查：
 
