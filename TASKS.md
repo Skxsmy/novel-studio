@@ -46,6 +46,9 @@
 - [x] `NS-407` 非写入型 AI 调用、SSE 流式输出和 ModelCallLog。
 - [-] `NS-408` DeepSeek、通用 OpenAI-compatible、Ollama、OpenAI、OpenRouter、Anthropic、Gemini Provider 接入。
 - [ ] `NS-409` 上下文预览 UI、调用日志 UI 和浏览器验收覆盖。
+  - [x] `NS-409A/NS-409C` 图像模型协作式 UI 重做、规划 / 写作页纠偏和截图资产登记。
+  - [x] `NS-409D` 写作、设定库和编辑室宽屏布局复查，含图像模型复查图和 1920 宽浏览器截图。
+  - [x] `NS-409E` 规划页故事板 / 大纲 / 追踪表 / 时间线分别生成目标图并修正宽屏结构；该项为过渡版，不代表 UI 验收通过。
 - [ ] `NS-410` M4 收口验收、安全检查、状态交接和 M5 入口确认。
 
 M4 详细规划见 `docs/tasks/M4.md`。M4 全程禁止 AI 直接修改正文、已确认设定、摘要、人物状态、故事进展或角色所知。

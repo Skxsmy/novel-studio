@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type DragEvent } from "react";
 import type { PlanningBoard, PlanningScene, TimelineEventDocument } from "@novel-studio/contracts";
 import { api } from "./api";
 import { readablePlanningState, readableSceneStatus } from "./copy";
@@ -275,63 +275,91 @@ export function PlanView({ board, onReload, onOpenScene }: PlanViewProps) {
     <section className="content-page planning-page" data-testid="planning-page">
       <div className="page-heading compact">
         <div><p className="eyebrow">故事规划</p><h2>故事规划</h2></div>
-        <div className="segmented" data-testid="planning-modes">
-          {modes.map((item) => (
-            <button className={mode === item.id ? "active" : ""} onClick={() => setMode(item.id)} key={item.id}>{item.label}</button>
-          ))}
-        </div>
+      </div>
+      <div className="segmented planning-modebar" data-testid="planning-modes">
+        {modes.map((item) => (
+          <button className={mode === item.id ? "active" : ""} onClick={() => setMode(item.id)} key={item.id}>{item.label}</button>
+        ))}
       </div>
       <div className="planning-toolbar">
         <span>{board.narrativeScenes.length} 个场景 · {board.storyEvents.length} 个故事事件</span>
         {filter && <button className="filter-chip" onClick={() => setFilter(null)}>筛选：{filterText} ×</button>}
-        <span className="planning-revision">资料版本 {board.revision.slice(0, 8)}</span>
+        <span className="planning-revision">规划资料已同步</span>
       </div>
       {message && <div className="milestone-notice error">{message}</div>}
 
       <div className="planning-layout">
         <div className="planning-canvas" aria-busy={busy}>
-          {mode === "grid" && <div data-testid="grid-view">
-            {grid.map((book) => <div className="planning-book" key={book.id}>
-              <h3>{book.title}</h3>
-              {book.acts.map((act) => <section className="planning-act" key={act.id}>
-                <div className="act-heading"><span>{act.title}</span><small>{act.chapters.length} 章</small></div>
-                {act.chapters.map((chapter) => <div
-                  className="planning-chapter"
-                  key={chapter.id}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => dropAtChapterEnd(event, chapter.id, chapter.scenes.length)}
-                >
-                  <h4>{chapter.title}<small>{chapter.scenes.length} 场</small></h4>
-                  <div className="planning-scene-grid">
-                    {chapter.scenes.map((scene) => <PlanningSceneCard
+          {mode === "grid" && <div className="planning-board-workspace" data-testid="grid-view">
+            <aside className="planning-hierarchy-pane" aria-label="故事结构">
+              {grid.map((book) => <section key={book.id}>
+                <header><span>{book.title}</span><small>{book.acts.length} 幕</small></header>
+                {book.acts.map((act) => <div className="planning-tree-act" key={act.id}>
+                  <p>{act.title}<small>{act.chapters.length} 章</small></p>
+                  {act.chapters.map((chapter) => <div className="planning-tree-chapter" key={chapter.id}>
+                    <p>{chapter.title}<small>{chapter.scenes.length} 场景</small></p>
+                    {chapter.scenes.map((scene) => <button
+                      className={selectedSceneId === scene.id ? "active" : ""}
                       key={scene.id}
-                      scene={scene}
-                      selected={selectedSceneId === scene.id}
-                      onSelect={() => setSelectedSceneId(scene.id)}
-                      onOpen={() => onOpenScene(scene.id)}
-                      onDragStart={(event) => event.dataTransfer.setData("application/x-novel-studio-scene", scene.id)}
-                      onDrop={(event) => dropOnScene(event, scene)}
-                      onMove={(delta) => moveWithin(scene, delta)}
-                      onMoveChapter={(delta) => moveAcrossChapter(scene, delta)}
-                    />)}
-                    {!chapter.scenes.length && <div className="empty-chapter-drop">拖入场景</div>}
-                  </div>
+                      onClick={() => setSelectedSceneId(scene.id)}
+                      onDoubleClick={() => onOpenScene(scene.id)}
+                    >
+                      <span>{String(scene.order).padStart(2, "0")}</span>
+                      <strong>{scene.title}</strong>
+                    </button>)}
+                  </div>)}
                 </div>)}
               </section>)}
-            </div>)}
+            </aside>
+            <div className="planning-board-main">
+              {grid.map((book) => <div className="planning-book" key={book.id}>
+                <h3>{book.title}</h3>
+                {book.acts.map((act) => <section className="planning-act" key={act.id}>
+                  <div className="act-heading"><span>{act.title}</span><small>{act.chapters.length} 章</small></div>
+                  {act.chapters.map((chapter) => <div
+                    className="planning-chapter"
+                    key={chapter.id}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => dropAtChapterEnd(event, chapter.id, chapter.scenes.length)}
+                  >
+                    <h4>{chapter.title}<small>{chapter.scenes.length} 场</small></h4>
+                    <div className="planning-scene-grid">
+                      {chapter.scenes.map((scene) => <PlanningSceneCard
+                        key={scene.id}
+                        scene={scene}
+                        selected={selectedSceneId === scene.id}
+                        onSelect={() => setSelectedSceneId(scene.id)}
+                        onOpen={() => onOpenScene(scene.id)}
+                        onDragStart={(event) => event.dataTransfer.setData("application/x-novel-studio-scene", scene.id)}
+                        onDrop={(event) => dropOnScene(event, scene)}
+                        onMove={(delta) => moveWithin(scene, delta)}
+                        onMoveChapter={(delta) => moveAcrossChapter(scene, delta)}
+                      />)}
+                      {!chapter.scenes.length && <div className="empty-chapter-drop">拖入场景</div>}
+                    </div>
+                  </div>)}
+                </section>)}
+              </div>)}
+            </div>
           </div>}
 
           {mode === "outline" && <div className="outline-view" data-testid="outline-view">
+            <div className="outline-header" aria-hidden="true">
+              <span>标题</span>
+              <span>内容摘要</span>
+              <span>状态</span>
+            </div>
             {outline.map((row) => <button
               className={`outline-row ${row.kind} ${row.id === selectedSceneId ? "selected" : ""}`}
-              style={{ paddingLeft: `${16 + row.depth * 24}px` }}
+              style={{ "--outline-depth": row.depth } as CSSProperties}
               key={`${row.kind}-${row.id}`}
               onClick={() => row.scene && setSelectedSceneId(row.id)}
               onDoubleClick={() => row.scene && onOpenScene(row.id)}
             >
               <span>{row.kind === "scene" ? String(row.scene!.narrativeIndex).padStart(2, "0") : "◆"}</span>
               <strong>{row.title}</strong>
-              {row.scene && <small>{row.scene.summary || "无摘要"}</small>}
+              <small>{row.scene ? row.scene.summary || "无摘要" : "—"}</small>
+              <em>{row.scene ? readableSceneStatus(row.scene.status) : row.kind === "book" ? "单本" : row.kind === "act" ? "幕" : "章"}</em>
             </button>)}
           </div>}
 

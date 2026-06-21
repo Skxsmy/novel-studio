@@ -69,6 +69,13 @@ function credentialLabel(profile: ModelProfile): string {
   return `${profile.title} 的密钥`;
 }
 
+function providerMark(provider: AiProvider): string {
+  if (provider === "deepseek") return "DS";
+  if (provider === "mock") return "验";
+  if (provider === "openai-compatible") return "API";
+  return "AI";
+}
+
 export function SettingsView({
   detail,
   onSeriesManifestUpdated,
@@ -128,7 +135,7 @@ export function SettingsView({
     void api.getModelProfileCredential(detail.manifest.id, selectedProfile.id)
       .then((status) => setCredentialStatus((current) => ({ ...current, [selectedProfile.id]: status })))
       .catch(() => setCredentialStatus((current) => ({ ...current, [selectedProfile.id]: null })));
-  }, [selectedProfile]);
+  }, [detail.manifest.id, selectedProfile]);
 
   async function createServiceProfile() {
     const preset = servicePresets[servicePreset];
@@ -298,239 +305,197 @@ export function SettingsView({
       <header className="settings-hero">
         <div>
           <p className="eyebrow">设置</p>
-          <h2>{settingsSection === "models" ? "模型与资料权限" : "角色与提示词"}</h2>
+          <h2>{settingsSection === "models" ? "模型连接" : "角色与提示词"}</h2>
           <p>
             {settingsSection === "models"
-              ? "管理写作模型的服务地址、模型和密钥。密钥保存在系统凭据中，不显示明文。"
+              ? "选择模型服务，保存密钥，并把常用模型加入写作流程。"
               : "这里管理智能编辑的职责边界、提示词模板和版本。模板预览不调用模型，也不会写入正文。"}
           </p>
         </div>
-        <span className="phase-chip">M4</span>
+        <span className="phase-chip">本机保存</span>
       </header>
 
       <div className="settings-tabs" role="tablist" aria-label="设置分区">
-        <button
-          className={settingsSection === "models" ? "active" : ""}
-          onClick={() => setSettingsSection("models")}
-          type="button"
-        >
+        <button className={settingsSection === "models" ? "active" : ""} onClick={() => setSettingsSection("models")} type="button">
           模型连接
         </button>
-        <button
-          className={settingsSection === "prompts" ? "active" : ""}
-          onClick={() => setSettingsSection("prompts")}
-          type="button"
-        >
+        <button className={settingsSection === "prompts" ? "active" : ""} onClick={() => setSettingsSection("prompts")} type="button">
           角色与提示词
         </button>
       </div>
 
       {settingsSection === "models" ? (
-        <>
-          <div className="settings-command-bar">
+        <div className="settings-layout settings-model-workbench">
+          <aside className="panel model-list">
             <div className="settings-quick-card provider-add-card">
-              <div>
-                <span>新增连接</span>
-                <strong>选择模型服务</strong>
-                <small>{servicePresets[servicePreset].description}</small>
-              </div>
+              <button onClick={() => void createServiceProfile()} disabled={busy === "create-service"}>
+                ＋ 新增连接
+              </button>
               <label className="provider-preset-picker">
                 服务
-                <select
-                  value={servicePreset}
-                  onChange={(event) => setServicePreset(event.target.value as ServicePresetId)}
-                >
+                <select value={servicePreset} onChange={(event) => setServicePreset(event.target.value as ServicePresetId)}>
                   {Object.entries(servicePresets).map(([value, preset]) => (
                     <option key={value} value={value}>{preset.label}</option>
                   ))}
                 </select>
               </label>
-              <button onClick={() => void createServiceProfile()} disabled={busy === "create-service"}>
-                添加连接
-              </button>
+              <small>{servicePresets[servicePreset].description}</small>
             </div>
-          </div>
 
-          <div className="settings-layout">
-            <aside className="panel model-list">
-              <div className="panel-title">
-                <h3>模型列表</h3>
-                <span>{profiles.length} 项</span>
-              </div>
-              {profiles.map((profile) => (
-                <button
-                  className={selectedProfile?.id === profile.id ? "selected" : ""}
-                  key={profile.id}
-                  onClick={() => setSelectedProfileId(profile.id)}
-                >
-                  <strong>{profile.title}</strong>
-                  <span>{providerLabels[profile.provider]} · {profile.model}</span>
-                </button>
-              ))}
-              {!profiles.length && <p className="empty-side">还没有模型配置。先添加一个本机验收模型即可测试上下文流程。</p>}
-            </aside>
+            <div className="panel-title">
+              <h3>模型列表</h3>
+              <span>{profiles.length} 项</span>
+            </div>
+            {profiles.map((profile) => (
+              <button className={selectedProfile?.id === profile.id ? "selected" : ""} key={profile.id} onClick={() => setSelectedProfileId(profile.id)}>
+                <strong>{profile.title}</strong>
+                <span>{providerLabels[profile.provider]} · {profile.model}</span>
+              </button>
+            ))}
+            {!profiles.length && <p className="empty-side">还没有模型连接。先新增一个连接。</p>}
+          </aside>
 
-            <article className="panel model-editor">
-              {selectedProfile ? (
-                <>
-                  <div className="model-editor-heading">
+          <article className="panel model-editor">
+            {selectedProfile ? (
+              <>
+                <div className="model-editor-heading">
+                  <div className="model-profile-identity">
+                    <span className="model-provider-mark">{providerMark(selectedProfile.provider)}</span>
                     <div>
                       <p className="eyebrow">{providerLabels[selectedProfile.provider]}</p>
                       <h3>{selectedProfile.title}</h3>
                     </div>
-                    <div className="model-editor-actions">
-                      <button onClick={() => void saveSelectedProfile()} disabled={busy === `update-${selectedProfile.id}`}>
-                        保存配置
-                      </button>
-                      <button onClick={() => void testProfile(selectedProfile)} disabled={busy === `test-${selectedProfile.id}`}>
-                        测试连接
-                      </button>
-                    </div>
                   </div>
-                  <div className="model-editor-body">
-                    <div className="model-form-column">
-                      <p>{providerDescription(selectedProfile.provider)}</p>
-                      <div className="model-form-grid">
-                        <label>
-                          显示名称
-                          <input
-                            value={profileDraft.title}
-                            onChange={(event) => setProfileDraft((current) => ({ ...current, title: event.target.value }))}
-                          />
-                        </label>
-                        <label>
-                          服务地址
-                          <input
-                            value={profileDraft.baseUrl}
-                            placeholder={selectedProfile.provider === "deepseek"
-                              ? "https://api.deepseek.com"
-                              : selectedProfile.provider === "openai-compatible"
-                                ? "填写服务商提供的接口地址"
-                                : "本机验收模型无需填写"}
-                            onChange={(event) => setProfileDraft((current) => ({ ...current, baseUrl: event.target.value }))}
-                            disabled={selectedProfile.provider === "mock"}
-                          />
-                        </label>
-                        <div className="model-picker">
-                          <label>
-                            模型
-                            {availableModels[selectedProfile.id]?.length ? (
-                              <select
-                                value={profileDraft.model}
-                                onChange={(event) => setProfileDraft((current) => ({ ...current, model: event.target.value }))}
-                              >
-                                {availableModels[selectedProfile.id]!.map((model) => (
-                                  <option key={model.id} value={model.id}>{model.title || model.id}</option>
-                                ))}
-                              </select>
-                            ) : (
-                              <input
-                                value={profileDraft.model}
-                                onChange={(event) => setProfileDraft((current) => ({ ...current, model: event.target.value }))}
-                              />
-                            )}
-                          </label>
-                          {selectedProfile.provider !== "mock" && (
-                            <button
-                              type="button"
-                              onClick={() => void loadProviderModels(selectedProfile)}
-                              disabled={busy === `models-${selectedProfile.id}`}
-                            >
-                              获取模型
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      {selectedProfile.provider !== "mock" && (
-                        <div className="credential-save-card">
-                          <div>
-                            <strong>服务密钥</strong>
-                            <small>
-                              {credentialStatus[selectedProfile.id]?.exists || profileDraft.credentialRef
-                                ? "当前连接已有密钥。可以替换、删除，或改用其他已保存密钥。"
-                                : "尚未保存密钥。"}
-                            </small>
-                          </div>
-                          {profiles.some((profile) => profile.credentialRef && profile.credentialRef !== profileDraft.credentialRef) && (
-                            <label className="credential-ref-picker">
-                              使用已有密钥
-                              <select
-                                value={profileDraft.credentialRef}
-                                onChange={(event) => setProfileDraft((current) => ({ ...current, credentialRef: event.target.value }))}
-                              >
-                                <option value="">不使用</option>
-                                {profiles
-                                  .filter((profile) => profile.credentialRef)
-                                  .map((profile) => (
-                                    <option key={`${profile.id}:${profile.credentialRef}`} value={profile.credentialRef ?? ""}>
-                                      {credentialLabel(profile)}
-                                    </option>
-                                  ))}
-                              </select>
-                            </label>
-                          )}
-                          <div>
-                            <input
-                              type="password"
-                              value={credentialSecret}
-                              placeholder={profileDraft.credentialRef ? "粘贴新 API Key 可替换" : "粘贴 API Key"}
-                              autoComplete="off"
-                              onChange={(event) => setCredentialSecret(event.target.value)}
-                            />
-                            <button
-                              onClick={() => void saveSelectedCredential()}
-                              disabled={busy === `credential-${selectedProfile.id}`}
-                            >
-                              {profileDraft.credentialRef ? "替换密钥" : "保存密钥"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void deleteSelectedCredential()}
-                              disabled={!profileDraft.credentialRef || busy === `credential-delete-${selectedProfile.id}`}
-                            >
-                              删除密钥
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      <div className={`connection-result ${testResults[selectedProfile.id]?.ok ? "ok" : ""}`}>
-                        <strong>连接状态</strong>
-                        <p>{connectionMessage(testResults[selectedProfile.id] ?? null, testErrors[selectedProfile.id] ?? "")}</p>
-                      </div>
-                      <details className="model-advanced">
-                        <summary>高级信息</summary>
-                        <label>
-                          系统凭据引用
-                          <input
-                            value={profileDraft.credentialRef}
-                            placeholder="保存密钥后自动生成；也可填写已有系统凭据引用"
-                            onChange={(event) => setProfileDraft((current) => ({ ...current, credentialRef: event.target.value }))}
-                          />
-                        </label>
-                        <dl className="model-capabilities">
-                          <div><dt>上下文窗口</dt><dd>{selectedProfile.contextWindowTokens.toLocaleString("zh-CN")} tokens</dd></div>
-                          <div><dt>流式文本</dt><dd>{selectedProfile.capabilities.streamText ? "支持" : "未声明"}</dd></div>
-                          <div><dt>结构化输出</dt><dd>{selectedProfile.capabilities.structuredOutput ? "支持" : "未声明"}</dd></div>
-                          <div><dt>Token 估算</dt><dd>{selectedProfile.capabilities.tokenEstimate ? "支持" : "未声明"}</dd></div>
-                        </dl>
-                      </details>
-                    </div>
+                  <div className="model-editor-actions">
+                    <button onClick={() => void saveSelectedProfile()} disabled={busy === `update-${selectedProfile.id}`}>保存配置</button>
+                    <button onClick={() => void testProfile(selectedProfile)} disabled={busy === `test-${selectedProfile.id}`}>测试连接</button>
                   </div>
-                </>
-              ) : (
-                <div className="empty-settings">
-                  <h3>还没有可编辑的模型</h3>
-                  <p>先添加本机验收模型，确认权限、上下文预览和调用记录的骨架能跑通。</p>
                 </div>
-              )}
-            </article>
-          </div>
-        </>
+
+                <div className="model-editor-body">
+                  <div className="model-form-column">
+                    <p>{providerDescription(selectedProfile.provider)}</p>
+                    <div className="model-form-grid">
+                      <label>
+                        显示名称
+                        <input value={profileDraft.title} onChange={(event) => setProfileDraft((current) => ({ ...current, title: event.target.value }))} />
+                      </label>
+                      <label>
+                        服务地址
+                        <input
+                          value={profileDraft.baseUrl}
+                          placeholder={selectedProfile.provider === "deepseek"
+                            ? "https://api.deepseek.com"
+                            : selectedProfile.provider === "openai-compatible"
+                              ? "填写服务商提供的接口地址"
+                              : "本机验收模型无需填写"}
+                          onChange={(event) => setProfileDraft((current) => ({ ...current, baseUrl: event.target.value }))}
+                          disabled={selectedProfile.provider === "mock"}
+                        />
+                      </label>
+                      <div className="model-picker">
+                        <label>
+                          模型
+                          {availableModels[selectedProfile.id]?.length ? (
+                            <select value={profileDraft.model} onChange={(event) => setProfileDraft((current) => ({ ...current, model: event.target.value }))}>
+                              {availableModels[selectedProfile.id]!.map((model) => (
+                                <option key={model.id} value={model.id}>{model.title || model.id}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input value={profileDraft.model} onChange={(event) => setProfileDraft((current) => ({ ...current, model: event.target.value }))} />
+                          )}
+                        </label>
+                        {selectedProfile.provider !== "mock" && (
+                          <button type="button" onClick={() => void loadProviderModels(selectedProfile)} disabled={busy === `models-${selectedProfile.id}`}>
+                            获取模型
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedProfile.provider !== "mock" && (
+                      <div className="credential-save-card">
+                        <div>
+                          <strong>服务密钥</strong>
+                          <small>
+                            {credentialStatus[selectedProfile.id]?.exists || profileDraft.credentialRef
+                              ? "当前连接已有密钥。可以替换、删除，或改用其他已保存密钥。"
+                              : "尚未保存密钥。"}
+                          </small>
+                        </div>
+                        {profiles.some((profile) => profile.credentialRef && profile.credentialRef !== profileDraft.credentialRef) && (
+                          <label className="credential-ref-picker">
+                            使用已有密钥
+                            <select value={profileDraft.credentialRef} onChange={(event) => setProfileDraft((current) => ({ ...current, credentialRef: event.target.value }))}>
+                              <option value="">不使用</option>
+                              {profiles.filter((profile) => profile.credentialRef).map((profile) => (
+                                <option key={`${profile.id}:${profile.credentialRef}`} value={profile.credentialRef ?? ""}>{credentialLabel(profile)}</option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        <div>
+                          <input
+                            type="password"
+                            value={credentialSecret}
+                            placeholder={profileDraft.credentialRef ? "粘贴新 API Key 可替换" : "粘贴 API Key"}
+                            autoComplete="off"
+                            onChange={(event) => setCredentialSecret(event.target.value)}
+                          />
+                          <button onClick={() => void saveSelectedCredential()} disabled={busy === `credential-${selectedProfile.id}`}>
+                            {profileDraft.credentialRef ? "替换密钥" : "保存密钥"}
+                          </button>
+                          <button type="button" onClick={() => void deleteSelectedCredential()} disabled={!profileDraft.credentialRef || busy === `credential-delete-${selectedProfile.id}`}>
+                            删除密钥
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className={`connection-result ${testResults[selectedProfile.id]?.ok ? "ok" : ""}`}>
+                      <strong>连接状态</strong>
+                      <p>{connectionMessage(testResults[selectedProfile.id] ?? null, testErrors[selectedProfile.id] ?? "")}</p>
+                    </div>
+
+                    <details className="model-advanced">
+                      <summary>高级信息</summary>
+                      <label>
+                        系统凭据引用
+                        <input
+                          value={profileDraft.credentialRef}
+                          placeholder="保存密钥后自动生成；也可填写已有系统凭据引用"
+                          onChange={(event) => setProfileDraft((current) => ({ ...current, credentialRef: event.target.value }))}
+                        />
+                      </label>
+                      <dl className="model-capabilities">
+                        <div><dt>上下文窗口</dt><dd>{selectedProfile.contextWindowTokens.toLocaleString("zh-CN")} tokens</dd></div>
+                        <div><dt>流式文本</dt><dd>{selectedProfile.capabilities.streamText ? "支持" : "未声明"}</dd></div>
+                        <div><dt>结构化输出</dt><dd>{selectedProfile.capabilities.structuredOutput ? "支持" : "未声明"}</dd></div>
+                        <div><dt>Token 估算</dt><dd>{selectedProfile.capabilities.tokenEstimate ? "支持" : "未声明"}</dd></div>
+                      </dl>
+                    </details>
+                  </div>
+                </div>
+
+                <footer className="model-save-footer">
+                  <span>{message || "配置变更后记得保存。"}</span>
+                  <button onClick={() => void saveSelectedProfile()} disabled={busy === `update-${selectedProfile.id}`}>保存配置</button>
+                </footer>
+              </>
+            ) : (
+              <div className="empty-settings">
+                <h3>还没有可编辑的模型</h3>
+                <p>先添加一个模型连接，确认设置、上下文预览和调用记录的骨架能跑通。</p>
+              </div>
+            )}
+          </article>
+        </div>
       ) : (
         <PromptSettingsPanel seriesId={detail.manifest.id} onMessage={setMessage} />
       )}
 
-      {message && <p className="settings-message">{message}</p>}
+      {message && settingsSection !== "models" && <p className="settings-message">{message}</p>}
     </section>
   );
 }

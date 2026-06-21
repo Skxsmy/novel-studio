@@ -14,6 +14,7 @@ test.describe("已实现能力浏览器验收", () => {
   test("创建系列、维护第二部结构，并完成 M4 最小模型与上下文预览路径", async ({ page, request }, testInfo) => {
     const screenshotRunId = new Date().toISOString().replace(/[:.]/g, "-");
     const screenshotManifestPath = testInfo.outputPath(`${screenshotRunId}-screenshot-manifest.json`);
+    const defaultViewport = page.viewportSize() ?? { width: 1280, height: 720 };
     const screenshotRecords: Array<{
       label: string;
       path: string;
@@ -29,6 +30,11 @@ test.describe("已实现能力浏览器验收", () => {
       screenshotIndex += 1;
       const safeLabel = label.replace(/[^a-z0-9\u4e00-\u9fa5_-]+/gi, "-");
       const path = testInfo.outputPath(`${screenshotRunId}-${String(screenshotIndex).padStart(2, "0")}-${safeLabel}.png`);
+      await page.evaluate(() => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      });
+      await page.mouse.move(1240, 20);
+      await page.waitForTimeout(80);
       await page.screenshot({ fullPage: true, path });
       screenshotRecords.push({
         label,
@@ -69,6 +75,7 @@ test.describe("已实现能力浏览器验收", () => {
 
       await expect(page.getByRole("heading", { name: "浏览器验收故事" })).toBeVisible();
       await expect(page.getByRole("button", { name: "专注模式" })).toHaveCount(0);
+      await capture("ui-overview-dashboard");
       let seriesList = await getJson<SeriesSummary[]>(request, "/api/v1/series");
       expect(seriesList).toHaveLength(1);
       const seriesId = seriesList[0]!.id;
@@ -88,14 +95,49 @@ test.describe("已实现能力浏览器验收", () => {
 
       await page.getByRole("button", { name: /规划/ }).click();
       await expect(page.getByRole("heading", { name: /规划|故事板|大纲|追踪表|时间线/ })).toBeVisible();
+      await capture("ui-plan-grid");
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await capture("ui-plan-grid-wide");
+      await page.setViewportSize(defaultViewport);
+      await page.getByRole("button", { name: "大纲" }).click();
+      await expect(page.getByTestId("outline-view")).toBeVisible();
+      await capture("ui-plan-outline");
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await capture("ui-plan-outline-wide");
+      await page.setViewportSize(defaultViewport);
+      await page.getByRole("button", { name: "追踪表" }).click();
+      await expect(page.getByTestId("matrix-view")).toBeVisible();
+      await capture("ui-plan-matrix");
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await capture("ui-plan-matrix-wide");
+      await page.setViewportSize(defaultViewport);
+      await page.getByRole("button", { name: "时间线" }).click();
+      await expect(page.getByTestId("timeline-view")).toBeVisible();
+      await capture("ui-plan-timeline");
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await capture("ui-plan-timeline-wide");
+      await page.setViewportSize(defaultViewport);
 
       await page.getByRole("button", { name: /写作/ }).click();
       await expect(page.getByRole("button", { name: "本章新场景" })).toBeVisible();
       await expect(page.getByRole("button", { name: "新部" })).toBeVisible();
       await expect(page.getByRole("button", { name: "专注模式" })).toBeVisible();
+      const initialEditor = page.locator(".ProseMirror");
+      await initialEditor.click();
+      const initialSceneSave = page.waitForResponse((response) =>
+        response.request().method() === "PUT" && response.url().includes("/scenes/"),
+      );
+      await page.keyboard.insertText("雨幕像一道无声的帘子，垂落在这座城市的每一个角落。\n\n林岚站在老街的屋檐下，望着对面二层小楼的木窗。雨滴沿着青瓦滑落，敲在铜制的招牌上，发出沉闷而规律的声响。她握紧了口袋里的旧钥匙，那是父亲临终前交给她的唯一遗物。");
+      await initialSceneSave;
+      await expect(page.getByText(/● 已保存/)).toBeVisible();
+      await capture("ui-write-main");
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await capture("ui-write-wide");
+      await page.setViewportSize(defaultViewport);
 
       await page.getByRole("button", { name: "专注模式" }).click();
       await expect(page.getByRole("button", { name: "退出专注模式" })).toBeVisible();
+      await capture("ui-write-focus-mode");
       await page.getByRole("button", { name: "退出专注模式" }).click();
       await expect(page.getByRole("button", { name: "本章新场景" })).toBeVisible();
 
@@ -152,17 +194,59 @@ test.describe("已实现能力浏览器验收", () => {
       expect(secondChapterScene?.metadata.actId).toBe(secondAct?.id);
       expect(secondChapterScene?.metadata.chapterId).toBe(secondChapter?.id);
 
+      const codexEntryResponse = await request.post(`/api/v1/series/${seriesId}/codex/entries`, {
+        data: {
+          categoryId: "location",
+          name: "海魔城",
+          description: "海魔城是一座被雨水、旧钟声和港口雾气包围的城市。",
+          research: "验收用参考笔记：它不应自动变成已确认设定。",
+          aliases: ["旧钟城"],
+          tags: ["港口", "雨城"],
+        },
+      });
+      expect(codexEntryResponse.ok()).toBe(true);
+      const codexEntry = await codexEntryResponse.json() as { metadata: { id: string } };
+      const codexProgressionResponse = await request.post(`/api/v1/series/${seriesId}/codex/progressions`, {
+        data: {
+          target: { kind: "entry", entryId: codexEntry.metadata.id, relationId: null },
+          fieldKey: "状态",
+          changeKind: "addition",
+          summary: "浏览器验收：新条目在海魔城边缘担起旧钥匙线索。",
+          effectiveFromSceneId: secondChapterScene!.metadata.id,
+          evidence: [{
+            sourceType: "scene",
+            sourceId: secondChapterScene!.metadata.id,
+            quote: "",
+            note: "验收用证据，确认进展记录面板能显示真实来源。",
+          }],
+        },
+      });
+      expect(codexProgressionResponse.ok(), await codexProgressionResponse.text()).toBe(true);
+
       await page.getByRole("button", { name: /设定库/ }).click();
       await expect(page.getByRole("heading", { name: "设定库" })).toBeVisible();
+      await expect(page.getByLabel("条目名称")).toHaveValue("海魔城");
+      await capture("ui-codex-workspace");
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await capture("ui-codex-wide-detail");
+      await page.getByRole("button", { name: "进展记录" }).click();
+      await expect(page.locator(".progression-tab-body .relation-list").getByText(/浏览器验收：新条目/)).toBeVisible();
+      await capture("ui-codex-wide-progressions");
+      await page.setViewportSize(defaultViewport);
 
       await page.getByRole("button", { name: /编辑室/ }).click();
       await expect(page.getByRole("heading", { name: "编辑室" })).toBeVisible();
+      await capture("ui-workshop");
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await capture("ui-workshop-wide");
+      await page.setViewportSize(defaultViewport);
 
       await page.getByRole("button", { name: /待确认/ }).click();
       await expect(page.getByRole("heading", { name: "待确认", exact: true })).toBeVisible();
+      await capture("ui-review-inbox");
 
       await page.getByRole("button", { name: /设置/ }).click();
-      await expect(page.getByRole("heading", { name: "模型与资料权限" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "模型连接" })).toBeVisible();
       await expect(page.getByRole("button", { name: "专注模式" })).toHaveCount(0);
       await expect(page.locator(".model-list").getByRole("button", { name: /本机验收模型/ })).toBeVisible();
       await clickAndWaitForPost(page, "/test", async () => {
@@ -172,7 +256,7 @@ test.describe("已实现能力浏览器验收", () => {
       await capture("m4-settings-model-profile");
 
       await clickAndWaitForPost(page, "/model-profiles", async () => {
-        await page.getByRole("button", { name: "添加连接" }).click();
+        await page.getByRole("button", { name: /新增连接/ }).click();
       });
       await expect(page.locator(".model-list").getByRole("button", { name: /DeepSeek 写作模型/ })).toBeVisible();
       await expect(page.getByLabel("服务地址")).toHaveValue("https://api.deepseek.com");

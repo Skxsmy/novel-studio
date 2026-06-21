@@ -99,7 +99,7 @@ export function CodexRelationsPanel({
   onCreateRelation: () => Promise<void>;
   onToggleRelation: (relation: CodexRelationDocument) => Promise<void>;
 }) {
-  return <div className="codex-tab-body">
+  return <div className="codex-tab-body progression-tab-body">
     <div className="relation-create">
       <select value={relationTarget} onChange={(event) => onRelationTargetChange(event.target.value)}>
         <option value="">选择关系目标</option>
@@ -154,7 +154,7 @@ export function CodexProgressionsPanel({
   onCreateProgression: () => Promise<void>;
   onToggleProgression: (document: CodexProgressionDocument) => Promise<void>;
 }) {
-  return <div className="codex-tab-body">
+  return <div className="codex-tab-body progression-tab-body knowledge-tab-body">
     <p className="codex-safety-note">进展记录从指定场景起生效；它不会改写已确认设定正文，只会参与“此刻有效”的状态计算。</p>
     <div className="progression-create">
       <label>状态槽<input value={progressionField} onChange={(event) => onProgressionFieldChange(event.target.value)} placeholder="外貌、持有物、关系状态…" /></label>

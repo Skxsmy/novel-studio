@@ -1,0 +1,307 @@
+{
+  "runId": "2026-06-21T14-47-28-769Z",
+  "testTitle": "创建系列、维护第二部结构，并完成 M4 最小模型与上下文预览路径",
+  "outputDir": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome",
+  "screenshots": [
+    {
+      "label": "ui-overview-dashboard",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-01-ui-overview-dashboard.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:29.333Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-plan-grid",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-02-ui-plan-grid.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:29.567Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-plan-grid-wide",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-03-ui-plan-grid-wide.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "capturedAt": "2026-06-21T14:47:29.746Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-plan-outline",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-04-ui-plan-outline.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:29.946Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-plan-outline-wide",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-05-ui-plan-outline-wide.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "capturedAt": "2026-06-21T14:47:30.116Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-plan-matrix",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-06-ui-plan-matrix.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:30.309Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-plan-matrix-wide",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-07-ui-plan-matrix-wide.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "capturedAt": "2026-06-21T14:47:30.475Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-plan-timeline",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-08-ui-plan-timeline.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:30.665Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-plan-timeline-wide",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-09-ui-plan-timeline-wide.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "capturedAt": "2026-06-21T14:47:30.836Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-write-main",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-10-ui-write-main.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:32.214Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-write-wide",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-11-ui-write-wide.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "capturedAt": "2026-06-21T14:47:32.392Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-write-focus-mode",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-12-ui-write-focus-mode.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:32.570Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-codex-workspace",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-13-ui-codex-workspace.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:33.529Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-codex-wide-detail",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-14-ui-codex-wide-detail.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "capturedAt": "2026-06-21T14:47:33.679Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-codex-wide-progressions",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-15-ui-codex-wide-progressions.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "capturedAt": "2026-06-21T14:47:33.853Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-workshop",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-16-ui-workshop.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:34.046Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-workshop-wide",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-17-ui-workshop-wide.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "capturedAt": "2026-06-21T14:47:34.220Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "ui-review-inbox",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-18-ui-review-inbox.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:34.408Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "m4-settings-model-profile",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-19-m4-settings-model-profile.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:34.672Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "m4-deepseek-provider-config",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-20-m4-deepseek-provider-config.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:34.895Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "m4-prompt-template-preview",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-21-m4-prompt-template-preview.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:35.269Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "m4-write-context-preview",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-22-m4-write-context-preview.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:36.730Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "m4-ai-panel-ready",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-23-m4-ai-panel-ready.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:36.909Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "m4-ai-review-result",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-24-m4-ai-review-result.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:37.170Z",
+      "projectName": "chrome",
+      "retry": 0
+    },
+    {
+      "label": "m4-ai-inline-candidate-selected",
+      "path": "C:\\Users\\hi\\AppData\\Local\\Temp\\novel-studio-browser-acceptance\\test-results\\browser-acceptance-已实现能力浏览-4c065-维护第二部结构，并完成-M4-最小模型与上下文预览路径-chrome\\2026-06-21T14-47-28-769Z-25-m4-ai-inline-candidate-selected.png",
+      "url": "http://127.0.0.1:4318/",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "capturedAt": "2026-06-21T14:47:37.597Z",
+      "projectName": "chrome",
+      "retry": 0
+    }
+  ]
+}

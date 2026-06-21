@@ -53,6 +53,9 @@
 - NS-408 进行中：新增 DeepSeek 独立 Provider 与通用 OpenAI-compatible 基础路径，设置页可创建 DeepSeek 配置、保存 / 替换 / 删除 / 复用服务密钥、获取模型列表、测试连接并经统一 ProviderRegistry 发起调用；用户侧已确认 DeepSeek 连接正常且能获取模型列表。OpenAI、OpenRouter、Anthropic、Gemini 和 Ollama 仍待实现。
 - UI 原则已补入权威规格：主界面从作者视角组织信息，调用来源、基准版本、调用 ID、Token 用量等审计字段不得出现在写作主路径；UI 预览图必须受控管理，未采纳的探索图不进入项目。
 - UI 规范已补充：主界面不得用开发者说明反复解释失败回退、密钥存储、日志脱敏等内部边界；只展示用户当前决策和下一步。截图验收必须生成唯一运行 ID、截图 manifest，并逐图人工检查。
+- NS-409C UI 纠偏已记录：移除未跟踪的 `ui-foundation.css` 第二覆盖层；规划页按图像模型目标图改为三栏工作台；写作页验收改为真实正文状态截图，标题和正文改为更接近中文稿纸的字体；`NS-409B-plan-target-v2.png` 与 `NS-409B-write-target-v2.png` 已标记为不采纳。
+- NS-409D 宽屏 UI 复查已记录：写作页取消宽屏正文漂移；设定库验收创建真实条目和进展记录并截图；设定库详情 / 进展页和编辑室改为更受控的宽屏工作台；图像模型复查图与最终截图已保存到 `docs/design/ui-redesign/`。
+- NS-409E 规划页宽屏过渡修正已记录：故事板、大纲、追踪表和时间线分别使用当前截图生成目标图并保存实现截图；规划页宽屏结构已改善，但文档明确当前 UI 仍不能作为验收通过版本。
 - 完整产品、UX、AI 编辑团队、资料库、Word/版本和里程碑规格位于 `docs/product/`。
 
 ## 最近验证
@@ -97,8 +100,11 @@
 - NS-408 浏览器验收 `npm.cmd run test:e2e`：2026-06-21 通过；1 个 Chrome 用例，覆盖 DeepSeek / OpenAI-compatible 配置界面、唯一截图 manifest、写作页上下文预览、AI 审稿和正文候选闭环。人工查看确认 DeepSeek 设置页不再显示开发者回退说明，服务密钥卡不再竖排，凭据引用和能力参数折叠进“高级信息”。
 - NS-408 Provider 拆分后验证：`npm.cmd run typecheck` 通过；`npm.cmd run test -w @novel-studio/ai` 通过，15/15；`npm.cmd run test -w @novel-studio/server` 通过，15/15；`npm.cmd run check` 通过，Server 15/15、Web 14/14、AI 15/15、Storage 41/41；`npm.cmd run test:e2e` 通过，1 个 Chrome 用例。
 - NS-408 用户侧真实验收：用户已确认 DeepSeek 连接正常，并能获取模型列表。该结论来自用户手动验收；Codex 未读取或打印真实密钥。
+- NS-409C UI 纠偏验证：`npm.cmd run typecheck -w @novel-studio/web` 通过；`npm.cmd run test:e2e` 多轮通过，最新截图运行 ID 为 `2026-06-21T13-07-51-086Z`；实现后截图保存为 `docs/design/ui-redesign/NS-409C-plan-implemented-v1.png` 和 `docs/design/ui-redesign/NS-409C-write-implemented-v1.png`。
+- NS-409D 宽屏 UI 复查验证：`npm.cmd run typecheck -w @novel-studio/web` 通过；`npm.cmd run test:e2e` 通过，最新截图运行 ID 为 `2026-06-21T13-50-37-338Z`；实现后截图保存为 `NS-409D-write-wide-implemented-v1.png`、`NS-409D-codex-wide-detail-implemented-v1.png`、`NS-409D-codex-wide-progressions-implemented-v1.png` 和 `NS-409D-workshop-wide-implemented-v1.png`。
+- NS-409E 规划页宽屏验证：`npm.cmd run typecheck -w @novel-studio/web` 通过；`npm.cmd run test:e2e` 通过，最新截图运行 ID 为 `2026-06-21T14-47-28-769Z`；四个规划子页面的当前图、目标图和实现图已保存到 `docs/design/ui-redesign/`。
 
-详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`、`docs/testing/NS-305_ACCEPTANCE.md`、`docs/testing/NS-306_ACCEPTANCE.md`、`docs/testing/NS-401_ACCEPTANCE.md`、`docs/testing/NS-402_ACCEPTANCE.md`、`docs/testing/NS-403_ACCEPTANCE.md`、`docs/testing/NS-404_ACCEPTANCE.md`、`docs/testing/NS-405_ACCEPTANCE.md`、`docs/testing/NS-406_ACCEPTANCE.md`、`docs/testing/NS-407_ACCEPTANCE.md`、`docs/testing/NS-408_ACCEPTANCE.md`。
+详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`、`docs/testing/NS-305_ACCEPTANCE.md`、`docs/testing/NS-306_ACCEPTANCE.md`、`docs/testing/NS-401_ACCEPTANCE.md`、`docs/testing/NS-402_ACCEPTANCE.md`、`docs/testing/NS-403_ACCEPTANCE.md`、`docs/testing/NS-404_ACCEPTANCE.md`、`docs/testing/NS-405_ACCEPTANCE.md`、`docs/testing/NS-406_ACCEPTANCE.md`、`docs/testing/NS-407_ACCEPTANCE.md`、`docs/testing/NS-408_ACCEPTANCE.md`、`docs/testing/NS-409A_ACCEPTANCE.md`。
 
 ## 当前限制
 
@@ -108,6 +114,7 @@
 - NS-404 至 NS-408 只提供最小设置页、上下文预览入口、提示词预览入口、写作页 AI 审稿 / 改写入口、DeepSeek 独立 Provider 和通用 OpenAI-compatible 基础路径；完整上下文分组 UI、调用后快照查看、完整角色 / 变量 / Preset 编辑器和更多浏览器自动验收属于 `NS-409` 或后续 UI 整理。
 - DeepSeek 真实连接和模型列表获取已由用户侧验收通过；真实 DeepSeek 非写入调用结果尚未记录。
 - OpenAI、OpenRouter、Anthropic、Gemini 和 Ollama Provider 尚未实现，仍属 `NS-408` 剩余工作。
+- UI 仍需继续收敛：NS-409E 只修正规划页宽屏结构，不能视为 UI 验收通过；字体选择、字号层级、边框重量、页面设计语言和空状态仍不统一；写作页左侧结构栏新增按钮仍偏表单化；规划页尚未实现目标图中的底部“新建场景”工作台入口；设定库、编辑室、待确认和设置页仍需继续页面级复查。
 - 场景保存尚未回写系列 `updatedAt`。
 - 首次启动选择作品库、应用内停止服务和托盘入口尚未实现。
 - Milkdown 会规范化等价 CommonMark 标记风格；当前保证语义与正文文字，不承诺逐字符保留 `-/*` 或 `---/***` 写法。

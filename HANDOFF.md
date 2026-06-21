@@ -6,8 +6,8 @@
 
 - 分支：`main`
 - 最近相关提交：查看 `git log -5 --oneline`；应包含 NS-401 至 NS-407 提交。NS-408 当前尚未提交。
-- 当前任务：`NS-408` 进行中；DeepSeek 独立 Provider 与通用 OpenAI-compatible 基础路径已实现，用户侧已确认 DeepSeek 连接正常且能获取模型列表，其它 Provider 待接入。
-- 预期脏文件：本轮存在 NS-408 相关代码、测试和文档改动。接手时运行 `git status --short` 核实。
+- 当前任务：`NS-408` 仍进行中；另有 `NS-409A/NS-409C/NS-409D/NS-409E` UI 纠偏改动尚未提交。DeepSeek 独立 Provider 与通用 OpenAI-compatible 基础路径已实现，用户侧已确认 DeepSeek 连接正常且能获取模型列表，其它 Provider 待接入。
+- 预期脏文件：本轮存在 NS-408、NS-409A/NS-409C/NS-409D/NS-409E UI 相关代码、测试、设计资产和文档改动。接手时运行 `git status --short` 核实。
 
 ## 已完成
 
@@ -163,6 +163,27 @@
   - 用户侧已确认 DeepSeek 连接正常，并能获取模型列表；
   - 已新增 `docs/tasks/NS-408.md` 和 `docs/testing/NS-408_ACCEPTANCE.md`；
   - 未实现 OpenAI、OpenRouter、Anthropic、Gemini、Ollama adapter；尚未记录真实 DeepSeek 非写入调用结果。
+- NS-409C UI 纠偏（补充记录）：
+  - 用户指出此前 UI 改动与已认可目标图偏离，且实现者在两套样式层里反复调 CSS，导致“以为改了”但实际效果不明显；
+  - 已移除未跟踪的 `apps/web/src/ui-foundation.css` 第二覆盖层和 `main.tsx` 引入，当前 UI foundation 只来自 `styles.css`；
+  - `docs/design/ui-redesign/README.md` 已将 `NS-409B-plan-target-v2.png` 和 `NS-409B-write-target-v2.png` 标记为不采纳；
+  - 新增并采纳 `NS-409C-plan-target-v1.png`、`NS-409C-write-target-v1.png`、`NS-409C-plan-review-target-v1.png`、`NS-409C-write-review-target-v1.png`；
+  - 规划页已改为三栏工作台：左侧层级树、中间故事板、右侧规划检查栏；
+  - 写作页 E2E 主截图会先输入真实中文正文，避免用空白正文状态误判 UI；
+  - 写作页标题和正文已改为更接近中文稿纸的 serif 字体；规划页右侧动作按钮和场景卡选中态已降噪；
+  - 当前保留问题：写作页左侧结构栏新增按钮仍偏表单化；规划页尚未实现目标图底部“新建场景”入口；其它页面尚未经历 NS-409C 同等深度复查。
+- NS-409D 宽屏 UI 复查（补充记录）：
+  - 用户提供高分辨率截图指出写作页结构栏与正文之间存在异常空白，设定库和编辑室仍有大量无意义留白；
+  - 已保存 `NS-409D-write-wide-target-v1.png`、`NS-409D-codex-wide-target-v1.png`、`NS-409D-workshop-wide-target-v1.png` 和二次复查图 `NS-409D-wide-review-target-v1.png`；
+  - 写作页取消宽屏正文自动居中漂移；设定库收窄条目列表，详情区与进展记录区域改为受控宽度；编辑室改为三栏工作台；
+  - Playwright 验收新增 1920 宽截图，并在设定库中创建真实条目和进展记录后再截图；
+  - 最终截图运行 ID：`2026-06-21T13-50-37-338Z`；截图保存为 `NS-409D-write-wide-implemented-v1.png`、`NS-409D-codex-wide-detail-implemented-v1.png`、`NS-409D-codex-wide-progressions-implemented-v1.png`、`NS-409D-workshop-wide-implemented-v1.png`。
+- NS-409E 规划页宽屏过渡修正（补充记录）：
+  - 旧的合并式规划目标图不作为实现依据，项目目录中已移除不规范命名的 `NS-409E-plan-wide-target-v1.png`；
+  - 故事板、大纲、追踪表、时间线分别保存当前真实截图、图像模型目标图和实现后截图；
+  - 规划页取消窄宽度锁定，大纲改为三列结构，追踪表与时间线使用宽屏主工作区；
+  - 最终截图运行 ID：`2026-06-21T14-47-28-769Z`；截图保存为 `NS-409E-plan-grid-wide-implemented-v1.png`、`NS-409E-plan-outline-wide-implemented-v1.png`、`NS-409E-plan-matrix-wide-implemented-v1.png`、`NS-409E-plan-timeline-wide-implemented-v1.png`；
+  - 该项只算宽屏结构过渡版，不能视为 UI 验收通过版本；字体、字号层级、边框重量、空状态和整体设计语言仍需继续收敛。
 
 ## 验证
 
@@ -221,6 +242,9 @@
 - 2026-06-21 NS-408 Provider 拆分后 `npm.cmd run check`：通过；Server 15/15，Web 14/14，AI 15/15，Storage 41/41，生产构建通过。
 - 2026-06-21 NS-408 Provider 拆分后 `npm.cmd run test:e2e`：通过；1 个 Chrome 用例。
 - 2026-06-21 NS-408 用户侧真实验收：用户确认 DeepSeek 连接正常，并能获取模型列表；Codex 未读取或打印真实密钥。
+- 2026-06-21 NS-409C UI 纠偏：`npm.cmd run typecheck -w @novel-studio/web` 通过；`npm.cmd run test:e2e` 多轮通过，最新截图运行 ID `2026-06-21T13-07-51-086Z`；关键实现截图为 `docs/design/ui-redesign/NS-409C-plan-implemented-v1.png` 与 `docs/design/ui-redesign/NS-409C-write-implemented-v1.png`。
+- 2026-06-21 NS-409D 宽屏 UI 复查：`npm.cmd run typecheck -w @novel-studio/web` 通过；`npm.cmd run test:e2e` 通过；最新截图运行 ID `2026-06-21T13-50-37-338Z`；关键实现截图为 `docs/design/ui-redesign/NS-409D-write-wide-implemented-v1.png`、`docs/design/ui-redesign/NS-409D-codex-wide-detail-implemented-v1.png`、`docs/design/ui-redesign/NS-409D-codex-wide-progressions-implemented-v1.png`、`docs/design/ui-redesign/NS-409D-workshop-wide-implemented-v1.png`。
+- 2026-06-21 NS-409E 规划页宽屏：`npm.cmd run typecheck -w @novel-studio/web` 通过；`npm.cmd run test:e2e` 通过；最新截图运行 ID `2026-06-21T14-47-28-769Z`；四个规划子页面的 current / target / implemented 截图均保存到 `docs/design/ui-redesign/`。
 
 ## 已知限制
 
@@ -238,6 +262,7 @@
 - UI 方向不清晰时应先用当前截图和 UX 要求生成少量视觉预览；预览图必须按 `USER_EXPERIENCE_SPEC.md` 管理，未采纳探索图不进入项目。
 - DeepSeek 真实连接和模型列表获取已由用户侧验收通过；真实 DeepSeek 非写入调用结果尚未记录。
 - OpenAI、OpenRouter、Anthropic、Gemini 和 Ollama Provider 尚未实现，仍属 `NS-408` 剩余工作。
+- UI 仍需继续收敛：NS-409E 只修正规划页宽屏结构，不能视为 UI 验收通过；字体、字号层级、边框重量、空状态和页面设计语言仍不统一；左侧结构栏按钮、规划页新建入口、其它页面复查仍待后续任务处理。
 
 ## 唯一下一任务
 

@@ -195,7 +195,7 @@ function Overview({ detail }: { detail: SeriesDetail }) {
       <div className="metric-grid">
         <article><span>正文字数</span><strong>{characters.toLocaleString("zh-CN")}</strong><small>全系列当前字数</small></article>
         <article><span>场景</span><strong>{detail.scenes.length}</strong><small>{detail.scenes.filter((scene) => scene.metadata.status === "draft").length} 个草稿</small></article>
-        <article><span>待确认修改</span><strong>0</strong><small>智能编辑不会自动改写已确认设定</small></article>
+        <article><span>待确认修改</span><strong>0</strong><small>确认后才会进入作品</small></article>
       </div>
       <div className="two-column">
         <article className="panel recent-panel">
@@ -220,18 +220,53 @@ function Overview({ detail }: { detail: SeriesDetail }) {
 }
 
 function WorkshopView() {
+  const agents = [
+    { mark: "主", name: "主笔伙伴", desc: "全局视角的创作搭档" },
+    { mark: "构", name: "结构编辑", desc: "梳理故事骨架与节奏" },
+    { mark: "人", name: "人物编辑", desc: "检查动机、关系与弧光" },
+    { mark: "冷", name: "冷酷读者", desc: "指出含混、拖沓与失焦" },
+  ];
+  const prompts = ["梳理当前章节冲突", "检查人物动机", "优化场景节奏", "找出读者困惑点"];
+
   return (
     <section className="content-page workshop-page">
-      <div className="page-heading"><div><p className="eyebrow">编辑室</p><h2>编辑室</h2></div><span className="phase-chip">后续接入</span></div>
+      <div className="page-heading"><div><p className="eyebrow">编辑室</p><h2>编辑室</h2></div><span className="phase-chip">未连接模型</span></div>
       <div className="workshop-layout">
         <aside className="agent-list">
-          {[["主", "主笔伙伴"], ["构", "结构编辑"], ["人", "人物编辑"], ["冷", "冷酷读者"]].map(([mark, name], index) => <button className={index === 0 ? "selected" : ""} key={name}><span>{mark}</span><div><strong>{name}</strong><small>{index === 0 ? "共同构思与落笔" : "独立判断，不负责附和"}</small></div></button>)}
+          <div className="agent-list-heading">
+            <strong>编辑角色</strong>
+            <small>选择一个角度开始讨论</small>
+          </div>
+          {agents.map((agent, index) => <button className={index === 0 ? "selected" : ""} key={agent.name}><span>{agent.mark}</span><div><strong>{agent.name}</strong><small>{agent.desc}</small></div></button>)}
         </aside>
         <div className="chat-placeholder">
-          <div className="context-strip"><span>资料范围尚未整理</span><span>0 字资料</span><span>本地优先</span></div>
-          <div className="empty-conversation"><span>✦</span><h3>把问题交给合适的编辑</h3><p>模型连接前，此处不会假装已经有编辑回复。后续会先实现资料范围预览和调用记录。</p></div>
-          <div className="composer"><textarea disabled placeholder="选择模型后与编辑讨论……" /><button disabled>发送</button></div>
+          <div className="context-strip"><span>当前资料：尚未整理</span><span>当前章节：未选择</span><span>模型：未连接</span></div>
+          <div className="empty-conversation">
+            <span>✦</span>
+            <h3>把一个具体问题交给编辑</h3>
+            <p>选择左侧角色后，写下你想解决的写作问题。编辑室会围绕当前章节、设定和你主动提供的资料给出建议。</p>
+            <div className="workshop-prompt-grid">
+              {prompts.map((prompt) => <button disabled key={prompt}>{prompt}</button>)}
+            </div>
+          </div>
+          <div className="composer"><textarea disabled placeholder="例如：这一章的冲突是否太弱？主角的选择是否可信？" /><button disabled>发送</button></div>
         </div>
+        <aside className="workshop-context-panel">
+          <div>
+            <p className="eyebrow">上下文范围</p>
+            <h3>这次讨论会看什么</h3>
+          </div>
+          <ul>
+            <li><span>作品资料</span><strong>尚未整理</strong></li>
+            <li><span>当前章节</span><strong>未选择</strong></li>
+            <li><span>人物设定</span><strong>暂未提供</strong></li>
+            <li><span>写作目标</span><strong>等待输入</strong></li>
+          </ul>
+          <div className="workshop-note-card">
+            <strong>小贴士</strong>
+            <p>越具体的问题，越容易得到能直接用于修改的反馈。</p>
+          </div>
+        </aside>
       </div>
     </section>
   );
@@ -241,7 +276,7 @@ function ReviewView() {
   return (
     <section className="content-page review-page">
       <div className="page-heading"><div><p className="eyebrow">待确认修改</p><h2>待确认</h2></div><span className="count-chip">0 项待处理</span></div>
-      <div className="empty-review"><div className="shield">✓</div><h3>作品目前没有待确认的更改</h3><p>以后所有智能编辑生成的摘要、人物状态、伏笔和正文修改都会先来到这里。只有你的接受动作能改变原稿和已确认设定。</p><div className="review-rules"><span>带证据</span><span>带基础版本</span><span>可拒绝</span><span>可逐项修改</span></div></div>
+      <div className="empty-review"><div className="shield">✓</div><h3>作品目前没有待确认的更改</h3><p>以后所有智能编辑生成的摘要、人物状态、伏笔和正文修改都会先来到这里。只有你的接受动作能改变原稿和已确认设定。</p><div className="review-rules"><span>有依据</span><span>可追溯</span><span>可拒绝</span><span>可逐项修改</span></div></div>
     </section>
   );
 }
