@@ -13,7 +13,7 @@ import {
   type SceneDocument,
   type SceneSectionDocument,
 } from "@novel-studio/contracts";
-import { createDefaultProviderRegistry } from "@novel-studio/ai";
+import type { ProviderRegistry } from "@novel-studio/ai";
 import type { ProjectRepository } from "@novel-studio/storage";
 import {
   ensureCloudAllowed,
@@ -23,7 +23,6 @@ import {
 import { ensureBuiltInPrompts } from "../prompts/builtIns.js";
 import { PromptRenderError, renderPromptTemplate } from "../prompts/render.js";
 
-const registry = createDefaultProviderRegistry();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 function hashText(value: string): string {
@@ -113,7 +112,11 @@ function manualIdMatches(manualIds: Set<string>, kind: "section" | "codex", id: 
   return manualIds.has(id) || manualIds.has(`${kind}:${id}`);
 }
 
-function providerTokenEstimate(profile: ModelProfile | null, content: string): number {
+function providerTokenEstimate(
+  registry: ProviderRegistry,
+  profile: ModelProfile | null,
+  content: string,
+): number {
   if (!profile) return estimateTokens(content);
   try {
     return registry.get(profile.provider).estimateTokens(content).inputTokens;
@@ -157,6 +160,7 @@ function sectionAccessForModel(profile: ModelProfile | null): "local" | "cloud" 
 
 async function buildContextBundle(
   repository: ProjectRepository,
+  registry: ProviderRegistry,
   seriesId: string,
   rawInput: unknown,
 ): Promise<ContextBundle> {
@@ -438,7 +442,7 @@ async function buildContextBundle(
 
   for (const item of items) {
     item.tokenEstimate = modelProfile
-      ? providerTokenEstimate(modelProfile, item.content)
+      ? providerTokenEstimate(registry, modelProfile, item.content)
       : estimateTokens(item.content);
   }
   const budget = input.tokenBudget ?? modelProfile?.contextWindowTokens ?? null;
@@ -482,12 +486,17 @@ function sectionExclusion(
   });
 }
 
-export function registerContextRoutes(app: FastifyInstance, repository: ProjectRepository): void {
+export function registerContextRoutes(
+  app: FastifyInstance,
+  repository: ProjectRepository,
+  options: { providerRegistry: ProviderRegistry },
+): void {
+  const { providerRegistry } = options;
   app.post<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/context/preview",
     async (request, reply) => {
       try {
-        return await buildContextBundle(repository, request.params.seriesId, request.body);
+        return await buildContextBundle(repository, providerRegistry, request.params.seriesId, request.body);
       } catch (error) {
         if (error instanceof Error && error.name.startsWith("MODEL_CONTEXT_BLOCKED:")) {
           const status = Number(error.name.split(":")[1] ?? 403);

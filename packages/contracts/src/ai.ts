@@ -91,6 +91,7 @@ export const ModelProfileSchema = z.object({
   id: z.string().uuid(),
   title: z.string().min(1).max(160),
   provider: AiProviderSchema,
+  baseUrl: z.string().url().nullable().default(null),
   model: z.string().min(1).max(200),
   cloudPolicy: CloudPolicySchema.default("local-only"),
   credentialRef: CredentialRefSchema.nullable().default(null),
@@ -106,6 +107,7 @@ export type ModelProfile = z.infer<typeof ModelProfileSchema>;
 export const CreateModelProfileInputSchema = z.object({
   title: z.string().trim().min(1).max(160),
   provider: AiProviderSchema,
+  baseUrl: z.string().trim().url().nullable().default(null),
   model: z.string().trim().min(1).max(200),
   cloudPolicy: CloudPolicySchema.default("local-only"),
   credentialRef: CredentialRefSchema.nullable().default(null),
@@ -129,6 +131,22 @@ export const UpdateModelProfileInputSchema = CreateModelProfileInputSchema.parti
   },
 );
 export type UpdateModelProfileInput = z.infer<typeof UpdateModelProfileInputSchema>;
+
+export const SaveModelProfileCredentialInputSchema = z.object({
+  secret: z.string().min(8).max(8192),
+});
+export type SaveModelProfileCredentialInput = z.infer<
+  typeof SaveModelProfileCredentialInputSchema
+>;
+
+export const SaveModelProfileCredentialResultSchema = z.object({
+  credentialRef: CredentialRefSchema,
+  storeKind: z.enum(["windows-credential-manager", "unavailable"]),
+  modelProfile: ModelProfileSchema,
+});
+export type SaveModelProfileCredentialResult = z.infer<
+  typeof SaveModelProfileCredentialResultSchema
+>;
 
 export const UpdateSeriesCloudPolicyInputSchema = z.object({
   cloudPolicy: CloudPolicySchema,

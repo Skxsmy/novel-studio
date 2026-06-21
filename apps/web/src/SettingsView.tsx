@@ -28,14 +28,15 @@ const cloudPolicyLabels: Record<CloudPolicy, string> = {
 function providerDescription(provider: AiProvider): string {
   if (provider === "mock") return "用于验收流程，不会产生网络调用。";
   if (provider === "ollama") return "面向本机部署模型，后续接入真实流式调用。";
-  return "需要作品允许云端调用，并配置系统凭据引用。";
+  if (provider === "openai-compatible") return "适用于 DeepSeek 或其他 OpenAI 格式服务。密钥只保存在本机系统里。";
+  return "需要先允许云端调用，并保存服务密钥。";
 }
 
 function connectionMessage(result: ProviderConnectionResult | null, error: string): string {
-  if (error) return error;
+  if (error) return "连接失败，请检查服务地址、模型名称和密钥。";
   if (!result) return "尚未测试";
   if (result.ok) return `连接正常，可识别 ${result.models.length} 个模型。`;
-  return result.error?.message ?? "连接失败";
+  return "连接失败，请检查服务地址、模型名称和密钥。";
 }
 
 export function SettingsView({
@@ -51,10 +52,12 @@ export function SettingsView({
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [profileDraft, setProfileDraft] = useState({
     title: "",
+    baseUrl: "",
     model: "",
     cloudPolicy: "local-only" as CloudPolicy,
     credentialRef: "",
   });
+  const [credentialSecret, setCredentialSecret] = useState("");
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [testResults, setTestResults] = useState<Record<string, ProviderConnectionResult | null>>({});
@@ -89,10 +92,12 @@ export function SettingsView({
     if (!selectedProfile) return;
     setProfileDraft({
       title: selectedProfile.title,
+      baseUrl: selectedProfile.baseUrl ?? "",
       model: selectedProfile.model,
       cloudPolicy: selectedProfile.cloudPolicy,
       credentialRef: selectedProfile.credentialRef ?? "",
     });
+    setCredentialSecret("");
   }, [selectedProfile]);
 
   async function saveCloudPolicy(nextPolicy: CloudPolicy) {
@@ -140,6 +145,7 @@ export function SettingsView({
       const created = await api.createModelProfile(detail.manifest.id, {
         title: `${providerLabels[provider]} 配置`,
         provider,
+        baseUrl: provider === "openai-compatible" ? "https://api.deepseek.com" : null,
         model: provider === "openrouter" ? "openrouter/model-id" : "待填写模型代号",
         cloudPolicy: provider === "ollama" ? "local-only" : "cloud-allowed",
       });
@@ -153,6 +159,35 @@ export function SettingsView({
     }
   }
 
+  async function createDeepSeekProfile() {
+    setBusy("create-deepseek");
+    setMessage("");
+    try {
+      const created = await api.createModelProfile(detail.manifest.id, {
+        title: "DeepSeek 写作模型",
+        provider: "openai-compatible",
+        baseUrl: "https://api.deepseek.com",
+        model: "deepseek-v4-flash",
+        cloudPolicy: "cloud-allowed",
+        capabilities: {
+          streamText: true,
+          structuredOutput: true,
+          embeddings: false,
+          tokenEstimate: true,
+          modelList: true,
+        },
+        contextWindowTokens: 1_000_000,
+      });
+      await loadProfiles();
+      setSelectedProfileId(created.id);
+      setMessage("已建立 DeepSeek 配置。请允许云端模型，并把 API Key 保存到系统凭据后再测试连接。");
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : "建立 DeepSeek 配置失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function saveSelectedProfile() {
     if (!selectedProfile) return;
     setBusy(`update-${selectedProfile.id}`);
@@ -160,6 +195,7 @@ export function SettingsView({
     try {
       const updated = await api.updateModelProfile(detail.manifest.id, selectedProfile.id, {
         title: profileDraft.title,
+        baseUrl: profileDraft.baseUrl.trim() || null,
         model: profileDraft.model,
         cloudPolicy: profileDraft.cloudPolicy,
         credentialRef: profileDraft.credentialRef.trim() || null,
@@ -168,6 +204,31 @@ export function SettingsView({
       setMessage("模型配置已保存。");
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : "保存模型配置失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveSelectedCredential() {
+    if (!selectedProfile) return;
+    if (!credentialSecret.trim()) {
+      setMessage("请先输入要保存的 API Key。");
+      return;
+    }
+    setBusy(`credential-${selectedProfile.id}`);
+    setMessage("");
+    try {
+      const result = await api.saveModelProfileCredential(detail.manifest.id, selectedProfile.id, {
+        secret: credentialSecret,
+      });
+      setCredentialSecret("");
+      setProfiles((current) => current.map((profile) =>
+        profile.id === result.modelProfile.id ? result.modelProfile : profile,
+      ));
+      setProfileDraft((current) => ({ ...current, credentialRef: result.credentialRef }));
+      setMessage("密钥已保存到系统凭据。作品文件、日志和 Git 不会保存明文密钥。");
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : "保存密钥失败");
     } finally {
       setBusy("");
     }
@@ -255,11 +316,11 @@ export function SettingsView({
                 <button onClick={() => void createMockProfile()} disabled={busy === "create-mock"}>
                   添加本机验收模型
                 </button>
-                <button onClick={() => void createCloudPlaceholder("openai")} disabled={busy === "create-openai"}>
-                  添加 OpenAI 配置
+                <button onClick={() => void createDeepSeekProfile()} disabled={busy === "create-deepseek"}>
+                  添加 DeepSeek 配置
                 </button>
-                <button onClick={() => void createCloudPlaceholder("ollama")} disabled={busy === "create-ollama"}>
-                  添加 Ollama 配置
+                <button onClick={() => void createCloudPlaceholder("openai-compatible")} disabled={busy === "create-openai-compatible"}>
+                  添加兼容服务
                 </button>
               </div>
             </div>
@@ -320,6 +381,15 @@ export function SettingsView({
                           />
                         </label>
                         <label>
+                          服务地址
+                          <input
+                            value={profileDraft.baseUrl}
+                            placeholder={selectedProfile.provider === "openai-compatible" ? "https://api.deepseek.com" : "本机验收模型无需填写"}
+                            onChange={(event) => setProfileDraft((current) => ({ ...current, baseUrl: event.target.value }))}
+                            disabled={selectedProfile.provider === "mock"}
+                          />
+                        </label>
+                        <label>
                           调用权限
                           <select
                             value={profileDraft.cloudPolicy}
@@ -330,27 +400,52 @@ export function SettingsView({
                             ))}
                           </select>
                         </label>
+                      </div>
+                      {selectedProfile.provider !== "mock" && (
+                        <div className="credential-save-card">
+                          <div>
+                            <strong>服务密钥</strong>
+                            <small>只保存在系统凭据中，保存后会清空输入框。</small>
+                          </div>
+                          <div>
+                            <input
+                              type="password"
+                              value={credentialSecret}
+                              placeholder="粘贴 API Key"
+                              autoComplete="off"
+                              onChange={(event) => setCredentialSecret(event.target.value)}
+                            />
+                            <button
+                              onClick={() => void saveSelectedCredential()}
+                              disabled={busy === `credential-${selectedProfile.id}`}
+                            >
+                              保存密钥
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      <div className={`connection-result ${testResults[selectedProfile.id]?.ok ? "ok" : ""}`}>
+                        <strong>连接状态</strong>
+                        <p>{connectionMessage(testResults[selectedProfile.id] ?? null, testErrors[selectedProfile.id] ?? "")}</p>
+                      </div>
+                      <details className="model-advanced">
+                        <summary>高级信息</summary>
                         <label>
                           系统凭据引用
                           <input
                             value={profileDraft.credentialRef}
-                            placeholder="例如：novel-studio/openai/main"
+                            placeholder="保存密钥后自动生成；也可填写已有系统凭据引用"
                             onChange={(event) => setProfileDraft((current) => ({ ...current, credentialRef: event.target.value }))}
                           />
                         </label>
-                      </div>
-                      <div className={`connection-result ${testResults[selectedProfile.id]?.ok ? "ok" : ""}`}>
-                        <strong>连接结果</strong>
-                        <p>{connectionMessage(testResults[selectedProfile.id] ?? null, testErrors[selectedProfile.id] ?? "")}</p>
-                        <small>不会因为失败而改用其他供应商；回退策略必须另行显式配置。</small>
-                      </div>
+                        <dl className="model-capabilities">
+                          <div><dt>上下文窗口</dt><dd>{selectedProfile.contextWindowTokens.toLocaleString("zh-CN")} tokens</dd></div>
+                          <div><dt>流式文本</dt><dd>{selectedProfile.capabilities.streamText ? "支持" : "未声明"}</dd></div>
+                          <div><dt>结构化输出</dt><dd>{selectedProfile.capabilities.structuredOutput ? "支持" : "未声明"}</dd></div>
+                          <div><dt>Token 估算</dt><dd>{selectedProfile.capabilities.tokenEstimate ? "支持" : "未声明"}</dd></div>
+                        </dl>
+                      </details>
                     </div>
-                    <dl className="model-capabilities">
-                      <div><dt>上下文窗口</dt><dd>{selectedProfile.contextWindowTokens.toLocaleString("zh-CN")} tokens</dd></div>
-                      <div><dt>流式文本</dt><dd>{selectedProfile.capabilities.streamText ? "支持" : "未声明"}</dd></div>
-                      <div><dt>结构化输出</dt><dd>{selectedProfile.capabilities.structuredOutput ? "支持" : "未声明"}</dd></div>
-                      <div><dt>Token 估算</dt><dd>{selectedProfile.capabilities.tokenEstimate ? "支持" : "未声明"}</dd></div>
-                    </dl>
                   </div>
                 </>
               ) : (

@@ -10,11 +10,13 @@ import {
 } from "@novel-studio/contracts";
 import {
   MockProvider,
+  OpenAiCompatibleProvider,
   ProviderAdapterError,
   assertSafeCredentialRef,
   classifyProviderError,
   createDefaultProviderRegistry,
   isLikelySecret,
+  type CredentialStore,
 } from "../src/index.js";
 
 const NOW = "2026-06-21T00:00:00.000Z";
@@ -115,11 +117,37 @@ async function collect(iterable: AsyncIterable<string>): Promise<string> {
   return chunks.join("");
 }
 
-describe("ProviderAdapter core and MockProvider", () => {
-  it("registers MockProvider without registering real providers", () => {
-    const registry = createDefaultProviderRegistry();
+function fakeCredentialStore(secret = "test-deepseek-key"): CredentialStore {
+  return {
+    kind: "windows-credential-manager",
+    async isAvailable() {
+      return true;
+    },
+    async writeSecret() {
+      return undefined;
+    },
+    async readSecret() {
+      return secret;
+    },
+    async deleteSecret() {
+      return undefined;
+    },
+  };
+}
 
-    expect(registry.list().map((adapter) => adapter.provider)).toEqual(["mock"]);
+function sseResponse(...events: string[]): Response {
+  const body = events.map((event) => `data: ${event}\n\n`).join("");
+  return new Response(new TextEncoder().encode(body), {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+describe("ProviderAdapter core and MockProvider", () => {
+  it("registers MockProvider and OpenAI-compatible provider without registering vendor-specific providers", () => {
+    const registry = createDefaultProviderRegistry({ credentialStore: fakeCredentialStore() });
+
+    expect(registry.list().map((adapter) => adapter.provider)).toEqual(["mock", "openai-compatible"]);
     expect(registry.get("mock")).toBeInstanceOf(MockProvider);
     expect(() => registry.get("openai")).toThrow("Provider is not registered");
   });
@@ -274,6 +302,102 @@ describe("ProviderAdapter core and MockProvider", () => {
       ok: false,
       error: { code: "provider-error" },
     });
+  });
+
+  it("connects to an OpenAI-compatible DeepSeek profile and streams text through SSE", async () => {
+    const requests: Array<{ url: string; authorization: string | null; body?: unknown }> = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const headers = new Headers(init?.headers);
+      requests.push({
+        url,
+        authorization: headers.get("authorization"),
+        body: init?.body ? JSON.parse(String(init.body)) as unknown : undefined,
+      });
+      if (url.endsWith("/models")) {
+        return new Response(JSON.stringify({
+          data: [{ id: "deepseek-v4-flash" }, { id: "deepseek-v4-pro" }],
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url.endsWith("/chat/completions")) {
+        return sseResponse(
+          JSON.stringify({ choices: [{ delta: { content: "雨声" } }] }),
+          JSON.stringify({ choices: [{ delta: { content: "压低了脚步。" } }] }),
+          "[DONE]",
+        );
+      }
+      return new Response("not found", { status: 404 });
+    };
+    const provider = new OpenAiCompatibleProvider({
+      credentialStore: fakeCredentialStore("deepseek-test-key"),
+      fetchImpl,
+    });
+    const profile = modelProfile({
+      title: "DeepSeek 写作模型",
+      provider: "openai-compatible",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      cloudPolicy: "cloud-allowed",
+      credentialRef: "novel-studio/model-profile/test",
+      capabilities: {
+        streamText: true,
+        structuredOutput: true,
+        embeddings: false,
+        tokenEstimate: true,
+        modelList: true,
+      },
+      contextWindowTokens: 1_000_000,
+    });
+
+    await expect(provider.testConnection(profile)).resolves.toMatchObject({
+      ok: true,
+      provider: "openai-compatible",
+      models: [
+        { id: "deepseek-v4-flash" },
+        { id: "deepseek-v4-pro" },
+      ],
+    });
+
+    await expect(collect(provider.streamText({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      parameters: { temperature: 0.3, maxOutputTokens: 128 },
+    }))).resolves.toBe("雨声压低了脚步。");
+
+    expect(requests.some((request) => request.url === "https://api.deepseek.com/models")).toBe(true);
+    const chatRequest = requests.find((request) => request.url === "https://api.deepseek.com/chat/completions");
+    expect(chatRequest?.authorization).toBe("Bearer deepseek-test-key");
+    expect(chatRequest?.body).toMatchObject({
+      model: "deepseek-v4-flash",
+      stream: true,
+      temperature: 0.3,
+      max_tokens: 128,
+    });
+  });
+
+  it("classifies OpenAI-compatible auth failures without leaking secrets", async () => {
+    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
+      error: { message: "unauthorized sk-secret-would-leak" },
+    }), { status: 401, headers: { "content-type": "application/json" } });
+    const provider = new OpenAiCompatibleProvider({
+      credentialStore: fakeCredentialStore("deepseek-test-key"),
+      fetchImpl,
+    });
+    const profile = modelProfile({
+      provider: "openai-compatible",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      cloudPolicy: "cloud-allowed",
+      credentialRef: "novel-studio/model-profile/test",
+    });
+
+    const result = await provider.testConnection(profile);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "provider-auth-failed", providerStatus: 401 },
+    });
+    expect(result.error?.message).not.toContain("sk-secret");
   });
 
   it("distinguishes credential references from likely plaintext secrets", () => {

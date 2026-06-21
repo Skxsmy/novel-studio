@@ -40,6 +40,8 @@ import type {
   ModelCallLog,
   ModelCallStreamEvent,
   ModelProfile,
+  SaveModelProfileCredentialInput,
+  SaveModelProfileCredentialResult,
   HierarchyValidationResult,
   PlanningBoard,
   ProviderConnectionResult,
@@ -188,6 +190,15 @@ export const api = {
     request<ModelProfile>(
       `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}`,
       { method: "PUT", body: JSON.stringify(input) },
+    ),
+  saveModelProfileCredential: (
+    seriesId: string,
+    modelProfileId: string,
+    input: SaveModelProfileCredentialInput,
+  ) =>
+    request<SaveModelProfileCredentialResult>(
+      `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential`,
+      { method: "POST", body: JSON.stringify(input) },
     ),
   testModelProfile: (seriesId: string, modelProfileId: string) =>
     request<ProviderConnectionResult>(

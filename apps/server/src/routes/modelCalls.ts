@@ -10,7 +10,7 @@ import {
   type ModelProfile,
   type TokenUsage,
 } from "@novel-studio/contracts";
-import { createDefaultProviderRegistry, type ProviderPrompt } from "@novel-studio/ai";
+import type { ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
 import type { ProjectRepository } from "@novel-studio/storage";
 import {
   ensureCloudAllowed,
@@ -19,7 +19,6 @@ import {
   providerErrorStatus,
 } from "../ai/policy.js";
 
-const registry = createDefaultProviderRegistry();
 const candidateTaskKinds = new Set(["draft", "rewrite", "expand", "compress"]);
 
 function hashText(value: string): string {
@@ -90,7 +89,12 @@ function sameCallBoundary(input: {
   return null;
 }
 
-export function registerModelCallRoutes(app: FastifyInstance, repository: ProjectRepository): void {
+export function registerModelCallRoutes(
+  app: FastifyInstance,
+  repository: ProjectRepository,
+  options: { providerRegistry: ProviderRegistry },
+): void {
+  const { providerRegistry } = options;
   app.post<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/ai/calls",
     async (request, reply) => {
@@ -122,7 +126,7 @@ export function registerModelCallRoutes(app: FastifyInstance, repository: Projec
 
       let adapter;
       try {
-        adapter = registry.get(modelProfile.provider);
+        adapter = providerRegistry.get(modelProfile.provider);
       } catch {
         const error = modelError(
           "provider-unavailable",

@@ -30,6 +30,8 @@ UI 相关任务不能只用 DOM 断言证明“按钮能点”。每次 UI 变�
 4. 人工查看截图，判断层级、留白、按钮位置、文案和状态反馈是否可接受。
 5. 对照 `docs/product/USER_EXPERIENCE_SPEC.md` 检查风格是否统一，不能只确认功能可用。
 
+截图文件必须带本次运行的唯一时间戳或运行 ID，并写入截图清单；不得用同名覆盖的旧截图证明新 UI 已生效。提交结论前，开发者必须打开本次新生成的截图逐项检查，并说明看到的具体变化和仍然存在的问题。
+
 截图人工检查必须回答：
 
 - 是否仍然像同一个产品，而不是不同页面拼在一起。
@@ -38,13 +40,14 @@ UI 相关任务不能只用 DOM 断言证明“按钮能点”。每次 UI 变�
 - 中文是否自然，是否有翻译腔、中英文混搭或字段名裸露。
 - 新增组件是否复用了现有按钮、卡片、输入框、标签页和提示条风格。
 
-当前 Playwright 用例会在 M4 路径中保存：
+当前 Playwright 用例会在 M4 路径中保存带时间戳和序号的截图，并生成 `*-screenshot-manifest.json` 清单。主要截图包括：
 
-- `m4-settings-model-profile.png`：设置页模型配置与连接测试结果。
-- `m4-write-context-preview.png`：写作页右侧上下文预览入口与结果。
-- `m4-ai-panel-ready.png`：写作页 AI 审稿 / 改写面板待机状态。
-- `m4-ai-review-result.png`：AI 审稿结果在侧栏流式显示后的状态。
-- `m4-ai-inline-candidate-selected.png`：AI 改写候选进入正文并保持选中，等待作者保留或撤回。
+- `m4-settings-model-profile`：设置页模型配置与连接测试结果。
+- `m4-deepseek-provider-config`：DeepSeek / OpenAI 兼容服务配置界面。
+- `m4-write-context-preview`：写作页右侧上下文预览入口与结果。
+- `m4-ai-panel-ready`：写作页 AI 审稿 / 改写面板待机状态。
+- `m4-ai-review-result`：AI 审稿结果在侧栏流式显示后的状态。
+- `m4-ai-inline-candidate-selected`：AI 改写候选进入正文并保持选中，等待作者保留或撤回。
 
 这些截图会作为 Playwright 附件写入 `%TEMP%\novel-studio-browser-acceptance\test-results`。如果测试命令失败，失败截图和 trace 也会放在同一测试结果目录。
 

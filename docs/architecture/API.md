@@ -127,11 +127,14 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 - `GET /series/:seriesId/ai/model-profiles`
 - `POST /series/:seriesId/ai/model-profiles`
 - `PUT /series/:seriesId/ai/model-profiles/:profileId`
+- `POST /series/:seriesId/ai/model-profiles/:profileId/credential`
 - `PUT /series/:seriesId/ai/cloud-policy`
 - `POST /series/:seriesId/ai/model-profiles/:profileId/test`
 - `GET /series/:seriesId/ai/model-profiles/:profileId/models`
 
-`ModelProfile` 描述一个可选模型配置，包括 Provider、模型名、能力、默认参数、云端策略和凭据引用。API 不接收也不返回明文 API key。
+`ModelProfile` 描述一个可选模型配置，包括 Provider、模型名、服务地址、能力、默认参数、云端策略和凭据引用。API 不返回明文 API key。
+
+`POST /model-profiles/:profileId/credential` 接收一次性密钥输入并写入 `CredentialStore`，随后把模型配置更新为凭据引用。服务端不得把明文密钥写入作品目录、调用日志、错误响应或 Git 可追踪文件。
 
 `PUT /ai/cloud-policy` 更新作品级云端权限，当前取值为 `local-only` 或 `cloud-allowed`。作品处于 `local-only` 时，云端 Provider 的连接测试和后续调用都必须返回权限错误。
 

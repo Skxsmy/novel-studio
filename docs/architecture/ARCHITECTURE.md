@@ -15,7 +15,7 @@ File store   SQLite / FTS5
 (authority)  (index/cache)
 ```
 
-当前没有真实 AI 调用、ProviderAdapter、SSE Job 或远程访问。编辑室和待确认工作区只是 M4/M5 的占位入口，界面必须继续诚实标记“尚未接入”。
+当前已具备 `ProviderAdapter`、MockProvider、OpenAI-compatible / DeepSeek 协议路径、上下文预览、SSE 流式调用和调用日志 API。真实 DeepSeek 调用仍需用户在界面保存密钥后验收；其它 Provider 和完整调用记录 UI 仍在 M4 后续任务中。
 
 ## 工作区和依赖方向
 

@@ -3,6 +3,12 @@ import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
+  createDefaultProviderRegistry,
+  createSystemCredentialStore,
+  type CredentialStore,
+  type ProviderRegistry,
+} from "@novel-studio/ai";
+import {
   ArchiveSceneSectionInputSchema,
   CreateBookInputSchema,
   CreateActInputSchema,
@@ -39,6 +45,9 @@ export interface BuildAppOptions {
   commit?: string | null;
   startedAt?: string;
   workspaceRoot?: string | null;
+  credentialStore?: CredentialStore;
+  providerRegistry?: ProviderRegistry;
+  providerFetch?: typeof fetch;
 }
 
 function firstNonEmpty(...values: Array<string | null | undefined>): string | null {
@@ -67,6 +76,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const app = Fastify({ logger: options.logger ?? false });
   const repository = new ProjectRepository(options.libraryRoot);
   await repository.initialize();
+  const credentialStore = options.credentialStore ?? createSystemCredentialStore();
+  const registryOptions: Parameters<typeof createDefaultProviderRegistry>[0] = {
+    credentialStore,
+  };
+  if (options.providerFetch) registryOptions.fetchImpl = options.providerFetch;
+  const providerRegistry = options.providerRegistry ?? createDefaultProviderRegistry(registryOptions);
   const version = firstNonEmpty(options.version, process.env.NOVEL_STUDIO_VERSION) ?? "0.1.0";
   const commit = firstNonEmpty(options.commit, process.env.NOVEL_STUDIO_COMMIT);
   const startedAt =
@@ -264,10 +279,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   );
 
   registerCodexRoutes(app, repository);
-  registerAiRoutes(app, repository);
+  registerAiRoutes(app, repository, { providerRegistry, credentialStore });
   registerPromptRoutes(app, repository);
-  registerModelCallRoutes(app, repository);
-  registerContextRoutes(app, repository);
+  registerModelCallRoutes(app, repository, { providerRegistry });
+  registerContextRoutes(app, repository, { providerRegistry });
 
   app.post<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/timeline/events",

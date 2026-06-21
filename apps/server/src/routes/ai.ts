@@ -5,13 +5,20 @@ import {
   ModelProfileSchema,
   ProviderConnectionResultSchema,
   ProviderModelDescriptorSchema,
+  SaveModelProfileCredentialInputSchema,
+  SaveModelProfileCredentialResultSchema,
   UpdateModelProfileInputSchema,
   UpdateSeriesCloudPolicyInputSchema,
   type AiProvider,
   type ModelCapability,
   type ModelProfile,
 } from "@novel-studio/contracts";
-import { assertSafeCredentialRef, createDefaultProviderRegistry } from "@novel-studio/ai";
+import {
+  assertSafeCredentialRef,
+  CredentialStoreError,
+  type CredentialStore,
+  type ProviderRegistry,
+} from "@novel-studio/ai";
 import type { ProjectRepository } from "@novel-studio/storage";
 import {
   ensureCloudAllowed,
@@ -20,10 +27,20 @@ import {
   providerErrorStatus,
 } from "../ai/policy.js";
 
-const registry = createDefaultProviderRegistry();
+interface AiRouteOptions {
+  providerRegistry: ProviderRegistry;
+  credentialStore: CredentialStore;
+}
 
-function defaultCapabilities(provider: AiProvider, model: string): ModelCapability {
-  if (provider !== "mock") {
+function modelCredentialRef(seriesId: string, profileId: string): string {
+  return `novel-studio/model-profile/${seriesId}/${profileId}`;
+}
+
+function defaultCapabilities(registry: ProviderRegistry, provider: AiProvider, model: string): ModelCapability {
+  try {
+    const descriptor = registry.get(provider).describeCapabilities();
+    return descriptor.models.find((item) => item.id === model)?.capabilities ?? descriptor.capabilities;
+  } catch {
     return {
       streamText: false,
       structuredOutput: false,
@@ -32,17 +49,24 @@ function defaultCapabilities(provider: AiProvider, model: string): ModelCapabili
       modelList: false,
     };
   }
-  const descriptor = registry.get("mock").describeCapabilities();
-  return descriptor.models.find((item) => item.id === model)?.capabilities ?? descriptor.capabilities;
 }
 
-function defaultContextWindow(provider: AiProvider, model: string): number {
-  if (provider !== "mock") return 8192;
-  const descriptor = registry.get("mock").describeCapabilities();
-  return descriptor.models.find((item) => item.id === model)?.contextWindowTokens ?? 32000;
+function defaultContextWindow(registry: ProviderRegistry, provider: AiProvider, model: string): number {
+  try {
+    const descriptor = registry.get(provider).describeCapabilities();
+    return descriptor.models.find((item) => item.id === model)?.contextWindowTokens ?? 8192;
+  } catch {
+    return 8192;
+  }
 }
 
-export function registerAiRoutes(app: FastifyInstance, repository: ProjectRepository): void {
+export function registerAiRoutes(
+  app: FastifyInstance,
+  repository: ProjectRepository,
+  options: AiRouteOptions,
+): void {
+  const { credentialStore, providerRegistry } = options;
+
   app.get<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/ai/model-profiles",
     async (request) => repository.listModelProfiles(request.params.seriesId),
@@ -54,22 +78,23 @@ export function registerAiRoutes(app: FastifyInstance, repository: ProjectReposi
       const input = CreateModelProfileInputSchema.parse(request.body);
       assertSafeCredentialRef(input.credentialRef);
       const now = new Date().toISOString();
-      const profileCapabilities = input.provider === "mock" && !Object.values(input.capabilities).some(Boolean)
-        ? defaultCapabilities(input.provider, input.model)
+      const profileCapabilities = !Object.values(input.capabilities).some(Boolean)
+        ? defaultCapabilities(providerRegistry, input.provider, input.model)
         : input.capabilities;
       const profile = ModelProfileSchema.parse({
         schemaVersion: 1,
         id: randomUUID(),
         title: input.title,
         provider: input.provider,
+        baseUrl: input.baseUrl,
         model: input.model,
         cloudPolicy: input.cloudPolicy,
         credentialRef: input.credentialRef,
         defaultParameters: input.defaultParameters,
         capabilities: profileCapabilities,
         contextWindowTokens:
-          input.provider === "mock" && input.contextWindowTokens === 8192
-            ? defaultContextWindow(input.provider, input.model)
+          input.contextWindowTokens === 8192
+            ? defaultContextWindow(providerRegistry, input.provider, input.model)
             : input.contextWindowTokens,
         createdAt: now,
         updatedAt: now,
@@ -88,11 +113,42 @@ export function registerAiRoutes(app: FastifyInstance, repository: ProjectReposi
       const updated = ModelProfileSchema.parse({
         ...current,
         ...input,
+        baseUrl: input.baseUrl ?? current.baseUrl,
         capabilities: input.capabilities ?? current.capabilities,
         defaultParameters: input.defaultParameters ?? current.defaultParameters,
         updatedAt: new Date().toISOString(),
       });
       return repository.saveModelProfile(request.params.seriesId, updated);
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; profileId: string } }>(
+    "/api/v1/series/:seriesId/ai/model-profiles/:profileId/credential",
+    async (request, reply) => {
+      const input = SaveModelProfileCredentialInputSchema.parse(request.body);
+      const current = await repository.getModelProfile(request.params.seriesId, request.params.profileId);
+      const credentialRef = modelCredentialRef(request.params.seriesId, current.id);
+      try {
+        await credentialStore.writeSecret(credentialRef, input.secret);
+      } catch (error) {
+        if (error instanceof CredentialStoreError) {
+          return reply.status(503).send({
+            code: error.code.toUpperCase().replace(/-/gu, "_"),
+            message: error.message,
+          });
+        }
+        throw error;
+      }
+      const updated = await repository.saveModelProfile(request.params.seriesId, ModelProfileSchema.parse({
+        ...current,
+        credentialRef,
+        updatedAt: new Date().toISOString(),
+      }));
+      return SaveModelProfileCredentialResultSchema.parse({
+        credentialRef,
+        storeKind: credentialStore.kind,
+        modelProfile: updated,
+      });
     },
   );
 
@@ -120,7 +176,7 @@ export function registerAiRoutes(app: FastifyInstance, repository: ProjectReposi
         });
       }
       try {
-        const adapter = registry.get(profile.provider);
+        const adapter = providerRegistry.get(profile.provider);
         const result = ProviderConnectionResultSchema.parse(await adapter.testConnection(profile));
         if (!result.ok && result.error) {
           return reply.status(providerErrorStatus(result.error)).send(result);
@@ -160,7 +216,7 @@ export function registerAiRoutes(app: FastifyInstance, repository: ProjectReposi
         });
       }
       try {
-        const adapter = registry.get(profile.provider);
+        const adapter = providerRegistry.get(profile.provider);
         return ProviderModelDescriptorSchema.array().parse(await adapter.listModels(profile));
       } catch {
         const error = modelError(

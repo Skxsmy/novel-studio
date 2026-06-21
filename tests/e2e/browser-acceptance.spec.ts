@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import {
   type ActManifest,
@@ -11,6 +12,43 @@ import {
 
 test.describe("已实现能力浏览器验收", () => {
   test("创建系列、维护第二部结构，并完成 M4 最小模型与上下文预览路径", async ({ page, request }, testInfo) => {
+    const screenshotRunId = new Date().toISOString().replace(/[:.]/g, "-");
+    const screenshotManifestPath = testInfo.outputPath(`${screenshotRunId}-screenshot-manifest.json`);
+    const screenshotRecords: Array<{
+      label: string;
+      path: string;
+      url: string;
+      viewport: ReturnType<typeof page.viewportSize>;
+      capturedAt: string;
+      projectName: string;
+      retry: number;
+    }> = [];
+    let screenshotIndex = 0;
+
+    async function capture(label: string): Promise<string> {
+      screenshotIndex += 1;
+      const safeLabel = label.replace(/[^a-z0-9\u4e00-\u9fa5_-]+/gi, "-");
+      const path = testInfo.outputPath(`${screenshotRunId}-${String(screenshotIndex).padStart(2, "0")}-${safeLabel}.png`);
+      await page.screenshot({ fullPage: true, path });
+      screenshotRecords.push({
+        label,
+        path,
+        url: page.url(),
+        viewport: page.viewportSize(),
+        capturedAt: new Date().toISOString(),
+        projectName: testInfo.project.name,
+        retry: testInfo.retry,
+      });
+      await writeFile(screenshotManifestPath, JSON.stringify({
+        runId: screenshotRunId,
+        testTitle: testInfo.title,
+        outputDir: testInfo.outputDir,
+        screenshots: screenshotRecords,
+      }, null, 2), "utf8");
+      await testInfo.attach(label, { path, contentType: "image/png" });
+      return path;
+    }
+
     await expectNoBrowserErrors(page, async () => {
       const health = await getJson<{ ok: boolean; workspaceRoot: string; libraryRoot: string }>(
         request,
@@ -125,12 +163,22 @@ test.describe("已实现能力浏览器验收", () => {
         await page.getByRole("button", { name: "测试连接" }).click();
       });
       await expect(page.getByText(/连接正常/)).toBeVisible();
-      const settingsScreenshot = testInfo.outputPath("m4-settings-model-profile.png");
-      await page.screenshot({ fullPage: true, path: settingsScreenshot });
-      await testInfo.attach("m4-settings-model-profile", {
-        path: settingsScreenshot,
-        contentType: "image/png",
+      await capture("m4-settings-model-profile");
+
+      await clickAndWaitForPost(page, "/model-profiles", async () => {
+        await page.getByRole("button", { name: "添加 DeepSeek 配置" }).click();
       });
+      await expect(page.locator(".model-list").getByRole("button", { name: /DeepSeek 写作模型/ })).toBeVisible();
+      await expect(page.getByLabel("服务地址")).toHaveValue("https://api.deepseek.com");
+      await expect(page.getByLabel("模型代号")).toHaveValue("deepseek-v4-flash");
+      await expect(page.getByPlaceholder("粘贴 API Key")).toBeVisible();
+      const cloudPolicyResponse = page.waitForResponse((response) =>
+        response.request().method() === "PUT" && response.url().includes("/ai/cloud-policy"),
+      );
+      await page.getByLabel("当前权限").selectOption("cloud-allowed");
+      await cloudPolicyResponse;
+      await expect(page.getByText(/密钥只保存在本机系统里/)).toBeVisible();
+      await capture("m4-deepseek-provider-config");
 
       await page.getByRole("button", { name: "角色与提示词" }).click();
       await expect(page.getByRole("heading", { name: "角色与提示词" })).toBeVisible();
@@ -142,12 +190,7 @@ test.describe("已实现能力浏览器验收", () => {
       });
       await expect(page.getByText("最终提示词")).toBeVisible();
       await expect(page.locator(".prompt-preview-result").getByText(/检查旧钟声是否提前泄露/)).toBeVisible();
-      const promptScreenshot = testInfo.outputPath("m4-prompt-template-preview.png");
-      await page.screenshot({ fullPage: true, path: promptScreenshot });
-      await testInfo.attach("m4-prompt-template-preview", {
-        path: promptScreenshot,
-        contentType: "image/png",
-      });
+      await capture("m4-prompt-template-preview");
 
       await page.getByRole("button", { name: /写作/ }).click();
       const editor = page.locator(".ProseMirror");
@@ -166,22 +209,13 @@ test.describe("已实现能力浏览器验收", () => {
       });
       await expect(page.getByText("纳入资料")).toBeVisible();
       await expect(page.getByText(/项纳入/)).toBeVisible();
-      const contextScreenshot = testInfo.outputPath("m4-write-context-preview.png");
-      await page.screenshot({ fullPage: true, path: contextScreenshot });
-      await testInfo.attach("m4-write-context-preview", {
-        path: contextScreenshot,
-        contentType: "image/png",
-      });
+      await capture("m4-write-context-preview");
 
       await page.getByRole("button", { name: "AI 审阅" }).click();
       await expect(page.getByRole("heading", { name: "审稿" })).toBeVisible();
       await expect(page.getByRole("button", { name: "审稿" })).toBeVisible();
-      const aiReadyScreenshot = testInfo.outputPath("m4-ai-panel-ready.png");
-      await page.screenshot({ fullPage: true, path: aiReadyScreenshot });
-      await testInfo.attach("m4-ai-panel-ready", {
-        path: aiReadyScreenshot,
-        contentType: "image/png",
-      });
+      await page.getByLabel("模型").selectOption({ label: "本机验收模型 · mock-continuity-v1" });
+      await capture("m4-ai-panel-ready");
 
       await clickAndWaitForPost(page, "/ai/calls", async () => {
         await page.getByRole("button", { name: "开始" }).click();
@@ -190,12 +224,7 @@ test.describe("已实现能力浏览器验收", () => {
       await expect(page.getByText(/审稿完成/)).toBeVisible();
       await expect(page.locator(".writing-inspector")).not.toContainText(/来源调用|来源使用|基于版本|调用 ID|用量/);
       await page.getByText(/这是一段非写入型分析结果/).scrollIntoViewIfNeeded();
-      const aiReviewScreenshot = testInfo.outputPath("m4-ai-review-result.png");
-      await page.screenshot({ fullPage: true, path: aiReviewScreenshot });
-      await testInfo.attach("m4-ai-review-result", {
-        path: aiReviewScreenshot,
-        contentType: "image/png",
-      });
+      await capture("m4-ai-review-result");
 
       await editor.click();
       await page.keyboard.press("Control+A");
@@ -218,12 +247,7 @@ test.describe("已实现能力浏览器验收", () => {
       ).toContain("MockProvider 候选正文");
       const selectedCandidate = await page.evaluate(() => window.getSelection()?.toString() ?? "");
       expect(selectedCandidate).toContain("MockProvider 候选正文");
-      const inlineCandidateScreenshot = testInfo.outputPath("m4-ai-inline-candidate-selected.png");
-      await page.screenshot({ fullPage: true, path: inlineCandidateScreenshot });
-      await testInfo.attach("m4-ai-inline-candidate-selected", {
-        path: inlineCandidateScreenshot,
-        contentType: "image/png",
-      });
+      await capture("m4-ai-inline-candidate-selected");
 
       const acceptSave = page.waitForResponse((response) =>
         response.request().method() === "PUT" && response.url().includes("/scenes/"),

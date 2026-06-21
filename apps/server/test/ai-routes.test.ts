@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { CredentialStore } from "@novel-studio/ai";
 import { buildApp } from "../src/app.js";
 
 const roots: string[] = [];
@@ -9,6 +10,26 @@ const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true })));
 });
+
+function memoryCredentialStore(values = new Map<string, string>()): CredentialStore {
+  return {
+    kind: "windows-credential-manager",
+    async isAvailable() {
+      return true;
+    },
+    async writeSecret(targetName, secret) {
+      values.set(targetName, secret);
+    },
+    async readSecret(targetName) {
+      const secret = values.get(targetName);
+      if (!secret) throw new Error("credential missing");
+      return secret;
+    },
+    async deleteSecret(targetName) {
+      values.delete(targetName);
+    },
+  };
+}
 
 describe("M4 model settings API", () => {
   it("stores model profiles without secrets and tests MockProvider connections", async () => {
@@ -132,6 +153,90 @@ describe("M4 model settings API", () => {
       error: { code: "provider-unavailable" },
     });
     expect(JSON.stringify(unavailable.json())).not.toContain("mock-continuity-v1");
+
+    await app.close();
+  });
+
+  it("saves a DeepSeek OpenAI-compatible key to the credential store and tests the provider", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-ai-api-"));
+    roots.push(root);
+    const requests: Array<{ url: string; authorization: string | null }> = [];
+    const app = await buildApp({
+      libraryRoot: root,
+      credentialStore: memoryCredentialStore(),
+      providerFetch: async (input, init) => {
+        const url = String(input);
+        requests.push({
+          url,
+          authorization: new Headers(init?.headers).get("authorization"),
+        });
+        if (url === "https://api.deepseek.com/models") {
+          return new Response(JSON.stringify({
+            data: [{ id: "deepseek-v4-flash" }, { id: "deepseek-v4-pro" }],
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        return new Response(JSON.stringify({ error: { message: "not found" } }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "DeepSeek 配置接口" },
+    });
+    const series = created.json();
+
+    const policy = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
+      payload: { cloudPolicy: "cloud-allowed" },
+    });
+    expect(policy.statusCode).toBe(200);
+
+    const profileResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      payload: {
+        title: "DeepSeek 写作模型",
+        provider: "openai-compatible",
+        baseUrl: "https://api.deepseek.com",
+        model: "deepseek-v4-flash",
+        cloudPolicy: "cloud-allowed",
+      },
+    });
+    expect(profileResponse.statusCode).toBe(201);
+    const profile = profileResponse.json();
+    expect(profile.credentialRef).toBeNull();
+    expect(profile.capabilities.streamText).toBe(true);
+
+    const credential = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+      payload: { secret: "deepseek-test-key" },
+    });
+    expect(credential.statusCode).toBe(200);
+    expect(JSON.stringify(credential.json())).not.toContain("deepseek-test-key");
+    expect(credential.json().credentialRef).toContain(profile.id);
+
+    const tested = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/test`,
+    });
+    expect(tested.statusCode).toBe(200);
+    expect(tested.json()).toMatchObject({
+      ok: true,
+      provider: "openai-compatible",
+      models: [
+        { id: "deepseek-v4-flash" },
+        { id: "deepseek-v4-pro" },
+      ],
+    });
+    expect(requests).toContainEqual({
+      url: "https://api.deepseek.com/models",
+      authorization: "Bearer deepseek-test-key",
+    });
 
     await app.close();
   });
