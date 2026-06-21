@@ -6,7 +6,7 @@
 
 - 分支：`main`
 - 最近相关提交：查看 `git log -4 --oneline`；应包含 NS-400 收口和 NS-307 写作页布局 / 定向新建场景提交。
-- 当前任务：`NS-307` 已完成；`NS-400` 增补了启动 / 浏览器验收可靠性修复；M4 已拆成 `NS-401` 至 `NS-410`。下一任务仍是 `NS-401`，目标是执行规格、接口草案、文件格式草案和 MockProvider 垂直切片设计。
+- 当前任务：`NS-401` 已完成；M4 已拆成 `NS-401` 至 `NS-410`。下一任务是 `NS-402`，目标是 AI 契约分区与模型配置、提示词、上下文包、调用日志的最小持久化。
 - 预期脏文件：无。接手时运行 `git status --short` 核实；如不为空，先判断是否为用户未提交改动。
 
 ## 已完成
@@ -91,6 +91,13 @@
   - 已新增 `docs/tasks/M4.md`；
   - `TASKS.md` 已将 M4 拆成 `NS-401` 至 `NS-410`；
   - 下一步仍从 `NS-401` 开始，先做执行规格、接口草案、文件格式草案和 MockProvider 垂直切片设计。
+- NS-401：
+  - 已新增 `docs/tasks/NS-401.md`；
+  - 已更新 `docs/architecture/API.md`，写入模型配置、提示词、上下文预览、非写入调用和调用日志 API 草案；
+  - 已更新 `docs/architecture/DATA_MODEL.md`，写入 ModelProfile、AgentRole、PromptTemplate、ContextBundle、ModelCallLog 和 Proposal 文件草案；
+  - 已更新 `docs/testing/BROWSER_ACCEPTANCE.md`，把 M4 浏览器验收映射到后续任务；
+  - 已新增 `docs/testing/NS-401_ACCEPTANCE.md`；
+  - 未新增真实 Provider、模型调用代码、API key 文件或正文 / Canon 写入能力。
 
 ## 验证
 
@@ -115,6 +122,7 @@
 - 2026-06-21 最终收口 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1 -NoBrowser -SkipBuild -SmokeTest`：通过；互斥锁版本脚本启动并停止临时服务，端口只剩 `TIME_WAIT`，无监听进程。
 - 2026-06-21 最终收口 `npm.cmd run check`：通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。
 - 2026-06-21 最终收口 `npm.cmd run test:e2e`：通过；构建后 1 个 Chrome 用例通过，命令自然退出；端口只剩 `TIME_WAIT`，无监听进程。
+- 2026-06-21 NS-401 收口 `npm.cmd run check`：通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。
 
 ## 已知限制
 
@@ -130,8 +138,9 @@
 
 ## 唯一下一任务
 
-`NS-401`：按 `docs/tasks/M4.md` 开始 M4 执行规格、接口草案、文件格式草案和 MockProvider 垂直切片设计。当前优先级：
+`NS-402`：AI 契约分区与模型配置、提示词、上下文包、调用日志的最小持久化。当前优先级：
 
-1. 先写 NS-401 执行规格：ProviderAdapter、上下文装配器、调用日志、提示词版本和 Proposal 入口的最小纵向闭环。
-2. 只允许做上下文预览、调用记录和候选变更；不得让 AI 直接写正文、设定、摘要或角色状态。
-3. 继续防止大文件回潮：模型连接、上下文装配和 Proposal 逻辑不得塞回 `app.ts`、`CodexView.tsx` 或单体 `ProjectRepository`。
+1. 从 `packages/contracts/src/index.ts` 拆出 AI / context / prompts / proposals 契约文件，保持公共导出兼容。
+2. 增加模型配置、提示词模板、上下文包和调用日志的存储读写，但不接真实 Provider。
+3. 保证删除 SQLite 后，M4 索引可从权威文件重建。
+4. 继续防止大文件回潮：不得把 M4 持久化逻辑塞回单体 `ProjectRepository`。

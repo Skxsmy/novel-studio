@@ -115,22 +115,195 @@ SQLite 保存可重建的场景定位、正文搜索、Codex 搜索、名称候�
 
 有效状态查询以叙事顺序为准。早期场景不会返回未来记录正文、ID 或证据；只允许返回隐藏数量，用于提醒作者后面还有变化。
 
-## M4 AI 契约文件
+## M4 AI 基础设施文件
 
-M4 的 AI 能力以 `packages/contracts` 中的 Zod 契约为先，不先开放真实调用。当前已定义：
+M4 的 AI 能力以 `packages/contracts` 中的 Zod 契约为先。NS-401 只确定格式草案；NS-402 起实现持久化。
 
-- `ContextBundle` / `ContextItem`：一次调用实际可读上下文的审计包，记录当前场景、角色、任务、提示词版本、纳入资料、排除资料和用量估算。
-- `PromptTemplate`：声明式提示词模板，包含角色、版本、组件、输入变量和输出结构名称；模板不得执行任意 JavaScript。
-- `ModelCallLog`：一次模型调用的审计记录，必须记录 provider、model、角色、任务、上下文包、提示词版本、请求/响应哈希、状态、估算用量和实际用量。
-- `Proposal` / `ProposalPatch`：AI 只能生成候选变更。每个 patch 必须记录目标类型、目标 ID、基础 revision、字段路径、差异和证据；目标已变化时不得直接应用。
-
-建议磁盘位置如下，具体写入在 NS-401/M5 实现时落地：
+推荐目录：
 
 ```text
-.studio/context/<context-bundle-id>.json
-.studio/logs/model-calls/<model-call-id>.json
-.studio/inbox/proposals/<proposal-id>.json
-agents/prompts/<prompt-template-id>.yaml
+series-slug-id/
+├─ prompts/
+│  ├─ roles/<role-id>.yaml
+│  ├─ templates/<prompt-template-id>/v<version>.yaml
+│  └─ presets/<preset-id>.yaml
+└─ .studio/
+   ├─ model-profiles/<profile-id>.yaml
+   ├─ context-bundles/<context-bundle-id>.yaml
+   ├─ model-calls/<model-call-id>.yaml
+   └─ inbox/proposals/<proposal-id>.yaml
 ```
 
-这些文件是审计和候选层，不是正文、设定或角色状态的权威来源。接受候选变更前，应用层必须重新读取目标文件并比较 `baseRevision`。
+这些文件是 AI 配置、审计和候选层，不是正文、设定、故事进展或角色所知的权威来源。接受候选变更前，应用层必须重新读取目标文件并比较 `baseRevision`。
+
+### ModelProfile
+
+位置：`.studio/model-profiles/<profile-id>.yaml`
+
+保存模型配置和能力，不保存密钥明文。
+
+```yaml
+schemaVersion: 1
+id: 00000000-0000-0000-0000-000000000000
+title: 本地 Mock 连续性编辑
+provider: mock
+model: mock-continuity-v1
+cloudPolicy: local-only
+credentialRef: null
+defaultParameters:
+  temperature: 0.2
+  maxOutputTokens: 1200
+capabilities:
+  streamText: true
+  structuredOutput: true
+  embeddings: false
+  tokenEstimate: true
+contextWindowTokens: 32000
+createdAt: 2026-06-21T00:00:00.000Z
+updatedAt: 2026-06-21T00:00:00.000Z
+archivedAt: null
+```
+
+`credentialRef` 是系统凭据引用，例如 `novel-studio:openai:default`。不得把 API key 写入 YAML、SQLite、调用日志、浏览器 localStorage 或 Git。
+
+### AgentRole
+
+位置：`prompts/roles/<role-id>.yaml`
+
+```yaml
+schemaVersion: 1
+id: continuity-editor
+title: 连续性编辑
+description: 检查人物状态、线索回收、前后矛盾和未来信息泄漏。
+duties:
+  - 指出矛盾并给出证据。
+  - 区分世界事实和角色此刻知道的内容。
+challengeObligation: 必须指出不合逻辑处，不为了安慰作者而回避问题。
+forbiddenActions:
+  - 直接改写正文
+  - 直接更新已确认设定
+readScopes:
+  scenes: true
+  codex: true
+  research: false
+  hiddenSections: false
+createdAt: 2026-06-21T00:00:00.000Z
+updatedAt: 2026-06-21T00:00:00.000Z
+archivedAt: null
+```
+
+内置角色不可原地修改；复制后可生成自定义角色文件。
+
+### PromptTemplate
+
+位置：`prompts/templates/<prompt-template-id>/v<version>.yaml`
+
+```yaml
+schemaVersion: 1
+id: 00000000-0000-0000-0000-000000000000
+roleId: continuity-editor
+name: 连续性检查
+version: 1
+status: active
+system: 你是中文长篇小说的连续性编辑。
+instructions: |
+  请只根据提供的上下文指出连续性问题。
+  不要改写正文。不要创造上下文中没有的事实。
+components:
+  - key: evidence_rules
+    title: 证据规则
+    body: 每条结论必须引用上下文来源。
+variables:
+  - key: user_request
+    label: 作者要求
+    required: true
+    defaultValue: null
+outputSchemaName: continuity_report
+createdAt: 2026-06-21T00:00:00.000Z
+updatedAt: 2026-06-21T00:00:00.000Z
+archivedAt: null
+```
+
+模板是声明式文件，只允许变量替换、组件拼接和条件化包含；不得执行任意 JavaScript。修改活动模板必须生成新版本，不能覆盖旧版本。
+
+### ContextBundle
+
+位置：`.studio/context-bundles/<context-bundle-id>.yaml`
+
+`ContextBundle` 是一次调用前实际可读上下文的快照。它必须记录纳入项和排除项，后续正文或设定变化不得改写旧快照。
+
+```yaml
+schemaVersion: 1
+id: 00000000-0000-0000-0000-000000000000
+seriesId: 00000000-0000-0000-0000-000000000000
+sceneId: 00000000-0000-0000-0000-000000000000
+roleId: continuity-editor
+taskKind: continuity-check
+userRequest: 检查这一场有没有和前文矛盾。
+promptTemplateId: 00000000-0000-0000-0000-000000000000
+promptTemplateVersion: 1
+items:
+  - id: current-scene
+    sourceType: scene
+    sourceId: 00000000-0000-0000-0000-000000000000
+    title: 当前场景正文
+    inclusionReason: 当前写作场景
+    contextPolicy: always
+    textHash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    estimatedTokens: 900
+    manuallySelected: false
+excluded:
+  - sourceType: codex-entry
+    sourceId: 00000000-0000-0000-0000-000000000000
+    title: 后文才揭示的身份
+    reason: future-information
+estimatedUsage:
+  inputTokens: 1800
+  outputTokens: 1200
+  totalTokens: 3000
+createdAt: 2026-06-21T00:00:00.000Z
+```
+
+排除原因必须可读且可测试，至少包括：`context-policy-never`、`future-information`、`hidden-section`、`cloud-disabled`、`over-budget`、`permission-denied`。
+
+### ModelCallLog
+
+位置：`.studio/model-calls/<model-call-id>.yaml`
+
+```yaml
+schemaVersion: 1
+id: 00000000-0000-0000-0000-000000000000
+seriesId: 00000000-0000-0000-0000-000000000000
+sceneId: 00000000-0000-0000-0000-000000000000
+roleId: continuity-editor
+taskKind: continuity-check
+provider: mock
+model: mock-continuity-v1
+cloudPolicy: local-only
+contextBundleId: 00000000-0000-0000-0000-000000000000
+promptTemplateId: 00000000-0000-0000-0000-000000000000
+promptTemplateVersion: 1
+requestHash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+responseHash: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+status: succeeded
+estimatedUsage:
+  inputTokens: 1800
+  outputTokens: 1200
+  totalTokens: 3000
+actualUsage:
+  inputTokens: 1760
+  outputTokens: 420
+  totalTokens: 2180
+errorCode: null
+errorMessage: ""
+startedAt: 2026-06-21T00:00:00.000Z
+completedAt: 2026-06-21T00:00:02.000Z
+```
+
+失败调用也必须写日志，`status=failed`，并保存分类后的 `errorCode`。日志不得保存 API key、认证头、未脱敏 SDK 原始错误或完整隐藏资料。
+
+### Proposal
+
+位置：`.studio/inbox/proposals/<proposal-id>.yaml`
+
+M4 只保留 `Proposal` 契约，不实现应用流程。AI 输出如需影响正文、设定、摘要、进展或角色所知，必须进入 M5 的候选变更流程。每个 patch 必须记录目标类型、目标 ID、基础 revision、字段路径、差异和证据；目标已变化时不得直接应用。

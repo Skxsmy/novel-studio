@@ -42,6 +42,7 @@
 - 启动器已再次瘦身：`scripts/start.ps1` 直接启动 Node 服务产物，不再通过 `npm start` 父进程；新增 `-SmokeTest` 启动验收模式、`-Foreground` 测试托管模式和 `-Stop` 清理模式，并保留轻量互斥锁，减少 Codex / 自动化测试中的后台进程和并发启动风险。
 - 浏览器验收已改为 Playwright 自动操纵 Chrome；当前只运行 M3 已实现主路径，使用系统临时目录中的隔离作品库，不污染真实 `data/library`。M4/M5 的 AI、上下文和候选变更只登记为待实现验收目录。
 - M4 详细规划已写入 `docs/tasks/M4.md`，任务索引已拆成 `NS-401` 至 `NS-410`。
+- NS-401 已完成：M4 API 草案、数据格式草案、MockProvider 垂直切片、浏览器验收映射和安全不变量已写入仓库；未新增真实模型调用。
 - 完整产品、UX、AI 编辑团队、资料库、Word/版本和里程碑规格位于 `docs/product/`。
 
 ## 最近验证
@@ -65,8 +66,9 @@
 - 最终收口 `npm.cmd run check`：2026-06-21 通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。
 - 最终收口 `npm.cmd run test:e2e`：2026-06-21 通过；Playwright/Chrome 验证创建系列、切换主要工作区、专注模式、新建第二部 / 第二幕 / 第一章 / 场景，并用 API 校验第二部内场景归属；命令自然退出。
 - 端口检查：浏览器验收和启动器烟测后 `127.0.0.1:4317` 无监听进程，仅剩系统 `TIME_WAIT` 连接记录。
+- NS-401 收口 `npm.cmd run check`：2026-06-21 通过；Server 7/7，Web 14/14，Storage 39/39，生产构建通过。
 
-详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`、`docs/testing/NS-305_ACCEPTANCE.md`、`docs/testing/NS-306_ACCEPTANCE.md`。
+详细证据：`docs/testing/NS-301_ACCEPTANCE.md`、`docs/testing/NS-302_ACCEPTANCE.md`、`docs/testing/NS-303_ACCEPTANCE.md`、`docs/testing/NS-304_ACCEPTANCE.md`、`docs/testing/NS-305_ACCEPTANCE.md`、`docs/testing/NS-306_ACCEPTANCE.md`、`docs/testing/NS-401_ACCEPTANCE.md`。
 
 ## 当前限制
 
@@ -79,4 +81,4 @@
 
 ## 唯一下一任务
 
-`NS-401`：按 `docs/tasks/M4.md` 完成 M4 执行规格、接口草案、文件格式草案和第一条 MockProvider 垂直切片设计。禁止跳过 `ContextBundle` / `ModelCallLog` / `Proposal` 契约直接调用模型或写入正文。
+`NS-402`：AI 契约分区与模型配置、提示词、上下文包、调用日志的最小持久化。禁止接真实 Provider；先让文件格式、Zod 契约和可重建索引站稳。
