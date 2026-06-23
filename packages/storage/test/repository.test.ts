@@ -37,7 +37,7 @@ describe("ProjectRepository", () => {
     const scene = series.scenes[0];
     expect(scene).toBeDefined();
     const scenePath = path.join(store.libraryRoot, `${"潮汐之城"}-${series.manifest.id.slice(0, 8)}`, scene!.relativePath);
-    expect(await readFile(scenePath, "utf8")).toContain("title: 开篇场景");
+    expect(await readFile(scenePath, "utf8")).toContain("title: Opening Scene");
   });
 
   it("rejects stale revisions without overwriting the scene", async () => {
@@ -858,10 +858,10 @@ describe("ProjectRepository", () => {
     const book = series.books[0]!;
     const acts = await store.listActs(series.manifest.id, book.id);
     expect(acts).toHaveLength(1);
-    expect(acts[0]!.title).toBe("第一幕");
+    expect(acts[0]!.title).toBe("New Chapter");
     const chapters = await store.listChapters(series.manifest.id, acts[0]!.id);
     expect(chapters).toHaveLength(1);
-    expect(chapters[0]!.title).toBe("第一章");
+    expect(chapters[0]!.title).toBe("New Act");
   });
 
   it("creates a new book with its own first act and chapter", async () => {
@@ -873,14 +873,45 @@ describe("ProjectRepository", () => {
     expect(secondBook.title).toBe("第二部");
     const detail = await store.getSeries(series.manifest.id);
     expect(detail.manifest.bookIds).toContain(secondBook.id);
-    expect(detail.books.map((book) => book.title)).toEqual(["第一部", "第二部"]);
+    expect(detail.books.map((book) => book.title)).toEqual(["Volume 1", "第二部"]);
     const acts = await store.listActs(series.manifest.id, secondBook.id);
     expect(acts).toHaveLength(1);
-    expect(acts[0]!.title).toBe("第一幕");
+    expect(acts[0]!.title).toBe("New Chapter");
     const chapters = await store.listChapters(series.manifest.id, acts[0]!.id);
     expect(chapters).toHaveLength(1);
-    expect(chapters[0]!.title).toBe("第一章");
+    expect(chapters[0]!.title).toBe("New Act");
     expect((await store.validateHierarchy(series.manifest.id)).valid).toBe(true);
+  });
+
+  it("deletes a book with descendants and reorders remaining books", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "删除卷测试" });
+    const firstBook = series.books[0]!;
+    const secondBook = await store.createBook(series.manifest.id, { title: "Second Volume" });
+
+    const result = await store.deleteBook(series.manifest.id, firstBook.id);
+
+    expect(result.deletedId).toBe(firstBook.id);
+    expect(result.deletedActIds).toHaveLength(1);
+    expect(result.deletedChapterIds).toHaveLength(1);
+    expect(result.deletedSceneIds).toEqual([series.scenes[0]!.metadata.id]);
+    const detail = await store.getSeries(series.manifest.id);
+    expect(detail.books.map((book) => ({ id: book.id, order: book.order, title: book.title }))).toEqual([
+      { id: secondBook.id, order: 1, title: "Second Volume" },
+    ]);
+    expect(detail.scenes).toHaveLength(0);
+    expect((await store.validateHierarchy(series.manifest.id)).valid).toBe(true);
+  });
+
+  it("preserves entity IDs when renaming a book", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "测试卷重命名" });
+    const book = series.books[0]!;
+    const updated = await store.updateBook(series.manifest.id, book.id, { title: "Renamed Volume" });
+
+    expect(updated.id).toBe(book.id);
+    expect(updated.title).toBe("Renamed Volume");
+    expect((await store.getSeries(series.manifest.id)).books[0]!.title).toBe("Renamed Volume");
   });
 
   it("preserves entity IDs when renaming an act", async () => {
@@ -1186,7 +1217,7 @@ describe("ProjectRepository", () => {
     });
 
     const board = await store.getPlanningBoard(series.manifest.id);
-    expect(board.narrativeScenes.map((scene) => scene.title)).toEqual(["开篇场景", "十年前"]);
+    expect(board.narrativeScenes.map((scene) => scene.title)).toEqual(["Opening Scene", "十年前"]);
     expect(board.storyEvents.map((event) => event.event.title)).toEqual(["旧案发生", "调查开始"]);
     expect(board.unplacedSceneIds).toEqual([]);
   });

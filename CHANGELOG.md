@@ -1,33 +1,34 @@
-# 变更记录
+# Changelog
 
-## 0.1.0 - 开发中
+## 0.1.0 - In Development
 
-- 建立产品边界、架构、里程碑、任务和多 AI 交接规范。
-- 完成本地 Web 应用首个纵向版本：系列创建、Markdown 场景、自动保存和刷新恢复。
-- 增加 SHA-256 版本冲突保护、SQLite/FTS5 重建与中文搜索。
-- 增加概览、规划、写作、设定库、编辑室和待确认中文工作区。
-- 增加 Windows 双击启动器；依赖审计为 0 个已知漏洞。
-- 补全权威产品规格，覆盖全部功能目标、最终 UX、AI 编辑团队、上下文与 Proposal、资料分析、Word 往返、版本备份和里程碑验收，消除对聊天上下文的依赖。
-- **NS-301**：Act/Chapter 显式清单、完整排列重排、服务端推导父链的场景移动、层级校验 API、可恢复多文件事务和真实 M2 缺清单迁移。WriteView 按 Act→Chapter 展示，新建后立即加载层级；新增缺失引用、重复/遗漏、同章移动、跨幕移动、迁移与中断恢复对抗测试。
-- **NS-302**：共享 PlanningBoard、真实 Grid/Outline/Matrix/双时间线、显式 TimelineEvent 文件、未放置场景、POV 等六类矩阵筛选、同章/跨章结构命令和人工规划分叉决策；旧项目无时间线文件时保持只读兼容。
-- **NS-303**：Milkdown Markdown 语义编辑器、专注写作、revision 感知的崩溃草稿、五类独立 Sections 与三档 AI 权限、Section 归档/恢复、审阅锚点及只读重定位；外部修改冲突可安全重载真实磁盘版本。
-- **NS-304**：六个内置与自定义设定库类别、独立已确认设定/参考笔记文档、别名和提及规则、有向/无向关系、四档模型可读范围、可删除重建的设定库/FTS5/提及/歧义索引，以及三栏真实设定库界面；规划追踪表现在显示条目名称，正文提及不会暗中改写场景显式关联。
-- **NS-304 界面文案修正**：统一中文写作用语，主界面不再混用 Codex、Canon、Research、Section、POV、tokens、AI 等英文界面词；“手工钉住”改为“主动选择”，并建立共享中文词表供后续页面复用。
-- **NS-305**：新增故事进展、角色所知和此刻有效状态查询；世界事实、关系变化、知道、相信和误解分离保存，按叙事场景生效，不向较早场景泄露后文内容；设定库详情页已接入“进展记录 / 角色所知 / 此刻有效”区域，并通过浏览器验收。
-- **启动器防重复启动**：Windows 启动脚本增加启动互斥锁，健康服务会被复用；端口被旧进程占用但健康检查失败时不再另起冗余后台服务。
-- **NS-400 启动与验收可靠性补丁**：健康检查返回 version、commit、startedAt、workspaceRoot 和 libraryRoot；Windows 启动脚本会校验当前 checkout、清理可确认的旧进程、提供 `-Wait` 自动化验收模式，并在固定日志 / pid 文件被锁住时切换到 `%TEMP%\novel-studio`。
-- **NS-306**：补齐已有层级能力的界面入口；作品库非空时可新建系列，写作抽屉可新建部、幕和章，新部会同步建立第一幕和第一章。
-- **NS-307**：修整写作页部 / 幕 / 章 / 场景结构栏，新建场景可明确落到目标部、幕和章，第二部场景不再回落到第一部。
-- **NS-400**：完成 M3→M4 整备，拆分服务端设定库路由、storage 事务与文件模块、前端设定库视图，并建立可重复烟测和 Playwright 浏览器验收流程。
-- **NS-401**：写入 M4 执行规格、API 草案、数据格式草案、MockProvider 垂直切片和浏览器验收映射。
-- **NS-402**：拆分 AI 契约文件，新增模型配置、角色、提示词、Preset、上下文包和调用日志的 YAML 持久化与可重建索引。
-- **NS-403**：新增 `@novel-studio/ai`，实现 ProviderAdapter、ProviderRegistry、MockProvider、能力描述、流式/结构化/embedding 模拟和统一错误分类；不接真实 Provider，不读取密钥。
-- **NS-404**：新增模型配置 API、作品级云端权限、凭据引用校验、Windows Credential Manager 存储抽象、Provider 连接测试和“模型与资料权限”设置页；云端禁用或缺少凭据引用时拒绝连接测试，不会静默退回 MockProvider。
-- **NS-405**：新增场景级 `ContextBundle` 装配与预览 API，写作页右侧可查看最小上下文预览；`never`、隐藏区段和后文信息默认排除，纳入项与排除项均记录来源、原因和用量估算。
-- **NS-406**：新增 7 个内置智能编辑角色、提示词模板、Preset、声明式渲染和模板版本 API；设置页新增“角色与提示词”分区，可预览最终提示词；上下文包会记录真实 PromptTemplate ID/version，模板缺少必填输入或包含表达式时拒绝渲染。
-- **UI 验收修正**：重排 M4 设置页，收窄内容宽度并整理模型配置层级；浏览器验收现在会为 UI 路径保存截图附件，且默认使用 `4318` 端口，避免和日常本地服务抢占 `4317`；不再只用 DOM 断言替代视觉验收。
-- **NS-407**：新增非写入型 AI 调用 API、SSE 流式输出、ModelCallLog 保存和写作页“审稿 / 改写”最小闭环；AI 改写只形成正文内联候选，整段选中，作者点击“保留”后才保存；写作主界面不显示调用来源、基准版本、用量或调用 ID。
-- **UI 原则补强**：产品与 UX 规格新增用户视角、统一视觉语言、自然中文文案、图像模型预览流程和预览资产管理规则；UI 任务必须通过真实浏览器截图检查风格、留白、信息层级和文案。
-- **NS-409C UI 纠偏**：移除未跟踪的第二套 `ui-foundation.css` 覆盖层；将不满意的 `NS-409B` 规划 / 写作目标图标记为不采纳；用图像模型重新生成并复查规划页和写作页目标图；规划页改为三栏工作台，写作页验收改为真实正文状态截图，标题与正文改为更接近中文稿纸的字体；保留问题已写入任务和验收记录。
-- **NS-409D 宽屏 UI 复查**：针对高分辨率截图中的写作页异常空白、设定库大表单和编辑室空板问题，保存宽屏页面级目标图和图像模型复查图；写作页取消正文宽屏漂移，设定库详情 / 进展页和编辑室改为更受控的工作台布局；浏览器验收新增 1920 宽截图，并在设定库中创建真实条目和进展记录后截图。
-- **NS-409E 规划页宽屏过渡修正**：故事板、大纲、追踪表和时间线分别保存当前截图、图像模型目标图与实现截图；规划页取消窄宽度锁定，大纲改为三列结构，追踪表和时间线使用宽屏主工作区。该项只算宽屏结构过渡版，文档已明确当前 UI 仍不能作为验收通过版本。
+### 2026-06-23
+
+- Reorganized project documentation so new contributors start from `README.md`, `STATUS.md`, `HANDOFF.md`, `TASKS.md`, `docs/README.md`, `docs/tasks/NS-409.md`, and `docs/testing/NS-409_ACCEPTANCE.md`.
+- Removed obsolete non-backup NS-409 reset/control/browser-runbook drafts and stale v1 baseline screenshots/manifests from the active documentation tree.
+- Preserved `docs/design/ui-redesign/backups/` as protected historical baseline storage.
+- Recorded the current NS-409 truth: the React UI builds and has partial API-backed behavior, but user visual acceptance failed.
+- Recorded that Codex is still a rough shell and needs real entry editing, detail tabs, relations, mentions, progressions, knowledge, and effective-state workflows.
+- Recorded that Settings is now API-backed for model profile, service key, connection test, model list, and project cloud policy, but is not product-complete.
+- Recorded that Write hierarchy UX still needs repair around `Volume -> Chapter -> Act -> Scene`, Add menu, default names, rename, selected delete confirmation, collapse, and scroll behavior.
+- Added cleanup rules to `AGENTS.md`: do not create routine status files, do not delete backups without explicit user instruction, and do not claim visual acceptance from command/DOM checks.
+
+### Current Working Draft
+
+- Frontend source is organized as:
+  - `apps/web/src/app`
+  - `apps/web/src/api`
+  - `apps/web/src/features`
+  - `apps/web/src/ui`
+- Server API remains in Fastify under `apps/server/src`, with route modules under `src/routes`.
+- Shared schemas are split in `packages/contracts`.
+- AI provider code lives in `packages/ai`.
+- Storage still needs further extraction from `packages/storage/src/index.ts`.
+
+### Earlier Milestones
+
+- M0 through M3 established product governance, local web runtime, file authority, hierarchy, planning, writing editor, Codex storage, progressions, and character knowledge.
+- NS-400 prepared M4 with architecture cleanup, smoke tests, browser acceptance infrastructure, and model/context/proposal contracts.
+- NS-401 through NS-407 implemented AI contracts, storage, provider core, model settings, context preview, prompt roles, and non-writing AI calls.
+- NS-408 partially implemented DeepSeek/OpenAI-compatible/OpenAI/OpenRouter/Ollama provider support. Anthropic/Gemini and real non-writing DeepSeek validation remain incomplete.
+- Old NS-409A through NS-409F frontend branches and screenshots are obsolete.

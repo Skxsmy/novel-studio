@@ -1,17 +1,30 @@
-# 路线图
+# Roadmap
 
-本文件只提供里程碑摘要。每个里程碑覆盖的产品需求、不得遗漏的行为和完成定义见 `docs/product/REQUIREMENTS_TRACEABILITY.md`；不得仅依据本表判断功能完成。
+This file is only a milestone summary. Current work status is in `STATUS.md`, `HANDOFF.md`, `TASKS.md`, and the active task file.
 
-| 里程碑 | 目标 | 完成门槛 |
-|---|---|---|
-| M0 | 项目蓝图与治理 | 产品边界、架构、数据契约、任务、ADR、测试和交接文档齐全 |
-| M1 | 可点击交互骨架 | 示例作品可浏览 Plan/Write/Codex/Workshop/Review；布局可验证 |
-| M2 | 本地项目内核 | 创建系列与场景、Markdown 原子保存、重启恢复、索引重建、基础搜索 |
-| M3 | 规划、编辑器与 Codex | Grid/Outline/Matrix、双时间线、Milkdown、关系与 Progression |
-| M4 | 模型与上下文 | ProviderAdapter、流式调用、权限、上下文预览、提示词与用量日志 |
-| M5 | 编辑团队与 Proposal | 单角色、独立会审、候选正文、事实收件箱、连续性证据 |
-| M6 | 资料分析库 | 六类格式导入、来源定位、FTS5、可选语义检索 |
-| M7 | Word 与版本 | DOCX 书签往返、场景差异、快照、恢复、定时备份 |
-| M8 | 硬化与启动器 | 安全、性能、故障恢复、双击启动、用户文档和完整验收 |
+## Completed
 
-每个里程碑拆成可在单次工作会话中完成并验证的任务。未达到完成门槛不得把里程碑标为完成。
+- `M0`: project governance, product boundaries, architecture, task/ADR/testing baseline.
+- `M1`: first clickable local web shell.
+- `M2`: local file authority, API, conflict protection, search index.
+- `M3`: hierarchy, planning views, writing editor, Codex storage, progressions, character knowledge.
+- `NS-400`: M3 closeout and M4 preparation.
+- `NS-401` through `NS-407`: AI contracts, provider core, model settings, context preview, prompt roles, non-writing AI call loop.
+
+## In Progress
+
+- `NS-408`: provider expansion. DeepSeek/OpenAI-compatible/OpenAI/OpenRouter/Ollama are partially implemented; Anthropic/Gemini and real validation gaps remain.
+- `NS-409`: frontend rebuild. Current UI is command-verified but visually rejected.
+
+## Next Gates
+
+- NS-409 must be accepted before moving forward as a UI baseline.
+- Codex, Write hierarchy, Settings, Review, and Workshop must stop being rough shells/placeholders.
+- After NS-409 acceptance, M4 closeout can continue toward `NS-410`.
+
+## Future Milestones
+
+- `M5`: editor-room workflow and proposal application.
+- `M6`: reference ingestion and analysis.
+- `M7`: Word/versioning/backup workflows.
+- `M8`: hardening, startup reliability, user docs, and release readiness.

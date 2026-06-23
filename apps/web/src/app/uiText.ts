@@ -1,0 +1,42 @@
+export const uiText = {
+  actions: {
+    add: "Add",
+    cancel: "Cancel",
+    delete: "Delete",
+    save: "Save",
+  },
+  hierarchy: {
+    volume: "Volume",
+    chapter: "Chapter",
+    act: "Act",
+    scene: "Scene",
+  },
+  library: {
+    firstVolume: "First volume",
+    projectLibrary: "Project Library",
+    volumes: "volumes",
+  },
+  structure: {
+    title: "Structure",
+    createItem: "Create structure item",
+    confirmDeletion: "Confirm structure deletion",
+    deleteSelected: (label: string) => `Delete selected ${label}?`,
+    doubleClickToRename: "Double-click to rename",
+    emptyScene: "No scene",
+  },
+  errors: {
+    cannotCreateChapterWithoutVolume: "Cannot create a chapter because this project has no volume.",
+    cannotCreateActWithoutChapter: "Cannot create an act because this project has no chapter.",
+    createVolumeFailed: "Failed to create volume",
+    createChapterFailed: "Failed to create chapter",
+    createActFailed: "Failed to create act",
+    createSceneFailed: "Failed to create scene",
+    renameVolumeFailed: "Failed to rename volume",
+    renameChapterFailed: "Failed to rename chapter",
+    renameActFailed: "Failed to rename act",
+    deleteVolumeFailed: "Failed to delete volume",
+    deleteChapterFailed: "Failed to delete chapter",
+    deleteActFailed: "Failed to delete act",
+    deleteSceneFailed: "Failed to delete scene",
+  },
+} as const;

@@ -1,12 +1,26 @@
-# 任务规格导航
+# Task Documents
 
-任务文档把产品能力改写成可实现、可测试、可交接的增量。根目录 `TASKS.md` 只保存状态索引；详细范围和验收必须写在这里。
+Task files turn product goals into implementable and testable increments.
 
-- `M0.md`：治理、规格与工程基线。
-- `M3.md`：幕章层级、规划、编辑器与 Codex。M1–M2 的历史验收见 `testing/M0-M2_ACCEPTANCE.md`。
-- `M4_PREP.md`：M3 到 M4 的整备门；先整理架构、拆分大文件、补可重复烟测，再接入模型。
-- `M4.md`：模型连接、上下文装配、提示词系统、调用日志和非写入型 AI 调用。
-- `NS-401.md`：M4 的第一条 MockProvider 垂直切片、API 草案和文件格式草案。
-- `NS-402.md`：AI 契约分区与模型配置、提示词、上下文包、调用日志的最小持久化。
+## Current Reading Path
 
-每项任务至少包含：目标、非目标、前置条件、数据/API 契约、不变量、失败语义、迁移策略、验收映射和完成定义。若某项内容不适用，应明确写“不适用”及原因，不能省略后让实现者猜测。
+For current work, read only:
+
+1. `../../TASKS.md`
+2. `NS-409.md`
+3. `../testing/NS-409_ACCEPTANCE.md`
+
+Older task files are historical context. Do not start from them unless the current task touches that subsystem.
+
+## Historical Files
+
+- `M0.md`: project governance and engineering baseline.
+- `M3.md`: hierarchy, planning, editor, and Codex foundation.
+- `M4_PREP.md`: M3 to M4 preparation.
+- `M4.md`: model/context/prompt/call-log milestone.
+- `NS-401.md` through `NS-408.md`: M4 slices.
+- `NS-409.md`: active frontend rebuild and remediation.
+
+## Rule
+
+Do not create new task documents for routine notes or cleanup. Update the active task file and root `TASKS.md`.

@@ -1,54 +1,44 @@
-# 任务索引
+# Task Index
 
-状态：`[ ]` 待办、`[-]` 进行中、`[x]` 完成、`[!]` 阻塞。
+Status markers: `[ ]` todo, `[-]` in progress, `[x]` complete, `[!]` blocked or rejected.
 
-## M0
+## Completed Milestones
 
-- [x] `NS-001` 仓库治理、产品边界、架构、数据契约和测试策略。
-- [x] `NS-002` 初始化 Git、依赖锁文件、基础构建与 CI 等价本地检查。
-- [x] `NS-003` 将完整产品讨论固化为权威功能、UX、AI、资料、导入导出与里程碑规格。
+- [x] `M0`: project governance, product boundary, architecture, data contracts, and test strategy.
+- [x] `M1`: first clickable local web shell.
+- [x] `M2`: file storage, API, conflict protection, index rebuild, and search.
+- [x] `M3`: explicit hierarchy, planning views, editor, Codex storage, progressions, character knowledge, hierarchy creation UX.
+- [x] `NS-400`: M3 closeout, architecture split, smoke tests, startup/browser validation reliability, M4 contract prep.
+- [x] `NS-401` through `NS-407`: M4 AI contracts, storage, provider core, model settings, context preview, prompt roles, non-writing AI calls.
+- [-] `NS-408`: DeepSeek/OpenAI-compatible/OpenAI/OpenRouter/Ollama implemented; real DeepSeek non-writing call validation and Anthropic/Gemini remain incomplete.
 
-## M1
+## Active Milestone
 
-- [x] `NS-101` React 应用壳与中文视觉系统。
-- [x] `NS-102` 示例作品导航及 Plan/Write/Codex/Workshop/Review 可点击骨架。
-- [x] `NS-103` 浏览器可用性检查与界面决策记录。
+- [-] `NS-409`: frontend rebuild and UI remediation.
 
-## M2
+Current NS-409 facts:
 
-- [x] `NS-201` 系列、单本、幕章场景文件契约与原子存储。
-- [x] `NS-202` Fastify `/api/v1` 系列和场景 API。
-- [x] `NS-203` 前端创建、打开、编辑、保存和重载纵向闭环。
-- [x] `NS-204` SQLite/FTS5 索引重建与搜索。
+- [x] Old `NS-409A` through `NS-409F` frontend branches and screenshots are obsolete and no longer implementation guidance.
+- [x] New frontend structure exists: `apps/web/src/app`, `src/api`, `src/features`, `src/ui`.
+- [x] Project creation/opening, Write save flow, partial hierarchy controls, minimal Codex shell, and partial Settings API wiring exist.
+- [!] Current UI has failed user visual acceptance. Do not mark NS-409 as passed.
+- [!] Codex frontend is still a rough shell and must be completed before the product can move forward.
+- [!] Review and Workshop remain incomplete.
+- [!] Settings is API-backed but not product-complete.
+- [ ] Continue NS-409 remediation:
+  - Codex real entry editor and detail tabs.
+  - Write hierarchy UX: `Volume -> Chapter -> Act -> Scene`, add menu, default names, double-click rename, selected delete with confirmation, correct collapse/scroll behavior.
+  - Settings product completion after visual baseline is accepted.
+  - Split growing frontend CSS and large backend/storage files when touching them.
 
-## M3
+## Not Yet Active
 
-- [x] `NS-301` 显式 Act/Chapter 清单、排序、场景移动与稳定引用。
-- [x] `NS-302` 将 Grid/Outline/Matrix/双时间线接入真实规划数据。
-- [x] `NS-303` 接入 Milkdown、Sections、专注写作与锚点模型。
-- [x] `NS-304` Codex 文件契约、分类、别名、关系和提及索引。
-- [x] `NS-305` 故事进展、角色所知与按场景生效的事实查询。
-- [x] `NS-306` 暴露新建系列、新建部、新建幕和新建章的界面入口。
-- [x] `NS-307` 写作页布局修整，并支持向指定部 / 幕 / 章新建场景。
+- [ ] `NS-410`: M4 closeout, safety checks, state handoff, and M5 entry confirmation.
 
-## M3 → M4 整备
+## Canonical Current Files
 
-- [x] `NS-400` M3 收口、架构整理、模块拆分、可重复烟测、启动 / 浏览器验收可靠性和 M4 契约准备。
-
-## M4
-
-- [x] `NS-401` M4 执行规格、接口草案、文件格式草案和第一条垂直切片设计。
-- [x] `NS-402` AI 契约分区与模型配置、提示词、上下文包、调用日志的最小持久化。
-- [x] `NS-403` ProviderAdapter 核心、能力描述、错误分类和 MockProvider。
-- [x] `NS-404` 模型设置、连接测试、密钥存储抽象和云端权限开关。
-- [x] `NS-405` 场景级上下文装配器、权限过滤、未来剧情隔离和用量估算。
-- [x] `NS-406` 提示词模板、角色、Preset、声明式渲染和版本历史。
-- [x] `NS-407` 非写入型 AI 调用、SSE 流式输出和 ModelCallLog。
-- [-] `NS-408` DeepSeek、通用 OpenAI-compatible、Ollama、OpenAI、OpenRouter、Anthropic、Gemini Provider 接入。
-- [ ] `NS-409` 上下文预览 UI、调用日志 UI 和浏览器验收覆盖。
-  - [x] `NS-409A/NS-409C` 图像模型协作式 UI 重做、规划 / 写作页纠偏和截图资产登记。
-  - [x] `NS-409D` 写作、设定库和编辑室宽屏布局复查，含图像模型复查图和 1920 宽浏览器截图。
-  - [x] `NS-409E` 规划页故事板 / 大纲 / 追踪表 / 时间线分别生成目标图并修正宽屏结构；该项为过渡版，不代表 UI 验收通过。
-- [ ] `NS-410` M4 收口验收、安全检查、状态交接和 M5 入口确认。
-
-M4 详细规划见 `docs/tasks/M4.md`。M4 全程禁止 AI 直接修改正文、已确认设定、摘要、人物状态、故事进展或角色所知。
+- Current state: `STATUS.md`
+- Handoff: `HANDOFF.md`
+- Current task spec: `docs/tasks/NS-409.md`
+- Current acceptance record: `docs/testing/NS-409_ACCEPTANCE.md`
+- Directory map: `docs/README.md`

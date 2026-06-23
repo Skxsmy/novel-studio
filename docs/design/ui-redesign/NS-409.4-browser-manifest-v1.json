@@ -1,0 +1,33 @@
+{
+  "task": "NS-409.4",
+  "url": "http://127.0.0.1:5174/",
+  "date": "2026-06-23",
+  "appBuild": "apps/web/dist",
+  "apiMode": "temporary contract mock for browser interaction; API client covered by web unit tests",
+  "flow": [
+    "library create project",
+    "write open initial scene",
+    "edit manuscript",
+    "save scene",
+    "open settings"
+  ],
+  "writeVerification": {
+    "topbar": "Write",
+    "hasSavedStatus": true,
+    "hasSavedContent": true,
+    "saveButtonDisabled": true,
+    "horizontalOverflow": false
+  },
+  "settingsVerification": {
+    "topbar": "Settings",
+    "hasSettingsCloudPolicy": true,
+    "hasProjectTitle": true,
+    "horizontalOverflow": false
+  },
+  "consoleErrors": [],
+  "screenshot": "D:/hermes/projects/novel-studio/docs/design/ui-redesign/NS-409.4-vertical-slice-browser-v1.png",
+  "screenshotSha256": "91344141bb06882cdb182493e027b5fbb394c97fdf3666797b02aa170072e333",
+  "screenshotMode": "system Chrome viewport 1280x720",
+  "localPlaywrightConsoleErrors": [],
+  "revalidatedAfterListSpacingFix": true
+}

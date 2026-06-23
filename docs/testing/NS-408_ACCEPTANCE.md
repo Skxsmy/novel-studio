@@ -1,12 +1,15 @@
 # NS-408 验收记录：真实 Provider 接入
 
-状态：部分通过。DeepSeek 独立 Provider 与通用 OpenAI-compatible 基础路径已完成；完整 NS-408 仍进行中。
+状态：部分通过。DeepSeek、OpenAI、OpenRouter、Ollama 与通用 OpenAI-compatible 基础路径已完成；完整 NS-408 仍进行中。
 
 ## 范围
 
 本次验收覆盖：
 
 - DeepSeek adapter；
+- OpenAI adapter；
+- OpenRouter adapter；
+- Ollama adapter；
 - 通用 OpenAI-compatible adapter；
 - DeepSeek 快速配置 UI；
 - 密钥保存端点与凭据引用；
@@ -18,17 +21,28 @@
 不覆盖：
 
 - 用户真实 DeepSeek 非写入调用；
-- OpenAI、OpenRouter、Anthropic、Gemini、Ollama；
+- 用户真实 OpenAI、OpenRouter 或 Ollama 调用；
+- Anthropic、Gemini；
 - 完整调用日志 UI。
+
+## 官方 API 核对
+
+本轮新增 OpenAI、OpenRouter 和 Ollama 前，已核对官方文档中的 endpoint、请求体与返回体，并以 fake fetch 测试锁定：
+
+- OpenAI：`GET https://api.openai.com/v1/models` 返回 `object: "list"` 与 `data[].id`；`POST https://api.openai.com/v1/chat/completions` 使用 Bearer 认证、`messages`、`stream`、`max_completion_tokens`，且本实现为 OpenAI 路径发送 `developer` + `user` 消息。
+- OpenRouter：`GET https://openrouter.ai/api/v1/models` 返回 `data[].id/name/context_length`；`POST https://openrouter.ai/api/v1/chat/completions` 使用 Bearer 认证、`messages`、`stream`、`max_completion_tokens`。
+- Ollama：`http://localhost:11434/v1` 下的 `/models` 与 `/chat/completions` 为官方 OpenAI compatibility 路径；本实现不要求 Authorization header。
+- DeepSeek：保留官方 OpenAI-compatible `https://api.deepseek.com/models` 与 `/chat/completions` 路径，仍使用 `max_tokens`。
 
 ## 自动化结果
 
 | 检查 | 结果 |
 |---|---|
-| `npm.cmd run typecheck` | 通过 |
-| `npm.cmd run test -w @novel-studio/ai` | 通过，15/15 |
-| `npm.cmd run test -w @novel-studio/server` | 通过，15/15 |
-| `npm.cmd run check` | 通过，Server 15/15、Web 14/14、AI 15/15、Storage 41/41 |
+| `env TMPDIR=/tmp TEMP=/tmp TMP=/tmp npm run build:packages` | 通过 |
+| `env TMPDIR=/tmp TEMP=/tmp TMP=/tmp npm run test -w @novel-studio/ai` | 通过，18/18 |
+| `env TMPDIR=/tmp TEMP=/tmp TMP=/tmp npm run test -w @novel-studio/server` | 通过，16/16 |
+| `env TMPDIR=/tmp TEMP=/tmp TMP=/tmp npm run typecheck -w @novel-studio/web` | 通过 |
+| `env TMPDIR=/tmp TEMP=/tmp TMP=/tmp npm run check` | 通过，Server 16/16、Web 14/14、AI 18/18、Storage 41/41 |
 | `npm.cmd run test:e2e` | 通过 |
 
 ## 用户侧真实验收
@@ -69,6 +83,7 @@
 - `ModelProfile` 只保存 `credentialRef`。
 - 用户可替换当前密钥、删除密钥，或让模型配置复用已有凭据引用。
 - DeepSeek 使用独立 `provider: deepseek`；通用 `openai-compatible` 不继承 DeepSeek 的默认地址、模型或 provider-specific 错误语义。
+- OpenAI、OpenRouter 和 Ollama 在 ProviderRegistry 中有独立 provider ID，不通过通用 `openai-compatible` 配置冒充。
 - fake secret 测试确认认证失败信息不会泄露密钥。
 - Provider 失败不会静默改用其他 Provider。
 

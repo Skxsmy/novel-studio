@@ -23,14 +23,22 @@ import type {
 } from "./provider.js";
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
+type OpenAiCompatibleRoutedProvider = Extract<
+  AiProvider,
+  "openai-compatible" | "deepseek" | "openai" | "openrouter" | "ollama"
+>;
+type InstructionRole = "system" | "developer";
+type MaxOutputTokenField = "max_tokens" | "max_completion_tokens";
 
 interface OpenAiCompatibleProviderOptions {
   credentialStore: CredentialStore;
   fetchImpl?: FetchLike;
-  provider?: Extract<AiProvider, "openai-compatible" | "deepseek">;
+  provider?: OpenAiCompatibleRoutedProvider;
   title?: string;
   defaultBaseUrl?: string | null;
   models?: ProviderModelDescriptor[];
+  instructionRole?: InstructionRole;
+  maxOutputTokenField?: MaxOutputTokenField;
 }
 
 interface OpenAiErrorBody {
@@ -48,8 +56,11 @@ interface OpenAiModelListBody {
     id?: unknown;
     object?: unknown;
     owned_by?: unknown;
+    name?: unknown;
+    context_length?: unknown;
   }>;
 }
+type OpenAiModelListItem = NonNullable<OpenAiModelListBody["data"]>[number];
 
 interface OpenAiChatCompletionBody {
   choices?: Array<{
@@ -88,6 +99,9 @@ const DEEPSEEK_MODELS: ProviderModelDescriptor[] = [
 ];
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
+const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
+const OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1";
 const GENERIC_CONTEXT_WINDOW_TOKENS = 8192;
 
 function sanitizeProviderMessage(value: unknown): string {
@@ -136,6 +150,7 @@ function chatBody(
   prompt: ProviderPrompt,
   parameters: ModelParameters | undefined,
   stream: boolean,
+  options: { instructionRole: InstructionRole; maxOutputTokenField: MaxOutputTokenField },
 ): Record<string, unknown> {
   const merged = mergedParameters(modelProfile, parameters);
   const body: Record<string, unknown> = {
@@ -143,7 +158,7 @@ function chatBody(
     stream,
     messages: [
       {
-        role: "system",
+        role: options.instructionRole,
         content: [prompt.system, prompt.instructions].filter(Boolean).join("\n\n"),
       },
       {
@@ -155,7 +170,9 @@ function chatBody(
 
   if (typeof merged.temperature === "number") body.temperature = merged.temperature;
   if (typeof merged.topP === "number") body.top_p = merged.topP;
-  if (typeof merged.maxOutputTokens === "number") body.max_tokens = merged.maxOutputTokens;
+  if (typeof merged.maxOutputTokens === "number") {
+    body[options.maxOutputTokenField] = merged.maxOutputTokens;
+  }
 
   for (const [key, value] of Object.entries(merged)) {
     if (value === undefined || value === null) continue;
@@ -194,21 +211,27 @@ function staticModelDescriptor(
   modelProfile: ModelProfile,
   knownModels: ProviderModelDescriptor[],
   modelId: string,
+  source?: OpenAiModelListItem,
 ): ProviderModelDescriptor {
+  const contextWindowTokens = typeof source?.context_length === "number" && source.context_length > 0
+    ? source.context_length
+    : modelProfile.contextWindowTokens;
   return knownModels.find((model) => model.id === modelId) ?? {
     id: modelId,
-    title: modelId,
-    contextWindowTokens: modelProfile.contextWindowTokens,
+    title: typeof source?.name === "string" && source.name.trim() ? source.name.trim() : modelId,
+    contextWindowTokens,
     capabilities: modelProfile.capabilities,
   };
 }
 
 export class OpenAiCompatibleProvider implements ProviderAdapter {
-  readonly provider: Extract<AiProvider, "openai-compatible" | "deepseek">;
+  readonly provider: OpenAiCompatibleRoutedProvider;
   private readonly fetchImpl: FetchLike;
   private readonly title: string;
   private readonly defaultBaseUrl: string | null;
   private readonly models: ProviderModelDescriptor[];
+  private readonly instructionRole: InstructionRole;
+  private readonly maxOutputTokenField: MaxOutputTokenField;
 
   constructor(private readonly options: OpenAiCompatibleProviderOptions) {
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -216,6 +239,8 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
     this.title = options.title ?? "OpenAI 兼容服务";
     this.defaultBaseUrl = options.defaultBaseUrl ?? null;
     this.models = options.models ?? [];
+    this.instructionRole = options.instructionRole ?? "system";
+    this.maxOutputTokenField = options.maxOutputTokenField ?? "max_tokens";
   }
 
   describeCapabilities(): ProviderDescriptor {
@@ -272,13 +297,15 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
         providerStatus: response.status,
       });
     }
-    const modelIds = body.data
-      .filter((item) => item && typeof item === "object")
-      .map((item) => item.id)
-      .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
-      .map((id) => id.trim());
-    const uniqueIds = Array.from(new Set(modelIds));
-    return uniqueIds.map((id) => staticModelDescriptor(modelProfile, this.models, id));
+    const uniqueItems = new Map<string, OpenAiModelListItem>();
+    for (const item of body.data.filter((value) => value && typeof value === "object")) {
+      const id = typeof item.id === "string" ? item.id.trim() : "";
+      if (!id) continue;
+      if (!uniqueItems.has(id)) uniqueItems.set(id, item);
+    }
+    return [...uniqueItems.entries()].map(([id, item]) =>
+      staticModelDescriptor(modelProfile, this.models, id, item)
+    );
   }
 
   async *streamText(request: ProviderTextRequest): AsyncIterable<string> {
@@ -288,7 +315,10 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
     const init: RequestInit = {
       method: "POST",
       headers: this.headers(secret),
-      body: JSON.stringify(chatBody(request.modelProfile, request.prompt, request.parameters, true)),
+      body: JSON.stringify(chatBody(request.modelProfile, request.prompt, request.parameters, true, {
+        instructionRole: this.instructionRole,
+        maxOutputTokenField: this.maxOutputTokenField,
+      })),
     };
     if (request.abortSignal) init.signal = request.abortSignal;
     const response = await this.fetchImpl(endpoint(request.modelProfile.baseUrl, this.defaultBaseUrl, "/chat/completions"), {
@@ -333,7 +363,10 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
       method: "POST",
       headers: this.headers(secret),
       body: JSON.stringify({
-        ...chatBody(request.modelProfile, request.prompt, request.parameters, false),
+        ...chatBody(request.modelProfile, request.prompt, request.parameters, false, {
+          instructionRole: this.instructionRole,
+          maxOutputTokenField: this.maxOutputTokenField,
+        }),
         response_format: { type: "json_object" },
       }),
     };
@@ -495,5 +528,35 @@ export function deepSeekDefaults() {
     model: "deepseek-v4-flash",
     capabilities: OPENAI_COMPATIBLE_CAPABILITIES,
     contextWindowTokens: 1_000_000,
+  };
+}
+
+export function openAiDefaults() {
+  return {
+    provider: "openai" as const,
+    baseUrl: OPENAI_DEFAULT_BASE_URL,
+    model: "填写模型代号",
+    capabilities: OPENAI_COMPATIBLE_CAPABILITIES,
+    contextWindowTokens: GENERIC_CONTEXT_WINDOW_TOKENS,
+  };
+}
+
+export function openRouterDefaults() {
+  return {
+    provider: "openrouter" as const,
+    baseUrl: OPENROUTER_DEFAULT_BASE_URL,
+    model: "填写模型代号",
+    capabilities: OPENAI_COMPATIBLE_CAPABILITIES,
+    contextWindowTokens: GENERIC_CONTEXT_WINDOW_TOKENS,
+  };
+}
+
+export function ollamaDefaults() {
+  return {
+    provider: "ollama" as const,
+    baseUrl: OLLAMA_DEFAULT_BASE_URL,
+    model: "gpt-oss:20b",
+    capabilities: OPENAI_COMPATIBLE_CAPABILITIES,
+    contextWindowTokens: GENERIC_CONTEXT_WINDOW_TOKENS,
   };
 }

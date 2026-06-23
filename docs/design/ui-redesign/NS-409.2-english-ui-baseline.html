@@ -1,0 +1,1990 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NS-409.2 Advanced UI Baseline</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #eef1ed;
+        --shell: #192120;
+        --shell-2: #23302e;
+        --surface: #fbfaf6;
+        --surface-2: #f4f6f1;
+        --ink: #1f2523;
+        --muted: #66716c;
+        --quiet: #8a948f;
+        --line: #d6ddd6;
+        --line-strong: #b8c3bb;
+        --blue: #2f64d6;
+        --green: #1f7a58;
+        --amber: #b66a1e;
+        --red: #b44747;
+        --violet: #6757b7;
+        --shadow: 0 18px 44px rgba(31, 37, 35, 0.08);
+        --radius: 6px;
+        --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --font-copy: Georgia, "Times New Roman", serif;
+      }
+
+      * { box-sizing: border-box; }
+
+      html,
+      body {
+        margin: 0;
+        min-width: 320px;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--font-ui);
+        letter-spacing: 0;
+      }
+
+      button,
+      input,
+      textarea,
+      select { font: inherit; }
+
+      button {
+        border: 0;
+        cursor: default;
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: 320px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .app.is-sidebar-collapsed {
+        grid-template-columns: 132px minmax(0, 1fr);
+      }
+
+      .app.is-focus-mode {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .app.is-focus-mode .project-panel {
+        display: none;
+      }
+
+      .project-panel {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr) auto;
+        border-right: 1px solid var(--line);
+        background: #f8f8f2;
+      }
+
+      .project-head {
+        position: relative;
+        padding: 18px 18px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .sidebar-toggle {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        display: inline-grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius);
+        background: #ffffff;
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 780;
+      }
+
+      .cover-row {
+        display: grid;
+        grid-template-columns: 54px minmax(0, 1fr);
+        gap: 12px;
+        align-items: center;
+      }
+
+      .cover {
+        display: grid;
+        place-items: end start;
+        width: 54px;
+        height: 74px;
+        padding: 8px;
+        border: 1px solid #273835;
+        border-radius: 4px;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 100%),
+          repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 12px),
+          #263633;
+        color: #f4f1e8;
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 1.1;
+      }
+
+      .project-name {
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 16px;
+        font-weight: 780;
+      }
+
+      .project-meta {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .quick-stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        padding: 12px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .stat {
+        min-height: 52px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #ffffff;
+      }
+
+      .stat strong {
+        display: block;
+        font-size: 16px;
+      }
+
+      .stat span {
+        display: block;
+        margin-top: 2px;
+        color: var(--quiet);
+        font-size: 11px;
+      }
+
+      .project-scroll {
+        min-height: 0;
+        overflow: auto;
+        padding: 14px 12px;
+      }
+
+      .side-section { margin-bottom: 18px; }
+
+      .side-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        min-height: 26px;
+        padding: 0 6px;
+        color: var(--quiet);
+        font-size: 11px;
+        font-weight: 780;
+        text-transform: uppercase;
+      }
+
+      .row-list,
+      .stack,
+      .scene-map,
+      .thread-list,
+      .settings-nav {
+        display: grid;
+        gap: 8px;
+      }
+
+      .nav-row,
+      .data-row,
+      .scene-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        min-height: 38px;
+        padding: 7px 8px;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        background: transparent;
+        color: var(--ink);
+        text-decoration: none;
+      }
+
+      .nav-row.is-active,
+      .scene-row.is-active,
+      .data-row.is-active {
+        border-color: rgba(47, 100, 214, 0.28);
+        background: #edf2fd;
+      }
+
+      .row-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+        font-weight: 720;
+      }
+
+      .row-meta {
+        margin-top: 2px;
+        overflow: hidden;
+        color: var(--quiet);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+      }
+
+      .project-foot {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border-top: 1px solid var(--line);
+      }
+
+      .app.is-sidebar-collapsed .project-head {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 56px;
+        padding: 10px;
+      }
+
+      .app.is-sidebar-collapsed .sidebar-toggle {
+        position: static;
+        width: 36px;
+        height: 34px;
+        margin: 0;
+      }
+
+      .app.is-sidebar-collapsed .cover-row {
+        display: none;
+      }
+
+      .app.is-sidebar-collapsed .cover-row > div:not(.cover),
+      .app.is-sidebar-collapsed .quick-stats,
+      .app.is-sidebar-collapsed .side-heading,
+      .app.is-sidebar-collapsed .row-meta,
+      .app.is-sidebar-collapsed .nav-row .pill {
+        display: none;
+      }
+
+      .app.is-sidebar-collapsed .project-scroll {
+        padding: 12px 10px;
+      }
+
+      .app.is-sidebar-collapsed .nav-row {
+        grid-template-columns: 1fr;
+        place-items: center;
+        min-height: 50px;
+        padding: 0 8px;
+      }
+
+      .app.is-sidebar-collapsed .nav-row::before {
+        content: none;
+      }
+
+      .app.is-sidebar-collapsed .nav-row .row-title {
+        text-align: center;
+        white-space: normal;
+        font-size: 12px;
+        line-height: 1.1;
+      }
+
+      .app.is-sidebar-collapsed .project-foot {
+        display: grid;
+        grid-auto-rows: 44px;
+        gap: 8px;
+        align-self: end;
+        padding: 10px;
+      }
+
+      .app.is-sidebar-collapsed .project-foot .btn {
+        min-width: 0;
+        min-height: 44px;
+        height: 44px;
+        padding: 0 8px;
+        font-size: 11px;
+        line-height: 1.1;
+        white-space: normal;
+      }
+
+      .app.is-sidebar-collapsed .project-foot .btn::before {
+        content: none;
+      }
+
+      .app.is-sidebar-collapsed .page {
+        padding: 24px;
+      }
+
+      .app.is-sidebar-collapsed .panel-body {
+        padding: 14px;
+      }
+
+      .app.is-sidebar-collapsed .write-grid,
+      .app.is-sidebar-collapsed .plan-grid,
+      .app.is-sidebar-collapsed .codex-grid,
+      .app.is-sidebar-collapsed .workshop-grid,
+      .app.is-sidebar-collapsed .review-grid,
+      .app.is-sidebar-collapsed .settings-grid,
+      .app.is-sidebar-collapsed .overview-grid {
+        gap: 16px;
+      }
+
+      .workspace { min-width: 0; }
+
+      .command-bar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) minmax(420px, 720px) auto;
+        gap: 14px;
+        align-items: center;
+        min-height: 58px;
+        padding: 10px 18px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(238, 241, 237, 0.94);
+        backdrop-filter: blur(12px);
+      }
+
+      .crumb { min-width: 0; }
+
+      .crumb strong {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+      }
+
+      .crumb span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .command-input {
+        display: grid;
+        grid-template-columns: 24px minmax(0, 1fr) auto;
+        align-items: center;
+        min-height: 38px;
+        padding: 0 10px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: 0 8px 18px rgba(31, 37, 35, 0.06);
+      }
+
+      .command-input input {
+        width: 100%;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .command-input input::placeholder { color: #9ca6a1; }
+
+      .key {
+        min-width: 32px;
+        min-height: 22px;
+        display: inline-grid;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #eef2ed;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 720;
+      }
+
+      .top-actions {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .app.is-focus-mode .command-bar {
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+
+      .app.is-focus-mode .command-input,
+      .app.is-focus-mode #write-page .page-head,
+      .app.is-focus-mode #write-page .write-grid > aside {
+        display: none;
+      }
+
+      .app.is-focus-mode #write-page .write-grid {
+        display: block;
+        max-width: 980px;
+        margin: 0 auto;
+      }
+
+      .app.is-focus-mode #write-page .manuscript-panel {
+        min-height: calc(100vh - 94px);
+      }
+
+      .write-focus-action {
+        min-width: 86px;
+      }
+
+      .btn,
+      .icon-btn,
+      .seg-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 34px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius);
+        background: var(--surface);
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 680;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .btn { padding: 0 12px; }
+
+      .btn.primary {
+        border-color: #244fba;
+        background: var(--blue);
+        color: #fff;
+      }
+
+      .btn.success {
+        border-color: rgba(31, 122, 88, 0.28);
+        background: #e8f4ee;
+        color: var(--green);
+      }
+
+      .btn.danger {
+        border-color: rgba(180, 71, 71, 0.32);
+        color: var(--red);
+      }
+
+      .btn.ghost {
+        border-color: transparent;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .icon-btn {
+        width: 34px;
+        padding: 0;
+      }
+
+      .page {
+        display: none;
+        min-height: calc(100vh - 58px);
+        padding: 18px;
+      }
+
+      .page.is-active { display: block; }
+
+      .page-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        gap: 16px;
+        margin-bottom: 14px;
+      }
+
+      .page-title {
+        margin: 0;
+        font-size: 22px;
+        line-height: 1.15;
+        font-weight: 800;
+      }
+
+      .page-subtitle {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 23px;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface-2);
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 720;
+        white-space: nowrap;
+      }
+
+      .pill.blue {
+        border-color: rgba(47, 100, 214, 0.24);
+        background: #edf2fd;
+        color: var(--blue);
+      }
+
+      .pill.green {
+        border-color: rgba(31, 122, 88, 0.24);
+        background: #e8f4ee;
+        color: var(--green);
+      }
+
+      .pill.amber {
+        border-color: rgba(182, 106, 30, 0.28);
+        background: #fff2df;
+        color: var(--amber);
+      }
+
+      .pill.violet {
+        border-color: rgba(103, 87, 183, 0.24);
+        background: #f0edfb;
+        color: var(--violet);
+      }
+
+      .panel {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .panel.no-shadow { box-shadow: none; }
+
+      .panel-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        min-height: 46px;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-title {
+        font-size: 13px;
+        font-weight: 780;
+      }
+
+      .panel-kicker {
+        color: var(--quiet);
+        font-size: 11px;
+      }
+
+      .panel-body { padding: 12px; }
+
+      .field {
+        display: grid;
+        gap: 5px;
+      }
+
+      .field label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 720;
+      }
+
+      .input,
+      .textarea,
+      .select {
+        width: 100%;
+        min-height: 36px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius);
+        background: #fff;
+        color: var(--ink);
+        padding: 8px 9px;
+        font-size: 13px;
+      }
+
+      .textarea {
+        min-height: 84px;
+        resize: none;
+      }
+
+      .input::placeholder,
+      .textarea::placeholder { color: #98a39d; }
+
+      .segmented {
+        display: inline-flex;
+        gap: 2px;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #e7ece8;
+      }
+
+      .seg-btn {
+        min-height: 28px;
+        padding: 0 10px;
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .seg-btn.is-active {
+        background: #fff;
+        color: var(--ink);
+        box-shadow: 0 1px 3px rgba(31, 37, 35, 0.12);
+      }
+
+      .write-grid {
+        display: grid;
+        grid-template-columns: 286px minmax(660px, 1fr) 360px;
+        gap: 14px;
+        align-items: stretch;
+      }
+
+      .scene-row {
+        min-height: 46px;
+        border-color: var(--line);
+        background: #fff;
+      }
+
+      .scene-row .row-title { font-size: 13px; }
+
+      .manuscript-panel {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        min-height: 780px;
+        background: #fffefa;
+      }
+
+      .manuscript-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        min-height: 52px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .format-tools {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .tool {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 780;
+      }
+
+      .copy-area {
+        min-height: 0;
+        padding: 34px 48px;
+        overflow: auto;
+      }
+
+      .scene-kicker {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+
+      .scene-title-input {
+        width: 100%;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--ink);
+        font-family: var(--font-copy);
+        font-size: 38px;
+        line-height: 1.12;
+        font-weight: 700;
+      }
+
+      .editor-copy {
+        max-width: 860px;
+        margin-top: 26px;
+        color: #252724;
+        font-family: var(--font-copy);
+        font-size: 20px;
+        line-height: 1.76;
+      }
+
+      .editor-copy p { margin: 0 0 21px; }
+
+      .codex-mark {
+        text-decoration-line: underline;
+        text-decoration-style: dotted;
+        text-decoration-color: var(--violet);
+        text-decoration-thickness: 1.5px;
+        text-underline-offset: 4px;
+      }
+
+      .placeholder-copy { color: #a5aca7; }
+
+      .save-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        min-height: 44px;
+        padding: 0 18px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .brief-block {
+        display: grid;
+        gap: 4px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brief-block:last-child { border-bottom: 0; }
+
+      .brief-label {
+        color: var(--quiet);
+        font-size: 11px;
+        font-weight: 780;
+        text-transform: uppercase;
+      }
+
+      .brief-text {
+        margin: 0;
+        color: var(--ink);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .thread {
+        padding: 9px;
+        border-left: 3px solid var(--amber);
+        background: #fff7ec;
+      }
+
+      .thread.green {
+        border-left-color: var(--green);
+        background: #eef8f3;
+      }
+
+      .thread strong {
+        display: block;
+        font-size: 12px;
+      }
+
+      .thread span {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .plan-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 350px;
+        gap: 14px;
+      }
+
+      .filter-strip {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .filter-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .storyboard {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(210px, 1fr));
+        gap: 10px;
+      }
+
+      .lane {
+        min-height: 620px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #f7f8f3;
+      }
+
+      .lane-head {
+        display: flex;
+        justify-content: space-between;
+        min-height: 42px;
+        align-items: center;
+        padding: 0 10px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .lane-title {
+        font-size: 13px;
+        font-weight: 780;
+      }
+
+      .scene-card-list {
+        display: grid;
+        gap: 8px;
+        padding: 9px;
+      }
+
+      .plan-card {
+        display: grid;
+        gap: 8px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+      }
+
+      .plan-card.is-active {
+        border-color: rgba(47, 100, 214, 0.36);
+        box-shadow: 0 0 0 2px rgba(47, 100, 214, 0.08);
+      }
+
+      .plan-card-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .plan-card h3 {
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+      }
+
+      .plan-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .mini-matrix {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      .mini-matrix th,
+      .mini-matrix td {
+        padding: 8px;
+        border: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .mini-matrix th {
+        color: var(--muted);
+        background: var(--surface-2);
+        font-weight: 780;
+      }
+
+      .timeline-strip {
+        display: grid;
+        grid-template-columns: 160px minmax(0, 1fr);
+        gap: 10px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+      }
+
+      .timeline-track {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(120px, 1fr));
+        gap: 8px;
+      }
+
+      .timeline-cell {
+        min-height: 58px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+        font-size: 12px;
+      }
+
+      .settings-grid {
+        display: grid;
+        grid-template-columns: 220px minmax(540px, 1fr) 360px;
+        gap: 14px;
+      }
+
+      .model-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        min-height: 52px;
+        padding: 9px 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .form-grid .wide { grid-column: 1 / -1; }
+
+      .role-row {
+        display: grid;
+        gap: 3px;
+        min-height: 54px;
+        padding: 9px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+      }
+
+      .role-row strong { font-size: 13px; }
+
+      .role-row span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .library-grid,
+      .overview-grid,
+      .codex-grid,
+      .workshop-grid,
+      .review-grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .library-grid { grid-template-columns: minmax(0, 1fr) 360px; }
+      .overview-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .codex-grid {
+        grid-template-columns: 250px minmax(0, 1fr);
+        align-items: stretch;
+        min-height: 760px;
+      }
+
+      .codex-grid.detail-open {
+        grid-template-columns: 220px minmax(400px, 500px) minmax(560px, 1fr);
+      }
+      .workshop-grid { grid-template-columns: 280px minmax(600px, 1fr) 340px; }
+      .review-grid {
+        grid-template-columns: 280px minmax(480px, 1fr) 280px 240px;
+        align-items: stretch;
+        min-height: 760px;
+      }
+
+      .taxonomy-list,
+      .codex-table,
+      .review-groups,
+      .evidence-stack,
+      .impact-stack {
+        display: grid;
+        gap: 8px;
+      }
+
+      .taxonomy-item,
+      .codex-row,
+      .queue-row {
+        width: 100%;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        min-height: 44px;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+        color: var(--ink);
+        text-align: left;
+      }
+
+      .taxonomy-item.is-active,
+      .codex-row.is-active,
+      .queue-row.is-active {
+        border-color: rgba(47, 100, 214, 0.36);
+        background: #edf2fd;
+      }
+
+      .codex-row {
+        grid-template-columns: minmax(190px, 1.2fr) 110px 82px 90px 82px;
+        overflow: hidden;
+      }
+
+      .codex-table-head {
+        display: grid;
+        grid-template-columns: minmax(190px, 1.2fr) 110px 82px 90px 82px;
+        gap: 10px;
+        padding: 0 10px 6px;
+        color: var(--quiet);
+        font-size: 11px;
+        font-weight: 780;
+        text-transform: uppercase;
+      }
+
+      .codex-index {
+        overflow: hidden;
+      }
+
+      .codex-index .panel-body {
+        overflow: hidden;
+      }
+
+      .codex-table {
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .codex-row > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .codex-grid.detail-open .codex-row,
+      .codex-grid.detail-open .codex-table-head {
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+
+      .codex-grid.detail-open .codex-table-head {
+        display: none;
+      }
+
+      .codex-grid.detail-open .codex-row > span:not(:last-child) {
+        display: none;
+      }
+
+      .codex-grid.detail-open .codex-row > span:last-child {
+        justify-self: end;
+      }
+
+      .codex-grid.detail-open .codex-toolbar {
+        display: grid;
+      }
+
+      .codex-grid.detail-open .codex-toolbar .input {
+        max-width: none;
+      }
+
+      .codex-toolbar,
+      .review-stats,
+      .decision-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .codex-toolbar {
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+
+      .codex-toolbar .input {
+        max-width: 360px;
+      }
+
+      .codex-detail {
+        display: none;
+        grid-template-rows: auto minmax(0, 1fr);
+        overflow: hidden;
+      }
+
+      .codex-grid.detail-open .codex-detail {
+        display: grid;
+      }
+
+      .entry-hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 88px;
+        gap: 16px;
+        padding: 18px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .entry-type {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 780;
+      }
+
+      .entry-title {
+        margin: 10px 0 0;
+        overflow-wrap: anywhere;
+        font-size: 31px;
+        line-height: 1.12;
+        font-weight: 820;
+      }
+
+      .entry-avatar {
+        display: grid;
+        place-items: center;
+        width: 88px;
+        height: 88px;
+        border-radius: var(--radius);
+        background: #efefef;
+        color: #8f9298;
+        font-size: 34px;
+        font-weight: 700;
+      }
+
+      .entry-meta-line {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        padding: 10px 18px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .codex-tabs {
+        display: flex;
+        gap: 22px;
+        min-height: 44px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+        overflow-x: auto;
+      }
+
+      .codex-tab {
+        border: 0;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 760;
+      }
+
+      .codex-tab.is-active {
+        border-color: var(--ink);
+        color: var(--ink);
+      }
+
+      .codex-tab-panel {
+        display: none;
+        gap: 14px;
+        padding: 18px;
+        overflow: auto;
+      }
+
+      .codex-tab-panel.is-active {
+        display: grid;
+      }
+
+      .detail-form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .detail-form-grid .wide {
+        grid-column: 1 / -1;
+      }
+
+      .detail-empty {
+        display: grid;
+        place-items: center;
+        min-height: 520px;
+        border: 1px dashed var(--line-strong);
+        border-radius: var(--radius);
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.56);
+        font-size: 13px;
+      }
+
+      .review-stats {
+        margin-bottom: 10px;
+      }
+
+      .review-stat {
+        min-width: 96px;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+      }
+
+      .review-stat strong {
+        display: block;
+        font-size: 17px;
+      }
+
+      .review-stat span {
+        color: var(--quiet);
+        font-size: 11px;
+      }
+
+      .decision-panel {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+      }
+
+      .decision-body {
+        display: grid;
+        gap: 12px;
+        padding: 12px;
+        overflow: auto;
+      }
+
+      .decision-meta {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .decision-actions {
+        justify-content: flex-end;
+        padding: 12px;
+        border-top: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .impact-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .impact-table th,
+      .impact-table td {
+        padding: 8px;
+        border: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+        font-size: 12px;
+      }
+
+      .impact-table th {
+        color: var(--muted);
+        background: var(--surface-2);
+      }
+
+      .app.is-sidebar-collapsed .codex-grid {
+        grid-template-columns: 280px minmax(0, 1fr);
+      }
+
+      .app.is-sidebar-collapsed .codex-grid.detail-open {
+        grid-template-columns: 250px minmax(440px, 540px) minmax(700px, 1fr);
+      }
+
+      .app.is-sidebar-collapsed .review-grid {
+        grid-template-columns: 320px minmax(0, 1fr) 340px 300px;
+      }
+
+      .large-note {
+        min-height: 180px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+      }
+
+      .large-note h2 {
+        margin: 0 0 8px;
+        font-size: 20px;
+      }
+
+      .large-note p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .chat {
+        display: grid;
+        grid-template-rows: minmax(460px, 1fr) auto;
+        min-height: 680px;
+      }
+
+      .message-stack {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+        padding: 18px;
+      }
+
+      .message {
+        max-width: 78%;
+        padding: 12px 13px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .message.user {
+        justify-self: end;
+        border-color: rgba(47, 100, 214, 0.28);
+        background: #edf2fd;
+      }
+
+      .composer {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        padding: 12px;
+        border-top: 1px solid var(--line);
+      }
+
+      .diff {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .diff-block {
+        min-height: 180px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+        font-family: var(--font-copy);
+        font-size: 18px;
+        line-height: 1.55;
+      }
+
+      details.disclosure {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+      }
+
+      details.disclosure + details.disclosure { margin-top: 8px; }
+
+      details.disclosure summary {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        min-height: 38px;
+        padding: 0 10px;
+        list-style: none;
+        font-size: 13px;
+        font-weight: 760;
+      }
+
+      details.disclosure summary::-webkit-details-marker { display: none; }
+
+      .disclosure-body {
+        padding: 8px 10px 10px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .plan-view,
+      .narrow-state,
+      .chapter-flow,
+      .wide-threads,
+      .wide-defaults { display: none; }
+
+      .plan-view.is-active { display: block; }
+
+      @media (max-width: 1500px) {
+        .command-bar {
+          grid-template-columns: minmax(180px, 1fr) minmax(260px, 520px);
+        }
+
+        .command-bar .top-actions {
+          grid-column: 1 / -1;
+          justify-content: flex-start;
+        }
+
+        .write-grid {
+          grid-template-columns: 250px minmax(0, 1fr);
+        }
+
+        .manuscript-panel {
+          min-width: 0;
+        }
+
+        #write-page .write-grid > aside:not(.chapter-flow):not(.wide-threads):last-child {
+          grid-column: 1 / -1;
+        }
+
+        .plan-grid,
+        .library-grid,
+        .codex-grid,
+        .workshop-grid,
+        .review-grid,
+        .settings-grid,
+        .overview-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .codex-grid.detail-open,
+        .review-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .codex-row,
+        .codex-table-head {
+          grid-template-columns: minmax(180px, 1fr) 110px 80px 90px 72px;
+        }
+
+        .storyboard {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (min-width: 1900px) {
+        .app { grid-template-columns: 340px minmax(0, 1fr); }
+        .app.is-sidebar-collapsed { grid-template-columns: 132px minmax(0, 1fr); }
+        .app.is-focus-mode { grid-template-columns: minmax(0, 1fr); }
+        .page { padding: 22px; }
+        .app.is-sidebar-collapsed .page { padding: 26px; }
+        .write-grid { grid-template-columns: 238px 218px minmax(420px, 1fr) 278px 218px; }
+        .app.is-sidebar-collapsed .write-grid { grid-template-columns: 260px 250px minmax(520px, 1fr) 310px 250px; }
+        .chapter-flow,
+        .wide-threads,
+        .wide-defaults { display: block; }
+        .plan-grid { grid-template-columns: minmax(0, 1fr) 380px; }
+        .codex-grid { grid-template-columns: 260px minmax(0, 1fr); }
+        .codex-grid.detail-open { grid-template-columns: 240px minmax(460px, 560px) minmax(720px, 1fr); }
+        .app.is-sidebar-collapsed .codex-grid { grid-template-columns: 280px minmax(0, 1fr); }
+        .app.is-sidebar-collapsed .codex-grid.detail-open { grid-template-columns: 260px minmax(480px, 560px) minmax(780px, 1fr); }
+        .review-grid { grid-template-columns: 320px minmax(760px, 1fr) 340px 300px; }
+        .app.is-sidebar-collapsed .review-grid { grid-template-columns: 340px minmax(820px, 1fr) 360px 320px; }
+        .settings-grid { grid-template-columns: 240px minmax(620px, 1fr) 380px 320px; }
+      }
+
+      @media (max-width: 1190px) {
+        .app { display: block; }
+        .project-panel,
+        .workspace { display: none; }
+        .narrow-state {
+          display: grid;
+          place-items: center;
+          min-height: 100vh;
+          padding: 24px;
+        }
+        .narrow-state .panel { width: min(520px, 100%); }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <aside class="project-panel" aria-label="Project">
+        <header class="project-head">
+          <button class="sidebar-toggle" type="button" data-sidebar-toggle aria-label="Collapse sidebar" aria-pressed="false" title="Collapse sidebar">&lt;</button>
+          <div class="cover-row">
+            <div class="cover">GLASS<br />HARBOR</div>
+            <div>
+              <h1 class="project-name">The Glass Harbor</h1>
+              <p class="project-meta">Book II / Act III / Chapter 14</p>
+            </div>
+          </div>
+        </header>
+
+        <div class="quick-stats">
+          <div class="stat"><strong>84k</strong><span>words</span></div>
+          <div class="stat"><strong>34</strong><span>scenes</span></div>
+          <div class="stat"><strong>21</strong><span>open</span></div>
+        </div>
+
+        <div class="project-scroll">
+          <section class="side-section">
+            <div class="side-heading"><span>Workspaces</span></div>
+            <div class="row-list">
+              <a class="nav-row" href="#overview-page" data-target="#overview-page" data-short="OV" title="Overview"><div><div class="row-title">Overview</div><div class="row-meta">Today, warnings, next draft</div></div><span class="pill">3</span></a>
+              <a class="nav-row" href="#plan-page" data-target="#plan-page" data-short="PL" title="Plan"><div><div class="row-title">Plan</div><div class="row-meta">Structure and timing</div></div><span class="pill amber">6</span></a>
+              <a class="nav-row is-active" href="#write-page" data-target="#write-page" data-short="WR" title="Write"><div><div class="row-title">Write</div><div class="row-meta">A Weather Door</div></div><span class="pill green">Saved</span></a>
+              <a class="nav-row" href="#codex-page" data-target="#codex-page" data-short="CD" title="Codex"><div><div class="row-title">Codex</div><div class="row-meta">Characters, places, facts</div></div><span class="pill">128</span></a>
+              <a class="nav-row" href="#workshop-page" data-target="#workshop-page" data-short="WS" title="Workshop"><div><div class="row-title">Workshop</div><div class="row-meta">Assistant sessions</div></div><span class="pill violet">4</span></a>
+              <a class="nav-row" href="#review-page" data-target="#review-page" data-short="RV" title="Review"><div><div class="row-title">Review</div><div class="row-meta">Decisions waiting</div></div><span class="pill amber">18</span></a>
+            </div>
+          </section>
+
+        </div>
+
+        <footer class="project-foot">
+          <a class="btn" href="#library-page" data-target="#library-page" data-short="LIB" title="Switch Project">Switch Project</a>
+          <a class="btn" href="#settings-page" data-target="#settings-page" data-short="SET" title="Settings">Settings</a>
+        </footer>
+      </aside>
+
+      <section class="workspace">
+        <header class="command-bar">
+          <div class="crumb">
+            <strong data-bar-title>The Glass Harbor</strong>
+            <span data-bar-subtitle>Write / A Weather Door</span>
+          </div>
+          <label class="command-input">
+            <span>Q</span>
+            <input placeholder="Find scene, codex entry, assistant action, or setting" />
+            <span class="key">Ctrl K</span>
+          </label>
+          <div class="top-actions">
+            <span class="pill green" data-save-state>Saved just now</span>
+            <button class="btn primary">Review Draft</button>
+          </div>
+        </header>
+
+        <section class="page" id="library-page" data-page="library">
+          <div class="page-head">
+            <div><h2 class="page-title">Library</h2><p class="page-subtitle">Open a project or start a new draft.</p></div>
+            <button class="btn primary">New Project</button>
+          </div>
+          <div class="library-grid">
+            <section class="panel"><div class="panel-head"><div><div class="panel-title">Projects</div><div class="panel-kicker">Recent work</div></div><button class="btn">Import Draft</button></div><div class="panel-body stack"><div class="large-note"><h2>The Glass Harbor</h2><p>Book II is active. Chapter 14 has one draft scene, one review scene, and one planned scene waiting.</p></div><div class="large-note"><h2>Northline Notes</h2><p>Archived project. Research notes remain searchable and can be restored.</p></div></div></section>
+            <aside class="panel"><div class="panel-head"><div><div class="panel-title">Startup</div><div class="panel-kicker">Local workspace</div></div></div><div class="panel-body stack"><div class="data-row"><div><div class="row-title">Drafts folder</div><div class="row-meta">Ready</div></div><span class="pill green">OK</span></div><div class="data-row"><div><div class="row-title">Backup folder</div><div class="row-meta">Different location</div></div><span class="pill green">OK</span></div><div class="data-row"><div><div class="row-title">Models</div><div class="row-meta">Optional</div></div><span class="pill amber">2</span></div></div></aside>
+          </div>
+        </section>
+
+        <section class="page" id="overview-page" data-page="overview">
+          <div class="page-head"><div><h2 class="page-title">Overview</h2><p class="page-subtitle">The next writing decisions are visible without opening every panel.</p></div><button class="btn primary">Continue Scene</button></div>
+          <div class="overview-grid">
+            <section class="panel"><div class="panel-head"><div><div class="panel-title">Today</div><div class="panel-kicker">Drafting path</div></div></div><div class="panel-body stack"><div class="large-note"><h2>A Weather Door</h2><p>Rin needs a way through the harbor lock before the bell clue becomes obvious.</p></div></div></section>
+            <section class="panel"><div class="panel-head"><div><div class="panel-title">Warnings</div><div class="panel-kicker">Needs attention</div></div><span class="pill amber">6</span></div><div class="panel-body stack"><div class="thread"><strong>Marek knows too much</strong><span>Current scene may reveal repair knowledge too early.</span></div><div class="thread green"><strong>Promise ready</strong><span>The broken tide bell setup can be paid off in Act IV.</span></div></div></section>
+            <section class="panel"><div class="panel-head"><div><div class="panel-title">Review queue</div><div class="panel-kicker">Author decisions</div></div><span class="pill amber">18</span></div><div class="panel-body row-list"><div class="data-row"><div><div class="row-title">Opening sentence</div><div class="row-meta">Prose candidate</div></div><span class="pill blue">View</span></div><div class="data-row"><div><div class="row-title">Harbor lock rule</div><div class="row-meta">Fact update</div></div><span class="pill">Open</span></div></div></section>
+          </div>
+        </section>
+
+        <section class="page is-active" id="write-page" data-page="write">
+          <div class="page-head">
+            <div><h2 class="page-title">Write</h2><p class="page-subtitle">Draft the selected scene with structure and story memory close at hand.</p></div>
+            <div class="segmented" role="tablist" aria-label="Write mode"><button class="seg-btn is-active">Draft</button><button class="seg-btn">Revise</button></div>
+          </div>
+
+          <div class="write-grid">
+            <aside class="panel no-shadow">
+              <div class="panel-head"><div><div class="panel-title">Structure</div><div class="panel-kicker">34 scenes</div></div><button class="icon-btn" title="Add scene">+</button></div>
+              <div class="panel-body scene-map">
+                <div class="data-row"><div><div class="row-title">Act II - Low Tide</div><div class="row-meta">5 chapters</div></div><span class="pill">12</span></div>
+                <div class="data-row is-active"><div><div class="row-title">Act III - The Harbor Opens</div><div class="row-meta">Chapter 14 selected</div></div><span class="pill blue">8</span></div>
+                <div class="data-row"><div><div class="row-title">Chapter 14</div><div class="row-meta">Weather, lock, bell</div></div><span class="pill amber">Draft</span></div>
+                <button class="scene-row"><div><div class="row-title">The Signal Tower</div><div class="row-meta">Review</div></div><span class="pill amber">1.8k</span></button>
+                <button class="scene-row is-active"><div><div class="row-title">A Weather Door</div><div class="row-meta">Draft</div></div><span class="pill blue">1.2k</span></button>
+                <button class="scene-row"><div><div class="row-title">Rin Finds the Key</div><div class="row-meta">Outlined</div></div><span class="pill">0.4k</span></button>
+              </div>
+            </aside>
+
+            <aside class="panel no-shadow chapter-flow" aria-label="Chapter flow">
+              <div class="panel-head"><div><div class="panel-title">Chapter Flow</div><div class="panel-kicker">Nearby scenes</div></div></div>
+              <div class="panel-body row-list">
+                <div class="data-row"><div><div class="row-title">1. The Signal Tower</div><div class="row-meta">Sets the false alarm</div></div><span class="pill amber">Review</span></div>
+                <div class="data-row is-active"><div><div class="row-title">2. A Weather Door</div><div class="row-meta">Turns weather into choice</div></div><span class="pill blue">Draft</span></div>
+                <div class="data-row"><div><div class="row-title">3. Rin Finds the Key</div><div class="row-meta">False key becomes clue</div></div><span class="pill">Next</span></div>
+              </div>
+            </aside>
+
+            <section class="panel manuscript-panel" aria-label="Manuscript">
+              <div class="manuscript-toolbar">
+                <div class="format-tools" aria-label="Editor tools"><button class="tool" title="Bold">B</button><button class="tool" title="Italic">I</button><button class="tool" title="Quote">Q</button><button class="tool" title="Scene break">S</button></div>
+                <div class="top-actions"><span class="pill amber">Draft</span><span class="pill">Rin POV</span><span class="pill">1,248 words</span><button class="btn write-focus-action" type="button" data-focus-toggle aria-pressed="false">Focus</button></div>
+              </div>
+              <div class="copy-area">
+                <div class="scene-kicker"><span class="pill green">Autosave on</span><span class="pill violet">3 codex marks</span></div>
+                <input class="scene-title-input" value="A Weather Door" aria-label="Scene title" />
+                <div class="editor-copy" aria-label="Scene draft">
+                  <p>The harbor had a way of hiding its warnings in ordinary weather. <span class="codex-mark">Rin</span> watched the rain draw silver lines down the warehouse glass and waited for the tide bell to strike the wrong hour.</p>
+                  <p>Behind her, <span class="codex-mark">Marek</span> folded the city map into quarters, then eighths, as if smaller paper could make the route less dangerous.</p>
+                  <p class="placeholder-copy">Continue the scene...</p>
+                </div>
+              </div>
+              <footer class="save-bar"><span>Saved just now</span><span>Chapter 14 / Scene 2</span></footer>
+            </section>
+
+            <aside class="panel no-shadow">
+              <div class="panel-head"><div><div class="panel-title">Scene Brief</div><div class="panel-kicker">Visible while writing</div></div><button class="icon-btn" title="Collapse panel">x</button></div>
+              <div class="panel-body stack">
+                <div class="brief-block"><div class="brief-label">Goal</div><p class="brief-text">Rin learns the harbor lock responds to weather, not keys.</p></div>
+                <div class="brief-block"><div class="brief-label">Cast</div><p class="brief-text">Rin, Marek, the night watch captain.</p></div>
+                <div class="brief-block"><div class="brief-label">Continuity</div><p class="brief-text">The tide bell was damaged in Chapter 11 and should sound uneven.</p></div>
+                <div class="brief-block"><div class="brief-label">Next beat</div><p class="brief-text">Move from suspicion to decision before the final paragraph.</p></div>
+                <details class="disclosure" open><summary>Codex in scene <span class="pill">3</span></summary><div class="disclosure-body">Rin, Marek, Tide Bell. Mentions are appearances only.</div></details>
+              </div>
+            </aside>
+
+            <aside class="panel no-shadow wide-threads" aria-label="Open threads">
+              <div class="panel-head"><div><div class="panel-title">Open Threads</div><div class="panel-kicker">Keep while drafting</div></div></div>
+              <div class="panel-body thread-list">
+                <div class="thread"><strong>Promise</strong><span>The broken tide bell must pay off before Act IV ends.</span></div>
+                <div class="thread green"><strong>Relationship</strong><span>Marek is protecting Rin, but she should not trust the motive yet.</span></div>
+                <div class="thread"><strong>Risk</strong><span>Do not reveal who repaired the lock before the watch captain appears.</span></div>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" id="plan-page" data-page="plan">
+          <div class="page-head">
+            <div><h2 class="page-title">Plan</h2><p class="page-subtitle">Compare scene intent, order, pressure, and story time.</p></div>
+            <div class="segmented" role="tablist" aria-label="Planning views"><button class="seg-btn is-active" data-plan-tab="board">Storyboard</button><button class="seg-btn" data-plan-tab="outline">Outline</button><button class="seg-btn" data-plan-tab="matrix">Matrix</button><button class="seg-btn" data-plan-tab="timeline">Timeline</button></div>
+          </div>
+          <div class="plan-grid">
+            <section class="panel no-shadow">
+              <div class="panel-body">
+                <div class="filter-strip"><div class="filter-actions"><button class="btn">All status</button><button class="btn">All POVs</button><button class="btn">Unplaced</button></div><button class="btn primary">Add Scene</button></div>
+                <div class="plan-view is-active" data-plan-panel="board">
+                  <div class="storyboard">
+                    <div class="lane"><div class="lane-head"><div class="lane-title">Act II</div><span class="pill">12 scenes</span></div><div class="scene-card-list"><article class="plan-card"><div class="plan-card-top"><h3>The Signal Tower</h3><span class="pill amber">Review</span></div><p>Pressure rises when the tower signal repeats too early.</p></article><article class="plan-card"><div class="plan-card-top"><h3>Salt in the Engine</h3><span class="pill">Draft</span></div><p>Marek hides the ship failure from Rin.</p></article></div></div>
+                    <div class="lane"><div class="lane-head"><div class="lane-title">Act III</div><span class="pill blue">8 scenes</span></div><div class="scene-card-list"><article class="plan-card is-active"><div class="plan-card-top"><h3>A Weather Door</h3><span class="pill amber">Draft</span></div><p>Rin discovers the lock reacts to weather changes.</p></article><article class="plan-card"><div class="plan-card-top"><h3>Rin Finds the Key</h3><span class="pill">Outlined</span></div><p>The false key becomes a clue rather than a solution.</p></article></div></div>
+                    <div class="lane"><div class="lane-head"><div class="lane-title">Act IV</div><span class="pill">6 scenes</span></div><div class="scene-card-list"><article class="plan-card"><div class="plan-card-top"><h3>The Harbor Opens</h3><span class="pill">Idea</span></div><p>The city must choose whether to let the sea in.</p></article></div></div>
+                    <div class="lane"><div class="lane-head"><div class="lane-title">Unplaced</div><span class="pill">3 scenes</span></div><div class="scene-card-list"><article class="plan-card"><div class="plan-card-top"><h3>The Drowned Ledger</h3><span class="pill">Idea</span></div><p>A clue that may belong before the harbor opens.</p></article></div></div>
+                  </div>
+                </div>
+                <div class="plan-view" data-plan-panel="outline"><div class="row-list"><div class="data-row"><div><div class="row-title">Act III - The Harbor Opens</div><div class="row-meta">Chapter 14 and Chapter 15</div></div><span class="pill blue">Open</span></div><div class="data-row is-active"><div><div class="row-title">Chapter 14 / A Weather Door</div><div class="row-meta">Weather unlocks the route, not a key.</div></div><span class="pill amber">Draft</span></div><div class="data-row"><div><div class="row-title">Chapter 14 / Rin Finds the Key</div><div class="row-meta">False solution becomes evidence.</div></div><span class="pill">Next</span></div></div></div>
+                <div class="plan-view" data-plan-panel="matrix"><table class="mini-matrix"><thead><tr><th>Scene</th><th>Rin</th><th>Marek</th><th>Harbor Lock</th><th>Promise</th></tr></thead><tbody><tr><td>A Weather Door</td><td>Chooses risk</td><td>Hides repair clue</td><td>Weather opens it</td><td>Bell setup</td></tr><tr><td>Rin Finds the Key</td><td>Tests false key</td><td>Misleads</td><td>Rejects key</td><td>Map clue</td></tr></tbody></table></div>
+                <div class="plan-view" data-plan-panel="timeline"><div class="timeline-strip"><strong>Narrative order</strong><div class="timeline-track"><div class="timeline-cell">Signal Tower</div><div class="timeline-cell">A Weather Door</div><div class="timeline-cell">Rin Finds the Key</div><div class="timeline-cell">Drowned Ledger</div><div class="timeline-cell">Harbor Opens</div></div></div><div style="height: 10px"></div><div class="timeline-strip"><strong>Story time</strong><div class="timeline-track"><div class="timeline-cell">Morning storm</div><div class="timeline-cell">Noon tide</div><div class="timeline-cell">Night watch</div><div class="timeline-cell">Missing ledger</div><div class="timeline-cell">Spring tide</div></div></div></div>
+              </div>
+            </section>
+            <aside class="panel no-shadow">
+              <div class="panel-head"><div><div class="panel-title">Selected Scene</div><div class="panel-kicker">A Weather Door</div></div><span class="pill amber">Draft</span></div>
+              <div class="panel-body stack">
+                <div class="field"><label>Goal</label><textarea class="textarea">Rin needs a way through the harbor lock before the watch captain closes the quay.</textarea></div>
+                <div class="field"><label>Conflict</label><textarea class="textarea">The lock ignores the stolen key and responds to air pressure.</textarea></div>
+                <div class="field"><label>Outcome</label><textarea class="textarea">Rin realizes the storm is an opening, not an obstacle.</textarea></div>
+                <details class="disclosure" open><summary>Scene pressure <span class="pill amber">High</span></summary><div class="disclosure-body">The decision must force Rin to choose between safety and proof.</div></details>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" id="codex-page" data-page="codex">
+          <div class="page-head"><div><h2 class="page-title">Codex</h2><p class="page-subtitle">Browse story memory densely; open an entry only when details are needed.</p></div><div class="top-actions"><button class="btn">Import</button><button class="btn primary">New Entry</button></div></div>
+          <div class="codex-grid" data-codex-shell>
+            <aside class="panel no-shadow">
+              <div class="panel-head"><div><div class="panel-title">Categories</div><div class="panel-kicker">128 entries</div></div></div>
+              <div class="panel-body taxonomy-list">
+                <button class="taxonomy-item is-active" type="button"><div><div class="row-title">All entries</div><div class="row-meta">Characters, places, facts</div></div><span class="pill">128</span></button>
+                <button class="taxonomy-item" type="button"><div><div class="row-title">Characters</div><div class="row-meta">POV, cast, aliases</div></div><span class="pill">42</span></button>
+                <button class="taxonomy-item" type="button"><div><div class="row-title">Locations</div><div class="row-meta">Settings and rules</div></div><span class="pill">31</span></button>
+                <button class="taxonomy-item" type="button"><div><div class="row-title">Objects</div><div class="row-meta">Artifacts and clues</div></div><span class="pill">18</span></button>
+                <button class="taxonomy-item" type="button"><div><div class="row-title">Needs Review</div><div class="row-meta">Changed by assistant</div></div><span class="pill amber">7</span></button>
+              </div>
+            </aside>
+
+            <section class="panel no-shadow codex-index">
+              <div class="panel-head">
+                <div><div class="panel-title">Entry Index</div><div class="panel-kicker">Click an entry to open details; click again to close.</div></div>
+                <span class="pill green">Scene-aware</span>
+              </div>
+              <div class="panel-body">
+                <div class="codex-toolbar">
+                  <input class="input" placeholder="Search name, alias, tag, or detail" />
+                </div>
+                <div class="codex-table-head"><span>Entry</span><span>Type</span><span>Mentions</span><span>Scene</span><span>Status</span></div>
+                <div class="codex-table">
+                  <button class="codex-row" type="button" data-codex-entry="harbor-lock" data-title="Harbor Lock" data-type="Setting Fact" data-avatar="HL" data-mentions="4 mentions" data-scene="A Weather Door"><div><div class="row-title">Harbor Lock</div><div class="row-meta">west quay, weather door, gate rule</div></div><span>Setting</span><span>4</span><span>Current</span><span class="pill green">Tracked</span></button>
+                  <button class="codex-row" type="button" data-codex-entry="rin-vale" data-title="Rin Vale" data-type="Character" data-avatar="RV" data-mentions="19 mentions" data-scene="Current POV"><div><div class="row-title">Rin Vale</div><div class="row-meta">POV, storm clue, academy past</div></div><span>Character</span><span>19</span><span>POV</span><span class="pill">Open</span></button>
+                  <button class="codex-row" type="button" data-codex-entry="tide-bell" data-title="Tide Bell" data-type="Object" data-avatar="TB" data-mentions="8 mentions" data-scene="Chapter 14"><div><div class="row-title">Tide Bell</div><div class="row-meta">damaged in Chapter 11</div></div><span>Object</span><span>8</span><span>Near</span><span class="pill amber">Changed</span></button>
+                  <button class="codex-row" type="button" data-codex-entry="marek" data-title="Marek Sol" data-type="Character" data-avatar="MS" data-mentions="12 mentions" data-scene="A Weather Door"><div><div class="row-title">Marek Sol</div><div class="row-meta">repair clue, hidden motive</div></div><span>Character</span><span>12</span><span>Current</span><span class="pill amber">Watch</span></button>
+                  <button class="codex-row" type="button" data-codex-entry="west-quay" data-title="West Quay" data-type="Location" data-avatar="WQ" data-mentions="6 mentions" data-scene="Act III"><div><div class="row-title">West Quay</div><div class="row-meta">warehouses, lock chamber, watch route</div></div><span>Location</span><span>6</span><span>Act III</span><span class="pill">Open</span></button>
+                  <button class="codex-row" type="button" data-codex-entry="watch-captain" data-title="Night Watch Captain" data-type="Character" data-avatar="NW" data-mentions="3 mentions" data-scene="Next scene"><div><div class="row-title">Night Watch Captain</div><div class="row-meta">knows repair history</div></div><span>Character</span><span>3</span><span>Next</span><span class="pill">Open</span></button>
+                </div>
+                <div class="detail-empty" data-codex-empty>Select an entry to open its detail workspace.</div>
+              </div>
+            </section>
+
+            <aside class="panel codex-detail" data-codex-detail aria-hidden="true">
+              <div>
+                <div class="entry-hero">
+                  <div>
+                    <div class="entry-type"><span data-entry-type>Setting Fact</span></div>
+                    <h3 class="entry-title" data-entry-title>Harbor Lock</h3>
+                  </div>
+                  <div class="entry-avatar" data-entry-avatar>HL</div>
+                </div>
+                <div class="entry-meta-line"><span data-entry-scene>Current scene: A Weather Door</span><strong data-entry-mentions>4 mentions</strong></div>
+                <div class="codex-tabs" role="tablist" aria-label="Codex entry sections">
+                  <button class="codex-tab is-active" type="button" data-codex-tab="details">Details</button>
+                  <button class="codex-tab" type="button" data-codex-tab="research">Research</button>
+                  <button class="codex-tab" type="button" data-codex-tab="relations">Relations</button>
+                  <button class="codex-tab" type="button" data-codex-tab="mentions">Mentions</button>
+                  <button class="codex-tab" type="button" data-codex-tab="tracking">Tracking</button>
+                  <button class="codex-tab" type="button" data-codex-tab="progressions">Progressions</button>
+                </div>
+              </div>
+              <div>
+                <div class="codex-tab-panel is-active" data-codex-panel="details">
+                  <div class="detail-form-grid">
+                    <div class="field"><label>Aliases</label><input class="input" value="lock, west quay lock, weather door" /></div>
+                    <div class="field"><label>Category</label><input class="input" value="Setting / Mechanism" /></div>
+                    <div class="field wide"><label>Canon description</label><textarea class="textarea" style="min-height: 210px">A storm-pressure mechanism built under the west quay. It opens only when the weather door beneath the harbor wall is triggered, so stolen keys cannot solve the scene.</textarea></div>
+                    <div class="field wide"><label>Current scene note</label><textarea class="textarea">Rin can infer the rule from bell timing, but Marek's repair knowledge must stay hidden.</textarea></div>
+                  </div>
+                </div>
+                <div class="codex-tab-panel" data-codex-panel="research">
+                  <div class="field"><label>Research note</label><textarea class="textarea" style="min-height: 260px">Lock mechanisms, air pressure, and tide timing stay here until promoted into canon.</textarea></div>
+                  <div class="thread green"><strong>Not AI-visible by default</strong><span>Research remains separate from canon until the author promotes it.</span></div>
+                </div>
+                <div class="codex-tab-panel" data-codex-panel="relations">
+                  <div class="row-list">
+                    <div class="data-row"><div><div class="row-title">Tide Bell</div><div class="row-meta">Signals pressure changes</div></div><span class="pill">Object</span></div>
+                    <div class="data-row"><div><div class="row-title">West Quay</div><div class="row-meta">Contains the lock chamber</div></div><span class="pill">Location</span></div>
+                    <div class="data-row"><div><div class="row-title">Marek Sol</div><div class="row-meta">May know too much too early</div></div><span class="pill amber">Risk</span></div>
+                  </div>
+                </div>
+                <div class="codex-tab-panel" data-codex-panel="mentions">
+                  <table class="impact-table"><thead><tr><th>Scene</th><th>Phrase</th><th>Use</th></tr></thead><tbody><tr><td>A Weather Door</td><td>harbor lock</td><td>Current clue</td></tr><tr><td>The Signal Tower</td><td>west quay lock</td><td>Setup</td></tr><tr><td>Rin Finds the Key</td><td>weather door</td><td>False solution</td></tr></tbody></table>
+                </div>
+                <div class="codex-tab-panel" data-codex-panel="tracking">
+                  <div class="thread"><strong>Watch</strong><span>Flag if the entry is used before Chapter 14.</span></div>
+                  <div class="thread green"><strong>Current scene</strong><span>Allowed for Rin as inference, not confirmed knowledge.</span></div>
+                </div>
+                <div class="codex-tab-panel" data-codex-panel="progressions">
+                  <div class="row-list">
+                    <div class="data-row"><div><div class="row-title">Before Chapter 14</div><div class="row-meta">Known as locked gate only</div></div><span class="pill">Past</span></div>
+                    <div class="data-row is-active"><div><div class="row-title">Chapter 14</div><div class="row-meta">Weather rule becomes inferable</div></div><span class="pill blue">Now</span></div>
+                    <div class="data-row"><div><div class="row-title">After Watch Captain</div><div class="row-meta">Repair history can be confirmed</div></div><span class="pill">Later</span></div>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" id="workshop-page" data-page="workshop">
+          <div class="page-head"><div><h2 class="page-title">Workshop</h2><p class="page-subtitle">Talk with assistant roles around explicit scene context.</p></div><button class="btn primary">New Session</button></div>
+          <div class="workshop-grid">
+            <aside class="panel no-shadow"><div class="panel-head"><div><div class="panel-title">Sessions</div><div class="panel-kicker">Branches</div></div></div><div class="panel-body row-list"><div class="data-row is-active"><div><div class="row-title">Continuity pass</div><div class="row-meta">Chapter 14</div></div><span class="pill blue">Open</span></div><div class="data-row"><div><div class="row-title">Cold reader</div><div class="row-meta">Act III</div></div><span class="pill">Saved</span></div></div></aside>
+            <section class="panel chat"><div class="message-stack"><div class="message user">Check whether Rin can know the harbor lock reacts to weather at this point.</div><div class="message">Rin can infer it from the bell timing, but Marek's repair detail should stay hidden until the watch captain scene.</div></div><div class="composer"><input class="input" placeholder="Ask about this scene" /><button class="btn primary">Send</button></div></section>
+            <aside class="panel no-shadow"><div class="panel-head"><div><div class="panel-title">Context Basket</div><div class="panel-kicker">7 selected</div></div><button class="btn">Insert</button></div><div class="panel-body stack"><details class="disclosure" open><summary>Scenes <span class="pill">2</span></summary><div class="disclosure-body">A Weather Door, The Signal Tower.</div></details><details class="disclosure" open><summary>Codex <span class="pill">3</span></summary><div class="disclosure-body">Rin, Marek, Harbor Lock.</div></details><details class="disclosure"><summary>Plan <span class="pill">2</span></summary><div class="disclosure-body">Act III outline, broken bell promise.</div></details></div></aside>
+          </div>
+        </section>
+
+        <section class="page" id="review-page" data-page="review">
+          <div class="page-head"><div><h2 class="page-title">Review Inbox</h2><p class="page-subtitle">Work through author decisions with evidence and impact visible at the same time.</p></div><div class="filter-actions"><button class="btn primary">All</button><button class="btn">Prose</button><button class="btn">Continuity</button><button class="btn">Facts</button><button class="btn">Calls</button></div></div>
+          <div class="review-stats">
+            <div class="review-stat"><strong>18</strong><span>open</span></div>
+            <div class="review-stat"><strong>6</strong><span>continuity</span></div>
+            <div class="review-stat"><strong>5</strong><span>prose</span></div>
+            <div class="review-stat"><strong>4</strong><span>fact updates</span></div>
+            <div class="review-stat"><strong>3</strong><span>call retries</span></div>
+          </div>
+          <div class="review-grid">
+            <aside class="panel no-shadow">
+              <div class="panel-head"><div><div class="panel-title">Queue</div><div class="panel-kicker">Grouped decisions</div></div><span class="pill amber">18</span></div>
+              <div class="panel-body review-groups">
+                <div class="side-heading"><span>Prose</span><span class="pill">5</span></div>
+                <button class="queue-row is-active" type="button"><div><div class="row-title">Opening sentence</div><div class="row-meta">A Weather Door</div></div><span class="pill amber">New</span></button>
+                <button class="queue-row" type="button"><div><div class="row-title">Paragraph rhythm</div><div class="row-meta">Two long beats</div></div><span class="pill">Open</span></button>
+                <div class="side-heading"><span>Continuity</span><span class="pill">6</span></div>
+                <button class="queue-row" type="button"><div><div class="row-title">Marek knows too much</div><div class="row-meta">Chapter 14</div></div><span class="pill amber">Risk</span></button>
+                <button class="queue-row" type="button"><div><div class="row-title">Tide bell timing</div><div class="row-meta">Chapter 11 setup</div></div><span class="pill">Open</span></button>
+                <div class="side-heading"><span>Facts</span><span class="pill">4</span></div>
+                <button class="queue-row" type="button"><div><div class="row-title">Harbor lock rule</div><div class="row-meta">Codex update</div></div><span class="pill green">Ready</span></button>
+              </div>
+            </aside>
+            <section class="panel decision-panel">
+              <div class="panel-head"><div><div class="panel-title">Opening Sentence</div><div class="panel-kicker">Prose candidate / A Weather Door</div></div><span class="pill amber">Decision</span></div>
+              <div class="decision-body">
+                <div class="decision-meta">
+                  <div class="review-stat"><strong>1</strong><span>sentence</span></div>
+                  <div class="review-stat"><strong>0</strong><span>codex edits</span></div>
+                  <div class="review-stat"><strong>Low</strong><span>blast radius</span></div>
+                  <div class="review-stat"><strong>Style</strong><span>source</span></div>
+                </div>
+                <div class="diff">
+                  <div class="diff-block"><strong>Current</strong><br /><br />The harbor had a way of hiding its warnings in ordinary weather.</div>
+                  <div class="diff-block"><strong>Candidate</strong><br /><br />The harbor hid its warnings in weather plain enough to ignore.</div>
+                </div>
+                <div class="field"><label>Author note before accepting</label><textarea class="textarea">Candidate is tighter, but check whether "ordinary weather" is needed for the harbor lock setup.</textarea></div>
+                <table class="impact-table"><thead><tr><th>Target</th><th>Change</th><th>Review</th></tr></thead><tbody><tr><td>Manuscript</td><td>Replace opening sentence</td><td>Acceptable</td></tr><tr><td>Plan</td><td>No change</td><td>None</td></tr><tr><td>Codex</td><td>No change</td><td>None</td></tr></tbody></table>
+              </div>
+              <div class="decision-actions"><button class="btn">Defer</button><button class="btn">Open Scene</button><button class="btn danger">Reject</button><button class="btn primary">Accept</button></div>
+            </section>
+            <aside class="panel no-shadow">
+              <div class="panel-head"><div><div class="panel-title">Evidence</div><div class="panel-kicker">Before accepting</div></div></div>
+              <div class="panel-body evidence-stack">
+                <div class="thread"><strong>Risk</strong><span>The candidate may weaken the ordinary-weather setup for the Harbor Lock rule.</span></div>
+                <div class="thread green"><strong>Style reason</strong><span>Removes filler and gives the sentence a cleaner rhythm.</span></div>
+                <div class="thread"><strong>Scene context</strong><span>Rin has not yet learned why weather matters.</span></div>
+                <details class="disclosure" open><summary>Call summary <span class="pill">Style Editor</span></summary><div class="disclosure-body">Generated from the current scene only. No codex write path was requested.</div></details>
+              </div>
+            </aside>
+            <aside class="panel no-shadow">
+              <div class="panel-head"><div><div class="panel-title">Impact</div><div class="panel-kicker">Decision scope</div></div></div>
+              <div class="panel-body impact-stack">
+                <table class="impact-table"><thead><tr><th>Area</th><th>Status</th></tr></thead><tbody><tr><td>Manuscript</td><td>1 line</td></tr><tr><td>Continuity</td><td>Watch setup</td></tr><tr><td>Facts</td><td>None</td></tr><tr><td>Calls</td><td>Logged</td></tr></tbody></table>
+                <button class="btn">Show related</button>
+                <button class="btn">Retry with note</button>
+                <button class="btn">Send to Workshop</button>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" id="settings-page" data-page="settings">
+          <div class="page-head"><div><h2 class="page-title">Settings</h2><p class="page-subtitle">Keep model connections and writing assistants ready.</p></div><button class="btn primary">Add Model</button></div>
+          <div class="settings-grid">
+            <aside class="panel no-shadow"><div class="panel-body settings-nav"><button class="btn primary">Models</button><button class="btn">Assistants</button><button class="btn">Prompts</button><button class="btn">Library</button><button class="btn">Backups</button></div></aside>
+            <section class="panel"><div class="panel-head"><div><div class="panel-title">Model Connections</div><div class="panel-kicker">Human-readable status</div></div><button class="btn">Fetch Models</button></div><div class="panel-body stack"><div class="model-row"><div><div class="row-title">DeepSeek - Draft Review</div><div class="row-meta">Default for review and rewrite</div></div><span class="pill green">Connected</span></div><div class="model-row"><div><div class="row-title">OpenAI - Long Context</div><div class="row-meta">Needs service key</div></div><span class="pill amber">Needs key</span></div><div class="form-grid"><div class="field"><label>Provider</label><select class="select"><option>OpenAI</option><option>OpenRouter</option><option>Ollama</option><option>DeepSeek</option></select></div><div class="field"><label>Name</label><input class="input" value="OpenAI - Long Context" /></div><div class="field wide"><label>Model</label><input class="input" value="gpt-4.1" /></div><div class="field wide"><label>Service key</label><input class="input" type="password" placeholder="Paste key for this service" /></div></div><div class="top-actions"><button class="btn">Test Connection</button><button class="btn">Save Key</button><button class="btn primary">Save Model</button></div><details class="disclosure"><summary>Advanced information <span class="pill">Closed</span></summary><div class="disclosure-body">Provider capabilities and request limits stay here instead of the main writing surface.</div></details></div></section>
+            <aside class="panel no-shadow"><div class="panel-head"><div><div class="panel-title">Writing Assistants</div><div class="panel-kicker">Roles and previews</div></div><button class="icon-btn" title="Clone role">+</button></div><div class="panel-body stack"><div class="role-row"><strong>Continuity Editor</strong><span>Checks facts, promises, and character knowledge.</span></div><div class="role-row"><strong>Style Editor</strong><span>Suggests prose changes while preserving author voice.</span></div><div class="role-row"><strong>Cold Reader</strong><span>Flags confusion, weak stakes, and missing setup.</span></div><div class="field"><label>Prompt preview</label><div class="large-note"><p>Choose a role and scene to preview the request.</p></div></div></div></aside>
+            <aside class="panel no-shadow wide-defaults"><div class="panel-head"><div><div class="panel-title">Defaults</div><div class="panel-kicker">Starting choices</div></div></div><div class="panel-body row-list"><div class="data-row"><div><div class="row-title">Review</div><div class="row-meta">Continuity Editor + DeepSeek</div></div><span class="pill green">Ready</span></div><div class="data-row"><div><div class="row-title">Rewrite</div><div class="row-meta">Style Editor + OpenAI</div></div><span class="pill amber">Key</span></div><div class="data-row"><div><div class="row-title">Prompt Preview</div><div class="row-meta">Cold Reader template</div></div><span class="pill">Draft</span></div></div></aside>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <section class="narrow-state">
+      <div class="panel"><div class="panel-head"><div><div class="panel-title">Desktop workspace required</div><div class="panel-kicker">Window too narrow</div></div></div><div class="panel-body"><p class="brief-text">Widen the window to continue reviewing this layout.</p></div></div>
+    </section>
+
+    <script>
+      (() => {
+        const app = document.querySelector(".app");
+        const pages = Array.from(document.querySelectorAll("[data-page]"));
+        const links = Array.from(document.querySelectorAll("[data-target]"));
+        const sideLinks = Array.from(document.querySelectorAll(".project-panel [data-target]"));
+        const sidebarToggle = document.querySelector("[data-sidebar-toggle]");
+        const focusButtons = Array.from(document.querySelectorAll("[data-focus-toggle]"));
+        const planTabs = Array.from(document.querySelectorAll("[data-plan-tab]"));
+        const planPanels = Array.from(document.querySelectorAll("[data-plan-panel]"));
+        const codexShell = document.querySelector("[data-codex-shell]");
+        const codexRows = Array.from(document.querySelectorAll("[data-codex-entry]"));
+        const codexDetail = document.querySelector("[data-codex-detail]");
+        const codexEmpty = document.querySelector("[data-codex-empty]");
+        const codexTabs = Array.from(document.querySelectorAll("[data-codex-tab]"));
+        const codexPanels = Array.from(document.querySelectorAll("[data-codex-panel]"));
+        const entryTitle = document.querySelector("[data-entry-title]");
+        const entryType = document.querySelector("[data-entry-type]");
+        const entryAvatar = document.querySelector("[data-entry-avatar]");
+        const entryMentions = document.querySelector("[data-entry-mentions]");
+        const entryScene = document.querySelector("[data-entry-scene]");
+        const title = document.querySelector("[data-bar-title]");
+        const subtitle = document.querySelector("[data-bar-subtitle]");
+        let openCodexEntry = null;
+        const copy = {
+          "#library-page": ["Library", "Choose a project"],
+          "#overview-page": ["The Glass Harbor", "Overview"],
+          "#plan-page": ["The Glass Harbor", "Plan / Storyboard"],
+          "#write-page": ["The Glass Harbor", "Write / A Weather Door"],
+          "#codex-page": ["The Glass Harbor", "Codex / Harbor Lock"],
+          "#workshop-page": ["The Glass Harbor", "Workshop / Continuity pass"],
+          "#review-page": ["The Glass Harbor", "Review Inbox"],
+          "#settings-page": ["The Glass Harbor", "Settings / Models"]
+        };
+
+        function setFocusMode(isFocused) {
+          const canFocus = window.location.hash === "#write-page" || !window.location.hash;
+          const next = Boolean(isFocused && canFocus);
+          app.classList.toggle("is-focus-mode", next);
+          focusButtons.forEach((button) => {
+            button.textContent = next ? "Exit Focus" : "Focus";
+            button.setAttribute("aria-pressed", String(next));
+          });
+        }
+
+        function setPage() {
+          const hash = pages.some((page) => "#" + page.id === window.location.hash) ? window.location.hash : "#write-page";
+          const isWrite = hash === "#write-page";
+          pages.forEach((page) => page.classList.toggle("is-active", "#" + page.id === hash));
+          links.forEach((link) => link.classList.toggle("is-active", link.dataset.target === hash));
+          sideLinks.forEach((link) => link.classList.toggle("is-active", link.dataset.target === hash));
+          if (!isWrite) setFocusMode(false);
+          const [barTitle, barSubtitle] = copy[hash] || copy["#write-page"];
+          if (title) title.textContent = barTitle;
+          if (subtitle) subtitle.textContent = barSubtitle;
+        }
+
+        function setCodexTab(key) {
+          codexTabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.codexTab === key));
+          codexPanels.forEach((panel) => panel.classList.toggle("is-active", panel.dataset.codexPanel === key));
+        }
+
+        function closeCodexDetail() {
+          openCodexEntry = null;
+          codexShell?.classList.remove("detail-open");
+          codexRows.forEach((row) => row.classList.remove("is-active"));
+          if (codexDetail) codexDetail.setAttribute("aria-hidden", "true");
+          if (codexEmpty) codexEmpty.hidden = false;
+        }
+
+        function openCodexDetail(row) {
+          const id = row.dataset.codexEntry;
+          if (openCodexEntry === id) {
+            closeCodexDetail();
+            return;
+          }
+          openCodexEntry = id;
+          codexShell?.classList.add("detail-open");
+          codexRows.forEach((item) => item.classList.toggle("is-active", item === row));
+          if (codexDetail) codexDetail.setAttribute("aria-hidden", "false");
+          if (codexEmpty) codexEmpty.hidden = true;
+          if (entryTitle) entryTitle.textContent = row.dataset.title || "Codex Entry";
+          if (entryType) entryType.textContent = row.dataset.type || "Entry";
+          if (entryAvatar) entryAvatar.textContent = row.dataset.avatar || "CE";
+          if (entryMentions) entryMentions.textContent = row.dataset.mentions || "0 mentions";
+          if (entryScene) entryScene.textContent = "Scene scope: " + (row.dataset.scene || "Project");
+          setCodexTab("details");
+        }
+
+        links.forEach((link) => {
+          link.addEventListener("click", (event) => {
+            event.preventDefault();
+            window.location.hash = link.dataset.target;
+          });
+        });
+
+        sidebarToggle?.addEventListener("click", () => {
+          const collapsed = app.classList.toggle("is-sidebar-collapsed");
+          sidebarToggle.textContent = collapsed ? ">" : "<";
+          sidebarToggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+          sidebarToggle.setAttribute("title", collapsed ? "Expand sidebar" : "Collapse sidebar");
+          sidebarToggle.setAttribute("aria-pressed", String(collapsed));
+        });
+
+        focusButtons.forEach((button) => {
+          button.addEventListener("click", () => {
+            setFocusMode(!app.classList.contains("is-focus-mode"));
+          });
+        });
+
+        planTabs.forEach((tab) => {
+          tab.addEventListener("click", () => {
+            const key = tab.dataset.planTab;
+            planTabs.forEach((item) => item.classList.toggle("is-active", item.dataset.planTab === key));
+            planPanels.forEach((panel) => panel.classList.toggle("is-active", panel.dataset.planPanel === key));
+          });
+        });
+
+        codexRows.forEach((row) => {
+          row.addEventListener("click", () => openCodexDetail(row));
+        });
+
+        codexTabs.forEach((tab) => {
+          tab.addEventListener("click", () => setCodexTab(tab.dataset.codexTab));
+        });
+
+        window.addEventListener("hashchange", setPage);
+        setPage();
+      })();
+    </script>
+  </body>
+</html>

@@ -46,6 +46,7 @@ import {
   CreateSceneSectionInputSchema,
   CreateSeriesInputSchema,
   CreateTimelineEventInputSchema,
+  DefaultStructureTitles,
   DeleteTimelineEventInputSchema,
   MoveSceneInputSchema,
   PlanningBoardSchema,
@@ -71,6 +72,7 @@ import {
   UpdateCodexProgressionInputSchema,
   UpdateCodexRelationInputSchema,
   UpdateActInputSchema,
+  UpdateBookInputSchema,
   UpdateChapterInputSchema,
   UpdateScenePlanningInputSchema,
   UpdateSceneInputSchema,
@@ -150,6 +152,7 @@ import {
   type TimelineEventDocument,
   type TimelineManifest,
   type UpdateActInput,
+  type UpdateBookInput,
   type UpdateCodexCategoryInput,
   type UpdateCodexEntryInput,
   type UpdateCodexKnowledgeInput,
@@ -861,6 +864,18 @@ interface ChapterContext {
   chapter: ChapterManifest;
 }
 
+interface BookContext {
+  manifest: SeriesManifest;
+  book: BookManifest;
+  bookRoot: string;
+}
+
+interface ActContext {
+  book: BookManifest;
+  bookRoot: string;
+  act: ActManifest;
+}
+
 interface SceneContext extends ChapterContext {
   scene: SceneDocument;
   scenePath: string;
@@ -917,7 +932,7 @@ export class ProjectRepository {
       schemaVersion: 1,
       id: actId,
       bookId,
-      title: "第一幕",
+      title: DefaultStructureTitles.chapter,
       order: 1,
       chapterIds: [chapterId],
       createdAt: now,
@@ -927,7 +942,7 @@ export class ProjectRepository {
       schemaVersion: 1,
       id: chapterId,
       actId,
-      title: "第一章",
+      title: DefaultStructureTitles.act,
       order: 1,
       sceneIds: [],
       createdAt: now,
@@ -977,7 +992,7 @@ export class ProjectRepository {
       { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(chapter) },
       { targetPath: timelineManifestPath(seriesRoot), content: serializeYaml(timeline) },
     ]);
-    await this.createScene(seriesId, { title: "开篇场景", content: "" }, {
+    await this.createScene(seriesId, { title: DefaultStructureTitles.initialScene, content: "" }, {
       bookId,
       actId,
       chapterId,
@@ -1012,7 +1027,7 @@ export class ProjectRepository {
       schemaVersion: 1,
       id: actId,
       bookId,
-      title: "第一幕",
+      title: DefaultStructureTitles.chapter,
       order: 1,
       chapterIds: [chapterId],
       createdAt: now,
@@ -1022,7 +1037,7 @@ export class ProjectRepository {
       schemaVersion: 1,
       id: chapterId,
       actId,
-      title: "第一章",
+      title: DefaultStructureTitles.act,
       order: 1,
       sceneIds: [],
       createdAt: now,
@@ -1040,6 +1055,71 @@ export class ProjectRepository {
       { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(chapter) },
     ]);
     return book;
+  }
+
+  async deleteBook(seriesId: string, bookId: string): Promise<{
+    deletedId: string;
+    deletedActIds: string[];
+    deletedChapterIds: string[];
+    deletedSceneIds: string[];
+  }> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const context = await this.findBookContext(seriesRoot, bookId);
+    const now = new Date().toISOString();
+    const bookIds = context.manifest.bookIds.filter((id) => id !== bookId);
+    if (bookIds.length === context.manifest.bookIds.length) {
+      throw new StorageError("Series does not reference the selected book", "INVALID_DATA", { bookId });
+    }
+
+    const remainingBooks: BookManifest[] = [];
+    for (let index = 0; index < bookIds.length; index++) {
+      const id = bookIds[index]!;
+      const remainingBook = await readYaml(path.join(seriesRoot, "books", id, BOOK_FILE), (value) =>
+        BookManifestSchema.parse(value),
+      );
+      remainingBooks.push(BookManifestSchema.parse({ ...remainingBook, order: index + 1, updatedAt: now }));
+    }
+
+    const acts: ActManifest[] = [];
+    const chapters: ChapterManifest[] = [];
+    const scenePaths: Array<{ id: string; filePath: string }> = [];
+    for (const actId of context.book.actIds) {
+      const act = await readActManifest(context.bookRoot, actId);
+      acts.push(act);
+      for (const chapterId of act.chapterIds) {
+        const chapter = await readChapterManifest(context.bookRoot, chapterId);
+        chapters.push(chapter);
+        for (const sceneId of chapter.sceneIds) {
+          scenePaths.push({ id: sceneId, filePath: await this.findScenePath(seriesRoot, sceneId) });
+        }
+      }
+    }
+
+    const updatedManifest = SeriesManifestSchema.parse({
+      ...context.manifest,
+      bookIds,
+      updatedAt: now,
+    });
+
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: path.join(seriesRoot, SERIES_FILE), content: serializeYaml(updatedManifest) },
+      ...remainingBooks.map((book) => ({
+        targetPath: path.join(seriesRoot, "books", book.id, BOOK_FILE),
+        content: serializeYaml(book),
+      })),
+      { targetPath: path.join(context.bookRoot, BOOK_FILE), delete: true },
+      ...acts.map((act) => ({ targetPath: actPath(context.bookRoot, act.id), delete: true })),
+      ...chapters.map((chapter) => ({ targetPath: chapterPath(context.bookRoot, chapter.id), delete: true })),
+      ...scenePaths.map(({ filePath }) => ({ targetPath: filePath, delete: true })),
+    ]);
+    await this.unindexScenes(seriesRoot, scenePaths.map(({ id }) => id));
+
+    return {
+      deletedId: bookId,
+      deletedActIds: acts.map((act) => act.id),
+      deletedChapterIds: chapters.map((chapter) => chapter.id),
+      deletedSceneIds: scenePaths.map(({ id }) => id),
+    };
   }
 
   async listSeries(): Promise<SeriesSummary[]> {
@@ -1089,13 +1169,17 @@ export class ProjectRepository {
         ),
       );
     }
+    const acts: ActManifest[] = [];
+    const chapters: ChapterManifest[] = [];
     const scenes: SceneDocument[] = [];
     for (const book of books.sort((a, b) => a.order - b.order)) {
       const bookRoot = path.join(seriesRoot, "books", book.id);
       for (const actId of book.actIds) {
         const act = await this.readReferencedAct(bookRoot, book, actId);
+        acts.push(act);
         for (const chapterId of act.chapterIds) {
           const chapter = await this.readReferencedChapter(bookRoot, act, chapterId);
+          chapters.push(chapter);
           for (const sceneId of chapter.sceneIds) {
             const scene = await this.readReferencedScene(seriesRoot, book, act, chapter, sceneId);
             scenes.push(scene);
@@ -1103,7 +1187,7 @@ export class ProjectRepository {
         }
       }
     }
-    return { manifest, books, scenes };
+    return { manifest, books, acts, chapters, scenes };
   }
 
   async updateSeriesCloudPolicy(
@@ -2852,6 +2936,23 @@ export class ProjectRepository {
     throw new StorageError("幕不存在", "NOT_FOUND", { actId });
   }
 
+  async updateBook(
+    seriesId: string,
+    bookId: string,
+    rawInput: UpdateBookInput,
+  ): Promise<BookManifest> {
+    const input = UpdateBookInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const context = await this.findBookContext(seriesRoot, bookId);
+    const updated = BookManifestSchema.parse({
+      ...context.book,
+      ...input,
+      updatedAt: new Date().toISOString(),
+    });
+    await atomicWrite(path.join(context.bookRoot, BOOK_FILE), serializeYaml(updated));
+    return updated;
+  }
+
   async getChapter(seriesId: string, chapterId: string): Promise<ChapterManifest> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     return (await this.findChapterContext(seriesRoot, chapterId)).chapter;
@@ -2991,6 +3092,115 @@ export class ProjectRepository {
     });
     await writeChapterManifest(bookRoot, updated);
     return updated;
+  }
+
+  async deleteScene(seriesId: string, sceneId: string): Promise<{ deletedId: string }> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const context = await this.findChapterContextByScene(seriesRoot, sceneId);
+    const now = new Date().toISOString();
+    const sceneIds = context.chapter.sceneIds.filter((id) => id !== sceneId);
+    if (sceneIds.length === context.chapter.sceneIds.length) {
+      throw new StorageError("Chapter does not reference the selected scene", "INVALID_DATA", { sceneId });
+    }
+    const prepared = await this.prepareOrderedScenes(seriesRoot, context, sceneIds, now);
+    const updatedChapter = ChapterManifestSchema.parse({
+      ...context.chapter,
+      sceneIds,
+      updatedAt: now,
+    });
+    await applyFileTransaction(seriesRoot, [
+      ...prepared.map(({ filePath, document }) => ({
+        targetPath: filePath,
+        content: serializeScene(document.metadata, document.content),
+      })),
+      { targetPath: chapterPath(context.bookRoot, context.chapter.id), content: serializeYaml(updatedChapter) },
+      { targetPath: context.scenePath, delete: true },
+    ]);
+    await this.unindexScenes(seriesRoot, [sceneId]);
+    for (const { filePath } of prepared) {
+      const scene = parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath));
+      await this.indexScene(seriesRoot, scene);
+    }
+    return { deletedId: sceneId };
+  }
+
+  async deleteChapter(seriesId: string, chapterId: string): Promise<{ deletedId: string; deletedSceneIds: string[] }> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const context = await this.findChapterContext(seriesRoot, chapterId);
+    const now = new Date().toISOString();
+    const chapterIds = context.act.chapterIds.filter((id) => id !== chapterId);
+    if (chapterIds.length === context.act.chapterIds.length) {
+      throw new StorageError("Act does not reference the selected chapter", "INVALID_DATA", { chapterId });
+    }
+    const chapters: ChapterManifest[] = [];
+    for (let index = 0; index < chapterIds.length; index++) {
+      const id = chapterIds[index]!;
+      const chapter = await readChapterManifest(context.bookRoot, id);
+      chapters.push(ChapterManifestSchema.parse({ ...chapter, order: index + 1, updatedAt: now }));
+    }
+    const scenePaths = await Promise.all(
+      context.chapter.sceneIds.map(async (id) => ({ id, filePath: await this.findScenePath(seriesRoot, id) })),
+    );
+    const updatedAct = ActManifestSchema.parse({
+      ...context.act,
+      chapterIds,
+      updatedAt: now,
+    });
+    await applyFileTransaction(seriesRoot, [
+      ...chapters.map((chapter) => ({
+        targetPath: chapterPath(context.bookRoot, chapter.id),
+        content: serializeYaml(chapter),
+      })),
+      { targetPath: actPath(context.bookRoot, context.act.id), content: serializeYaml(updatedAct) },
+      { targetPath: chapterPath(context.bookRoot, chapterId), delete: true },
+      ...scenePaths.map(({ filePath }) => ({ targetPath: filePath, delete: true })),
+    ]);
+    await this.unindexScenes(seriesRoot, scenePaths.map(({ id }) => id));
+    return { deletedId: chapterId, deletedSceneIds: scenePaths.map(({ id }) => id) };
+  }
+
+  async deleteAct(seriesId: string, actId: string): Promise<{ deletedId: string; deletedChapterIds: string[]; deletedSceneIds: string[] }> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const context = await this.findActContext(seriesRoot, actId);
+    const now = new Date().toISOString();
+    const actIds = context.book.actIds.filter((id) => id !== actId);
+    if (actIds.length === context.book.actIds.length) {
+      throw new StorageError("Book does not reference the selected act", "INVALID_DATA", { actId });
+    }
+    const acts: ActManifest[] = [];
+    for (let index = 0; index < actIds.length; index++) {
+      const id = actIds[index]!;
+      const act = await readActManifest(context.bookRoot, id);
+      acts.push(ActManifestSchema.parse({ ...act, order: index + 1, updatedAt: now }));
+    }
+    const chapters: ChapterManifest[] = [];
+    for (const chapterId of context.act.chapterIds) {
+      chapters.push(await readChapterManifest(context.bookRoot, chapterId));
+    }
+    const scenePaths: Array<{ id: string; filePath: string }> = [];
+    for (const chapter of chapters) {
+      for (const sceneId of chapter.sceneIds) {
+        scenePaths.push({ id: sceneId, filePath: await this.findScenePath(seriesRoot, sceneId) });
+      }
+    }
+    const updatedBook = BookManifestSchema.parse({
+      ...context.book,
+      actIds,
+      updatedAt: now,
+    });
+    await applyFileTransaction(seriesRoot, [
+      ...acts.map((act) => ({ targetPath: actPath(context.bookRoot, act.id), content: serializeYaml(act) })),
+      { targetPath: path.join(context.bookRoot, BOOK_FILE), content: serializeYaml(updatedBook) },
+      { targetPath: actPath(context.bookRoot, actId), delete: true },
+      ...chapters.map((chapter) => ({ targetPath: chapterPath(context.bookRoot, chapter.id), delete: true })),
+      ...scenePaths.map(({ filePath }) => ({ targetPath: filePath, delete: true })),
+    ]);
+    await this.unindexScenes(seriesRoot, scenePaths.map(({ id }) => id));
+    return {
+      deletedId: actId,
+      deletedChapterIds: chapters.map((chapter) => chapter.id),
+      deletedSceneIds: scenePaths.map(({ id }) => id),
+    };
   }
 
   async moveScene(
@@ -3531,6 +3741,29 @@ export class ProjectRepository {
       throw new StorageError("场景 frontmatter 与父层级不一致", "INVALID_DATA", { sceneId });
     }
     return scene;
+  }
+
+  private async findBookContext(seriesRoot: string, bookId: string): Promise<BookContext> {
+    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+      SeriesManifestSchema.parse(value),
+    );
+    if (!manifest.bookIds.includes(bookId)) {
+      throw new StorageError("Book does not exist or is not referenced by a series", "NOT_FOUND", { bookId });
+    }
+    const bookRoot = path.join(seriesRoot, "books", bookId);
+    const book = await readYaml(path.join(bookRoot, BOOK_FILE), (value) => BookManifestSchema.parse(value));
+    return { manifest, book, bookRoot };
+  }
+
+  private async findActContext(seriesRoot: string, actId: string): Promise<ActContext> {
+    const books = await this.readBookManifests(seriesRoot);
+    for (const book of books) {
+      if (!book.actIds.includes(actId)) continue;
+      const bookRoot = path.join(seriesRoot, "books", book.id);
+      const act = await this.readReferencedAct(bookRoot, book, actId);
+      return { book, bookRoot, act };
+    }
+    throw new StorageError("Act does not exist or is not referenced by a book", "NOT_FOUND", { actId });
   }
 
   private async findChapterContext(seriesRoot: string, chapterId: string): Promise<ChapterContext> {
@@ -4736,6 +4969,24 @@ export class ProjectRepository {
     `);
     ensureAiIndexTables(database);
     return database;
+  }
+
+  private async unindexScenes(seriesRoot: string, sceneIds: string[]): Promise<void> {
+    if (sceneIds.length === 0) return;
+    const database = this.openIndex(seriesRoot);
+    const transaction = database.transaction(() => {
+      for (const sceneId of sceneIds) {
+        database.prepare("DELETE FROM scene_fts WHERE id = ?").run(sceneId);
+        database.prepare("DELETE FROM scenes WHERE id = ?").run(sceneId);
+        database.prepare("DELETE FROM codex_mentions WHERE scene_id = ?").run(sceneId);
+        database.prepare("DELETE FROM codex_ambiguities WHERE scene_id = ?").run(sceneId);
+      }
+    });
+    try {
+      transaction();
+    } finally {
+      database.close();
+    }
   }
 
   private async indexScene(

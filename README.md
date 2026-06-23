@@ -1,10 +1,43 @@
 # Novel Studio
 
-Novel Studio 是一个面向中文长篇与系列小说的本地优先写作工作台。它把 Markdown 原稿、结构化故事资料、可审计的模型资料范围和多角色编辑工作流放在同一个本地 Web 应用中。
+Novel Studio is a local-first writing workspace for long-form fiction. The repository is currently in the NS-409 frontend rebuild line.
 
-当前状态：**M0、M1、M2 已完成，M3 已完成 NS-301 至 NS-304**。现阶段可创建系列、以 Markdown 写作、使用四种真实规划视图、维护独立“已确认设定 / 参考笔记”的设定库、关系与提及索引，并完成刷新恢复和中文全文搜索。下一项是 NS-305 的进展记录与角色知识；智能编辑团队、资料解析和 Word 往返仍按路线图推进，不能视为已经交付。
+## Current State
 
-## 开发运行
+- Current date recorded for this pass: 2026-06-23.
+- The React app builds, but the current UI has failed user visual acceptance. Do not treat NS-409 as passed.
+- Current working draft includes Library, Write, Plan, Codex, Workshop, Review, and Settings shells.
+- Write has real project/scene API wiring and partial hierarchy controls.
+- Codex is still a rough shell: it can create/open entries, but the entry editor, relations, progressions, knowledge, mentions, and effective-state workflows are not complete.
+- Settings is no longer a static shell: model profile, service key, connection test, model list, and project cloud policy are API-backed, but the page still needs product-level completion.
+- Workshop and Review are not complete product workflows.
+
+## Start Here
+
+Read these files in order. Do not start from screenshots or old NS-409 branch assets.
+
+1. `AGENTS.md`: collaboration rules, cleanup rules, and UI implementation constraints.
+2. `STATUS.md`: current truth of the repo.
+3. `HANDOFF.md`: shortest handoff for the next contributor.
+4. `TASKS.md`: milestone status and the only active task line.
+5. `docs/README.md`: directory map and reading path.
+6. `docs/tasks/NS-409.md`: current frontend rebuild scope and blockers.
+7. `docs/testing/NS-409_ACCEPTANCE.md`: command validation and visual rejection record.
+
+## Directory Map
+
+- `apps/server`: Fastify API. Route files live in `src/routes`; avoid growing `src/app.ts`.
+- `apps/web`: React/Vite frontend. Current structure is `src/app`, `src/api`, `src/features`, and `src/ui`.
+- `packages/contracts`: shared Zod schemas and types. Domain files re-export through `src/index.ts`.
+- `packages/storage`: Markdown/YAML file authority plus SQLite derived index. `src/index.ts` remains too large and should be split further.
+- `packages/ai`: provider registry, OpenAI-compatible providers, credentials abstraction, and mock provider.
+- `docs`: product, architecture, task, testing, and design records.
+- `scripts`: Windows startup and development shell scripts.
+- `tests/e2e`: Playwright browser acceptance harness.
+- `data`: local user/project data. It is ignored and must not be committed.
+- `node_modules`, `dist`, `.vite`, `.npm-cache`: generated dependency/build/cache directories. They are not project knowledge.
+
+## Commands
 
 ```powershell
 .\scripts\dev-shell.ps1
@@ -12,32 +45,17 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-浏览器访问 `http://127.0.0.1:5173`。服务端 API 默认位于 `http://127.0.0.1:4317/api/v1`。
-
-日常体验可直接双击 `start-novel-studio.cmd`，它会启动生产构建并打开 `http://127.0.0.1:4317`。
-Windows PowerShell、UTF-8 文本查看和启动脚本细节见 `docs/DEVELOPMENT.md`。
-
-完整检查：
+Production startup:
 
 ```powershell
-npm.cmd run check
+.\start-novel-studio.cmd
 ```
 
-## 新参与者从这里开始
+Validation:
 
-1. 阅读 `AGENTS.md`。
-2. 阅读 `docs/product/README.md` 和完整 `PRODUCT_SPEC.md`，不能只看任务表猜产品。
-3. 阅读 `PROJECT.md`、`STATUS.md` 和 `HANDOFF.md`。
-4. 只领取 `TASKS.md` 中一个状态明确的任务。
-5. 完成测试、更新交接文档，再提交代码。
+```powershell
+npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx
+npm.cmd run build
+```
 
-## 完整规划入口
-
-- 产品愿景与全部功能：`docs/product/PRODUCT_SPEC.md`
-- 最终交互体验：`docs/product/USER_EXPERIENCE_SPEC.md`
-- AI 编辑团队与上下文：`docs/product/AI_EDITORIAL_SYSTEM.md`
-- 资料分析库：`docs/product/REFERENCE_LIBRARY_SPEC.md`
-- Word、版本与备份：`docs/product/IMPORT_EXPORT_VERSIONING_SPEC.md`
-- 里程碑与完成标准：`docs/product/REQUIREMENTS_TRACEABILITY.md`
-
-产品研究资料保留在相邻目录 `../novelcraft`，本仓库只保存采用、改造或排除后的产品决策。
+Visual acceptance is currently user-owned. Do not claim UI acceptance from DOM checks or repeated browser screenshots.

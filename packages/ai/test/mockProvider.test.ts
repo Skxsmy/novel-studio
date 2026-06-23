@@ -147,9 +147,19 @@ describe("ProviderAdapter core and MockProvider", () => {
   it("registers MockProvider, generic OpenAI-compatible and DeepSeek providers", () => {
     const registry = createDefaultProviderRegistry({ credentialStore: fakeCredentialStore() });
 
-    expect(registry.list().map((adapter) => adapter.provider)).toEqual(["mock", "openai-compatible", "deepseek"]);
+    expect(registry.list().map((adapter) => adapter.provider)).toEqual([
+      "mock",
+      "openai-compatible",
+      "deepseek",
+      "openai",
+      "openrouter",
+      "ollama",
+    ]);
     expect(registry.get("mock")).toBeInstanceOf(MockProvider);
-    expect(() => registry.get("openai")).toThrow("Provider is not registered");
+    expect(registry.get("openai")).toBeInstanceOf(OpenAiCompatibleProvider);
+    expect(registry.get("openrouter")).toBeInstanceOf(OpenAiCompatibleProvider);
+    expect(registry.get("ollama")).toBeInstanceOf(OpenAiCompatibleProvider);
+    expect(() => registry.get("anthropic")).toThrow("Provider is not registered");
   });
 
   it("describes capabilities, tests connection and lists models", async () => {
@@ -433,6 +443,193 @@ describe("ProviderAdapter core and MockProvider", () => {
     await expect(provider.listModels(profile)).resolves.toEqual([
       expect.objectContaining({ id: "provider-model-a" }),
     ]);
+  });
+
+  it("uses official OpenAI Chat Completions fields and model list shape", async () => {
+    const requests: Array<{ url: string; authorization: string | null; body?: unknown }> = [];
+    const registry = createDefaultProviderRegistry({
+      credentialStore: fakeCredentialStore("openai-test-key"),
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        requests.push({
+          url,
+          authorization: new Headers(init?.headers).get("authorization"),
+          body: init?.body ? JSON.parse(String(init.body)) as unknown : undefined,
+        });
+        if (url === "https://api.openai.com/v1/models") {
+          return new Response(JSON.stringify({
+            object: "list",
+            data: [{ id: "gpt-test", object: "model", owned_by: "openai" }],
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        if (url === "https://api.openai.com/v1/chat/completions") {
+          return sseResponse(
+            JSON.stringify({ choices: [{ delta: { content: "OpenAI" } }] }),
+            "[DONE]",
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    const provider = registry.get("openai");
+    const profile = modelProfile({
+      provider: "openai",
+      baseUrl: null,
+      model: "gpt-test",
+      cloudPolicy: "cloud-allowed",
+      credentialRef: "novel-studio/model-profile/openai",
+    });
+
+    await expect(provider.listModels(profile)).resolves.toEqual([
+      expect.objectContaining({ id: "gpt-test", title: "gpt-test" }),
+    ]);
+    await expect(collect(provider.streamText({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      parameters: { maxOutputTokens: 64 },
+    }))).resolves.toBe("OpenAI");
+
+    const chatRequest = requests.find((request) => request.url === "https://api.openai.com/v1/chat/completions");
+    expect(chatRequest?.authorization).toBe("Bearer openai-test-key");
+    expect(chatRequest?.body).toMatchObject({
+      model: "gpt-test",
+      stream: true,
+      max_completion_tokens: 64,
+      messages: [
+        { role: "developer" },
+        { role: "user" },
+      ],
+    });
+    expect(JSON.stringify(chatRequest?.body)).not.toContain("max_tokens");
+  });
+
+  it("parses OpenRouter model metadata and uses OpenRouter completion fields", async () => {
+    const requests: Array<{ url: string; authorization: string | null; body?: unknown }> = [];
+    const registry = createDefaultProviderRegistry({
+      credentialStore: fakeCredentialStore("openrouter-test-key"),
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        requests.push({
+          url,
+          authorization: new Headers(init?.headers).get("authorization"),
+          body: init?.body ? JSON.parse(String(init.body)) as unknown : undefined,
+        });
+        if (url === "https://openrouter.ai/api/v1/models") {
+          return new Response(JSON.stringify({
+            data: [{
+              id: "openai/gpt-test",
+              name: "GPT Test",
+              context_length: 128000,
+              supported_parameters: ["temperature", "top_p", "max_tokens"],
+            }],
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        if (url === "https://openrouter.ai/api/v1/chat/completions") {
+          return sseResponse(
+            JSON.stringify({ choices: [{ delta: { content: "OpenRouter" } }] }),
+            "[DONE]",
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    const provider = registry.get("openrouter");
+    const profile = modelProfile({
+      provider: "openrouter",
+      baseUrl: null,
+      model: "openai/gpt-test",
+      cloudPolicy: "cloud-allowed",
+      credentialRef: "novel-studio/model-profile/openrouter",
+    });
+
+    await expect(provider.listModels(profile)).resolves.toEqual([
+      expect.objectContaining({
+        id: "openai/gpt-test",
+        title: "GPT Test",
+        contextWindowTokens: 128000,
+      }),
+    ]);
+    await expect(collect(provider.streamText({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      parameters: { maxOutputTokens: 64 },
+    }))).resolves.toBe("OpenRouter");
+
+    const chatRequest = requests.find((request) => request.url === "https://openrouter.ai/api/v1/chat/completions");
+    expect(chatRequest?.authorization).toBe("Bearer openrouter-test-key");
+    expect(chatRequest?.body).toMatchObject({
+      model: "openai/gpt-test",
+      stream: true,
+      max_completion_tokens: 64,
+      messages: [
+        { role: "system" },
+        { role: "user" },
+      ],
+    });
+  });
+
+  it("uses Ollama OpenAI-compatible endpoints without requiring an Authorization header", async () => {
+    const requests: Array<{ url: string; authorization: string | null; body?: unknown }> = [];
+    const registry = createDefaultProviderRegistry({
+      credentialStore: fakeCredentialStore("unused"),
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        requests.push({
+          url,
+          authorization: new Headers(init?.headers).get("authorization"),
+          body: init?.body ? JSON.parse(String(init.body)) as unknown : undefined,
+        });
+        if (url === "http://localhost:11434/v1/models") {
+          return new Response(JSON.stringify({
+            object: "list",
+            data: [{ id: "gpt-oss:20b", object: "model", owned_by: "library" }],
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        if (url === "http://localhost:11434/v1/chat/completions") {
+          return sseResponse(
+            JSON.stringify({ choices: [{ delta: { content: "Ollama" } }] }),
+            "[DONE]",
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    const provider = registry.get("ollama");
+    const profile = modelProfile({
+      provider: "ollama",
+      baseUrl: null,
+      model: "gpt-oss:20b",
+      cloudPolicy: "local-only",
+      credentialRef: null,
+    });
+
+    await expect(provider.listModels(profile)).resolves.toEqual([
+      expect.objectContaining({ id: "gpt-oss:20b" }),
+    ]);
+    await expect(collect(provider.streamText({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      parameters: { maxOutputTokens: 64 },
+    }))).resolves.toBe("Ollama");
+
+    expect(requests).toContainEqual(expect.objectContaining({
+      url: "http://localhost:11434/v1/models",
+      authorization: null,
+    }));
+    const chatRequest = requests.find((request) => request.url === "http://localhost:11434/v1/chat/completions");
+    expect(chatRequest?.authorization).toBeNull();
+    expect(chatRequest?.body).toMatchObject({
+      model: "gpt-oss:20b",
+      stream: true,
+      max_tokens: 64,
+      messages: [
+        { role: "system" },
+        { role: "user" },
+      ],
+    });
   });
 
   it("requires a service address for generic OpenAI-compatible profiles", async () => {

@@ -24,6 +24,7 @@ import {
   RestoreSceneSectionInputSchema,
   SectionContextTargetSchema,
   UpdateActInputSchema,
+  UpdateBookInputSchema,
   UpdateChapterInputSchema,
   UpdateScenePlanningInputSchema,
   UpdateSceneInputSchema,
@@ -155,6 +156,19 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     },
   );
 
+  app.delete<{ Params: { seriesId: string; bookId: string } }>(
+    "/api/v1/series/:seriesId/books/:bookId",
+    async (request) => repository.deleteBook(request.params.seriesId, request.params.bookId),
+  );
+
+  app.put<{ Params: { seriesId: string; bookId: string } }>(
+    "/api/v1/series/:seriesId/books/:bookId",
+    async (request) => {
+      const input = UpdateBookInputSchema.parse(request.body);
+      return repository.updateBook(request.params.seriesId, request.params.bookId, input);
+    },
+  );
+
   app.get<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/hierarchy/validate",
     async (request) => repository.validateHierarchy(request.params.seriesId),
@@ -185,6 +199,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       const input = UpdateSceneInputSchema.parse(request.body);
       return repository.updateScene(request.params.seriesId, request.params.sceneId, input);
     },
+  );
+
+  app.delete<{ Params: { seriesId: string; sceneId: string } }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId",
+    async (request) => repository.deleteScene(request.params.seriesId, request.params.sceneId),
   );
 
   app.patch<{ Params: { seriesId: string; sceneId: string } }>(
@@ -373,6 +392,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     },
   );
 
+  app.delete<{ Params: { seriesId: string; actId: string } }>(
+    "/api/v1/series/:seriesId/acts/:actId",
+    async (request) => repository.deleteAct(request.params.seriesId, request.params.actId),
+  );
+
   app.post<{ Params: { seriesId: string; bookId: string } }>(
     "/api/v1/series/:seriesId/books/:bookId/acts/reorder",
     async (request) => {
@@ -409,6 +433,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       const input = UpdateChapterInputSchema.parse(request.body);
       return repository.updateChapter(request.params.seriesId, request.params.chapterId, input);
     },
+  );
+
+  app.delete<{ Params: { seriesId: string; chapterId: string } }>(
+    "/api/v1/series/:seriesId/chapters/:chapterId",
+    async (request) => repository.deleteChapter(request.params.seriesId, request.params.chapterId),
   );
 
   app.post<{ Params: { seriesId: string; actId: string } }>(

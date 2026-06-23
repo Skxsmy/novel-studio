@@ -1,0 +1,130 @@
+{
+  "task": "NS-409.2",
+  "runId": "NS-409.2-advanced-redesign-v1-2026-06-23",
+  "status": "redo draft, not user-accepted",
+  "source": {
+    "html": "docs/design/ui-redesign/NS-409.2-english-ui-baseline.html",
+    "temporaryUrl": "http://127.0.0.1:5174/NS-409.2-english-ui-baseline.html"
+  },
+  "referenceSources": [
+    {
+      "name": "Novel editor app source",
+      "url": "https://github.com/steven-tey/novel/blob/main/apps/web/app/page.tsx"
+    },
+    {
+      "name": "Outline sidebar header source",
+      "url": "https://github.com/outline/outline/blob/main/app/components/Sidebar/components/Header.tsx"
+    },
+    {
+      "name": "shadcn/ui sidebar blocks",
+      "url": "https://ui.shadcn.com/blocks/sidebar"
+    }
+  ],
+  "screenshots": [
+    {
+      "page": "write",
+      "path": "docs/design/ui-redesign/NS-409-write-baseline-advanced-v3.png",
+      "width": 1480,
+      "height": 837,
+      "sha256": "43AC61F504151A10EDD7D37EB04E8BFC1E35FEED9E5450363EB3A1D01AD1AB33",
+      "viewport": {
+        "effectiveInnerWidth": 2112,
+        "effectiveInnerHeight": 1188
+      }
+    },
+    {
+      "page": "codex collapsed detail",
+      "path": "docs/design/ui-redesign/NS-409-codex-collapsed-detail-feedback-v2.png",
+      "width": 1182,
+      "height": 669,
+      "sha256": "214CF4F55ADC9EF8BE25694965F6D4DE448E7D95EB68C3479D35957D5FB72D8A",
+      "viewport": {
+        "effectiveInnerWidth": 1690,
+        "effectiveInnerHeight": 950
+      }
+    },
+    {
+      "page": "review collapsed",
+      "path": "docs/design/ui-redesign/NS-409-review-collapsed-feedback-v2.png",
+      "width": 1182,
+      "height": 669,
+      "sha256": "D9D87BB2BA8E583D09A25B2DE505668ECD043306BAC7205AA19697C8917DA801",
+      "viewport": {
+        "effectiveInnerWidth": 1690,
+        "effectiveInnerHeight": 950
+      }
+    }
+  ],
+  "domChecks": {
+    "write": {
+      "horizontalOverflow": false,
+      "activePages": ["write-page"],
+      "narrowFallbackVisible": false,
+      "leftIconRailCount": 0,
+      "projectSidebarChapterList": false,
+      "projectSidebarContextBasket": false,
+      "projectSidebarRecentFocus": false
+    },
+    "plan": {
+      "horizontalOverflow": false,
+      "activePages": ["plan-page"],
+      "narrowFallbackVisible": false,
+      "projectSidebarChapterList": false,
+      "projectSidebarContextBasket": false,
+      "projectSidebarRecentFocus": false
+    },
+    "codex": {
+      "horizontalOverflow": false,
+      "activePages": ["codex-page"],
+      "narrowFallbackVisible": false
+    },
+    "workshop": {
+      "horizontalOverflow": false,
+      "activePages": ["workshop-page"],
+      "narrowFallbackVisible": false
+    },
+    "review": {
+      "horizontalOverflow": false,
+      "activePages": ["review-page"],
+      "narrowFallbackVisible": false
+    },
+    "settings": {
+      "horizontalOverflow": false,
+      "activePages": ["settings-page"],
+      "narrowFallbackVisible": false
+    }
+  },
+  "browserChecks": {
+    "consoleErrors": 0,
+    "leftIconRailRemoved": true,
+    "projectSidebarContainsOnlyWorkspaceNavigation": true,
+    "oldRailCssRemoved": true,
+    "feedbackPass": {
+      "collapsedSidebarWidth": 132,
+      "collapsedWorkspaceNavRowHeight": 50,
+      "collapsedFooterActionHeight": 44,
+      "codexCollapsedDetail": {
+        "horizontalOverflow": false,
+        "categoryColumnWidth": 250,
+        "entryIndexWidth": 517,
+        "detailWidth": 700,
+        "entryIndexTableHeaderDisplay": "none"
+      },
+      "reviewCollapsed": {
+        "horizontalOverflow": false,
+        "sidebarWidth": 132,
+        "gridColumns": "319.997px 491.373px 339.994px 299.993px"
+      }
+    }
+  },
+  "screenshotNotes": [
+    "Plan and Settings screenshot attempts timed out in the Browser screenshot path after DOM checks.",
+    "No stale Plan or Settings screenshot is listed as current evidence for this advanced redo."
+  ],
+  "server": {
+    "type": "temporary static server",
+    "host": "127.0.0.1",
+    "port": 5174,
+    "closedAfterReview": true
+  }
+}

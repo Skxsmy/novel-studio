@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
@@ -12,5 +12,10 @@ export default defineConfig({
     proxy: {
       "/api": "http://127.0.0.1:4317",
     },
+  },
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./vitest.setup.ts"],
+    globals: true,
   },
 });

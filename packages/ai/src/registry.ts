@@ -69,5 +69,26 @@ export function createDefaultProviderRegistry(options: ProviderRegistryOptions =
       },
     ],
   }));
+  registry.register(new OpenAiCompatibleProvider({
+    ...openAiCompatibleOptions,
+    provider: "openai",
+    title: "OpenAI",
+    defaultBaseUrl: "https://api.openai.com/v1",
+    instructionRole: "developer",
+    maxOutputTokenField: "max_completion_tokens",
+  }));
+  registry.register(new OpenAiCompatibleProvider({
+    ...openAiCompatibleOptions,
+    provider: "openrouter",
+    title: "OpenRouter",
+    defaultBaseUrl: "https://openrouter.ai/api/v1",
+    maxOutputTokenField: "max_completion_tokens",
+  }));
+  registry.register(new OpenAiCompatibleProvider({
+    ...openAiCompatibleOptions,
+    provider: "ollama",
+    title: "Ollama",
+    defaultBaseUrl: "http://localhost:11434/v1",
+  }));
   return registry;
 }

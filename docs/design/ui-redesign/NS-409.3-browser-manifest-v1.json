@@ -1,0 +1,57 @@
+{
+  "task": "NS-409.3",
+  "runId": "NS-409.3-app-shell-v1-2026-06-23",
+  "url": "http://127.0.0.1:5174/",
+  "screenshot": {
+    "path": "docs/design/ui-redesign/NS-409.3-app-shell-browser-v1.png",
+    "sha256": "41F8BCB1C30A96E2C01DE6BEFAD39E81A2815C6226B54BBC22F880477E692515",
+    "fullPage": true
+  },
+  "checks": {
+    "initial": {
+      "activeText": "WRWriteScene selection, manuscript, and save status",
+      "horizontalOverflow": false,
+      "navDisplay": "grid",
+      "title": "Novel Studio",
+      "topbarTitle": "Write",
+      "url": "http://127.0.0.1:5174/",
+      "viewport": {
+        "height": 1142,
+        "width": 2031
+      }
+    },
+    "search": {
+      "horizontalOverflow": false,
+      "value": "harbor"
+    },
+    "codex": {
+      "activeText": "CDCodexCharacters, places, facts, and continuity",
+      "headings": [
+        "Codex",
+        "Workspace",
+        "Nothing selected",
+        "Inspector",
+        "Nothing selected"
+      ],
+      "horizontalOverflow": false,
+      "topbarTitle": "Codex"
+    },
+    "review": {
+      "activeText": "RVReviewCandidates, conflicts, and decisions",
+      "horizontalOverflow": false,
+      "topbarTitle": "Review"
+    },
+    "settings": {
+      "hasModels": true,
+      "horizontalOverflow": false,
+      "topbarTitle": "Settings"
+    },
+    "collapsed": {
+      "collapsed": true,
+      "expandButtonCount": 1,
+      "horizontalOverflow": false,
+      "shellColumns": "115.989px 1915.76px"
+    },
+    "consoleErrors": 0
+  }
+}

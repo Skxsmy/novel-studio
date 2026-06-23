@@ -1,0 +1,109 @@
+{
+  "task": "NS-409.2",
+  "runId": "NS-409.2-4k-correction-v3-2026-06-22",
+  "status": "pending user review",
+  "tool": "Codex in-app Browser",
+  "server": {
+    "type": "temporary static server",
+    "host": "127.0.0.1",
+    "port": 5174,
+    "closedAfterReview": true,
+    "portCheckAfterClose": {
+      "4317": "CLOSED",
+      "4318": "CLOSED",
+      "5173": "CLOSED",
+      "5174": "CLOSED"
+    }
+  },
+  "source": {
+    "html": "docs/design/ui-redesign/NS-409.2-english-ui-baseline.html",
+    "url": "http://127.0.0.1:5174/NS-409.2-english-ui-baseline.html?v=4k-wide4"
+  },
+  "correctionNotes": [
+    "The first 4K layout review was rejected by the user.",
+    "The static preview previously highlighted navigation without hiding inactive pages; this has been corrected.",
+    "4K is handled as a structural workbench layout, not by only widening manuscript line length.",
+    "Invalid intermediate screenshots were deleted and are not valid evidence."
+  ],
+  "browserChecks": {
+    "consoleErrors": 0,
+    "visibleChineseTextInPreview": false,
+    "validRun": "v3",
+    "desktopV1StillExists": true
+  },
+  "pages": [
+    {
+      "page": "write",
+      "activeHash": "#write-page",
+      "activeNav": "W",
+      "activePages": ["write-page"],
+      "layout": {
+        "kind": "five-column 4K workbench",
+        "visibleLayoutChildren": 5,
+        "visibleWideOnlyPanels": 2,
+        "pageWidthCssPx": 3200,
+        "layoutWidthCssPx": 3136,
+        "manuscriptWidthCssPx": 980,
+        "editorWidthCssPx": 895,
+        "layoutHeightCssPx": 1984
+      },
+      "horizontalOverflow": false,
+      "screenshot": {
+        "path": "docs/design/ui-redesign/NS-409-write-baseline-4k-v3.png",
+        "dimensions": {
+          "width": 3824,
+          "height": 2160
+        },
+        "sha256": "DF498DA718E9570D0D3F6C657C464FB7CA03DA4DB079F82276A167C8C523B2CC"
+      }
+    },
+    {
+      "page": "plan",
+      "activeHash": "#plan-page",
+      "activeNav": "P",
+      "activePages": ["plan-page"],
+      "layout": {
+        "kind": "4K storyboard with unplaced lane",
+        "visibleLayoutChildren": 2,
+        "visibleWideOnlyPanels": 1,
+        "visibleLanes": 4,
+        "pageWidthCssPx": 3200,
+        "layoutWidthCssPx": 3136,
+        "boardWidthCssPx": 2631,
+        "boardHeightCssPx": 1828
+      },
+      "horizontalOverflow": false,
+      "screenshot": {
+        "path": "docs/design/ui-redesign/NS-409-plan-baseline-4k-v3.png",
+        "dimensions": {
+          "width": 3824,
+          "height": 2160
+        },
+        "sha256": "3023DD3E465AB2FF4E27B11960C308CE808FDAD0E716E1A341818BCE42D6F723"
+      }
+    },
+    {
+      "page": "settings",
+      "activeHash": "#settings-page",
+      "activeNav": "S",
+      "activePages": ["settings-page"],
+      "layout": {
+        "kind": "4K settings workbench with defaults panel",
+        "visibleLayoutChildren": 4,
+        "visibleWideOnlyPanels": 1,
+        "pageWidthCssPx": 3200,
+        "layoutWidthCssPx": 3136,
+        "layoutHeightCssPx": 1952
+      },
+      "horizontalOverflow": false,
+      "screenshot": {
+        "path": "docs/design/ui-redesign/NS-409-settings-baseline-4k-v3.png",
+        "dimensions": {
+          "width": 3840,
+          "height": 2160
+        },
+        "sha256": "2E24AA3085E020F256CEADF33F52734FEC6CBC906C20EE22114F29D45F78153D"
+      }
+    }
+  ]
+}

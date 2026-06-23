@@ -114,10 +114,10 @@ describe("M4 model settings API", () => {
       url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
       payload: {
         title: "云端测试模型",
-        provider: "openai",
+        provider: "anthropic",
         model: "gpt-test",
         cloudPolicy: "cloud-allowed",
-        credentialRef: "novel-studio:openai:test",
+        credentialRef: "novel-studio:anthropic:test",
       },
     });
     expect(cloudProfileResponse.statusCode).toBe(201);
@@ -130,11 +130,84 @@ describe("M4 model settings API", () => {
     expect(unavailable.statusCode).toBe(503);
     expect(unavailable.json()).toMatchObject({
       ok: false,
-      provider: "openai",
+      provider: "anthropic",
       modelProfileId: cloudProfile.id,
       error: { code: "provider-unavailable" },
     });
     expect(JSON.stringify(unavailable.json())).not.toContain("mock-continuity-v1");
+
+    await app.close();
+  });
+
+  it("tests an OpenAI profile through the official chat-compatible provider path", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-openai-api-"));
+    roots.push(root);
+    const secrets = new Map<string, string>();
+    const requests: Array<{ url: string; authorization: string | null }> = [];
+    const app = await buildApp({
+      libraryRoot: root,
+      credentialStore: memoryCredentialStore(secrets),
+      providerFetch: async (input, init) => {
+        const url = String(input);
+        requests.push({
+          url,
+          authorization: new Headers(init?.headers).get("authorization"),
+        });
+        if (url === "https://api.openai.com/v1/models") {
+          return new Response(JSON.stringify({
+            object: "list",
+            data: [{ id: "gpt-test", object: "model", owned_by: "openai" }],
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        return new Response(JSON.stringify({ error: { message: "not found" } }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "OpenAI 配置接口" },
+    });
+    const series = created.json();
+
+    const profileResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      payload: {
+        title: "OpenAI 写作模型",
+        provider: "openai",
+        baseUrl: null,
+        model: "gpt-test",
+        cloudPolicy: "cloud-allowed",
+      },
+    });
+    expect(profileResponse.statusCode).toBe(201);
+    const profile = profileResponse.json();
+
+    const credential = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+      payload: { secret: "openai-test-key" },
+    });
+    expect(credential.statusCode).toBe(200);
+    expect(JSON.stringify(credential.json())).not.toContain("openai-test-key");
+
+    const tested = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/test`,
+    });
+    expect(tested.statusCode).toBe(200);
+    expect(tested.json()).toMatchObject({
+      ok: true,
+      provider: "openai",
+      models: [{ id: "gpt-test" }],
+    });
+    expect(requests).toContainEqual({
+      url: "https://api.openai.com/v1/models",
+      authorization: "Bearer openai-test-key",
+    });
 
     await app.close();
   });
