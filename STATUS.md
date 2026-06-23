@@ -6,8 +6,9 @@ This file is the current project-status authority. Earlier Chinese records were 
 
 ## Read First
 
-- Current active line: `NS-409` frontend rebuild.
-- Current decision: `NS-409` is not accepted. The React application builds and has partial real API wiring, but the user rejected the visual/product result.
+- Current active line: `NS-409` frontend and Codex recovery plan.
+- Current decision: `NS-409` is replanned and not accepted. The React application builds and has partial real API wiring, but the user rejected the visual/product result.
+- Do not mechanically follow the old milestone order. M2/M3 foundations may be revised when the rebuilt frontend exposes contract, API, storage, or index gaps.
 - Do not advance as if `NS-409.5` or later frontend acceptance has passed.
 - Fast reading path for the next contributor:
   - `README.md`
@@ -36,12 +37,13 @@ This file is the current project-status authority. Earlier Chinese records were 
 
 ## Active Work: NS-409
 
-`NS-409` is a frontend rebuild and UI repair line, not an accepted baseline.
+`NS-409` is a frontend and Codex recovery line, not an accepted baseline.
 
 Current blockers:
 
 - The visual design is rejected by the user.
 - Codex is still a rough shell. It can load/create/select entries and hide details by selecting the same entry, but full entry editing, relations, progressions, character knowledge, mentions, and effective-state workflows are not complete.
+- Current backend Codex routes cover categories, entries, mentions, relations, progressions, knowledge, effective state, context preview, and search. Current frontend Codex API wrapper exposes only categories, entries list/create/get. The gap must be audited before more Codex UI is built.
 - Write hierarchy UX still needs product-level repair:
   - expected hierarchy is `Volume -> Chapter -> Act -> Scene`;
   - Add should open a compact menu, not show multiple permanent large buttons;
@@ -54,6 +56,19 @@ Current blockers:
 - Review and Workshop are incomplete.
 - UI text must stay isolated for later bilingual adaptation; do not hardcode user-facing copy directly into feature logic.
 - Browser screenshots and DOM checks are not user acceptance. The user currently owns visual validation.
+
+Current replanned work packages:
+
+1. `NS-409.0` rebaseline and guardrails.
+2. `NS-409.1` foundation audit for hierarchy, project creation, and Codex API.
+3. `NS-409.2` project/library recovery from empty state.
+4. `NS-409.3` Write hierarchy recovery.
+5. `NS-409.4` Codex API and frontend wrapper expansion.
+6. `NS-409.5` Codex entry workspace.
+7. `NS-409.6` Codex integration with Write, Plan, and AI context.
+8. `NS-409.7` Settings recovery.
+9. `NS-409.8` Review and Workshop decision.
+10. `NS-409.9` regression, acceptance, and handoff.
 
 ## Milestone State
 
@@ -212,9 +227,12 @@ Do not continue to `NS-410`. Continue `NS-409` until the frontend has a user-acc
 
 Immediate order:
 
-1. Repair Write hierarchy creation/deletion/rename/collapse/scroll behavior around `Volume -> Chapter -> Act -> Scene`.
-2. Make Codex a real entry workflow instead of a shell.
-3. Finish Settings product behavior for scoped model/profile/policy workflows.
-4. Decide whether Review and Workshop become real scoped workflows now or honest unavailable states.
-5. Re-run command validation after product/UI changes.
-6. Record the result in `docs/tasks/NS-409.md`, `docs/testing/NS-409_ACCEPTANCE.md`, `STATUS.md`, `HANDOFF.md`, `TASKS.md`, and `CHANGELOG.md`.
+1. Run `NS-409.1`: audit hierarchy/project creation and Codex API gaps.
+2. Decide whether hierarchy changes are UI terminology, API projection, or storage/migration work.
+3. Expand Codex frontend API coverage only after the gap list is explicit.
+4. Repair Write hierarchy creation/deletion/rename/collapse/scroll behavior around the resolved hierarchy model.
+5. Make Codex a real entry workflow instead of a shell.
+6. Finish Settings product behavior for scoped model/profile/policy workflows.
+7. Decide whether Review and Workshop become real scoped workflows now or honest unavailable states.
+8. Re-run command validation after product/UI changes.
+9. Record the result in `docs/tasks/NS-409.md`, `docs/testing/NS-409_ACCEPTANCE.md`, `STATUS.md`, `HANDOFF.md`, `TASKS.md`, and `CHANGELOG.md`.

@@ -7,14 +7,10 @@ This file is the short operational handoff. The older Chinese handoff was fully 
 ## Current Repository State
 
 - Branch: `main`.
-- Latest relevant commit before this documentation repair: `cca70e8 NS-409 docs(frontend): record current working state`.
-- Current active task: `NS-409` frontend rebuild.
+- Latest relevant committed baseline before the replan: `d7f1666 NS-409 docs: preserve historical logs in English`.
+- Current active task: `NS-409` frontend and Codex recovery plan.
 - Current acceptance state: not accepted. Command validation passed, but user visual/product validation failed.
-- Expected current modified files for this handoff repair only:
-  - `STATUS.md`
-  - `HANDOFF.md`
-  - `CHANGELOG.md`
-  - `TASKS.md`
+- Current planning decision: do not mechanically continue old NS-409/NS-410 sequencing. M2/M3 foundations can be modified if the rebuilt frontend exposes real gaps.
 
 ## Start Here
 
@@ -33,6 +29,7 @@ Do not begin from old `NS-409A` through `NS-409F` screenshots as if they are cur
 ## Do Not Break These Rules
 
 - Do not mark `NS-409` complete until the user accepts the visual/product result.
+- Do not assume M2/M3 APIs are sufficient just because older tasks passed. Audit before implementation.
 - Do not add new routine status or handoff files. Update the existing authority files.
 - Do not delete `docs/design/**/backups/` unless the user explicitly names the backup to delete.
 - Do not let `apps/web/src/app/app-shell.css`, `apps/server/src/app.ts`, or `packages/storage/src/index.ts` become larger dumping grounds.
@@ -42,7 +39,7 @@ Do not begin from old `NS-409A` through `NS-409F` screenshots as if they are cur
 
 ## Current NS-409 Work
 
-The current React frontend has a reorganized shell and partial API wiring, but it is not a usable accepted UI.
+The current React frontend has a reorganized shell and partial API wiring, but it is not a usable accepted UI. The work has been replanned around foundation audit and Codex recovery.
 
 Working draft pieces:
 
@@ -57,9 +54,22 @@ Critical blockers:
 
 - Visual design is rejected.
 - Codex is a shell, not a real product workflow.
+- Codex backend routes are broader than the current frontend API wrapper. Existing routes cover categories, entries, relations, progressions, knowledge, mentions, effective state, context preview, and search; the wrapper currently covers only categories plus entry list/create/get.
 - Write hierarchy must follow `Volume -> Chapter -> Act -> Scene` and support compact add menu, default names, later rename, double-click rename where appropriate, selected delete with confirmation, sane collapse, and scroll.
 - Settings is only partially product-complete.
 - Review and Workshop need either real scoped workflows or honest unavailable states.
+
+Current replanned order:
+
+1. `NS-409.1` audit hierarchy/project creation and Codex API gaps.
+2. `NS-409.2` repair zero-project library flow.
+3. `NS-409.3` repair Write hierarchy behavior.
+4. `NS-409.4` expand Codex frontend API wrapper and document missing contract needs.
+5. `NS-409.5` implement the Codex entry workspace as a real editor.
+6. `NS-409.6` reconnect Codex with Write, Plan, and AI context.
+7. `NS-409.7` finish scoped Settings behavior.
+8. `NS-409.8` decide Review/Workshop scope or honest unavailable states.
+9. `NS-409.9` validate, record, and hand off.
 
 ## Historical Handoff Record
 
@@ -241,4 +251,4 @@ Critical blockers:
 
 ## Immediate Next Step
 
-Stay on `NS-409`. Repair the real frontend product flows, especially Write hierarchy and Codex, then update the same authority docs and rerun validation. Do not start a new milestone and do not create parallel handoff files.
+Stay on `NS-409`. Start with `NS-409.1`, not with cosmetic UI changes. Audit hierarchy and Codex API gaps, then implement the recovery packages in order. Do not start a new milestone and do not create parallel handoff files.

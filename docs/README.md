@@ -20,7 +20,7 @@ Only read older milestone documents when the current task depends on that area.
 - `product/`: product scope, UX rules, AI editorial model, feature matrix, reference library, import/export/versioning. Highest authority for product intent.
 - `architecture/`: API, data model, security, and target architecture. Highest authority for technical boundaries.
 - `adr/`: accepted architectural decisions. Read the relevant ADR before changing a governed subsystem.
-- `tasks/`: milestone and task specs. Current active frontend task is `tasks/NS-409.md`.
+- `tasks/`: milestone and task specs. Current active recovery plan is `tasks/NS-409.md`.
 - `testing/`: acceptance records and test strategy. Current NS-409 truth is `testing/NS-409_ACCEPTANCE.md`.
 - `design/ui-redesign/`: NS-409 UI baselines, current design evidence, and protected backups.
 
@@ -33,4 +33,4 @@ Only read older milestone documents when the current task depends on that area.
 
 ## Current Warning
 
-NS-409 is not accepted. The current React UI is a command-verified working draft with rejected visuals. Codex, Review, Workshop, and Settings all need further product work.
+NS-409 is not accepted. It has been replanned around foundation audit, Codex/API recovery, Write hierarchy recovery, Settings completion, and honest Review/Workshop scope. The current React UI is a command-verified working draft with rejected visuals.
