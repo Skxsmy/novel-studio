@@ -1,44 +1,86 @@
 # Task Index
 
-Status markers: `[ ]` todo, `[-]` in progress, `[x]` complete, `[!]` blocked or rejected.
+Status keys: `[ ]` todo, `[-]` in progress, `[x]` complete, `[!]` blocked or rejected.
 
-## Completed Milestones
+This index keeps the original milestone/task history translated from the earlier Chinese log. Do not move routine task state into new files.
 
-- [x] `M0`: project governance, product boundary, architecture, data contracts, and test strategy.
-- [x] `M1`: first clickable local web shell.
-- [x] `M2`: file storage, API, conflict protection, index rebuild, and search.
-- [x] `M3`: explicit hierarchy, planning views, editor, Codex storage, progressions, character knowledge, hierarchy creation UX.
-- [x] `NS-400`: M3 closeout, architecture split, smoke tests, startup/browser validation reliability, M4 contract prep.
-- [x] `NS-401` through `NS-407`: M4 AI contracts, storage, provider core, model settings, context preview, prompt roles, non-writing AI calls.
-- [-] `NS-408`: DeepSeek/OpenAI-compatible/OpenAI/OpenRouter/Ollama implemented; real DeepSeek non-writing call validation and Anthropic/Gemini remain incomplete.
+## Current Active Task
 
-## Active Milestone
+- [!] `NS-409` Frontend rebuild and UI repair.
 
-- [-] `NS-409`: frontend rebuild and UI remediation.
+Current decision:
 
-Current NS-409 facts:
+- `NS-409` is not accepted.
+- Do not continue to `NS-410`.
+- Do not treat old `NS-409A` through `NS-409F` assets as current guidance.
+- Current source files:
+  - `docs/tasks/NS-409.md`
+  - `docs/testing/NS-409_ACCEPTANCE.md`
+  - `docs/design/ui-redesign/README.md`
 
-- [x] Old `NS-409A` through `NS-409F` frontend branches and screenshots are obsolete and no longer implementation guidance.
-- [x] New frontend structure exists: `apps/web/src/app`, `src/api`, `src/features`, `src/ui`.
-- [x] Project creation/opening, Write save flow, partial hierarchy controls, minimal Codex shell, and partial Settings API wiring exist.
-- [!] Current UI has failed user visual acceptance. Do not mark NS-409 as passed.
-- [!] Codex frontend is still a rough shell and must be completed before the product can move forward.
-- [!] Review and Workshop remain incomplete.
-- [!] Settings is API-backed but not product-complete.
-- [ ] Continue NS-409 remediation:
-  - Codex real entry editor and detail tabs.
-  - Write hierarchy UX: `Volume -> Chapter -> Act -> Scene`, add menu, default names, double-click rename, selected delete with confirmation, correct collapse/scroll behavior.
-  - Settings product completion after visual baseline is accepted.
-  - Split growing frontend CSS and large backend/storage files when touching them.
+Immediate task requirements:
 
-## Not Yet Active
+- Repair Write hierarchy around `Volume -> Chapter -> Act -> Scene`.
+- Add must open a compact menu and create default-named items.
+- Delete must sit beside Add and delete the selected hierarchy item only after confirmation.
+- Titles must be renameable later, including double-click rename where appropriate.
+- Collapsed sections must not auto-center and waste space.
+- Scroll must exist where hierarchy content can overflow.
+- Codex must become a real entry workflow, not a shell.
+- Settings must complete scoped product behavior.
+- Review and Workshop must become real scoped workflows or honest unavailable states.
+- UI copy must remain adaptable for bilingual support.
 
-- [ ] `NS-410`: M4 closeout, safety checks, state handoff, and M5 entry confirmation.
+## M0
 
-## Canonical Current Files
+- [x] `NS-001` Repository governance, product boundary, architecture, data contract, and test strategy.
+- [x] `NS-002` Git initialization, dependency lockfile, base build, and CI-equivalent local check.
+- [x] `NS-003` Durable product, UX, AI, data, import/export, and milestone specs.
 
-- Current state: `STATUS.md`
-- Handoff: `HANDOFF.md`
-- Current task spec: `docs/tasks/NS-409.md`
-- Current acceptance record: `docs/testing/NS-409_ACCEPTANCE.md`
-- Directory map: `docs/README.md`
+## M1
+
+- [x] `NS-101` React app shell and original Chinese visual system.
+- [x] `NS-102` Sample project navigation and clickable Plan/Write/Codex/Workshop/Review shell.
+- [x] `NS-103` Browser usability check and interface decision record.
+
+## M2
+
+- [x] `NS-201` Series, book, act, chapter, and scene file contracts plus atomic storage.
+- [x] `NS-202` Fastify `/api/v1` series and scene APIs.
+- [x] `NS-203` Frontend create/open/edit/save/reload vertical loop.
+- [x] `NS-204` SQLite/FTS5 index rebuild and search.
+
+## M3
+
+- [x] `NS-301` Explicit Act/Chapter lists, ordering, scene movement, stable references, migration, and validation.
+- [x] `NS-302` Real planning data for grid/board, outline, matrix/tracking, and dual timelines.
+- [x] `NS-303` Milkdown editor, independent Sections, focus writing, revision-aware crash recovery, and anchors.
+- [x] `NS-304` Codex file contracts, categories, aliases, relations, mention indexes, and readable-scope preview.
+- [x] `NS-305` Story progressions, character knowledge, and scene-effective facts.
+- [x] `NS-306` UI entry points for new series, book, act, and chapter.
+- [x] `NS-307` Writing-page layout repair and scene creation into a specified book/act/chapter.
+
+## M3 to M4 Preparation
+
+- [x] `NS-400` M3 close, architecture refresh, module splits, repeatable smoke tests, launcher/browser-acceptance reliability, and M4 contract preparation.
+
+## M4
+
+- [x] `NS-401` M4 execution spec, API draft, file-format draft, and first vertical-slice design.
+- [x] `NS-402` AI contract partition plus minimum persistence for model profiles, prompts, context bundles, and call logs.
+- [x] `NS-403` ProviderAdapter core, capability descriptions, error classification, and MockProvider.
+- [x] `NS-404` Model settings, connection tests, credential storage abstraction, and cloud permission boundaries.
+- [x] `NS-405` Scene-level context assembler, permission filtering, future-story isolation, and usage estimates.
+- [x] `NS-406` Prompt templates, editorial roles, presets, declarative rendering, and version history.
+- [x] `NS-407` Non-writing AI calls, SSE streaming, and ModelCallLog.
+- [-] `NS-408` DeepSeek and OpenAI-compatible provider foundation.
+  - Done: DeepSeek provider path, generic OpenAI-compatible foundation, settings credential controls, connection test, model-list flow, and user-confirmed DeepSeek connection/model-list retrieval.
+  - Not finished from original scope: OpenAI, OpenRouter, Anthropic, Gemini, and Ollama providers; recorded real DeepSeek non-writing call result.
+- [!] `NS-409` Context preview UI, call-log UI, frontend rebuild, and browser/user acceptance.
+  - Historical `NS-409A/NS-409C`: image-model-assisted UI redo and plan/write correction records. Not current acceptance.
+  - Historical `NS-409D`: wide-screen review for Write, Codex, and Workshop. Not current acceptance.
+  - Historical `NS-409E`: planning board/outline/matrix/timeline wide-screen transition. Not current acceptance.
+  - Current `NS-409`: React working draft is command-verified but visually rejected.
+- [ ] `NS-410` M4 closeout, security check, state handoff, and M5 entry confirmation. Do not start until `NS-409` is accepted.
+
+M4 detailed planning remains in `docs/tasks/M4.md`. Throughout M4, AI must not directly modify prose, canon, summaries, character state, story progressions, or character knowledge.
