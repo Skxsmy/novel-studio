@@ -96,16 +96,19 @@ Status: command-verified for the current Codex scope, not visually accepted. Pla
 
 ### Slice D2: Editor Foundation
 
-Status: opened from mature-editor research; not implemented yet.
+Status: opened from mature-editor research; CodeMirror 6 is the preferred implementation direction unless a concrete spike blocker is recorded. Not implemented yet.
 
-- Pending evidence: editor approach decision records why the project will use CodeMirror 6, ProseMirror/Tiptap, or a small internal text editor model.
-- Pending evidence: tests cover plain-text persistence for scene content and Codex canon descriptions, including blank lines, leading spaces, paste cleanup, and IME-safe input.
-- Pending evidence: tests cover decoration-based Codex mention marks that do not enter saved text.
+- Pending evidence: CodeMirror 6 spike creates a reusable editor surface for Write scene content and proves plain-text save output.
+- Pending evidence: if CodeMirror 6 is rejected, the blocker and replacement choice among ProseMirror/Tiptap/Lexical must be recorded in `docs/tasks/PROJECT_RECOVERY.md`.
+- Pending evidence: tests cover scene and Codex canon-description persistence, including blank lines, line-leading spaces, paste cleanup, punctuation input, and duplicate-prevention for ordinary typed text.
+- Pending evidence: tests cover decoration-based Codex mention marks that do not enter saved text and do not duplicate the underlying Codex name/alias.
 - Pending evidence: tests cover anchored Canon preview popovers that reposition with editor scroll/resize and do not rely on viewport-fixed positioning.
 - Pending evidence: tests cover undo/redo and selection restoration for the chosen editor approach.
+- Pending evidence: real Chinese IME composition is visually/user validated or explicitly recorded as not yet visually accepted.
 
 - Editor content remains Markdown/YAML-compatible pure text where the product contract requires it.
 - Codex decorations and preview UI never become persisted manuscript or Canon description content.
+- React must not rerender decorated Codex mark nodes inside a contentEditable editor surface.
 - Browser/visual validation remains user-owned unless explicitly requested.
 
 ### Slice E: Settings and AI Safety

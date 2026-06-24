@@ -67,7 +67,7 @@ Current recovery order:
 2. Slice B: Start-to-Write vertical slice, command-verified; user visual validation remains separate.
 3. Slice C: Codex core vertical slice, command-verified; user visual validation remains separate.
 4. Slice D: Codex connections, command-verified for current Codex scope; Plan review/rework remains deferred.
-5. Slice D2: Editor Foundation, opened from the mature-editor research follow-up; replace ad hoc contentEditable work with a document/selection/transaction and decoration-based editor plan before more writing-editor feature patches.
+5. Slice D2: Editor Foundation, opened from the mature-editor research follow-up; CodeMirror 6 is the preferred implementation direction unless a concrete spike blocker is recorded. Replace ad hoc contentEditable work with document/selection/transaction state, decoration-based Codex marks, IME-safe input, duplicate-input prevention, and anchored preview popovers before more writing-editor feature patches.
 6. Slice E: Settings and AI safety minimum.
 7. Slice F: Review, Workshop, and navigation honesty.
 8. Slice G: visual system and responsive acceptance.

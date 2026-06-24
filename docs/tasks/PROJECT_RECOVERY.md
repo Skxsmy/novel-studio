@@ -275,31 +275,62 @@ Forbidden:
 
 ### Slice D2: Editor Foundation
 
-Purpose: turn the mature-editor research from the Slice D bugfix into a real editor foundation plan instead of continuing ad hoc contentEditable patches.
+Purpose: replace the current ad hoc contentEditable editor with a mature editor architecture. The current bugs (duplicate punctuation, interrupted Chinese IME composition, duplicated Codex entry text, and only one duplicate receiving an underline) come from two systems writing the same editable DOM: the browser's native contentEditable/IME flow and React's realtime re-rendered Codex marks. This slice must remove that class of bug rather than adding another keydown workaround.
 
-Research takeaways:
+Research sources:
 
-- Mature editors model content as document plus selection, and mutate through explicit transactions rather than trusting browser DOM mutations.
-- Inline visual state such as Codex mentions, search hits, spelling hints, comments, and warnings should be rendered as decorations/marks that do not enter the saved manuscript or Canon description text.
-- Keyboard behavior should be centralized as editor commands/keymaps, including Enter, Space, Tab, undo/redo, selection movement, and IME composition safety.
-- Popovers should be anchored to editor coordinates or decoration ranges, update on scroll/resize/selection changes, and stay outside editable DOM content.
-- Paste handling, whitespace normalization, paragraph indentation, word/character counts, current-line/paragraph focus, and scroll-to-cursor behavior are editor features, not one-off page fixes.
+- CodeMirror 6 System Guide and Reference Manual: https://codemirror.net/docs/guide/ and https://codemirror.net/docs/ref/
+- ProseMirror Guide: https://prosemirror.net/docs/guide/
+- Tiptap editor documentation: https://tiptap.dev/docs/editor/getting-started/overview
+- Lexical introduction: https://lexical.dev/docs/intro
+- Zettlr user manual and source as writing-product reference: https://docs.zettlr.com/en/ and https://github.com/Zettlr/Zettlr
+
+Researched options:
+
+- CodeMirror 6 is the preferred direction for Release A. It provides immutable editor state, explicit transactions, selection mapping, extensions, keymaps/commands, view plugins, viewport-aware rendering, decorations, input/clipboard hooks, and tooltip/panel placement. It fits the current product contract because scenes and Codex canon descriptions are plain text with UI-only Codex decorations.
+- ProseMirror is a strong rich-text engine with transactions, plugins, schema, history, and decorations. It is appropriate if Novel Studio decides scene/canon content should become structured rich text. It is heavier for the current pure-text Markdown/YAML contract because the schema and serialization rules would become product-critical.
+- Tiptap is a headless ProseMirror framework with a higher-level extension ecosystem. It is useful if the product needs rich content blocks, comments, or collaboration UI, but it inherits the ProseMirror schema/serialization cost and is not the first choice for the current plain-text editor.
+- Lexical has editor state, commands, transforms, listeners, and React-oriented rich-text architecture. It is viable for complex rich text, but Codex underline decorations and pure-text persistence would require more custom node/plugin work than CodeMirror.
+- Zettlr is not an embeddable editor library for this app, but it is a useful writing-product reference: Markdown-first editor, status bar, autocomplete, language/style tools, writing statistics, project/workbench behavior, and a clear separation of content and presentation.
+
+Decision for implementation:
+
+- Use CodeMirror 6 unless a concrete blocker is found during the spike.
+- Keep scenes and Codex canon descriptions as pure text persisted through the existing Markdown/YAML storage contract.
+- Treat Codex underlines, search hits, warnings, and future comments as editor decorations. They must never become saved text.
+- Keep Canon previews outside the document as editor-anchored tooltips/popovers, positioned from editor coordinates and updated on scroll/resize.
+- Do not continue the current React-rendered contentEditable mark approach after this slice starts.
+
+Target editor capabilities:
+
+- Chinese IME composition is not interrupted by Codex mention matching or React rerenders.
+- Typing punctuation and ordinary characters does not duplicate text.
+- Typing a Codex name or alias inserts the text once; realtime underline appears as a decoration over that single text range.
+- Enter, Space, Tab/indent policy, paste, undo/redo, selection restoration, and scroll-to-cursor run through editor transactions/commands.
+- Line-leading spaces, blank lines, and paste text are preserved according to the explicit pure-text contract.
+- Word/character count, current paragraph/line focus, placeholder, read-only state, and dirty tracking are driven from the editor state rather than DOM scraping.
 
 Tasks:
 
-- Decide whether the project should adopt CodeMirror 6, ProseMirror/Tiptap, or a small internal text editor model for Release A writing and Codex canon-description surfaces.
-- Define the persisted text contract for scenes and Codex canon descriptions: pure text, newline policy, leading-space policy, paragraph indentation display rules, and how decorations map to offsets.
-- Define editor command handling for Enter, Space, Tab, paste, undo/redo, selection restoration, and IME composition.
-- Define decoration behavior for realtime Codex mentions and future editor overlays without inserting mark nodes into saved text.
-- Define anchored popover behavior for Canon previews, including scroll/resize repositioning, max dimensions, and click-again close semantics.
-- Add focused tests before replacing the current light editor implementation.
+- Add the minimal CodeMirror 6 packages needed for a plain-text editor surface; record dependency purpose and license in the relevant implementation notes.
+- Build a reusable `EditorSurface` under `apps/web/src/features/editor/` or an equivalent shared feature boundary. It should expose `value`, `onChange`, `readOnly`, `placeholder`, `className`, optional Codex entry inputs, and optional preview callbacks.
+- Add a CodeMirror Codex decoration extension that maps active entry names/aliases to dashed underline ranges without changing the document. It must prefer longest match, avoid overlapping ranges, honor archived entries, and preserve aliases/matching rules already used by Codex.
+- Add an editor-anchored Canon preview extension or bridge that opens from a decorated range, closes on second click/Escape/outside click, and stays bounded with its own scroll.
+- Replace the Write scene editor first. Keep save payloads pure text and preserve existing API behavior.
+- Replace the Codex canon-description editor second. It must support the same Codex decorations for other active entries and pure-text save behavior.
+- Remove the old shared contentEditable extraction/restore helpers when both surfaces no longer depend on them.
+- Add focused unit tests for text model behavior and React integration tests for Write and Codex save payloads. Use browser/manual validation for real IME behavior unless the user explicitly asks Codex to run browser checks.
 
 Acceptance:
 
-- The chosen editor approach has a documented rationale and migration plan.
-- Scene and Codex canon-description editors preserve pure text, blank lines, leading spaces, and IME input.
-- Codex mention underlines are decorations and do not mutate saved scene or Codex text.
-- Canon preview popovers remain anchored correctly during editor scroll and do not use viewport-fixed positioning as a shortcut.
+- CodeMirror 6 is either adopted with a working spike or rejected with a concrete blocker recorded here before choosing ProseMirror/Tiptap/Lexical.
+- Write scene editor and Codex canon-description editor no longer use React-rendered contentEditable marks for Codex mentions.
+- Chinese IME composition is not interrupted by realtime Codex matching.
+- Punctuation and normal text input do not duplicate characters.
+- Typing a Codex name/alias creates one text occurrence and one decoration range over that occurrence.
+- Saved scene content and Codex canon descriptions remain pure text and preserve blank lines plus line-leading spaces.
+- Codex underline decorations, preview UI, and any future editor overlays never enter saved manuscript or Canon text.
+- Canon preview popovers stay anchored during editor scroll/resize and do not use viewport-fixed positioning as a shortcut.
 - Undo/redo, paste cleanup, and selection restoration have automated coverage appropriate to the chosen implementation.
 
 Forbidden:
@@ -307,6 +338,7 @@ Forbidden:
 - Do not add more unrelated keydown patches as the long-term editor strategy.
 - Do not save Codex underline markup, preview components, or UI-only spans into manuscript or Codex Canon text.
 - Do not replace the editor with a heavy rich-text schema unless Markdown/YAML persistence and plain-text scene/canon contracts remain explicit.
+- Do not continue with a self-built editor core unless CodeMirror, ProseMirror/Tiptap, and Lexical have all been rejected with concrete blockers.
 
 ### Slice E: Settings and AI Safety Minimum
 
