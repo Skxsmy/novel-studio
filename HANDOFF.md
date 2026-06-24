@@ -56,7 +56,7 @@ Critical blockers:
 - Codex is a shell, not a real product workflow.
 - Codex backend routes are broader than the current frontend API wrapper. Existing routes cover categories, entries, relations, progressions, knowledge, mentions, effective state, context preview, and search; the wrapper currently covers only categories plus entry list/create/get.
 - Write hierarchy must follow `Volume -> Chapter -> Act -> Scene` and support compact add menu, default names, later rename, double-click rename where appropriate, selected delete with confirmation, sane collapse, and scroll.
-- Slice B has started: empty-library creation is tested, create/open only leaves Library on success, selected Volume is tracked, Add Chapter targets the selected Volume, selected Chapter/Act/Scene deletion is covered, and Scene creation inside the selected Act is covered.
+- Slice B has started: empty-library creation is tested, create/open only leaves Library on success, selected Volume is tracked, Add Chapter targets the selected Volume, selected Chapter/Act/Scene deletion is covered, Scene creation inside the selected Act is covered, and Focus enter/exit behavior is covered.
 - Settings is only partially product-complete.
 - Review and Workshop need either real scoped workflows or honest unavailable states.
 

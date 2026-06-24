@@ -985,6 +985,23 @@ describe("App shell", () => {
     expect(await screen.findByText("No scene open")).toBeTruthy();
   });
 
+  it("enters and exits focus mode from write only", async () => {
+    mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    await screen.findByLabelText("Scene title");
+    fireEvent.click(screen.getByRole("button", { name: "Focus" }));
+
+    expect(screen.getByRole("button", { name: "Exit Focus" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Exit Focus" }));
+    expect(screen.getByRole("button", { name: "Focus" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Focus" }));
+    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    expect(screen.queryByRole("button", { name: "Exit Focus" })).toBeNull();
+  });
+
   it("saves a changed scene through the API", async () => {
     const fetchMock = mockFetch();
     render(<App />);

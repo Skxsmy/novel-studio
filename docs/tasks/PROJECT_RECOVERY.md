@@ -143,6 +143,7 @@ Done so far:
 - The product hierarchy projection is explicit in the Write UI: product `Chapter` maps to current storage `Act`, and product `Act` maps to current storage `Chapter`.
 - Adding a Chapter after selecting a Volume now targets that selected Volume instead of always targeting the first Volume.
 - Tests now cover deleting selected Chapter, deleting selected Act, deleting selected Scene, and creating a Scene inside the selected Act.
+- Tests now cover entering and exiting Focus from Write, including automatic exit when switching away from Write.
 
 Purpose: recover the core author path before advanced work.
 
