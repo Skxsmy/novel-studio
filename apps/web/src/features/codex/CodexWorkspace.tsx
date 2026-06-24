@@ -25,7 +25,13 @@ import {
   type CategoryFilter,
   type CodexTab,
 } from "./codexViewModel";
-import { currentEditorCaretOffset, extractEditorText, previewPositionForElement, restoreEditorCaret } from "./editableText";
+import {
+  currentEditorCaretOffset,
+  extractEditorText,
+  previewPositionForElement,
+  replaceEditorSelectionText,
+  restoreEditorCaret,
+} from "./editableText";
 import { findInlineCodexMentions, type InlineCodexMention } from "./inlineMentions";
 
 interface CodexWorkspaceProps {
@@ -903,6 +909,14 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     updateDraft((current) => ({ ...current, description: extractEditorText(element) }));
   }
 
+  function insertDescriptionText(element: HTMLElement, insertedText: string) {
+    if (!draft) return;
+    const next = replaceEditorSelectionText(element, draft.description, insertedText);
+    pendingDescriptionCaretOffsetRef.current = next.caretOffset;
+    setDescriptionPreview(null);
+    updateDraft((current) => ({ ...current, description: next.text }));
+  }
+
   function addDetailRow() {
     setIsDetailsExpanded(true);
     updateDraft((current) => ({
@@ -1265,6 +1279,11 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                     }}
                     onInput={(event) => updateDescriptionFromEditor(event.currentTarget)}
                     onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        insertDescriptionText(event.currentTarget, "\n");
+                        return;
+                      }
                       if (event.key === "Escape") setDescriptionPreview(null);
                     }}
                     ref={descriptionEditorRef}

@@ -47,7 +47,7 @@ Working draft pieces:
 - Write has real project/scene API wiring and partial hierarchy controls.
 - Plan has surfaces, but the current frontend line still needs product-level validation.
 - Codex core can list/search loaded entries, create/open/close entries, rename, edit details/canon description/research/aliases/tags/tracking/context policy, create custom categories, change entry category, save with revision protection, show conflict reload, and archive/restore through real APIs. Custom categories use a compact Add menu, support double-click rename, reject exact duplicate names, and delete with confirmation by moving entries to `Uncategorized` rather than deleting entries. Codex entries can be deleted from the entry detail lifecycle area. User screenshot feedback on the Codex detail tabs has been addressed by collapsing custom Details until needed, tightening Research/Tracking spacing, keeping index summaries visible when detail is open, separating `New Entry` from `No description`, and bounding category/index list scrolling. Codex detail now has real Relations, Mentions, and Tracking tabs; Relations can create/remove active connections through real APIs; Mentions combine manuscript hits from the entry mention API with other-Codex-entry content hits from loaded entries, and matched names/aliases are clickable dashed-underlined text that opens a Canon description preview instead of jumping. Canon description editing also realtime-matches other active Codex entry names/aliases and uses the same fixed, scroll-bounded preview so it is not clipped by the input area.
-- Write loads active Codex entries for realtime scene-body name/alias matching. The editor renders hits inline as dashed underlines without highlight fill, and clicking the same hit toggles a fixed, scroll-bounded Canon description preview without duplicating the scene text. The redundant `Codex in scene` panel was removed; Scene Brief can be hidden and restored with an icon-only control.
+- Write loads active Codex entries for realtime scene-body name/alias matching. The editor renders hits inline as dashed underlines without highlight fill, and clicking the same hit toggles a fixed, scroll-bounded Canon description preview without duplicating the scene text. Write and Codex canon-description editors handle Enter by inserting literal newlines into the text model, so consecutive Enter presses preserve blank lines. The redundant `Codex in scene` panel was removed; Scene Brief can be hidden and restored with an icon-only control.
 - Settings has API-backed model profile, service key, connection test, model list, and project cloud policy behavior.
 - Workshop and Review are incomplete.
 
@@ -241,7 +241,7 @@ Current recovery order:
   - `git diff --check`: passed with line-ending warnings only.
   - Browser/visual validation was not run by Codex per user instruction.
 - Latest Slice D Codex connection repair validation:
-  - `npx vitest run apps/web/src/app/AppShell.test.tsx`: 33 passed.
+  - `npx vitest run apps/web/src/app/AppShell.test.tsx`: 35 passed.
   - `npm.cmd run typecheck -w @novel-studio/web`: passed.
 - Earlier Slice D category/delete backend validation:
   - `npx vitest run packages/storage/test/repository.test.ts`: 42 passed.

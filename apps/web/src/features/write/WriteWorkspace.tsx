@@ -17,7 +17,13 @@ import type {
 import { api } from "../../api";
 import { uiText } from "../../app/uiText";
 import type { SaveStatus, SceneDraft } from "../../app/useProjectSession";
-import { currentEditorCaretOffset, extractEditorText, previewPositionForElement, restoreEditorCaret } from "../codex/editableText";
+import {
+  currentEditorCaretOffset,
+  extractEditorText,
+  previewPositionForElement,
+  replaceEditorSelectionText,
+  restoreEditorCaret,
+} from "../codex/editableText";
 import { findInlineCodexMentions, type InlineCodexMention } from "../codex/inlineMentions";
 
 export interface WriteWorkspaceProps {
@@ -361,6 +367,14 @@ export function WriteWorkspace({
     pendingCaretOffsetRef.current = currentEditorCaretOffset(element);
     setActiveSceneCodexPreview(null);
     onUpdateContent(extractEditorText(element));
+  }
+
+  function insertContentText(element: HTMLElement, insertedText: string) {
+    if (!draft) return;
+    const next = replaceEditorSelectionText(element, draft.content, insertedText);
+    pendingCaretOffsetRef.current = next.caretOffset;
+    setActiveSceneCodexPreview(null);
+    onUpdateContent(next.text);
   }
 
   function canCreateStructure(type: ProductStructureType) {
@@ -739,6 +753,11 @@ export function WriteWorkspace({
                   }}
                   onInput={(event) => updateContentFromEditor(event.currentTarget)}
                   onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      insertContentText(event.currentTarget, "\n");
+                      return;
+                    }
                     if (event.key === "Escape") setActiveSceneCodexPreview(null);
                   }}
                   ref={editorRef}

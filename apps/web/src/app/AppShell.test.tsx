@@ -1456,6 +1456,32 @@ describe("App shell", () => {
     expect(screen.queryByLabelText("West Quay canon description")).toBeNull();
   });
 
+  it("preserves blank lines inserted with Enter in codex canon description", async () => {
+    const fetchMock = mockFetch({
+      initialCodexEntries: [codexEntryDocument("Harbor Lock", "location", "", codexEntryId)],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    const harborRow = (await screen.findByText("Harbor Lock")).closest("button");
+    expect(harborRow).toBeTruthy();
+    fireEvent.click(harborRow!);
+
+    const descriptionEditor = await screen.findByLabelText("Codex canon description");
+    fireEvent.keyDown(descriptionEditor, { key: "Enter" });
+    fireEvent.keyDown(descriptionEditor, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}` && init?.method === "PUT"
+      ));
+      expect(putCall).toBeTruthy();
+      expect(JSON.parse(String(putCall![1]?.body)).description).toBe("\n\n");
+    });
+  });
+
   it("saves codex tracking settings from the renamed tracking tab", async () => {
     const fetchMock = mockFetch();
     render(<App />);
@@ -1864,13 +1890,33 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/scenes/${sceneId}`,
-        expect.objectContaining({ method: "PUT" }),
-      );
+      const putCall = fetchMock.mock.calls.find(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/scenes/${sceneId}` && init?.method === "PUT"
+      ));
+      expect(putCall).toBeTruthy();
+      expect(JSON.parse(String(putCall![1]?.body)).content).toBe("New paragraph");
     });
     await waitFor(() => {
       expect(screen.getAllByText("Saved").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("preserves blank lines inserted with Enter in the write editor", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    const editor = await screen.findByLabelText("Scene content");
+    fireEvent.keyDown(editor, { key: "Enter" });
+    fireEvent.keyDown(editor, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Save now" }));
+
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/scenes/${sceneId}` && init?.method === "PUT"
+      ));
+      expect(putCall).toBeTruthy();
+      expect(JSON.parse(String(putCall![1]?.body)).content).toBe("\n\n");
     });
   });
 
