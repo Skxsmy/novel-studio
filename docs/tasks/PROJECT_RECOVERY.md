@@ -273,6 +273,41 @@ Forbidden:
 - No frontend-only context mock.
 - No silent future-information leak.
 
+### Slice D2: Editor Foundation
+
+Purpose: turn the mature-editor research from the Slice D bugfix into a real editor foundation plan instead of continuing ad hoc contentEditable patches.
+
+Research takeaways:
+
+- Mature editors model content as document plus selection, and mutate through explicit transactions rather than trusting browser DOM mutations.
+- Inline visual state such as Codex mentions, search hits, spelling hints, comments, and warnings should be rendered as decorations/marks that do not enter the saved manuscript or Canon description text.
+- Keyboard behavior should be centralized as editor commands/keymaps, including Enter, Space, Tab, undo/redo, selection movement, and IME composition safety.
+- Popovers should be anchored to editor coordinates or decoration ranges, update on scroll/resize/selection changes, and stay outside editable DOM content.
+- Paste handling, whitespace normalization, paragraph indentation, word/character counts, current-line/paragraph focus, and scroll-to-cursor behavior are editor features, not one-off page fixes.
+
+Tasks:
+
+- Decide whether the project should adopt CodeMirror 6, ProseMirror/Tiptap, or a small internal text editor model for Release A writing and Codex canon-description surfaces.
+- Define the persisted text contract for scenes and Codex canon descriptions: pure text, newline policy, leading-space policy, paragraph indentation display rules, and how decorations map to offsets.
+- Define editor command handling for Enter, Space, Tab, paste, undo/redo, selection restoration, and IME composition.
+- Define decoration behavior for realtime Codex mentions and future editor overlays without inserting mark nodes into saved text.
+- Define anchored popover behavior for Canon previews, including scroll/resize repositioning, max dimensions, and click-again close semantics.
+- Add focused tests before replacing the current light editor implementation.
+
+Acceptance:
+
+- The chosen editor approach has a documented rationale and migration plan.
+- Scene and Codex canon-description editors preserve pure text, blank lines, leading spaces, and IME input.
+- Codex mention underlines are decorations and do not mutate saved scene or Codex text.
+- Canon preview popovers remain anchored correctly during editor scroll and do not use viewport-fixed positioning as a shortcut.
+- Undo/redo, paste cleanup, and selection restoration have automated coverage appropriate to the chosen implementation.
+
+Forbidden:
+
+- Do not add more unrelated keydown patches as the long-term editor strategy.
+- Do not save Codex underline markup, preview components, or UI-only spans into manuscript or Codex Canon text.
+- Do not replace the editor with a heavy rich-text schema unless Markdown/YAML persistence and plain-text scene/canon contracts remain explicit.
+
 ### Slice E: Settings and AI Safety Minimum
 
 Purpose: finish the settings path required for safe local/cloud AI use.

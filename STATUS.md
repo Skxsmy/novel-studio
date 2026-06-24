@@ -68,10 +68,11 @@ Current recovery slices:
 2. Slice B: Start-to-Write vertical slice, command-verified; user visual validation remains separate.
 3. Slice C: Codex core vertical slice, command-verified; user visual validation remains separate.
 4. Slice D: Codex connections, command-verified for current Codex scope; Plan review/rework is explicitly deferred.
-5. Slice E: Settings and AI safety minimum.
-6. Slice F: Review, Workshop, and navigation honesty.
-7. Slice G: visual system and responsive acceptance.
-8. Slice H: verification and handoff.
+5. Slice D2: Editor Foundation, opened from the mature-editor research follow-up; replace ad hoc contentEditable work with a document/selection/transaction and decoration-based editor plan before more writing-editor feature patches.
+6. Slice E: Settings and AI safety minimum.
+7. Slice F: Review, Workshop, and navigation honesty.
+8. Slice G: visual system and responsive acceptance.
+9. Slice H: verification and handoff.
 
 ## Milestone State
 

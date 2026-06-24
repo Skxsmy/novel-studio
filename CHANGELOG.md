@@ -63,6 +63,7 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **Project Recovery Slice D Realtime Mention Correction**: Write scene text and Codex canon descriptions now realtime-match active Codex entry names and aliases, render clickable dashed-underlined hits, and use bounded scrollable Canon description previews.
 - **Project Recovery Slice D Mention UI Correction**: Removed the redundant Write `Codex in scene` panel, made Scene Brief hide/restorable through an icon-only control, removed highlight fill from Codex mention marks, and changed mention previews to bounded editor-shell overlays so canon-description previews are not clipped by the scrollable input area without using viewport-fixed positioning.
 - **Project Recovery Slice D Editor Whitespace Correction**: Write and Codex canon-description editors now handle Enter and Space by inserting literal characters into the text model, preserving blank lines and line-leading spaces instead of relying on browser-generated contentEditable blocks or whitespace normalization.
+- **Project Recovery Slice D2 Editor Foundation Opened**: Split the mature-editor research takeaways into their own planned editor foundation slice. D2 will decide the editor model/library, document plain-text persistence and decoration behavior, and cover IME, paste, undo/redo, selection restoration, paragraph indentation, and anchored Canon preview popovers before more writing-editor feature work.
 
 ### Current Validation Snapshot
 
