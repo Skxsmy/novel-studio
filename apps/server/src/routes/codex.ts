@@ -4,6 +4,7 @@ import {
   CodexCategoryIdSchema,
   CreateCodexCategoryInputSchema,
   CreateCodexEntryInputSchema,
+  DeleteCodexDocumentInputSchema,
   CreateCodexKnowledgeInputSchema,
   CreateCodexProgressionInputSchema,
   CreateCodexRelationInputSchema,
@@ -75,6 +76,18 @@ export function registerCodexRoutes(
     },
   );
 
+  app.delete<{ Params: { seriesId: string; categoryId: string } }>(
+    "/api/v1/series/:seriesId/codex/categories/:categoryId",
+    async (request) => {
+      const input = DeleteCodexDocumentInputSchema.parse(request.body);
+      return repository.deleteCodexCategory(
+        request.params.seriesId,
+        request.params.categoryId,
+        input,
+      );
+    },
+  );
+
   app.get<{
     Params: { seriesId: string };
     Querystring: { categoryId?: string; includeArchived?: string };
@@ -132,6 +145,18 @@ export function registerCodexRoutes(
     async (request) => {
       const input = ArchiveCodexDocumentInputSchema.parse(request.body);
       return repository.restoreCodexEntry(
+        request.params.seriesId,
+        request.params.entryId,
+        input,
+      );
+    },
+  );
+
+  app.delete<{ Params: { seriesId: string; entryId: string } }>(
+    "/api/v1/series/:seriesId/codex/entries/:entryId",
+    async (request) => {
+      const input = DeleteCodexDocumentInputSchema.parse(request.body);
+      return repository.deleteCodexEntry(
         request.params.seriesId,
         request.params.entryId,
         input,

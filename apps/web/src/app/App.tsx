@@ -136,6 +136,7 @@ export function App() {
           onSelectAct={session.selectAct}
           onSelectChapter={session.selectChapter}
           onSelectScene={session.selectScene}
+          onClearStructureSelection={session.resetStructureSelection}
           onToggleFocus={() => setIsFocusMode((value) => !value)}
           onUpdateAct={session.updateAct}
           onUpdateVolume={session.updateVolume}
@@ -154,7 +155,17 @@ export function App() {
 
     if (activeWorkspace === "overview") return <OverviewWorkspace series={session.activeSeries} />;
     if (activeWorkspace === "plan") return <PlanWorkspace series={session.activeSeries} />;
-    if (activeWorkspace === "codex") return <CodexWorkspace series={session.activeSeries} />;
+    if (activeWorkspace === "codex") {
+      return (
+        <CodexWorkspace
+          onOpenScene={(sceneId) => {
+            session.selectScene(sceneId);
+            setActiveWorkspace("write");
+          }}
+          series={session.activeSeries}
+        />
+      );
+    }
     if (activeWorkspace === "workshop") return <WorkshopWorkspace />;
     return <ReviewWorkspace />;
   }

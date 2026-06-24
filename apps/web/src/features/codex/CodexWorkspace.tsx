@@ -1,54 +1,426 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  type CodexAiContextPolicy,
   type CodexCategoryDocument,
+  type CodexCategoryId,
   type CodexEntryDocument,
+  type CodexMention,
+  type CodexMentionRules,
+  type CodexRelationDocument,
+  type CreateCodexRelationInput,
+  type SceneDocument,
   type SeriesDetail,
+  type UpdateCodexEntryInput,
 } from "@novel-studio/contracts";
-import { api } from "../../api";
+import { ApiError, api } from "../../api";
 import {
   categoryLabel,
   codexTabs,
+  codexText,
+  commaList,
   defaultEntryCategory,
   nextEntryName,
+  parseCommaList,
   statusLabel,
   type CategoryFilter,
   type CodexTab,
 } from "./codexViewModel";
+import { currentEditorCaretOffset, extractEditorText, previewPositionForElement, restoreEditorCaret } from "./editableText";
+import { findInlineCodexMentions, type InlineCodexMention } from "./inlineMentions";
 
 interface CodexWorkspaceProps {
+  onOpenScene?: (sceneId: string) => void;
   series: SeriesDetail;
 }
 
-export function CodexWorkspace({ series }: CodexWorkspaceProps) {
+type CodexSaveStatus = "idle" | "dirty" | "saving" | "saved" | "conflict" | "failed";
+type MentionSource = "manuscript" | "codex";
+type CodexRelationDirection = "outgoing" | "incoming" | "undirected";
+type ActiveInlineCodexPreview = { entry: CodexEntryDocument; left: number; markKey: string; top: number };
+
+interface DetailDraftRow {
+  key: string;
+  value: string;
+}
+
+interface CodexDraft {
+  aiContextPolicy: CodexAiContextPolicy;
+  aliases: string;
+  baseResearchRevision: string;
+  baseRevision: string;
+  caseSensitive: boolean;
+  categoryId: CodexCategoryId;
+  automaticPlural: boolean;
+  description: string;
+  detailRows: DetailDraftRow[];
+  excludedTerms: string;
+  matchAliases: boolean;
+  name: string;
+  research: string;
+  tags: string;
+}
+
+interface RelationDraft {
+  description: string;
+  direction: CodexRelationDirection;
+  evidence: string;
+  targetEntryId: string;
+  type: string;
+}
+
+interface HighlightSnippet {
+  leading: boolean;
+  range: { start: number; end: number };
+  text: string;
+  trailing: boolean;
+}
+
+interface CodexContentMention {
+  fieldLabel: string;
+  match: { start: number; end: number; matchedText: string; isAlias: boolean };
+  snippet: HighlightSnippet;
+  sourceEntry: CodexEntryDocument;
+}
+
+function draftFromEntry(entry: CodexEntryDocument): CodexDraft {
+  return {
+    aiContextPolicy: entry.metadata.aiContextPolicy,
+    aliases: commaList(entry.metadata.aliases),
+    automaticPlural: entry.metadata.mention.automaticPlural,
+    baseResearchRevision: entry.research.revision,
+    baseRevision: entry.revision,
+    caseSensitive: entry.metadata.mention.caseSensitive,
+    categoryId: entry.metadata.categoryId,
+    description: entry.description,
+    detailRows: Object.entries(entry.metadata.details).map(([key, value]) => ({ key, value })),
+    excludedTerms: commaList(entry.metadata.mention.excludedTerms),
+    matchAliases: entry.metadata.mention.matchAliases,
+    name: entry.metadata.name,
+    research: entry.research.content,
+    tags: commaList(entry.metadata.tags),
+  };
+}
+
+function relationDraftFor(entryId: string | null, entries: CodexEntryDocument[]): RelationDraft {
+  const targetEntry = entries.find((entry) => entry.metadata.id !== entryId && !entry.metadata.archivedAt);
+  return {
+    description: "",
+    direction: "outgoing",
+    evidence: "",
+    targetEntryId: targetEntry?.metadata.id ?? "",
+    type: "related",
+  };
+}
+
+function sortEntries(entries: CodexEntryDocument[]) {
+  return [...entries].sort((left, right) => left.metadata.name.localeCompare(right.metadata.name));
+}
+
+function formatCodexError(error: unknown, fallback: string) {
+  if (error instanceof ApiError) {
+    const payload = error.payload;
+    if (payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string") {
+      return payload.message;
+    }
+    return `${fallback} (${error.status})`;
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
+function buildUpdateInput(draft: CodexDraft): UpdateCodexEntryInput {
+  const name = draft.name.trim();
+  if (!name) throw new Error(codexText.errors.nameRequired);
+
+  const details: Record<string, string> = {};
+  for (const row of draft.detailRows) {
+    const key = row.key.trim();
+    if (!key && !row.value.trim()) continue;
+    if (!key) throw new Error(codexText.errors.detailBlank);
+    if (details[key] !== undefined) throw new Error(codexText.errors.detailDuplicate(key));
+    details[key] = row.value;
+  }
+
+  const mention: CodexMentionRules = {
+    automaticPlural: draft.automaticPlural,
+    caseSensitive: draft.caseSensitive,
+    excludedTerms: parseCommaList(draft.excludedTerms),
+    matchAliases: draft.matchAliases,
+  };
+
+  return {
+    aiContextPolicy: draft.aiContextPolicy,
+    aliases: parseCommaList(draft.aliases),
+    baseResearchRevision: draft.baseResearchRevision,
+    baseRevision: draft.baseRevision,
+    categoryId: draft.categoryId,
+    description: draft.description,
+    details,
+    mention,
+    name,
+    research: draft.research,
+    tags: parseCommaList(draft.tags),
+  };
+}
+
+function pluralVariants(term: string) {
+  if (!/^[A-Za-z]+$/.test(term)) return [];
+  if (term.endsWith("y") && !/[aeiou]y$/i.test(term)) return [`${term.slice(0, -1)}ies`];
+  if (/(s|x|z|ch|sh)$/i.test(term)) return [`${term}es`];
+  return [`${term}s`];
+}
+
+function findTermStarts(content: string, term: string, caseSensitive: boolean) {
+  if (!term) return [];
+  const haystack = caseSensitive ? content : content.toLocaleLowerCase("und");
+  const needle = caseSensitive ? term : term.toLocaleLowerCase("und");
+  const starts: number[] = [];
+  let cursor = haystack.indexOf(needle);
+  while (cursor >= 0) {
+    starts.push(cursor);
+    cursor = haystack.indexOf(needle, cursor + Math.max(needle.length, 1));
+  }
+  return starts;
+}
+
+function buildTrackedTerms(entry: CodexEntryDocument) {
+  const { mention } = entry.metadata;
+  const excluded = new Set(
+    mention.excludedTerms.map((term) =>
+      mention.caseSensitive ? term.trim() : term.trim().toLocaleLowerCase("und"),
+    ),
+  );
+  const baseTerms = [
+    { term: entry.metadata.name, isAlias: false },
+    ...(mention.matchAliases ? entry.metadata.aliases.map((term) => ({ term, isAlias: true })) : []),
+  ];
+  const seen = new Set<string>();
+  const terms: Array<{ term: string; isAlias: boolean }> = [];
+  for (const candidate of baseTerms) {
+    for (const value of [candidate.term, ...(mention.automaticPlural ? pluralVariants(candidate.term) : [])]) {
+      const term = value.trim();
+      if (!term) continue;
+      const key = mention.caseSensitive ? term : term.toLocaleLowerCase("und");
+      if (excluded.has(key) || seen.has(`${key}:${candidate.isAlias}`)) continue;
+      seen.add(`${key}:${candidate.isAlias}`);
+      terms.push({ term, isAlias: candidate.isAlias });
+    }
+  }
+  return terms.sort((left, right) => right.term.length - left.term.length);
+}
+
+function createSnippet(content: string, start: number, end: number): HighlightSnippet {
+  const snippetStart = Math.max(0, start - 88);
+  const snippetEnd = Math.min(content.length, end + 128);
+  return {
+    leading: snippetStart > 0,
+    range: { start: start - snippetStart, end: end - snippetStart },
+    text: content.slice(snippetStart, snippetEnd),
+    trailing: snippetEnd < content.length,
+  };
+}
+
+function renderHighlightedSnippet(snippet: HighlightSnippet, onOpenPreview?: () => void): ReactNode {
+  const before = snippet.text.slice(0, snippet.range.start);
+  const match = snippet.text.slice(snippet.range.start, snippet.range.end);
+  const after = snippet.text.slice(snippet.range.end);
+  return (
+    <>
+      {snippet.leading ? "..." : ""}
+      {before}
+      {onOpenPreview ? (
+        <button className="codex-mention-mark" onClick={onOpenPreview} type="button">
+          {match}
+        </button>
+      ) : (
+        <mark className="codex-mention-mark">{match}</mark>
+      )}
+      {after}
+      {snippet.trailing ? "..." : ""}
+    </>
+  );
+}
+
+function renderEditableCodexMarks(
+  content: string,
+  mentions: InlineCodexMention[],
+  entriesById: Map<string, CodexEntryDocument>,
+  activePreview: ActiveInlineCodexPreview | null,
+  onToggle: (markKey: string, entry: CodexEntryDocument, element: HTMLElement) => void,
+): ReactNode {
+  if (!mentions.length) return content;
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  for (const mention of mentions) {
+    if (mention.start < cursor) continue;
+    if (mention.start > cursor) nodes.push(content.slice(cursor, mention.start));
+    const entry = entriesById.get(mention.entryId);
+    const matched = content.slice(mention.start, mention.end);
+    const markKey = `${mention.entryId}:${mention.start}:${mention.end}`;
+    nodes.push(entry ? (
+      <span className="scene-codex-mark-wrap" contentEditable={false} data-mention-text={matched} key={markKey}>
+        <button
+          aria-expanded={activePreview?.markKey === markKey}
+          className={`codex-mention-mark${activePreview?.markKey === markKey ? " is-open" : ""}`}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onToggle(markKey, entry, event.currentTarget);
+          }}
+          type="button"
+        >
+          {matched}
+        </button>
+        {activePreview?.markKey === markKey ? (
+          <aside
+            className="codex-preview-popover scene-codex-preview"
+            aria-label={`${entry.metadata.name} canon description`}
+            data-codex-preview="true"
+            style={{ left: activePreview.left, top: activePreview.top }}
+          >
+            <div className="codex-preview-head">
+              <div>
+                <div className="row-meta">Codex</div>
+                <strong>{entry.metadata.name}</strong>
+              </div>
+            </div>
+            <p>{entry.description || codexText.empty.noDescription}</p>
+          </aside>
+        ) : null}
+      </span>
+    ) : (
+      <mark className="codex-mention-mark" key={markKey}>{matched}</mark>
+    ));
+    cursor = mention.end;
+  }
+  if (cursor < content.length) nodes.push(content.slice(cursor));
+  return nodes;
+}
+
+function findMatchesInText(entry: CodexEntryDocument, content: string) {
+  const { mention } = entry.metadata;
+  const blockers = mention.excludedTerms.flatMap((term) =>
+    findTermStarts(content, term.trim(), mention.caseSensitive).map((start) => ({
+      start,
+      end: start + term.trim().length,
+    })),
+  );
+  const rawMatches = buildTrackedTerms(entry).flatMap((candidate) =>
+    findTermStarts(content, candidate.term, mention.caseSensitive).map((start) => ({
+      start,
+      end: start + candidate.term.length,
+      isAlias: candidate.isAlias,
+      matchedText: content.slice(start, start + candidate.term.length),
+    })),
+  );
+  const sorted = rawMatches
+    .filter((match) => !blockers.some((blocker) => match.start >= blocker.start && match.end <= blocker.end))
+    .sort((left, right) => left.start - right.start || (right.end - right.start) - (left.end - left.start));
+  const matches: typeof rawMatches = [];
+  let occupiedUntil = -1;
+  for (const match of sorted) {
+    if (match.start < occupiedUntil) continue;
+    matches.push(match);
+    occupiedUntil = match.end;
+  }
+  return matches;
+}
+
+function findCodexContentMentions(entry: CodexEntryDocument, entries: CodexEntryDocument[]): CodexContentMention[] {
+  const mentions: CodexContentMention[] = [];
+  for (const sourceEntry of entries) {
+    if (sourceEntry.metadata.id === entry.metadata.id || sourceEntry.metadata.archivedAt) continue;
+    const sources = [
+      { label: codexText.mentions.fieldCanon, content: sourceEntry.description },
+      { label: codexText.mentions.fieldResearch, content: sourceEntry.research.content },
+      ...Object.entries(sourceEntry.metadata.details).map(([label, content]) => ({
+        label: codexText.mentions.fieldDetail(label),
+        content,
+      })),
+    ];
+    for (const source of sources) {
+      if (!source.content.trim()) continue;
+      for (const match of findMatchesInText(entry, source.content)) {
+        mentions.push({
+          fieldLabel: source.label,
+          match,
+          snippet: createSnippet(source.content, match.start, match.end),
+          sourceEntry,
+        });
+      }
+    }
+  }
+  return mentions;
+}
+
+export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
   const [activeTab, setActiveTab] = useState<CodexTab>("details");
+  const [activeMentionSource, setActiveMentionSource] = useState<MentionSource>("manuscript");
+  const [draft, setDraft] = useState<CodexDraft | null>(null);
   const [entries, setEntries] = useState<CodexEntryDocument[]>([]);
   const [categories, setCategories] = useState<CodexCategoryDocument[]>([]);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [entryMentions, setEntryMentions] = useState<CodexMention[]>([]);
+  const [entryRelations, setEntryRelations] = useState<CodexRelationDocument[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isCategoryAddOpen, setIsCategoryAddOpen] = useState(false);
+  const [isCategoryDeleteOpen, setIsCategoryDeleteOpen] = useState(false);
+  const [isDeleteEntryOpen, setIsDeleteEntryOpen] = useState(false);
+  const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [isConnectionsLoading, setIsConnectionsLoading] = useState(false);
+  const [isCreatingRelation, setIsCreatingRelation] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [previewEntry, setPreviewEntry] = useState<CodexEntryDocument | null>(null);
+  const [descriptionPreview, setDescriptionPreview] = useState<ActiveInlineCodexPreview | null>(null);
   const [query, setQuery] = useState("");
+  const [renamingCategory, setRenamingCategory] = useState<{ id: string; name: string; baseRevision: string } | null>(null);
+  const [relationDeleteId, setRelationDeleteId] = useState<string | null>(null);
+  const [relationDraft, setRelationDraft] = useState<RelationDraft>(() => relationDraftFor(null, []));
+  const [saveStatus, setSaveStatus] = useState<CodexSaveStatus>("idle");
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const descriptionEditorRef = useRef<HTMLDivElement | null>(null);
+  const pendingDescriptionCaretOffsetRef = useRef<number | null>(null);
 
   useEffect(() => {
     let isActive = true;
     setIsLoading(true);
     setErrorMessage(null);
     setSelectedEntryId(null);
+    setDraft(null);
+    setActiveMentionSource("manuscript");
+    setConnectionError(null);
+    setEntryMentions([]);
+    setEntryRelations([]);
+    setPreviewEntry(null);
+    setDescriptionPreview(null);
+    setRelationDeleteId(null);
+    setRelationDraft(relationDraftFor(null, []));
+    setIsDetailsExpanded(false);
+    setIsCategoryAddOpen(false);
+    setIsCategoryDeleteOpen(false);
+    setIsDeleteEntryOpen(false);
+    setRenamingCategory(null);
+    setSaveStatus("idle");
     setActiveTab("details");
 
     Promise.all([
       api.codex.listCategories(series.manifest.id),
-      api.codex.listEntries(series.manifest.id),
+      api.codex.listEntries(series.manifest.id, { includeArchived: showArchived }),
     ])
       .then(([nextCategories, nextEntries]) => {
         if (!isActive) return;
         setCategories(nextCategories);
-        setEntries(nextEntries);
+        setEntries(sortEntries(nextEntries));
       })
       .catch((error: unknown) => {
         if (!isActive) return;
-        setErrorMessage(error instanceof Error ? error.message : "Failed to load codex entries");
+        setErrorMessage(formatCodexError(error, codexText.errors.loadFailed));
       })
       .finally(() => {
         if (isActive) setIsLoading(false);
@@ -57,11 +429,12 @@ export function CodexWorkspace({ series }: CodexWorkspaceProps) {
     return () => {
       isActive = false;
     };
-  }, [series.manifest.id]);
+  }, [series.manifest.id, showArchived]);
 
   const filteredEntries = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return entries.filter((entry) => {
+      if (!showArchived && entry.metadata.archivedAt) return false;
       if (activeCategory !== "all" && entry.metadata.categoryId !== activeCategory) return false;
       if (!normalizedQuery) return true;
       const haystack = [
@@ -74,15 +447,194 @@ export function CodexWorkspace({ series }: CodexWorkspaceProps) {
       ].join("\n").toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [activeCategory, entries, query]);
+  }, [activeCategory, entries, query, showArchived]);
 
-  const selectedEntry = selectedEntryId
-    ? entries.find((entry) => entry.metadata.id === selectedEntryId) ?? null
-    : null;
+  const selectedEntry = selectedEntryId ? entries.find((entry) => entry.metadata.id === selectedEntryId) ?? null : null;
+  const entryNameById = useMemo(() => new Map(entries.map((entry) => [entry.metadata.id, entry.metadata.name])), [entries]);
+  const entryById = useMemo(() => new Map(entries.map((entry) => [entry.metadata.id, entry])), [entries]);
+  const sceneById = useMemo(() => new Map(series.scenes.map((scene) => [scene.metadata.id, scene])), [series.scenes]);
+  const codexContentMentions = useMemo(
+    () => (selectedEntry ? findCodexContentMentions(selectedEntry, entries) : []),
+    [entries, selectedEntry],
+  );
+  const descriptionMentionEntries = useMemo(
+    () => entries.filter((entry) => entry.metadata.id !== selectedEntryId && !entry.metadata.archivedAt),
+    [entries, selectedEntryId],
+  );
+  const descriptionInlineMentions = useMemo(
+    () => (draft ? findInlineCodexMentions(draft.description, descriptionMentionEntries) : []),
+    [descriptionMentionEntries, draft?.description],
+  );
+  const relationTargetEntries = useMemo(
+    () => entries.filter((entry) => entry.metadata.id !== selectedEntryId && !entry.metadata.archivedAt),
+    [entries, selectedEntryId],
+  );
+  const sceneMentionCount = entryMentions.length;
+
+  useEffect(() => {
+    if (!selectedEntryId) {
+      setConnectionError(null);
+      setEntryMentions([]);
+      setEntryRelations([]);
+      setPreviewEntry(null);
+      setDescriptionPreview(null);
+      setRelationDeleteId(null);
+      setRelationDraft(relationDraftFor(null, entries));
+      setIsConnectionsLoading(false);
+      return;
+    }
+    let isActive = true;
+    setConnectionError(null);
+    setIsConnectionsLoading(true);
+    Promise.all([
+      api.codex.listEntryMentions(series.manifest.id, selectedEntryId),
+      api.codex.listRelations(series.manifest.id, { entryId: selectedEntryId }),
+    ])
+      .then(([mentions, relations]) => {
+        if (!isActive) return;
+        setEntryMentions(mentions);
+        setEntryRelations(relations);
+      })
+      .catch((error: unknown) => {
+        if (!isActive) return;
+        setConnectionError(formatCodexError(error, codexText.errors.loadConnectionsFailed));
+        setEntryMentions([]);
+        setEntryRelations([]);
+      })
+      .finally(() => {
+        if (isActive) setIsConnectionsLoading(false);
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [series.manifest.id, selectedEntryId]);
+
+  useLayoutEffect(() => {
+    if (pendingDescriptionCaretOffsetRef.current === null || !descriptionEditorRef.current) return;
+    restoreEditorCaret(descriptionEditorRef.current, pendingDescriptionCaretOffsetRef.current);
+    pendingDescriptionCaretOffsetRef.current = null;
+  }, [draft?.description]);
+
+  useEffect(() => {
+    if (!descriptionPreview) return;
+
+    function closeOnOutsidePointer(event: PointerEvent) {
+      const target = event.target as Node | null;
+      if (!target || descriptionEditorRef.current?.contains(target)) return;
+      setDescriptionPreview(null);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [descriptionPreview]);
+
+  useEffect(() => {
+    setRelationDraft((current) => {
+      if (current.targetEntryId && relationTargetEntries.some((entry) => entry.metadata.id === current.targetEntryId)) {
+        return current;
+      }
+      return {
+        ...current,
+        targetEntryId: relationTargetEntries[0]?.metadata.id ?? "",
+      };
+    });
+  }, [relationTargetEntries]);
 
   const countsByCategory = new Map<string, number>();
-  for (const entry of entries) {
+  for (const entry of entries.filter((candidate) => !candidate.metadata.archivedAt)) {
     countsByCategory.set(entry.metadata.categoryId, (countsByCategory.get(entry.metadata.categoryId) ?? 0) + 1);
+  }
+  const activeEntryCount = entries.filter((entry) => !entry.metadata.archivedAt).length;
+  const archivedEntryCount = entries.length - activeEntryCount;
+  const activeCategoryDocument = activeCategory === "all"
+    ? null
+    : categories.find(({ category }) => category.id === activeCategory) ?? null;
+  const canDeleteActiveCategory = Boolean(
+    activeCategoryDocument &&
+    !activeCategoryDocument.category.builtIn &&
+    !activeCategoryDocument.category.archivedAt &&
+    activeCategoryDocument.revision,
+  );
+
+  function markDirty() {
+    if (saveStatus !== "saving") setSaveStatus("dirty");
+    setErrorMessage(null);
+  }
+
+  function replaceEntry(entry: CodexEntryDocument) {
+    setEntries((current) => {
+      const exists = current.some((candidate) => candidate.metadata.id === entry.metadata.id);
+      return sortEntries(exists
+        ? current.map((candidate) => (candidate.metadata.id === entry.metadata.id ? entry : candidate))
+        : [...current, entry]);
+    });
+  }
+
+  function categoryNameExists(name: string, exceptCategoryId?: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return false;
+    return categories.some(({ category }) =>
+      !category.archivedAt &&
+      category.id !== exceptCategoryId &&
+      (category.name === trimmed || categoryLabel(category.id, categories) === trimmed),
+    );
+  }
+
+  function syncEntryList(nextEntries: CodexEntryDocument[]) {
+    const sortedEntries = sortEntries(nextEntries);
+    setEntries(sortedEntries);
+    if (!selectedEntryId) return;
+    const nextSelectedEntry = sortedEntries.find((entry) => entry.metadata.id === selectedEntryId) ?? null;
+    if (!nextSelectedEntry) {
+      setSelectedEntryId(null);
+      setDraft(null);
+      setActiveMentionSource("manuscript");
+      setConnectionError(null);
+      setEntryMentions([]);
+      setEntryRelations([]);
+      setPreviewEntry(null);
+      setDescriptionPreview(null);
+      setRelationDeleteId(null);
+      setRelationDraft(relationDraftFor(null, entries));
+      setIsDetailsExpanded(false);
+      setSaveStatus("idle");
+      return;
+    }
+    setDraft(draftFromEntry(nextSelectedEntry));
+    setSaveStatus("idle");
+  }
+
+  function selectEntry(entry: CodexEntryDocument) {
+    if (selectedEntryId === entry.metadata.id) {
+      setSelectedEntryId(null);
+      setDraft(null);
+      setActiveMentionSource("manuscript");
+      setConnectionError(null);
+      setEntryMentions([]);
+      setEntryRelations([]);
+      setPreviewEntry(null);
+      setDescriptionPreview(null);
+      setIsDetailsExpanded(false);
+      setIsDeleteEntryOpen(false);
+      setSaveStatus("idle");
+      setActiveTab("details");
+      return;
+    }
+    setSelectedEntryId(entry.metadata.id);
+    setDraft(draftFromEntry(entry));
+    setActiveMentionSource("manuscript");
+    setConnectionError(null);
+    setEntryMentions([]);
+    setEntryRelations([]);
+    setPreviewEntry(null);
+    setDescriptionPreview(null);
+    setRelationDeleteId(null);
+    setRelationDraft(relationDraftFor(entry.metadata.id, entries));
+    setIsDetailsExpanded(false);
+    setIsDeleteEntryOpen(false);
+    setSaveStatus("idle");
+    setActiveTab("details");
+    setErrorMessage(null);
   }
 
   async function createEntry() {
@@ -94,27 +646,294 @@ export function CodexWorkspace({ series }: CodexWorkspaceProps) {
         categoryId: defaultEntryCategory(activeCategory),
         name: nextEntryName(entries),
       });
-      setEntries((current) => [...current, entry].sort((left, right) => left.metadata.name.localeCompare(right.metadata.name)));
+      replaceEntry(entry);
       setSelectedEntryId(entry.metadata.id);
+      setDraft(draftFromEntry(entry));
+      setActiveMentionSource("manuscript");
+      setConnectionError(null);
+      setEntryMentions([]);
+      setEntryRelations([]);
+      setPreviewEntry(null);
+      setDescriptionPreview(null);
+      setRelationDeleteId(null);
+      setRelationDraft(relationDraftFor(entry.metadata.id, entries));
+      setIsDetailsExpanded(false);
+      setSaveStatus("idle");
       setActiveTab("details");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to create codex entry");
+      setErrorMessage(formatCodexError(error, codexText.errors.createFailed));
     } finally {
       setIsCreating(false);
     }
   }
 
+  async function createCategory() {
+    const name = newCategoryName.trim();
+    if (!name || isCreatingCategory) return;
+    if (categoryNameExists(name)) {
+      setErrorMessage(codexText.errors.categoryDuplicate(name));
+      return;
+    }
+    setIsCreatingCategory(true);
+    setErrorMessage(null);
+    try {
+      const category = await api.codex.createCategory(series.manifest.id, { name });
+      setCategories((current) => [...current, category]);
+      setActiveCategory(category.category.id);
+      setNewCategoryName("");
+      setIsCategoryAddOpen(false);
+    } catch (error) {
+      setErrorMessage(formatCodexError(error, codexText.errors.createCategoryFailed));
+    } finally {
+      setIsCreatingCategory(false);
+    }
+  }
+
+  async function saveCategoryRename() {
+    if (!renamingCategory || isCreatingCategory) return;
+    const name = renamingCategory.name.trim();
+    if (!name) {
+      setErrorMessage(codexText.errors.categoryNameRequired);
+      return;
+    }
+    if (categoryNameExists(name, renamingCategory.id)) {
+      setErrorMessage(codexText.errors.categoryDuplicate(name));
+      return;
+    }
+    setIsCreatingCategory(true);
+    setErrorMessage(null);
+    try {
+      const category = await api.codex.updateCategory(series.manifest.id, renamingCategory.id, {
+        baseRevision: renamingCategory.baseRevision,
+        name,
+      });
+      setCategories((current) => current.map((candidate) => (
+        candidate.category.id === category.category.id ? category : candidate
+      )));
+      setRenamingCategory(null);
+    } catch (error) {
+      setErrorMessage(formatCodexError(error, codexText.errors.renameCategoryFailed));
+    } finally {
+      setIsCreatingCategory(false);
+    }
+  }
+
+  async function deleteSelectedCategory() {
+    if (!activeCategoryDocument || !canDeleteActiveCategory || isCreatingCategory) return;
+    const deletedCategoryId = activeCategoryDocument.category.id;
+    setIsCreatingCategory(true);
+    setErrorMessage(null);
+    try {
+      await api.codex.deleteCategory(series.manifest.id, deletedCategoryId, {
+        baseRevision: activeCategoryDocument.revision!,
+      });
+      const nextEntries = await api.codex.listEntries(series.manifest.id, { includeArchived: showArchived });
+      setCategories((current) => current.filter(({ category }) => category.id !== deletedCategoryId));
+      syncEntryList(nextEntries);
+      setActiveCategory("uncategorized");
+      setIsCategoryDeleteOpen(false);
+      setRenamingCategory(null);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setErrorMessage(codexText.errors.conflictDeleteCategory);
+      } else {
+        setErrorMessage(formatCodexError(error, codexText.errors.deleteCategoryFailed));
+      }
+    } finally {
+      setIsCreatingCategory(false);
+    }
+  }
+
+  async function saveEntry() {
+    if (!selectedEntry || !draft || isSaving || selectedEntry.metadata.archivedAt) return;
+    setIsSaving(true);
+    setSaveStatus("saving");
+    setErrorMessage(null);
+    try {
+      const input = buildUpdateInput(draft);
+      const updated = await api.codex.updateEntry(series.manifest.id, selectedEntry.metadata.id, input);
+      replaceEntry(updated);
+      setDraft(draftFromEntry(updated));
+      setIsDetailsExpanded(false);
+      setSaveStatus("saved");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setSaveStatus("conflict");
+        setErrorMessage(codexText.errors.conflictSave);
+      } else {
+        setSaveStatus("failed");
+        setErrorMessage(formatCodexError(error, codexText.errors.saveFailed));
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function reloadSelectedEntry() {
+    if (!selectedEntryId) return;
+    setErrorMessage(null);
+    try {
+      const entry = await api.codex.getEntry(series.manifest.id, selectedEntryId);
+      replaceEntry(entry);
+      setDraft(draftFromEntry(entry));
+      setIsDetailsExpanded(false);
+      setSaveStatus("idle");
+    } catch (error) {
+      setErrorMessage(formatCodexError(error, codexText.errors.reloadFailed));
+    }
+  }
+
+  async function setArchived(archived: boolean) {
+    if (!selectedEntry || isSaving) return;
+    setIsSaving(true);
+    setErrorMessage(null);
+    try {
+      const entry = archived
+        ? await api.codex.archiveEntry(series.manifest.id, selectedEntry.metadata.id, { baseRevision: selectedEntry.revision })
+        : await api.codex.restoreEntry(series.manifest.id, selectedEntry.metadata.id, { baseRevision: selectedEntry.revision });
+      replaceEntry(entry);
+      setDraft(draftFromEntry(entry));
+      setIsDetailsExpanded(false);
+      setSaveStatus("idle");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setSaveStatus("conflict");
+        setErrorMessage(codexText.errors.conflictArchive);
+      } else {
+        setSaveStatus("failed");
+        setErrorMessage(formatCodexError(error, archived ? codexText.errors.archiveFailed : codexText.errors.restoreFailed));
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function deleteEntry() {
+    if (!selectedEntry || isSaving) return;
+    setIsSaving(true);
+    setErrorMessage(null);
+    try {
+      await api.codex.deleteEntry(series.manifest.id, selectedEntry.metadata.id, {
+        baseRevision: selectedEntry.revision,
+      });
+      setEntries((current) => current.filter((entry) => entry.metadata.id !== selectedEntry.metadata.id));
+      setSelectedEntryId(null);
+      setDraft(null);
+      setActiveMentionSource("manuscript");
+      setConnectionError(null);
+      setEntryMentions([]);
+      setEntryRelations([]);
+      setPreviewEntry(null);
+      setRelationDeleteId(null);
+      setRelationDraft(relationDraftFor(null, entries));
+      setIsDetailsExpanded(false);
+      setIsDeleteEntryOpen(false);
+      setSaveStatus("idle");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setSaveStatus("conflict");
+        setErrorMessage(codexText.errors.conflictDeleteEntry);
+      } else {
+        setSaveStatus("failed");
+        setErrorMessage(formatCodexError(error, codexText.errors.deleteEntryFailed));
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function createRelation() {
+    if (!selectedEntry || !relationDraft.targetEntryId || !relationDraft.type.trim() || isCreatingRelation) return;
+    setIsCreatingRelation(true);
+    setConnectionError(null);
+    const selectedId = selectedEntry.metadata.id;
+    const input: CreateCodexRelationInput = {
+      description: relationDraft.description,
+      directed: relationDraft.direction !== "undirected",
+      evidence: relationDraft.evidence,
+      sourceEntryId: relationDraft.direction === "incoming" ? relationDraft.targetEntryId : selectedId,
+      targetEntryId: relationDraft.direction === "incoming" ? selectedId : relationDraft.targetEntryId,
+      type: relationDraft.type.trim(),
+      validFromSceneId: null,
+      validToSceneId: null,
+    };
+    try {
+      const relation = await api.codex.createRelation(series.manifest.id, input);
+      setEntryRelations((current) => [...current, relation]);
+      setRelationDraft(relationDraftFor(selectedId, entries));
+    } catch (error) {
+      setConnectionError(formatCodexError(error, codexText.errors.loadConnectionsFailed));
+    } finally {
+      setIsCreatingRelation(false);
+    }
+  }
+
+  async function deleteRelation(document: CodexRelationDocument) {
+    if (isCreatingRelation) return;
+    setIsCreatingRelation(true);
+    setConnectionError(null);
+    try {
+      await api.codex.archiveRelation(series.manifest.id, document.relation.id, {
+        baseRevision: document.revision,
+      });
+      setEntryRelations((current) => current.filter((candidate) => candidate.relation.id !== document.relation.id));
+      setRelationDeleteId(null);
+    } catch (error) {
+      setConnectionError(formatCodexError(error, codexText.errors.loadConnectionsFailed));
+    } finally {
+      setIsCreatingRelation(false);
+    }
+  }
+
+  function updateDraft(mutator: (current: CodexDraft) => CodexDraft) {
+    setDraft((current) => (current ? mutator(current) : current));
+    markDirty();
+  }
+
+  function toggleDescriptionPreview(markKey: string, entry: CodexEntryDocument, element: HTMLElement) {
+    const position = previewPositionForElement(element);
+    setDescriptionPreview((current) => (
+      current?.markKey === markKey ? null : { entry, markKey, ...position }
+    ));
+  }
+
+  function updateDescriptionFromEditor(element: HTMLElement) {
+    pendingDescriptionCaretOffsetRef.current = currentEditorCaretOffset(element);
+    setDescriptionPreview(null);
+    updateDraft((current) => ({ ...current, description: extractEditorText(element) }));
+  }
+
+  function addDetailRow() {
+    setIsDetailsExpanded(true);
+    updateDraft((current) => ({
+      ...current,
+      detailRows: [...current.detailRows, { key: "", value: "" }],
+    }));
+  }
+
+  const fieldsDisabled = Boolean(isSaving || selectedEntry?.metadata.archivedAt);
+  const saveStatusText = saveStatus === "dirty"
+    ? codexText.saveStatus.dirty
+    : saveStatus === "saving"
+      ? codexText.saveStatus.saving
+      : saveStatus === "saved"
+        ? codexText.saveStatus.saved
+        : saveStatus === "conflict"
+          ? codexText.saveStatus.conflict
+          : selectedEntry?.metadata.archivedAt
+            ? codexText.saveStatus.archived
+            : codexText.saveStatus.ready;
+
   return (
     <>
       <div className="page-head">
         <div>
-          <h2 className="page-title">Codex</h2>
-          <p className="page-subtitle">Browse story memory densely; open an entry only when details are needed.</p>
+          <h2 className="page-title">{codexText.title}</h2>
+          <p className="page-subtitle">{codexText.subtitle}</p>
         </div>
         <div className="top-actions">
-          <button className="btn" type="button">Import</button>
           <button className="btn primary" disabled={isCreating} onClick={() => void createEntry()} type="button">
-            {isCreating ? "Creating" : "New Entry"}
+            {isCreating ? codexText.actions.creating : codexText.actions.newEntry}
           </button>
         </div>
       </div>
@@ -122,45 +941,172 @@ export function CodexWorkspace({ series }: CodexWorkspaceProps) {
         <aside className="panel no-shadow">
           <div className="panel-head">
             <div>
-              <div className="panel-title">Categories</div>
-              <div className="panel-kicker">{entries.length} entries</div>
+              <div className="panel-title">{codexText.categories.title}</div>
+              <div className="panel-kicker">{codexText.counts(activeEntryCount, archivedEntryCount)}</div>
+            </div>
+            <div className="structure-head-actions codex-category-actions">
+              <button
+                className="btn structure-delete-trigger"
+                disabled={!canDeleteActiveCategory || isCreatingCategory}
+                onClick={() => {
+                  setIsCategoryAddOpen(false);
+                  setIsCategoryDeleteOpen((value) => !value);
+                }}
+                type="button"
+              >
+                {codexText.actions.deleteCategory}
+              </button>
+              <button
+                className="btn structure-add-trigger"
+                disabled={isCreatingCategory}
+                onClick={() => {
+                  setIsCategoryDeleteOpen(false);
+                  setIsCategoryAddOpen((value) => !value);
+                }}
+                type="button"
+              >
+                {codexText.actions.addCategory}
+              </button>
+              {isCategoryAddOpen ? (
+                <form
+                  aria-label={codexText.aria.categoryCreateForm}
+                  className="structure-add-menu category-add-menu"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void createCategory();
+                  }}
+                >
+                  <input
+                    aria-label={codexText.aria.newCategoryName}
+                    autoFocus
+                    className="input compact-input"
+                    disabled={isCreatingCategory}
+                    onChange={(event) => setNewCategoryName(event.target.value)}
+                    placeholder={codexText.categories.namePlaceholder}
+                    value={newCategoryName}
+                  />
+                  <button className="btn compact primary" disabled={isCreatingCategory || !newCategoryName.trim()} type="submit">
+                    {codexText.actions.createCategory}
+                  </button>
+                </form>
+              ) : null}
+              {isCategoryDeleteOpen && activeCategoryDocument && canDeleteActiveCategory ? (
+                <div className="structure-confirm-menu" aria-label={codexText.categories.deleteConfirmTitle}>
+                  <div className="confirm-title">{codexText.categories.deleteConfirmTitle}</div>
+                  <div className="confirm-copy">{categoryLabel(activeCategoryDocument.category.id, categories)}</div>
+                  <div className="confirm-copy">{codexText.categories.deleteConfirmCopy}</div>
+                  <div className="confirm-actions">
+                    <button className="btn compact" onClick={() => setIsCategoryDeleteOpen(false)} type="button">
+                      {codexText.actions.cancel}
+                    </button>
+                    <button
+                      className="btn compact danger"
+                      disabled={isCreatingCategory}
+                      onClick={() => void deleteSelectedCategory()}
+                      type="button"
+                    >
+                      {codexText.actions.deleteCategory}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
           <div className="panel-body taxonomy-list">
             <button
               className={`taxonomy-item${activeCategory === "all" ? " is-active" : ""}`}
-              onClick={() => setActiveCategory("all")}
-              type="button"
-            >
-              <div>
-                <div className="row-title">All entries</div>
-                <div className="row-meta">Characters, places, facts</div>
-              </div>
-              <span className="pill">{entries.length}</span>
-            </button>
-            {categories.map(({ category }) => (
-              <button
-                className={`taxonomy-item${activeCategory === category.id ? " is-active" : ""}`}
-                key={category.id}
-                onClick={() => setActiveCategory(category.id)}
+                onClick={() => {
+                  setActiveCategory("all");
+                  setIsCategoryDeleteOpen(false);
+                }}
                 type="button"
               >
                 <div>
-                  <div className="row-title">{categoryLabel(category.id, categories)}</div>
-                  <div className="row-meta">{category.builtIn ? "Built-in" : "Custom"}</div>
+                  <div className="row-title">{codexText.categories.all}</div>
+                  <div className="row-meta">{codexText.categories.charactersPlacesFacts}</div>
                 </div>
-                <span className="pill">{countsByCategory.get(category.id) ?? 0}</span>
-              </button>
-            ))}
+              <span className="pill">{activeEntryCount}</span>
+            </button>
+            {categories.map(({ category, revision: categoryRevision }) => {
+              const label = categoryLabel(category.id, categories);
+              const isRenaming = renamingCategory?.id === category.id;
+              if (isRenaming) {
+                return (
+                  <div className={`taxonomy-item category-rename-row${activeCategory === category.id ? " is-active" : ""}`} key={category.id}>
+                    <input
+                      aria-label={`Rename ${label}`}
+                      autoFocus
+                      className="input structure-rename-input"
+                      disabled={isCreatingCategory}
+                      onChange={(event) => setRenamingCategory({
+                        ...renamingCategory,
+                        name: event.target.value,
+                      })}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void saveCategoryRename();
+                        if (event.key === "Escape") setRenamingCategory(null);
+                      }}
+                      value={renamingCategory.name}
+                    />
+                    <div className="structure-rename-actions">
+                      <button className="btn compact" disabled={isCreatingCategory} onClick={() => void saveCategoryRename()} type="button">
+                        {codexText.actions.save}
+                      </button>
+                      <button className="btn compact" onClick={() => setRenamingCategory(null)} type="button">
+                        {codexText.actions.cancel}
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <button
+                  className={`taxonomy-item${activeCategory === category.id ? " is-active" : ""}`}
+                  key={category.id}
+                  onClick={() => {
+                    setActiveCategory(category.id);
+                    setIsCategoryDeleteOpen(false);
+                  }}
+                  onDoubleClick={() => {
+                    if (!category.builtIn && categoryRevision) {
+                      setRenamingCategory({ id: category.id, name: category.name, baseRevision: categoryRevision });
+                    }
+                  }}
+                  title={category.builtIn ? undefined : codexText.categories.doubleClickToRename}
+                  type="button"
+                >
+                  <div>
+                    <div className="row-title">{label}</div>
+                    <div className="row-meta">{category.builtIn ? codexText.categories.builtIn : codexText.categories.custom}</div>
+                  </div>
+                  <span className="pill">{countsByCategory.get(category.id) ?? 0}</span>
+                </button>
+              );
+            })}
+            <label className="checkbox-row">
+              <input
+                checked={showArchived}
+                onChange={(event) => {
+                  setShowArchived(event.target.checked);
+                  if (!event.target.checked && selectedEntry?.metadata.archivedAt) {
+                    setSelectedEntryId(null);
+                    setDraft(null);
+                    setSaveStatus("idle");
+                  }
+                }}
+                type="checkbox"
+              />
+              <span>{codexText.showArchived}</span>
+            </label>
           </div>
         </aside>
         <section className="panel no-shadow codex-index">
           <div className="panel-head">
             <div>
-              <div className="panel-title">Entry Index</div>
-              <div className="panel-kicker">Click an entry to open details; click again to close.</div>
+              <div className="panel-title">{codexText.index.title}</div>
+              <div className="panel-kicker">{codexText.index.subtitle}</div>
             </div>
-            <span className="pill green">Scene-aware</span>
+            <span className="pill green">{codexText.index.editable}</span>
           </div>
           <div className="panel-body">
             {errorMessage ? <p className="alert">{errorMessage}</p> : null}
@@ -168,35 +1114,32 @@ export function CodexWorkspace({ series }: CodexWorkspaceProps) {
               <input
                 className="input"
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search name, alias, tag, or detail"
+                placeholder={codexText.index.searchPlaceholder}
                 value={query}
               />
             </div>
             {isLoading ? (
-              <div className="detail-empty">Loading codex entries.</div>
+              <div className="detail-empty">{codexText.empty.loading}</div>
             ) : filteredEntries.length > 0 ? (
-              <div className="codex-table" role="table" aria-label="Codex entries">
+              <div className="codex-table" role="table" aria-label={codexText.aria.entriesTable}>
                 <div className="codex-table-head" role="row">
-                  <span>Entry</span>
-                  <span>Type</span>
-                  <span>Aliases</span>
-                  <span>Tags</span>
-                  <span>Status</span>
+                  <span>{codexText.table.entry}</span>
+                  <span>{codexText.table.type}</span>
+                  <span>{codexText.table.aliases}</span>
+                  <span>{codexText.table.tags}</span>
+                  <span>{codexText.table.status}</span>
                 </div>
                 {filteredEntries.map((entry) => (
                   <button
                     className={`codex-row${selectedEntryId === entry.metadata.id ? " is-active" : ""}`}
                     key={entry.metadata.id}
-                    onClick={() => {
-                      setSelectedEntryId((current) => (current === entry.metadata.id ? null : entry.metadata.id));
-                      setActiveTab("details");
-                    }}
+                    onClick={() => selectEntry(entry)}
                     role="row"
                     type="button"
                   >
                     <span>
                       <strong>{entry.metadata.name}</strong>
-                      <small>{entry.description || "No description"}</small>
+                      <small>{entry.description || codexText.empty.noDescription}</small>
                     </span>
                     <span>{categoryLabel(entry.metadata.categoryId, categories)}</span>
                     <span>{entry.metadata.aliases.length}</span>
@@ -206,25 +1149,38 @@ export function CodexWorkspace({ series }: CodexWorkspaceProps) {
                 ))}
               </div>
             ) : (
-              <div className="detail-empty">No codex entries yet.</div>
+              <div className="detail-empty">{query.trim() ? codexText.empty.noMatches : codexText.empty.noEntries}</div>
             )}
           </div>
         </section>
-        {selectedEntry ? (
-          <section className="panel no-shadow codex-detail" aria-label="Codex entry details">
+        {selectedEntry && draft ? (
+          <section className="panel no-shadow codex-detail" aria-label={codexText.aria.entryDetails}>
             <div>
               <div className="entry-hero">
                 <div>
                   <div className="entry-type">{categoryLabel(selectedEntry.metadata.categoryId, categories)}</div>
-                  <h3 className="entry-title">{selectedEntry.metadata.name}</h3>
+                  <h3 className="entry-title">{draft.name || selectedEntry.metadata.name}</h3>
                 </div>
-                <div className="entry-avatar">{selectedEntry.metadata.name.slice(0, 2).toUpperCase()}</div>
+                <div className="entry-avatar">{(draft.name || selectedEntry.metadata.name).slice(0, 2).toUpperCase()}</div>
+              </div>
+              <div className="entry-mention-strip">
+                <strong>{codexText.mentions.count(sceneMentionCount)}</strong>
               </div>
               <div className="entry-meta-line">
-                <span>Context policy: {selectedEntry.metadata.aiContextPolicy}</span>
-                <strong>{selectedEntry.metadata.aliases.length} aliases</strong>
+                <span>{saveStatusText}</span>
+                <div className="top-actions">
+                  <button className="btn compact" onClick={() => void reloadSelectedEntry()} type="button">{codexText.actions.reload}</button>
+                  <button
+                    className="btn compact primary"
+                    disabled={fieldsDisabled || saveStatus !== "dirty"}
+                    onClick={() => void saveEntry()}
+                    type="button"
+                  >
+                    {codexText.actions.save}
+                  </button>
+                </div>
               </div>
-              <div className="codex-tabs" role="tablist" aria-label="Codex detail sections">
+              <div className="codex-tabs" role="tablist" aria-label={codexText.aria.detailSections}>
                 {codexTabs.map((tab) => (
                   <button
                     aria-selected={activeTab === tab.id}
@@ -239,71 +1195,515 @@ export function CodexWorkspace({ series }: CodexWorkspaceProps) {
                 ))}
               </div>
             </div>
+            {errorMessage ? <p className="alert codex-detail-alert">{errorMessage}</p> : null}
             <div className={`codex-tab-panel${activeTab === "details" ? " is-active" : ""}`} role="tabpanel">
               <div className="detail-form-grid">
                 <label className="field">
-                  <span>Name</span>
-                  <input className="input" readOnly value={selectedEntry.metadata.name} />
+                  <span>{codexText.detail.name}</span>
+                  <input
+                    aria-label={codexText.aria.entryName}
+                    className="input"
+                    disabled={fieldsDisabled}
+                    onChange={(event) => updateDraft((current) => ({ ...current, name: event.target.value }))}
+                    value={draft.name}
+                  />
                 </label>
                 <label className="field">
-                  <span>Category</span>
-                  <input className="input" readOnly value={categoryLabel(selectedEntry.metadata.categoryId, categories)} />
+                  <span>{codexText.detail.category}</span>
+                  <select
+                    aria-label={codexText.aria.category}
+                    className="select"
+                    disabled={fieldsDisabled}
+                    onChange={(event) => updateDraft((current) => ({
+                      ...current,
+                      categoryId: event.target.value as CodexCategoryId,
+                    }))}
+                    value={draft.categoryId}
+                  >
+                    {categories
+                      .filter(({ category }) => !category.archivedAt || category.id === draft.categoryId)
+                      .map(({ category }) => (
+                        <option key={category.id} value={category.id}>
+                          {categoryLabel(category.id, categories)}
+                        </option>
+                      ))}
+                  </select>
                 </label>
                 <label className="field wide">
-                  <span>Aliases</span>
-                  <input className="input" readOnly value={selectedEntry.metadata.aliases.join(", ")} />
+                  <span>{codexText.detail.aliases}</span>
+                  <input
+                    className="input"
+                    disabled={fieldsDisabled}
+                    onChange={(event) => updateDraft((current) => ({ ...current, aliases: event.target.value }))}
+                    placeholder={codexText.commaPlaceholder("aliases")}
+                    value={draft.aliases}
+                  />
                 </label>
                 <label className="field wide">
-                  <span>Canon description</span>
-                  <textarea className="textarea" readOnly rows={6} value={selectedEntry.description} />
+                  <span>{codexText.detail.tags}</span>
+                  <input
+                    className="input"
+                    disabled={fieldsDisabled}
+                    onChange={(event) => updateDraft((current) => ({ ...current, tags: event.target.value }))}
+                    placeholder={codexText.commaPlaceholder("tags")}
+                    value={draft.tags}
+                  />
                 </label>
-              </div>
-              {Object.entries(selectedEntry.metadata.details).length > 0 ? (
-                <div className="detail-form-grid">
-                  {Object.entries(selectedEntry.metadata.details).map(([key, value]) => (
-                    <label className="field wide" key={key}>
-                      <span>{key}</span>
-                      <textarea className="textarea" readOnly rows={4} value={value} />
-                    </label>
-                  ))}
+                <div className="field wide">
+                  <span>{codexText.detail.canonDescription}</span>
+                  <div
+                    aria-label={codexText.aria.canonDescription}
+                    aria-disabled={fieldsDisabled}
+                    className={`textarea inline-mention-editor${fieldsDisabled ? " is-disabled" : ""}`}
+                    contentEditable={!fieldsDisabled}
+                    data-placeholder={codexText.empty.noDescription}
+                    onClick={(event) => {
+                      const target = event.target as HTMLElement;
+                      if (!target.closest(".codex-mention-mark") && !target.closest(".scene-codex-preview")) {
+                        setDescriptionPreview(null);
+                      }
+                    }}
+                    onInput={(event) => updateDescriptionFromEditor(event.currentTarget)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setDescriptionPreview(null);
+                    }}
+                    ref={descriptionEditorRef}
+                    role="textbox"
+                    suppressContentEditableWarning
+                    tabIndex={fieldsDisabled ? -1 : 0}
+                  >
+                    {draft.description
+                      ? renderEditableCodexMarks(
+                          draft.description,
+                          descriptionInlineMentions,
+                          entryById,
+                          descriptionPreview,
+                          toggleDescriptionPreview,
+                        )
+                      : null}
+                  </div>
                 </div>
-              ) : null}
+              </div>
+              <div className="detail-section">
+                <div className="detail-section-head">
+                  <button
+                    aria-expanded={isDetailsExpanded}
+                    aria-label={isDetailsExpanded ? codexText.actions.hideDetails : codexText.actions.showDetails}
+                    className="detail-section-toggle"
+                    onClick={() => setIsDetailsExpanded((current) => !current)}
+                    type="button"
+                  >
+                    <span>{codexText.detail.details}</span>
+                    <span className="pill">{codexText.detail.detailCount(draft.detailRows.length)}</span>
+                  </button>
+                  <button className="btn compact" disabled={fieldsDisabled} onClick={addDetailRow} type="button">
+                    {codexText.actions.addDetail}
+                  </button>
+                </div>
+                {isDetailsExpanded ? (
+                  <div className="detail-section-body">
+                    {draft.detailRows.length > 0 ? (
+                      draft.detailRows.map((row, index) => (
+                        <div className="detail-row" key={`${index}-${row.key}`}>
+                          <input
+                            aria-label={codexText.detail.detailLabel(index + 1)}
+                            className="input"
+                            disabled={fieldsDisabled}
+                            onChange={(event) => updateDraft((current) => ({
+                              ...current,
+                              detailRows: current.detailRows.map((candidate, rowIndex) => (
+                                rowIndex === index ? { ...candidate, key: event.target.value } : candidate
+                              )),
+                            }))}
+                            placeholder={codexText.detail.labelPlaceholder}
+                            value={row.key}
+                          />
+                          <textarea
+                            aria-label={codexText.detail.detailValue(index + 1)}
+                            className="textarea compact-textarea"
+                            disabled={fieldsDisabled}
+                            onChange={(event) => updateDraft((current) => ({
+                              ...current,
+                              detailRows: current.detailRows.map((candidate, rowIndex) => (
+                                rowIndex === index ? { ...candidate, value: event.target.value } : candidate
+                              )),
+                            }))}
+                            placeholder={codexText.detail.valuePlaceholder}
+                            rows={3}
+                            value={row.value}
+                          />
+                          <button
+                            className="btn compact"
+                            disabled={fieldsDisabled}
+                            onClick={() => updateDraft((current) => ({
+                              ...current,
+                              detailRows: current.detailRows.filter((_, rowIndex) => rowIndex !== index),
+                            }))}
+                            type="button"
+                          >
+                            {codexText.actions.remove}
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="detail-empty compact-empty">{codexText.detail.noDetails}</div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+              <div className="entry-lifecycle-grid">
+                <div className="archive-box">
+                  <div>
+                    <div className="panel-title">{selectedEntry.metadata.archivedAt ? codexText.archive.archivedTitle : codexText.archive.activeTitle}</div>
+                    <div className="panel-kicker">
+                      {selectedEntry.metadata.archivedAt
+                        ? codexText.archive.archivedDescription
+                        : codexText.archive.activeDescription}
+                    </div>
+                  </div>
+                  {selectedEntry.metadata.archivedAt ? (
+                    <button className="btn primary" disabled={isSaving} onClick={() => void setArchived(false)} type="button">
+                      {codexText.actions.restoreEntry}
+                    </button>
+                  ) : (
+                    <button className="btn danger" disabled={isSaving || saveStatus === "dirty"} onClick={() => void setArchived(true)} type="button">
+                      {codexText.actions.archiveEntry}
+                    </button>
+                  )}
+                </div>
+                <div className="archive-box danger-zone">
+                  <div>
+                    <div className="panel-title">{codexText.archive.deleteTitle}</div>
+                    <div className="panel-kicker">{codexText.archive.deleteDescription}</div>
+                  </div>
+                  {isDeleteEntryOpen ? (
+                    <div className="inline-confirm">
+                      <div>
+                        <div className="confirm-title">{codexText.archive.deleteConfirmTitle}</div>
+                        <div className="confirm-copy">{codexText.archive.deleteConfirmCopy}</div>
+                      </div>
+                      <div className="confirm-actions">
+                        <button className="btn compact" onClick={() => setIsDeleteEntryOpen(false)} type="button">
+                          {codexText.actions.cancel}
+                        </button>
+                        <button
+                          className="btn compact danger"
+                          disabled={isSaving}
+                          onClick={() => void deleteEntry()}
+                          type="button"
+                        >
+                          {codexText.actions.deleteEntry}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button className="btn danger" disabled={isSaving || saveStatus === "dirty"} onClick={() => setIsDeleteEntryOpen(true)} type="button">
+                      {codexText.actions.deleteEntry}
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
             <div className={`codex-tab-panel${activeTab === "research" ? " is-active" : ""}`} role="tabpanel">
-              <label className="field">
-                <span>Research notes</span>
-                <textarea className="textarea" readOnly rows={10} value={selectedEntry.research.content} />
+              <label className="field codex-research-field">
+                <span>{codexText.detail.researchNotes}</span>
+                <textarea
+                  aria-label={codexText.aria.researchNotes}
+                  className="textarea codex-research-textarea"
+                  disabled={fieldsDisabled}
+                  onChange={(event) => updateDraft((current) => ({ ...current, research: event.target.value }))}
+                  rows={10}
+                  value={draft.research}
+                />
               </label>
             </div>
             <div className={`codex-tab-panel${activeTab === "relations" ? " is-active" : ""}`} role="tabpanel">
-              <div className="detail-empty">No relations loaded for this entry.</div>
+              <section className="connection-panel">
+                <div className="connection-heading">
+                  <h4>{codexText.relations.title}</h4>
+                  <p>{codexText.relations.subtitle}</p>
+                </div>
+                <div className="relation-editor">
+                  <label className="field">
+                    <span>{codexText.relations.target}</span>
+                    <select
+                      className="select"
+                      disabled={fieldsDisabled || isCreatingRelation || !relationTargetEntries.length}
+                      onChange={(event) => setRelationDraft((current) => ({ ...current, targetEntryId: event.target.value }))}
+                      value={relationDraft.targetEntryId}
+                    >
+                      {relationTargetEntries.map((entry) => (
+                        <option key={entry.metadata.id} value={entry.metadata.id}>
+                          {entry.metadata.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>{codexText.relations.relationType}</span>
+                    <input
+                      className="input"
+                      disabled={fieldsDisabled || isCreatingRelation}
+                      onChange={(event) => setRelationDraft((current) => ({ ...current, type: event.target.value }))}
+                      value={relationDraft.type}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>{codexText.relations.direction}</span>
+                    <select
+                      className="select"
+                      disabled={fieldsDisabled || isCreatingRelation}
+                      onChange={(event) => setRelationDraft((current) => ({
+                        ...current,
+                        direction: event.target.value as CodexRelationDirection,
+                      }))}
+                      value={relationDraft.direction}
+                    >
+                      <option value="outgoing">{selectedEntry.metadata.name} -&gt; target</option>
+                      <option value="incoming">target -&gt; {selectedEntry.metadata.name}</option>
+                      <option value="undirected">{codexText.relations.undirected}</option>
+                    </select>
+                  </label>
+                  <label className="field wide">
+                    <span>{codexText.relations.description}</span>
+                    <textarea
+                      className="textarea compact-textarea"
+                      disabled={fieldsDisabled || isCreatingRelation}
+                      onChange={(event) => setRelationDraft((current) => ({ ...current, description: event.target.value }))}
+                      rows={2}
+                      value={relationDraft.description}
+                    />
+                  </label>
+                  <label className="field wide">
+                    <span>{codexText.relations.evidence}</span>
+                    <textarea
+                      className="textarea compact-textarea"
+                      disabled={fieldsDisabled || isCreatingRelation}
+                      onChange={(event) => setRelationDraft((current) => ({ ...current, evidence: event.target.value }))}
+                      rows={2}
+                      value={relationDraft.evidence}
+                    />
+                  </label>
+                  <div className="relation-editor-actions">
+                    <button
+                      className="btn primary"
+                      disabled={fieldsDisabled || isCreatingRelation || !relationDraft.targetEntryId || !relationDraft.type.trim()}
+                      onClick={() => void createRelation()}
+                      type="button"
+                    >
+                      {codexText.actions.addRelation}
+                    </button>
+                  </div>
+                </div>
+                {connectionError ? <p className="alert">{connectionError}</p> : null}
+                {isConnectionsLoading ? (
+                  <div className="detail-empty compact-empty">{codexText.empty.loading}</div>
+                ) : entryRelations.length ? (
+                  <div className="relation-list">
+                    {entryRelations.map((document) => {
+                      const relation = document.relation;
+                      const isSource = relation.sourceEntryId === selectedEntry.metadata.id;
+                      const sourceName = entryNameById.get(relation.sourceEntryId) ?? relation.sourceEntryId;
+                      const targetName = entryNameById.get(relation.targetEntryId) ?? relation.targetEntryId;
+                      const direction = relation.directed ? (isSource ? "->" : "<-") : "--";
+                      const counterpartName = isSource ? targetName : sourceName;
+                      return (
+                        <article className="relation-card" key={relation.id}>
+                          <div className="relation-card-head">
+                            <div>
+                              <div className="row-title">{relation.type}</div>
+                              <div className="row-meta">{selectedEntry.metadata.name} {direction} {counterpartName}</div>
+                            </div>
+                            <span className="pill">{relation.directed ? direction : codexText.relations.undirected}</span>
+                          </div>
+                          {relation.description ? <p>{relation.description}</p> : null}
+                          {relation.evidence ? <p className="mini-note">{relation.evidence}</p> : null}
+                          {relation.archivedAt ? <span className="pill amber">{codexText.relations.archived}</span> : null}
+                          <div className="relation-card-actions">
+                            {relationDeleteId === relation.id ? (
+                              <>
+                                <button className="btn compact danger" disabled={isCreatingRelation} onClick={() => void deleteRelation(document)} type="button">
+                                  {codexText.relations.confirmDelete}
+                                </button>
+                                <button className="btn compact" disabled={isCreatingRelation} onClick={() => setRelationDeleteId(null)} type="button">
+                                  {codexText.actions.cancel}
+                                </button>
+                              </>
+                            ) : (
+                              <button className="btn compact danger" disabled={isCreatingRelation} onClick={() => setRelationDeleteId(relation.id)} type="button">
+                                {codexText.actions.deleteRelation}
+                              </button>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="relation-empty">{codexText.relations.empty}</div>
+                )}
+              </section>
             </div>
             <div className={`codex-tab-panel${activeTab === "mentions" ? " is-active" : ""}`} role="tabpanel">
-              <div className="detail-form-grid">
-                <label className="field">
-                  <span>Match aliases</span>
-                  <input className="input" readOnly value={selectedEntry.metadata.mention.matchAliases ? "On" : "Off"} />
-                </label>
-                <label className="field">
-                  <span>Case sensitive</span>
-                  <input className="input" readOnly value={selectedEntry.metadata.mention.caseSensitive ? "On" : "Off"} />
-                </label>
-                <label className="field wide">
-                  <span>Excluded terms</span>
-                  <input className="input" readOnly value={selectedEntry.metadata.mention.excludedTerms.join(", ")} />
-                </label>
-              </div>
+              <section className="mentions-panel">
+                <div className="mention-source-tabs" role="tablist" aria-label={codexText.mentions.title}>
+                  <button
+                    aria-selected={activeMentionSource === "manuscript"}
+                    className={`mention-source-tab${activeMentionSource === "manuscript" ? " is-active" : ""}`}
+                    onClick={() => setActiveMentionSource("manuscript")}
+                    type="button"
+                  >
+                    {codexText.mentions.manuscript} <span>{entryMentions.length}</span>
+                  </button>
+                  <button
+                    aria-selected={activeMentionSource === "codex"}
+                    className={`mention-source-tab${activeMentionSource === "codex" ? " is-active" : ""}`}
+                    onClick={() => setActiveMentionSource("codex")}
+                    type="button"
+                  >
+                    {codexText.mentions.codex} <span>{codexContentMentions.length}</span>
+                  </button>
+                </div>
+                {previewEntry ? (
+                  <aside className="codex-preview-popover" aria-label={`${previewEntry.metadata.name} canon description`}>
+                    <div className="codex-preview-head">
+                      <div>
+                        <div className="row-meta">{categoryLabel(previewEntry.metadata.categoryId, categories)}</div>
+                        <strong>{previewEntry.metadata.name}</strong>
+                      </div>
+                      <button className="btn compact" onClick={() => setPreviewEntry(null)} type="button">
+                        {codexText.actions.cancel}
+                      </button>
+                    </div>
+                    <p>{previewEntry.description || codexText.empty.noDescription}</p>
+                  </aside>
+                ) : null}
+                {connectionError ? <p className="alert">{connectionError}</p> : null}
+                {isConnectionsLoading ? (
+                  <div className="detail-empty compact-empty">{codexText.empty.loading}</div>
+                ) : activeMentionSource === "manuscript" ? (
+                  entryMentions.length ? (
+                    <div className="mention-list">
+                      {[...new Set(entryMentions.map((mention) => mention.sceneId))].map((mentionSceneId) => {
+                        const scene = sceneById.get(mentionSceneId);
+                        const sceneMentions = entryMentions.filter((mention) => mention.sceneId === mentionSceneId);
+                        return (
+                          <article className="mention-card" key={mentionSceneId}>
+                            <div className="mention-card-head">
+                              <strong>{scene?.metadata.title ?? mentionSceneId}</strong>
+                              {onOpenScene ? (
+                                <button className="btn compact" onClick={() => onOpenScene(mentionSceneId)} type="button">
+                                  {codexText.mentions.openScene}
+                                </button>
+                              ) : null}
+                            </div>
+                            {sceneMentions.map((mention) => {
+                              const content = scene?.content || mention.matchedText;
+                              const snippet = scene?.content
+                                ? createSnippet(content, mention.start, mention.end)
+                                : createSnippet(content, 0, mention.matchedText.length);
+                              return (
+                                <p className="mention-snippet" key={`${mention.sceneId}-${mention.start}-${mention.end}`}>
+                                  {renderHighlightedSnippet(snippet, () => setPreviewEntry(selectedEntry))}
+                                </p>
+                              );
+                            })}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="detail-empty compact-empty">{codexText.mentions.emptyManuscript}</div>
+                  )
+                ) : codexContentMentions.length ? (
+                  <div className="mention-list">
+                    {codexContentMentions.map((mention, index) => (
+                      <article className="mention-card" key={`${mention.sourceEntry.metadata.id}-${mention.match.start}-${index}`}>
+                        <div className="mention-card-head">
+                          <div>
+                            <strong>{mention.sourceEntry.metadata.name}</strong>
+                            <div className="row-meta">{mention.fieldLabel}</div>
+                          </div>
+                        </div>
+                        <p className="mention-snippet">
+                          {renderHighlightedSnippet(mention.snippet, () => setPreviewEntry(selectedEntry))}
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="detail-empty compact-empty">{codexText.mentions.emptyCodex}</div>
+                )}
+              </section>
             </div>
             <div className={`codex-tab-panel${activeTab === "tracking" ? " is-active" : ""}`} role="tabpanel">
-              <div className="detail-form-grid">
-                <label className="field">
-                  <span>Status</span>
-                  <input className="input" readOnly value={statusLabel(selectedEntry)} />
-                </label>
-                <label className="field">
-                  <span>Tags</span>
-                  <input className="input" readOnly value={selectedEntry.metadata.tags.join(", ")} />
-                </label>
+              <div className="tracking-panel">
+                <section className="tracking-section">
+                  <h4>{codexText.tracking.matching} <span className="help-dot">?</span></h4>
+                  <label className="tracking-check-row">
+                    <input
+                      checked={draft.matchAliases}
+                      disabled={fieldsDisabled}
+                      onChange={(event) => updateDraft((current) => ({ ...current, matchAliases: event.target.checked }))}
+                      type="checkbox"
+                    />
+                    <span>{codexText.tracking.trackAliases}</span>
+                  </label>
+                  <label className="tracking-check-row">
+                    <input
+                      checked={draft.caseSensitive}
+                      disabled={fieldsDisabled}
+                      onChange={(event) => updateDraft((current) => ({ ...current, caseSensitive: event.target.checked }))}
+                      type="checkbox"
+                    />
+                    <span>{codexText.tracking.useCase}</span>
+                  </label>
+                  <label className="tracking-check-row">
+                    <input
+                      checked={draft.automaticPlural}
+                      disabled={fieldsDisabled}
+                      onChange={(event) => updateDraft((current) => ({ ...current, automaticPlural: event.target.checked }))}
+                      type="checkbox"
+                    />
+                    <span>{codexText.tracking.usePlural}</span>
+                  </label>
+                  <label className="field tracking-exclusions">
+                    <span>{codexText.tracking.exclusions}</span>
+                    <small>{codexText.tracking.exclusionsHelp}</small>
+                    <textarea
+                      className="textarea compact-textarea"
+                      disabled={fieldsDisabled}
+                      onChange={(event) => updateDraft((current) => ({ ...current, excludedTerms: event.target.value }))}
+                      placeholder={codexText.commaPlaceholder("exclusions")}
+                      rows={3}
+                      value={draft.excludedTerms}
+                    />
+                  </label>
+                </section>
+                <section className="tracking-section ai-context-section">
+                  <h4>{codexText.tracking.aiContext} <span className="help-dot">?</span></h4>
+                  {[
+                    { id: "always" as const, label: codexText.tracking.always, help: codexText.tracking.alwaysHelp },
+                    { id: "on-mention" as const, label: codexText.tracking.detected, help: codexText.tracking.detectedHelp },
+                    { id: "manual" as const, label: codexText.tracking.manual, help: codexText.tracking.disabledHelp },
+                    { id: "never" as const, label: codexText.tracking.never, help: codexText.tracking.neverHelp },
+                  ].map((option) => (
+                    <label className="context-radio-row" key={option.id}>
+                      <input
+                        checked={draft.aiContextPolicy === option.id}
+                        disabled={fieldsDisabled}
+                        name="codex-ai-context-policy"
+                        onChange={() => updateDraft((current) => ({ ...current, aiContextPolicy: option.id }))}
+                        type="radio"
+                      />
+                      <span>
+                        <strong>{option.label}</strong>
+                        {option.id === "on-mention" ? <em>Default</em> : null}
+                        <small>{option.help}</small>
+                      </span>
+                    </label>
+                  ))}
+                </section>
               </div>
             </div>
           </section>

@@ -13,7 +13,22 @@ export type {
   UpdateModelProfileInput,
   UpdateSeriesCloudPolicyInput,
 } from "./ai";
-export type { CodexEntryDocument, CreateCodexEntryInput } from "./codex";
+export type {
+  ArchiveCodexDocumentInput,
+  CodexEntryDocument,
+  CodexContextPreview,
+  CodexMention,
+  CodexRelationDocument,
+  CreateCodexCategoryInput,
+  CreateCodexEntryInput,
+  CreateCodexRelationInput,
+  DeleteCodexCategoryResult,
+  DeleteCodexDocumentInput,
+  DeleteCodexEntryResult,
+  SceneCodexMentions,
+  UpdateCodexCategoryInput,
+  UpdateCodexEntryInput,
+} from "./codex";
 export type { CreateSeriesInput, SeriesSummary } from "./series";
 
 import { createApiClient } from "./client";

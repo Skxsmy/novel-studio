@@ -46,26 +46,27 @@ Working draft pieces:
 - Library/project creation and no-project handling exist.
 - Write has real project/scene API wiring and partial hierarchy controls.
 - Plan has surfaces, but the current frontend line still needs product-level validation.
-- Codex can minimally load/create/select entries and collapse detail by selecting the same entry.
+- Codex core can list/search loaded entries, create/open/close entries, rename, edit details/canon description/research/aliases/tags/tracking/context policy, create custom categories, change entry category, save with revision protection, show conflict reload, and archive/restore through real APIs. Custom categories use a compact Add menu, support double-click rename, reject exact duplicate names, and delete with confirmation by moving entries to `Uncategorized` rather than deleting entries. Codex entries can be deleted from the entry detail lifecycle area. User screenshot feedback on the Codex detail tabs has been addressed by collapsing custom Details until needed, tightening Research/Tracking spacing, keeping index summaries visible when detail is open, separating `New Entry` from `No description`, and bounding category/index list scrolling. Codex detail now has real Relations, Mentions, and Tracking tabs; Relations can create/remove active connections through real APIs; Mentions combine manuscript hits from the entry mention API with other-Codex-entry content hits from loaded entries, and matched names/aliases are clickable dashed-underlined text that opens a Canon description preview instead of jumping. Canon description editing also realtime-matches other active Codex entry names/aliases and uses the same fixed, scroll-bounded preview so it is not clipped by the input area.
+- Write loads active Codex entries for realtime scene-body name/alias matching. The editor renders hits inline as dashed underlines without highlight fill, and clicking the same hit toggles a fixed, scroll-bounded Canon description preview without duplicating the scene text. The redundant `Codex in scene` panel was removed; Scene Brief can be hidden and restored with an icon-only control.
 - Settings has API-backed model profile, service key, connection test, model list, and project cloud policy behavior.
 - Workshop and Review are incomplete.
 
 Critical blockers:
 
 - Visual design is rejected.
-- Codex is a shell, not a real product workflow.
-- Codex backend routes are broader than the current frontend API wrapper. Existing routes cover categories, entries, relations, progressions, knowledge, mentions, effective state, context preview, and search; the wrapper currently covers only categories plus entry list/create/get.
+- Codex connections are complete for the current Codex scope. Existing backend routes cover relations, progressions, knowledge, mentions, effective state, context preview, and search. The current Release A frontend wrapper covers categories, entry list/create/get/update/archive/restore/delete, entry mentions, relations, scene mentions, and context preview. Plan still needs a full product review/rework before it should be connected further; progressions, knowledge, effective-state, and search-result integration remain later UI work.
 - Write hierarchy must follow `Volume -> Chapter -> Act -> Scene` and support compact add menu, default names, later rename, double-click rename where appropriate, selected delete with confirmation, sane collapse, and scroll.
 - Slice B has started: empty-library creation is tested, create/open only leaves Library on success, selected Volume is tracked, Add Chapter targets the selected Volume, selected Chapter/Act/Scene deletion is covered, Scene creation inside the selected Act is covered, and Focus enter/exit behavior is covered.
+- Slice B covers Write structure selection: the pale-blue selection frame is explicit and single-target, second-clicking the same Volume/Chapter/Act/Scene clears it, parent selection no longer highlights child rows or a stale open Scene, and Scene creation is disabled when a selected Volume has no selected Act target.
 - Settings is only partially product-complete.
 - Review and Workshop need either real scoped workflows or honest unavailable states.
 
 Current recovery order:
 
 1. Slice A: baseline triage recorded on 2026-06-24.
-2. Current next: Slice B, Start-to-Write vertical slice.
-3. Slice C: Codex core vertical slice.
-4. Slice D: Codex connections.
+2. Slice B: Start-to-Write vertical slice, command-verified; user visual validation remains separate.
+3. Slice C: Codex core vertical slice, command-verified; user visual validation remains separate.
+4. Slice D: Codex connections, command-verified for current Codex scope; Plan review/rework remains deferred.
 5. Slice E: Settings and AI safety minimum.
 6. Slice F: Review, Workshop, and navigation honesty.
 7. Slice G: visual system and responsive acceptance.
@@ -233,10 +234,22 @@ Current recovery order:
 - Playwright E2E passed for M3 main paths, M4 settings/context/prompt preview paths, AI review/rewrite path, DeepSeek settings path, and multiple NS-409 visual screenshot runs.
 - M4 task tests progressed from server 7/7, web 14/14, storage 39/39 to server 15/15, web 14/14, AI 15/15, storage 41/41 before the later frontend rewrite.
 - Current post-rewrite validation was later carried into `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`:
-  - `AppShell.test.tsx`: 11 passed.
-  - `npm.cmd run build`: passed.
-  - `npm.cmd run test`: server 16, web 11, AI 18, storage 43 passed.
+  - `AppShell.test.tsx`: 23 passed.
+  - `npm.cmd run build -w @novel-studio/web`: passed.
+  - `npm.cmd run build`: passed after rerunning a sandbox-blocked package-dist write with elevated permissions.
+  - `npm.cmd run test`: server 16, web 23, AI 18, storage 43 passed after rerunning the sandbox-blocked package-dist write with elevated permissions.
   - `git diff --check`: passed with line-ending warnings only.
+  - Browser/visual validation was not run by Codex per user instruction.
+- Latest Slice D Codex connection repair validation:
+  - `npx vitest run apps/web/src/app/AppShell.test.tsx`: 33 passed.
+  - `npm.cmd run typecheck -w @novel-studio/web`: passed.
+- Earlier Slice D category/delete backend validation:
+  - `npx vitest run packages/storage/test/repository.test.ts`: 42 passed.
+  - `npm.cmd run typecheck -w @novel-studio/storage`: passed.
+  - `npm.cmd run typecheck -w @novel-studio/server`: passed.
+  - `npm.cmd run build -w @novel-studio/web`: passed.
+  - `npm.cmd run build:packages`: passed after rerunning a sandbox-blocked package-dist write with elevated permissions.
+  - Browser/visual validation was not run by Codex per user instruction.
 
 ## Known Risks
 
@@ -246,9 +259,10 @@ Current recovery order:
 - Review and Workshop are not complete.
 - Storage `src/index.ts` remains too large and should be split when touched.
 - Browser visual validation is currently user-owned.
+- List-heavy UI must use bounded internal scrolling; the user explicitly flagged unbounded page growth as a recurring defect on 2026-06-24.
 - Local sample data may contain old manual browser validation artifacts; new tests use isolated libraries.
 - Windows sandbox may reject fixed server state file writes; startup scripts have temp fallback.
 
 ## Immediate Next Step
 
-Stay on project recovery. Slice A is recorded in `docs/tasks/PROJECT_RECOVERY.md`; start Slice B by repairing empty-library project creation and the Write hierarchy projection. Do not start with cosmetic UI changes, Codex-only implementation, or provider expansion. Do not start a new milestone and do not create parallel handoff files.
+Stay on project recovery. Slice A, Slice B, Slice C, and current Codex-scoped Slice D are recorded in `docs/tasks/PROJECT_RECOVERY.md`. Plan still needs a full product review and rework before implementation resumes there. Do not start with cosmetic UI changes, provider expansion, or a new milestone, and do not create parallel handoff files. Keep category deletion as delete semantics, not archive semantics.

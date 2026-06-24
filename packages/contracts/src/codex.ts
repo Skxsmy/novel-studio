@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DefaultCodexEntryValues } from "./defaults.js";
 
 export const CodexBuiltInCategoryIdSchema = z.enum([
+  "uncategorized",
   "character",
   "location",
   "object",
@@ -148,6 +149,7 @@ export const UpdateCodexEntryInputSchema = z
   .object({
     baseRevision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     baseResearchRevision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    categoryId: CodexCategoryIdSchema.optional(),
     name: z.string().trim().min(1).max(160).optional(),
     aliases: z.array(z.string().trim().min(1).max(160)).optional(),
     tags: z.array(z.string().trim().min(1).max(80)).optional(),
@@ -160,6 +162,7 @@ export const UpdateCodexEntryInputSchema = z
   })
   .superRefine((input, context) => {
     const entryFields = [
+      input.categoryId,
       input.name,
       input.aliases,
       input.tags,
@@ -187,6 +190,22 @@ export const ArchiveCodexDocumentInputSchema = z.object({
   baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
 });
 export type ArchiveCodexDocumentInput = z.infer<typeof ArchiveCodexDocumentInputSchema>;
+
+export const DeleteCodexDocumentInputSchema = z.object({
+  baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type DeleteCodexDocumentInput = z.infer<typeof DeleteCodexDocumentInputSchema>;
+
+export const DeleteCodexCategoryResultSchema = z.object({
+  deletedId: CodexCategoryIdSchema,
+  movedEntryIds: z.array(z.string().uuid()),
+});
+export type DeleteCodexCategoryResult = z.infer<typeof DeleteCodexCategoryResultSchema>;
+
+export const DeleteCodexEntryResultSchema = z.object({
+  deletedId: z.string().uuid(),
+});
+export type DeleteCodexEntryResult = z.infer<typeof DeleteCodexEntryResultSchema>;
 
 export const CodexRelationSchema = z.object({
   schemaVersion: z.literal(1),

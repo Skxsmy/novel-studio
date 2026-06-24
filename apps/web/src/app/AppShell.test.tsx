@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
@@ -22,6 +22,10 @@ const newBookActId = "99999999-9999-4999-8999-111111111111";
 const newBookChapterId = "99999999-9999-4999-8999-222222222222";
 const codexEntryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const modelProfileId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const customCategoryId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const relatedCodexEntryId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const relationId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const createdRelationId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const revision = "a".repeat(64);
 const updatedRevision = "b".repeat(64);
 
@@ -139,7 +143,7 @@ function seriesDetail(content = "", nextRevision = revision) {
       },
     ],
     manifest: {
-      archivedAt: null,
+      archivedAt: null as string | null,
       bookIds: [bookId],
       cloudPolicy: "local-only",
       createdAt: "2026-06-23T00:00:00.000Z",
@@ -313,38 +317,65 @@ function codexCategories() {
   return [
     {
       category: {
-        archivedAt: null,
+        archivedAt: null as string | null,
+        builtIn: true,
+        icon: "U",
+        id: "uncategorized",
+        name: "Uncategorized",
+      },
+      revision: null as string | null,
+    },
+    {
+      category: {
+        archivedAt: null as string | null,
         builtIn: true,
         icon: "C",
         id: "character",
         name: "人物",
       },
-      revision: null,
+      revision: null as string | null,
     },
     {
       category: {
-        archivedAt: null,
+        archivedAt: null as string | null,
         builtIn: true,
         icon: "L",
         id: "location",
         name: "地点",
       },
-      revision: null,
+      revision: null as string | null,
     },
   ];
 }
 
-function codexEntryDocument(name = "New Entry") {
+function codexEntryRelativePath(categoryId: string, entryId = codexEntryId) {
+  if (categoryId === "uncategorized") return `codex/uncategorized/${entryId}.md`;
+  if (categoryId === "character") return `codex/characters/${entryId}.md`;
+  if (categoryId === "location") return `codex/locations/${entryId}.md`;
+  return `codex/custom/${categoryId}/${entryId}.md`;
+}
+
+function codexEntryDocument(
+  name = "New Entry",
+  categoryId = "character",
+  description = "",
+  entryId = codexEntryId,
+  options: {
+    aliases?: string[];
+    details?: Record<string, string>;
+    research?: string;
+  } = {},
+) {
   return {
-    description: "",
+    description,
     metadata: {
       aiContextPolicy: "on-mention",
-      aliases: [],
-      archivedAt: null,
-      categoryId: "character",
+      aliases: options.aliases ?? [],
+      archivedAt: null as string | null,
+      categoryId,
       createdAt: "2026-06-23T00:00:00.000Z",
-      details: {},
-      id: codexEntryId,
+      details: options.details ?? {},
+      id: entryId,
       mention: {
         automaticPlural: false,
         caseSensitive: false,
@@ -354,21 +385,51 @@ function codexEntryDocument(name = "New Entry") {
       name,
       schemaVersion: 1,
       tags: [],
-      thumbnail: null,
+      thumbnail: null as string | null,
       updatedAt: "2026-06-23T00:00:00.000Z",
     },
-    relativePath: "codex/characters/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.md",
+    relativePath: codexEntryRelativePath(categoryId, entryId),
     research: {
-      content: "",
+      content: options.research ?? "",
       metadata: {
         createdAt: "2026-06-23T00:00:00.000Z",
-        entryId: codexEntryId,
+        entryId,
         schemaVersion: 1,
         updatedAt: "2026-06-23T00:00:00.000Z",
       },
-      relativePath: "codex/entry-research/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.md",
+      relativePath: `codex/entry-research/${entryId}.md`,
       revision,
     },
+    revision,
+  };
+}
+
+function codexRelationDocument(
+  sourceEntryId = codexEntryId,
+  targetEntryId = relatedCodexEntryId,
+  description = "Locks access to the quay.",
+  id = relationId,
+  type = "guards",
+  directed = true,
+  evidence = "Bell timing scene.",
+) {
+  return {
+    relation: {
+      archivedAt: null as string | null,
+      createdAt: "2026-06-23T00:00:00.000Z",
+      description,
+      directed,
+      evidence,
+      id,
+      schemaVersion: 1,
+      sourceEntryId,
+      targetEntryId,
+      type,
+      updatedAt: "2026-06-23T00:00:00.000Z",
+      validFromSceneId: null as string | null,
+      validToSceneId: null as string | null,
+    },
+    relativePath: `codex/relations/${id}.md`,
     revision,
   };
 }
@@ -408,10 +469,19 @@ function modelProfile(overrides: Partial<{
   };
 }
 
-function mockFetch(options: { initialSeriesList?: ReturnType<typeof seriesSummary>[] } = {}) {
-  let detailOverride: ReturnType<typeof seriesDetail> | null = null;
+function mockFetch(options: {
+  conflictCodexUpdate?: boolean;
+  initialCodexEntries?: ReturnType<typeof codexEntryDocument>[];
+  initialCodexRelations?: ReturnType<typeof codexRelationDocument>[];
+  initialSeriesDetail?: ReturnType<typeof seriesDetail>;
+  initialSeriesList?: ReturnType<typeof seriesSummary>[];
+} = {}) {
+  let detailOverride: ReturnType<typeof seriesDetail> | null = options.initialSeriesDetail ?? null;
   let seriesSummaries = options.initialSeriesList ?? [seriesSummary()];
-  let codexEntries: ReturnType<typeof codexEntryDocument>[] = [];
+  let codexCategoryDocs = codexCategories();
+  let codexEntries: ReturnType<typeof codexEntryDocument>[] = options.initialCodexEntries ?? [];
+  let codexRelations: ReturnType<typeof codexRelationDocument>[] = options.initialCodexRelations ?? [];
+  let conflictCodexUpdate = options.conflictCodexUpdate ?? false;
   let modelProfiles: ReturnType<typeof modelProfile>[] = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -450,18 +520,263 @@ function mockFetch(options: { initialSeriesList?: ReturnType<typeof seriesSummar
     }
 
     if (url === `/api/v1/series/${seriesId}/codex/categories` && method === "GET") {
-      return jsonResponse(codexCategories());
+      return jsonResponse(codexCategoryDocs);
     }
 
-    if (url === `/api/v1/series/${seriesId}/codex/entries` && method === "GET") {
-      return jsonResponse(codexEntries);
+    if (url === `/api/v1/series/${seriesId}/codex/categories` && method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      const category = {
+        category: {
+          archivedAt: null as string | null,
+          builtIn: false,
+          icon: "*",
+          id: customCategoryId,
+          name: body.name,
+        },
+        revision: updatedRevision,
+      };
+      codexCategoryDocs = [...codexCategoryDocs, category];
+      return jsonResponse(category, 201);
+    }
+
+    if (url === `/api/v1/series/${seriesId}/codex/categories/${customCategoryId}` && method === "PUT") {
+      const body = JSON.parse(String(init?.body));
+      const current = codexCategoryDocs.find((document) => document.category.id === customCategoryId);
+      const updated = {
+        category: {
+          ...(current?.category ?? {
+            archivedAt: null as string | null,
+            builtIn: false,
+            icon: "*",
+            id: customCategoryId,
+            name: "Mechanism",
+          }),
+          name: body.name,
+        },
+        revision: updatedRevision,
+      };
+      codexCategoryDocs = codexCategoryDocs.map((document) => (
+        document.category.id === customCategoryId ? updated : document
+      ));
+      return jsonResponse(updated);
+    }
+
+    if (url === `/api/v1/series/${seriesId}/codex/categories/${customCategoryId}` && method === "DELETE") {
+      codexCategoryDocs = codexCategoryDocs.filter((document) => document.category.id !== customCategoryId);
+      codexEntries = codexEntries.map((entry) => (
+        entry.metadata.categoryId === customCategoryId
+          ? {
+              ...entry,
+              metadata: {
+                ...entry.metadata,
+                categoryId: "uncategorized",
+                updatedAt: "2026-06-24T00:00:00.000Z",
+              },
+              relativePath: codexEntryRelativePath("uncategorized", entry.metadata.id),
+              revision: updatedRevision,
+            }
+          : entry
+      ));
+      return jsonResponse({
+        deletedId: customCategoryId,
+        movedEntryIds: codexEntries
+          .filter((entry) => entry.metadata.categoryId === "uncategorized")
+          .map((entry) => entry.metadata.id),
+      });
+    }
+
+    if (url === `/api/v1/series/${seriesId}/codex/scenes/${sceneId}/mentions` && method === "GET") {
+      return jsonResponse({
+        ambiguities: [],
+        mentions: [
+          {
+            end: 11,
+            entryId: codexEntryId,
+            isAlias: false,
+            matchedText: "Harbor Lock",
+            sceneId,
+            start: 0,
+            term: "Harbor Lock",
+          },
+        ],
+        sceneId,
+      });
+    }
+
+    if (url.startsWith(`/api/v1/series/${seriesId}/codex/context`) && method === "GET") {
+      return jsonResponse({
+        excluded: [
+          {
+            entryId: modelProfileId,
+            name: "Hidden Door",
+            reason: "never",
+          },
+        ],
+        included: [
+          codexEntryDocument("Harbor Lock", "location", "A storm-pressure mechanism below the west quay."),
+        ],
+        sceneId,
+      });
+    }
+
+    if (url.startsWith(`/api/v1/series/${seriesId}/codex/relations`) && method === "GET") {
+      const parsedUrl = new URL(url, "http://localhost");
+      const entryId = parsedUrl.searchParams.get("entryId");
+      const includeArchived = parsedUrl.searchParams.get("includeArchived") === "true";
+      return jsonResponse(codexRelations.filter((document) => {
+        if (!includeArchived && document.relation.archivedAt) return false;
+        if (!entryId) return true;
+        return document.relation.sourceEntryId === entryId || document.relation.targetEntryId === entryId;
+      }));
+    }
+
+    if (url === `/api/v1/series/${seriesId}/codex/relations` && method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      const relation = codexRelationDocument(
+        body.sourceEntryId,
+        body.targetEntryId,
+        body.description,
+        createdRelationId,
+        body.type,
+        body.directed,
+        body.evidence,
+      );
+      codexRelations = [...codexRelations, relation];
+      return jsonResponse(relation, 201);
+    }
+
+    const archiveRelationMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/codex/relations/([^/]+)/archive$`));
+    if (archiveRelationMatch && method === "POST") {
+      const archivedRelationId = archiveRelationMatch[1];
+      const current = codexRelations.find((document) => document.relation.id === archivedRelationId);
+      if (!current) return jsonResponse({ message: "Relation not found" }, 404);
+      const archived = {
+        ...current,
+        relation: {
+          ...current.relation,
+          archivedAt: "2026-06-24T00:00:00.000Z",
+          updatedAt: "2026-06-24T00:00:00.000Z",
+        },
+        revision: updatedRevision,
+      };
+      codexRelations = codexRelations.map((document) => (
+        document.relation.id === archivedRelationId ? archived : document
+      ));
+      return jsonResponse(archived);
+    }
+
+    const entryMentionMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/codex/entries/([^/]+)/mentions$`));
+    if (entryMentionMatch && method === "GET") {
+      const entryId = entryMentionMatch[1];
+      return jsonResponse(entryId === codexEntryId
+        ? [
+            {
+              end: 11,
+              entryId: codexEntryId,
+              isAlias: false,
+              matchedText: "Harbor Lock",
+              sceneId,
+              start: 0,
+              term: "Harbor Lock",
+            },
+          ]
+        : []);
+    }
+
+    if (url.startsWith(`/api/v1/series/${seriesId}/codex/entries`) && method === "GET" && !url.includes(`/${codexEntryId}`)) {
+      const includeArchived = url.includes("includeArchived=true");
+      return jsonResponse(codexEntries.filter((entry) => includeArchived || !entry.metadata.archivedAt));
     }
 
     if (url === `/api/v1/series/${seriesId}/codex/entries` && method === "POST") {
       const body = JSON.parse(String(init?.body));
-      const entry = codexEntryDocument(body.name);
-      codexEntries = [entry];
+      const entry = codexEntryDocument(body.name, body.categoryId ?? "character");
+      codexEntries = [...codexEntries, entry];
       return jsonResponse(entry, 201);
+    }
+
+    if (url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}` && method === "GET") {
+      return jsonResponse(codexEntries.find((entry) => entry.metadata.id === codexEntryId) ?? codexEntryDocument("Disk Entry"));
+    }
+
+    if (url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}` && method === "PUT") {
+      if (conflictCodexUpdate) {
+        conflictCodexUpdate = false;
+        const diskEntry = codexEntryDocument("Disk Entry");
+        codexEntries = [diskEntry];
+        return jsonResponse({ message: "Codex entry changed on disk", entry: diskEntry }, 409);
+      }
+      const body = JSON.parse(String(init?.body));
+      const current = codexEntries.find((entry) => entry.metadata.id === codexEntryId) ?? codexEntryDocument();
+      const nextCategoryId = body.categoryId ?? current.metadata.categoryId;
+      const updated = {
+        ...current,
+        description: body.description ?? current.description,
+        metadata: {
+          ...current.metadata,
+          aiContextPolicy: body.aiContextPolicy ?? current.metadata.aiContextPolicy,
+          aliases: body.aliases ?? current.metadata.aliases,
+          categoryId: nextCategoryId,
+          details: body.details ?? current.metadata.details,
+          mention: body.mention ?? current.metadata.mention,
+          name: body.name ?? current.metadata.name,
+          tags: body.tags ?? current.metadata.tags,
+          updatedAt: "2026-06-24T00:00:00.000Z",
+        },
+        relativePath: codexEntryRelativePath(nextCategoryId, current.metadata.id),
+        research: body.research === undefined
+          ? current.research
+          : {
+              ...current.research,
+              content: body.research,
+              metadata: { ...current.research.metadata, updatedAt: "2026-06-24T00:00:00.000Z" },
+              revision: updatedRevision,
+            },
+        revision: updatedRevision,
+      };
+      codexEntries = codexEntries.some((entry) => entry.metadata.id === codexEntryId)
+        ? codexEntries.map((entry) => (entry.metadata.id === codexEntryId ? updated : entry))
+        : [updated];
+      return jsonResponse(updated);
+    }
+
+    if (url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}/archive` && method === "POST") {
+      const current = codexEntries.find((entry) => entry.metadata.id === codexEntryId) ?? codexEntryDocument();
+      const archived = {
+        ...current,
+        metadata: {
+          ...current.metadata,
+          archivedAt: "2026-06-24T00:00:00.000Z",
+          updatedAt: "2026-06-24T00:00:00.000Z",
+        },
+        revision: updatedRevision,
+      };
+      codexEntries = codexEntries.some((entry) => entry.metadata.id === codexEntryId)
+        ? codexEntries.map((entry) => (entry.metadata.id === codexEntryId ? archived : entry))
+        : [archived];
+      return jsonResponse(archived);
+    }
+
+    if (url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}/restore` && method === "POST") {
+      const current = codexEntries.find((entry) => entry.metadata.id === codexEntryId) ?? codexEntryDocument();
+      const restored = {
+        ...current,
+        metadata: {
+          ...current.metadata,
+          archivedAt: null,
+          updatedAt: "2026-06-24T00:00:00.000Z",
+        },
+        revision,
+      };
+      codexEntries = codexEntries.some((entry) => entry.metadata.id === codexEntryId)
+        ? codexEntries.map((entry) => (entry.metadata.id === codexEntryId ? restored : entry))
+        : [restored];
+      return jsonResponse(restored);
+    }
+
+    if (url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}` && method === "DELETE") {
+      codexEntries = codexEntries.filter((entry) => entry.metadata.id !== codexEntryId);
+      return jsonResponse({ deletedId: codexEntryId });
     }
 
     if (url === `/api/v1/series/${seriesId}/ai/cloud-policy` && method === "PUT") {
@@ -709,6 +1024,10 @@ function mockFetch(options: { initialSeriesList?: ReturnType<typeof seriesSummar
   return fetchMock;
 }
 
+function expectStructureActive(element: HTMLElement, expected: boolean) {
+  expect(element.className.includes("is-active")).toBe(expected);
+}
+
 describe("App shell", () => {
   it("renders the project library and workspace navigation", async () => {
     mockFetch();
@@ -755,6 +1074,130 @@ describe("App shell", () => {
     expect(screen.getByRole("button", { name: "Act" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Scene" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Settings/i })).toBeTruthy();
+  });
+
+  it("loads codex entries for write inline marks without rendering redundant scene codex panel", async () => {
+    const fetchMock = mockFetch({
+      initialCodexEntries: [
+        codexEntryDocument("Harbor Lock", "location", "A storm-pressure mechanism below the west quay."),
+      ],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/entries`,
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+    expect(screen.queryByText("Codex in scene")).toBeNull();
+    expect(screen.queryByText("Included context")).toBeNull();
+  });
+
+  it("shows write codex marks inline and toggles the preview from the same mark", async () => {
+    mockFetch({
+      initialCodexEntries: [
+        codexEntryDocument("Harbor Lock", "location", "A storm-pressure mechanism below the west quay.", codexEntryId, {
+          aliases: ["Bellgate"],
+        }),
+      ],
+      initialSeriesDetail: seriesDetail("Bellgate waited under the gate."),
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    const editor = await screen.findByLabelText("Scene content");
+    const mark = await within(editor).findByRole("button", { name: "Bellgate" });
+
+    expect(screen.queryByText(/codex marks/i)).toBeNull();
+    expect(document.querySelector(".scene-content-preview")).toBeNull();
+
+    fireEvent.click(mark);
+    expect(screen.getByLabelText("Harbor Lock canon description")).toBeTruthy();
+    expect(screen.getByText("A storm-pressure mechanism below the west quay.")).toBeTruthy();
+
+    fireEvent.click(mark);
+    expect(screen.queryByLabelText("Harbor Lock canon description")).toBeNull();
+  });
+
+  it("hides and restores the scene brief without rendering a text restore label", async () => {
+    mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    expect(await screen.findByText("Scene Brief")).toBeTruthy();
+
+    fireEvent.click(screen.getByTitle("Hide panel"));
+    expect(screen.queryByText("Scene Brief")).toBeNull();
+    expect(screen.queryByText("Brief")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show scene brief" }));
+    expect(await screen.findByText("Scene Brief")).toBeTruthy();
+  });
+
+  it("keeps write structure selection explicit, single, and toggleable", async () => {
+    mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    await screen.findByLabelText("Scene title");
+    const volumeRow = screen.getByRole("button", { name: /^Volume 1/i });
+    const chapterRow = screen.getByRole("button", { name: /^Chapter One/i });
+    const actRow = screen.getByRole("button", { name: /^Act One/i });
+    const sceneRow = screen.getByRole("button", { name: /^Opening Scene/i });
+
+    expectStructureActive(volumeRow, false);
+    expectStructureActive(chapterRow, false);
+    expectStructureActive(actRow, false);
+    expectStructureActive(sceneRow, false);
+
+    fireEvent.click(volumeRow);
+    expectStructureActive(volumeRow, true);
+    expectStructureActive(chapterRow, false);
+    expectStructureActive(actRow, false);
+    expectStructureActive(sceneRow, false);
+
+    fireEvent.click(volumeRow);
+    expectStructureActive(volumeRow, false);
+
+    fireEvent.click(chapterRow);
+    expectStructureActive(chapterRow, true);
+    expectStructureActive(actRow, false);
+    expectStructureActive(sceneRow, false);
+
+    fireEvent.click(actRow);
+    expectStructureActive(chapterRow, false);
+    expectStructureActive(actRow, true);
+    expectStructureActive(sceneRow, false);
+
+    fireEvent.click(sceneRow);
+    expectStructureActive(actRow, false);
+    expectStructureActive(sceneRow, true);
+
+    fireEvent.click(sceneRow);
+    expectStructureActive(sceneRow, false);
+  });
+
+  it("does not carry old child selection when a different volume is selected", async () => {
+    mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    await screen.findByLabelText("Scene title");
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Volume" }));
+
+    const newVolumeRow = await screen.findByRole("button", { name: /^New Volume/i });
+    fireEvent.click(newVolumeRow);
+    expectStructureActive(newVolumeRow, true);
+    expectStructureActive(screen.getByRole("button", { name: /^New Chapter/i }), false);
+    expectStructureActive(screen.getByRole("button", { name: /^New Act/i }), false);
+    expectStructureActive(screen.getByRole("button", { name: /^Opening Scene/i }), false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getByRole("button", { name: "Scene" })).toHaveProperty("disabled", true);
   });
 
   it("creates and deletes a selected volume from the write structure", async () => {
@@ -826,6 +1269,7 @@ describe("App shell", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
     fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    await screen.findByRole("button", { name: /Character/i });
     expect(await screen.findByText("No codex entries yet.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "New Entry" }));
@@ -843,6 +1287,413 @@ describe("App shell", () => {
     expect(row).toBeTruthy();
     fireEvent.click(row!);
     expect(screen.queryByLabelText("Codex entry details")).toBeNull();
+  });
+
+  it("edits and saves a codex entry through the API", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "New Entry" }));
+
+    fireEvent.change(await screen.findByLabelText("Codex entry name"), { target: { value: "Harbor Lock" } });
+    const canonDescription = screen.getByLabelText("Codex canon description");
+    canonDescription.textContent = "A storm-pressure mechanism below the west quay.";
+    fireEvent.input(canonDescription);
+    fireEvent.click(screen.getByRole("button", { name: "Add Detail" }));
+    fireEvent.change(screen.getByLabelText("Detail 1 label"), { target: { value: "Gate rule" } });
+    fireEvent.change(screen.getByLabelText("Detail 1 value"), { target: { value: "Only opens after the bell." } });
+    fireEvent.click(screen.getByRole("tab", { name: "Research" }));
+    fireEvent.change(screen.getByLabelText("Codex research notes"), {
+      target: { value: "Research source stays private until confirmed." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}` && init?.method === "PUT"
+      ));
+      expect(putCall).toBeTruthy();
+      const body = JSON.parse(String(putCall![1]?.body));
+      expect(body).toEqual(expect.objectContaining({
+        baseResearchRevision: revision,
+        baseRevision: revision,
+        description: "A storm-pressure mechanism below the west quay.",
+        details: { "Gate rule": "Only opens after the bell." },
+        name: "Harbor Lock",
+        research: "Research source stays private until confirmed.",
+      }));
+    });
+    expect(await screen.findByRole("heading", { name: "Harbor Lock" })).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getAllByText("Saved").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("shows codex relations and mentions from manuscript and other codex entries", async () => {
+    const fetchMock = mockFetch({
+      initialCodexEntries: [
+        codexEntryDocument("Harbor Lock", "location", "A storm-pressure mechanism below the west quay.", codexEntryId, {
+          aliases: ["Bellgate"],
+        }),
+        codexEntryDocument(
+          "West Quay",
+          "location",
+          "The Harbor Lock sits below the quay.",
+          relatedCodexEntryId,
+          {
+            details: { Rule: "Harbor Lock opens only after the bell." },
+            research: "Repair notes mention Bellgate timing.",
+          },
+        ),
+      ],
+      initialCodexRelations: [codexRelationDocument()],
+      initialSeriesDetail: seriesDetail("Harbor Lock waited under the gate."),
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    const harborRow = (await screen.findByText("Harbor Lock")).closest("button");
+    expect(harborRow).toBeTruthy();
+    fireEvent.click(harborRow!);
+
+    expect(await screen.findByRole("heading", { name: "Harbor Lock" })).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}/mentions`,
+        expect.objectContaining({ method: "GET" }),
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/relations?entryId=${codexEntryId}`,
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Relations" }));
+    expect(screen.getByText("RELATIONS/CONNECTIONS")).toBeTruthy();
+    expect(screen.getByText("Harbor Lock -> West Quay")).toBeTruthy();
+    expect(screen.getByText("Locks access to the quay.")).toBeTruthy();
+    expect(screen.getByText("Bell timing scene.")).toBeTruthy();
+    const relationCard = screen.getByText("Locks access to the quay.").closest("article");
+    expect(relationCard).toBeTruthy();
+    fireEvent.click(within(relationCard!).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(relationCard!).getByRole("button", { name: "Confirm Delete" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/relations/${relationId}/archive`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(screen.queryByText("Locks access to the quay.")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Relation type"), { target: { value: "signals" } });
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Signals the bell route." } });
+    fireEvent.change(screen.getByLabelText("Evidence"), { target: { value: "Found in the repair notes." } });
+    fireEvent.click(screen.getByRole("button", { name: "Add Relation" }));
+
+    await waitFor(() => {
+      const postCall = fetchMock.mock.calls.find(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/codex/relations` && init?.method === "POST"
+      ));
+      expect(postCall).toBeTruthy();
+      const body = JSON.parse(String(postCall![1]?.body));
+      expect(body).toEqual(expect.objectContaining({
+        description: "Signals the bell route.",
+        directed: true,
+        evidence: "Found in the repair notes.",
+        sourceEntryId: codexEntryId,
+        targetEntryId: relatedCodexEntryId,
+        type: "signals",
+      }));
+    });
+    expect(await screen.findByText("Signals the bell route.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Mentions" }));
+    expect(screen.getAllByText("1 mention").length).toBeGreaterThan(0);
+    expect(await screen.findByRole("button", { name: /Manuscript 1/i })).toBeTruthy();
+    expect(screen.getByText("Opening Scene")).toBeTruthy();
+    expect(screen.getAllByText("Harbor Lock").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /Codex 3/i }));
+    expect(screen.getAllByText("West Quay").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Canon description").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Research notes").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Detail: Rule").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Bellgate" }));
+    expect(screen.getByLabelText("Harbor Lock canon description")).toBeTruthy();
+    expect(screen.getAllByText("A storm-pressure mechanism below the west quay.").length).toBeGreaterThan(0);
+  });
+
+  it("marks codex canon description mentions inline and toggles the preview from the same mark", async () => {
+    mockFetch({
+      initialCodexEntries: [
+        codexEntryDocument("Harbor Lock", "location", "Bellgate controls the quay.", codexEntryId),
+        codexEntryDocument("West Quay", "location", "A locked west quay.", relatedCodexEntryId, {
+          aliases: ["Bellgate"],
+        }),
+      ],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    const harborRow = (await screen.findByText("Harbor Lock")).closest("button");
+    expect(harborRow).toBeTruthy();
+    fireEvent.click(harborRow!);
+
+    const descriptionEditor = await screen.findByLabelText("Codex canon description");
+    const mark = await within(descriptionEditor).findByRole("button", { name: "Bellgate" });
+
+    fireEvent.click(mark);
+    const preview = screen.getByLabelText("West Quay canon description");
+    expect(preview).toBeTruthy();
+    expect(within(preview).getByText("A locked west quay.")).toBeTruthy();
+
+    fireEvent.click(mark);
+    expect(screen.queryByLabelText("West Quay canon description")).toBeNull();
+  });
+
+  it("saves codex tracking settings from the renamed tracking tab", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "New Entry" }));
+    expect(await screen.findByRole("heading", { name: "New Entry" })).toBeTruthy();
+
+    expect(screen.queryByRole("tab", { name: "Recognition" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Tracking" }));
+    expect(screen.getByText("TRACKING/MATCHING")).toBeTruthy();
+    expect(screen.getByText("AI CONTEXT")).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText("Use case-sensitive matching for names and aliases."));
+    fireEvent.click(screen.getByLabelText("Use English plural variants."));
+    fireEvent.change(screen.getByPlaceholderText("Separate exclusions with commas"), {
+      target: { value: "common lock, stage lock" },
+    });
+    fireEvent.click(screen.getByLabelText(/Never include/));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}` && init?.method === "PUT"
+      ));
+      expect(putCall).toBeTruthy();
+      const body = JSON.parse(String(putCall![1]?.body));
+      expect(body.aiContextPolicy).toBe("never");
+      expect(body.mention).toEqual(expect.objectContaining({
+        automaticPlural: true,
+        caseSensitive: true,
+        excludedTerms: ["common lock", "stage lock"],
+        matchAliases: true,
+      }));
+    });
+  });
+
+  it("creates custom codex categories and saves entry category changes", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "New Entry" }));
+    expect(await screen.findByRole("heading", { name: "New Entry" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.change(screen.getByLabelText("New category name"), { target: { value: "Mechanism" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByRole("button", { name: /Mechanism/i })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Codex entry category"), { target: { value: customCategoryId } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      const postCategory = fetchMock.mock.calls.find(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/codex/categories` && init?.method === "POST"
+      ));
+      expect(postCategory).toBeTruthy();
+      const putCall = fetchMock.mock.calls.find(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}` && init?.method === "PUT"
+      ));
+      expect(putCall).toBeTruthy();
+      const body = JSON.parse(String(putCall![1]?.body));
+      expect(body.categoryId).toBe(customCategoryId);
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText("Mechanism").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("renames and deletes custom codex categories without deleting entries", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "New Entry" }));
+    expect(await screen.findByRole("heading", { name: "New Entry" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.change(screen.getByLabelText("New category name"), { target: { value: "Mechanism" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByRole("button", { name: /Mechanism/i })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Codex entry category"), { target: { value: customCategoryId } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}`,
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
+
+    fireEvent.doubleClick(screen.getByRole("button", { name: /Mechanism/i }));
+    const renameInput = screen.getByLabelText("Rename Mechanism");
+    fireEvent.change(renameInput, { target: { value: "Mechanism 2" } });
+    fireEvent.keyDown(renameInput, { code: "Enter", key: "Enter" });
+    expect(await screen.findByRole("button", { name: /Mechanism 2/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByText("Delete selected category?")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/categories/${customCategoryId}`,
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    expect(screen.queryByRole("button", { name: /Mechanism 2/i })).toBeNull();
+    expect(await screen.findByRole("heading", { name: "New Entry" })).toBeTruthy();
+    expect(screen.getAllByText("Uncategorized").length).toBeGreaterThan(0);
+  });
+
+  it("rejects duplicate codex category names before create", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    await screen.findByRole("button", { name: /Character/i });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.change(screen.getByLabelText("New category name"), { target: { value: "Character" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByText('Category "Character" already exists.')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("New category name"), { target: { value: "Mechanism" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByRole("button", { name: /Mechanism/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.change(screen.getByLabelText("New category name"), { target: { value: "Mechanism" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByText('Category "Mechanism" already exists.')).toBeTruthy();
+
+    const categoryCreates = fetchMock.mock.calls.filter(([url, init]) => (
+      url === `/api/v1/series/${seriesId}/codex/categories` && init?.method === "POST"
+    ));
+    expect(categoryCreates).toHaveLength(1);
+  });
+
+  it("deletes a codex entry from the detail archive area", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "New Entry" }));
+    expect(await screen.findByRole("heading", { name: "New Entry" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Entry" }));
+    expect(screen.getByText("Delete this entry?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Entry" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}`,
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    expect(screen.queryByLabelText("Codex entry details")).toBeNull();
+    expect(await screen.findByText("No codex entries yet.")).toBeTruthy();
+  });
+
+  it("keeps codex detail rows collapsed until needed", async () => {
+    mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "New Entry" }));
+
+    expect(await screen.findByRole("heading", { name: "New Entry" })).toBeTruthy();
+    expect(screen.queryByText("No details yet.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    expect(screen.getByText("No details yet.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Hide details" }));
+    expect(screen.queryByText("No details yet.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add Detail" }));
+    expect(screen.getByLabelText("Detail 1 label")).toBeTruthy();
+  });
+
+  it("shows a codex conflict and reloads the disk version", async () => {
+    const fetchMock = mockFetch({ conflictCodexUpdate: true });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "New Entry" }));
+    fireEvent.change(await screen.findByLabelText("Codex entry name"), { target: { value: "Local Entry" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText("This entry changed on disk. Reload it before saving again.").length).toBeGreaterThan(0);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Codex entry name")).toHaveProperty("value", "Disk Entry");
+    });
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}`,
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+  });
+
+  it("archives and restores a codex entry", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "New Entry" }));
+    expect(await screen.findByRole("heading", { name: "New Entry" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive Entry" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}/archive`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByText("Archived entry")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Restore Entry" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}/restore`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByText("Active entry")).toBeTruthy();
   });
 
   it("deletes the selected chapter only after confirmation", async () => {
@@ -1008,7 +1859,8 @@ describe("App shell", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
     const editor = await screen.findByLabelText("Scene content");
-    fireEvent.change(editor, { target: { value: "New paragraph" } });
+    editor.textContent = "New paragraph";
+    fireEvent.input(editor);
     fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {

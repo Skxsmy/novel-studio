@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   ActManifest,
   BookManifest,
   ChapterManifest,
+  CodexEntryDocument,
   CreateActInput,
   CreateBookInput,
   CreateChapterInput,
@@ -13,8 +14,11 @@ import type {
   UpdateBookInput,
   UpdateChapterInput,
 } from "@novel-studio/contracts";
+import { api } from "../../api";
 import { uiText } from "../../app/uiText";
 import type { SaveStatus, SceneDraft } from "../../app/useProjectSession";
+import { currentEditorCaretOffset, extractEditorText, previewPositionForElement, restoreEditorCaret } from "../codex/editableText";
+import { findInlineCodexMentions, type InlineCodexMention } from "../codex/inlineMentions";
 
 export interface WriteWorkspaceProps {
   draft: SceneDraft | null;
@@ -26,10 +30,11 @@ export interface WriteWorkspaceProps {
   onDeleteVolume: (bookId: string) => Promise<void>;
   onDeleteChapter: (chapterId: string) => Promise<void>;
   onDeleteScene: (sceneId: string) => Promise<void>;
-  onCreateAct: (input?: CreateActInput) => Promise<void>;
+  onCreateAct: (bookId?: string | null, input?: CreateActInput) => Promise<void>;
   onCreateVolume: (input?: CreateBookInput) => Promise<void>;
-  onCreateChapter: (input?: CreateChapterInput) => Promise<void>;
+  onCreateChapter: (actId?: string | null, input?: CreateChapterInput) => Promise<void>;
   onCreateScene: (input?: CreateSceneInput) => Promise<void>;
+  onClearStructureSelection: () => void;
   onSaveDraft: () => Promise<void>;
   onSelectVolume: (bookId: string) => void;
   onSelectAct: (actId: string) => void;
@@ -88,6 +93,7 @@ function toggleSetValue(values: Set<string>, value: string) {
 type ProductStructureType = "volume" | "chapter" | "act" | "scene";
 type RenamingStructure = { type: "volume" | "chapter" | "act"; id: string; title: string };
 type SelectedStructure = { type: ProductStructureType; id: string };
+type ActiveSceneCodexPreview = { entry: CodexEntryDocument; left: number; markKey: string; top: number };
 
 const structureCreateLabels: Record<ProductStructureType, string> = {
   volume: uiText.hierarchy.volume,
@@ -95,6 +101,71 @@ const structureCreateLabels: Record<ProductStructureType, string> = {
   act: uiText.hierarchy.act,
   scene: uiText.hierarchy.scene,
 };
+
+function renderSceneCodexMarks(
+  content: string,
+  mentions: InlineCodexMention[],
+  entriesById: Map<string, CodexEntryDocument>,
+  activePreview: ActiveSceneCodexPreview | null,
+  onToggle: (markKey: string, entry: CodexEntryDocument, element: HTMLElement) => void,
+): ReactNode {
+  const validMentions = [...mentions]
+    .filter((mention) => (
+      mention.start >= 0 &&
+      mention.end <= content.length &&
+      mention.start < mention.end &&
+      content.slice(mention.start, mention.end) === mention.matchedText
+    ))
+    .sort((left, right) => left.start - right.start || right.end - left.end);
+  if (!validMentions.length) return content;
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  for (const mention of validMentions) {
+    if (mention.start < cursor) continue;
+    if (mention.start > cursor) nodes.push(content.slice(cursor, mention.start));
+    const entry = entriesById.get(mention.entryId);
+    const matched = content.slice(mention.start, mention.end);
+    const markKey = `${mention.entryId}:${mention.start}:${mention.end}`;
+    nodes.push(entry ? (
+      <span className="scene-codex-mark-wrap" contentEditable={false} data-mention-text={matched} key={markKey}>
+        <button
+          aria-expanded={activePreview?.markKey === markKey}
+          className={`codex-mention-mark${activePreview?.markKey === markKey ? " is-open" : ""}`}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onToggle(markKey, entry, event.currentTarget);
+          }}
+          type="button"
+        >
+          {matched}
+        </button>
+        {activePreview?.markKey === markKey ? (
+          <aside
+            className="codex-preview-popover scene-codex-preview"
+            aria-label={`${entry.metadata.name} canon description`}
+            data-codex-preview="true"
+            style={{ left: activePreview.left, top: activePreview.top }}
+          >
+            <div className="codex-preview-head">
+              <div>
+                <div className="row-meta">Codex</div>
+                <strong>{entry.metadata.name}</strong>
+              </div>
+            </div>
+            <p>{entry.description || "No description"}</p>
+          </aside>
+        ) : null}
+      </span>
+    ) : (
+      <mark className="codex-mention-mark" key={markKey}>{matched}</mark>
+    ));
+    cursor = mention.end;
+  }
+  if (cursor < content.length) nodes.push(content.slice(cursor));
+  return nodes;
+}
 
 export function WriteWorkspace({
   draft,
@@ -110,6 +181,7 @@ export function WriteWorkspace({
   onCreateVolume,
   onCreateChapter,
   onCreateScene,
+  onClearStructureSelection,
   onSaveDraft,
   onSelectVolume,
   onSelectAct,
@@ -135,12 +207,12 @@ export function WriteWorkspace({
   const [collapsedBooks, setCollapsedBooks] = useState<Set<string>>(() => new Set());
   const [collapsedActs, setCollapsedActs] = useState<Set<string>>(() => new Set());
   const [collapsedChapters, setCollapsedChapters] = useState<Set<string>>(() => new Set());
-  const charactersInScene = selectedScene
-    ? selectedScene.metadata.characterIds.length + selectedScene.metadata.locationIds.length + selectedScene.metadata.plotThreadIds.length
-    : 0;
-  const canCreateProductChapter = series.books.length > 0;
-  const canCreateProductAct = Boolean(selectedActId ?? series.acts[0]?.id ?? series.books[0]?.actIds[0]);
-  const canCreateScene = Boolean(selectedChapterId ?? selectedScene?.metadata.chapterId ?? series.chapters[0]?.id);
+  const [codexEntries, setCodexEntries] = useState<CodexEntryDocument[]>([]);
+  const [activeSceneCodexPreview, setActiveSceneCodexPreview] = useState<ActiveSceneCodexPreview | null>(null);
+  const [isBriefVisible, setIsBriefVisible] = useState(true);
+  const [isCodexLoading, setIsCodexLoading] = useState(false);
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const pendingCaretOffsetRef = useRef<number | null>(null);
   const actsByBook = new Map<string, ActManifest[]>();
   for (const act of sortedByOrder(series.acts)) {
     actsByBook.set(act.bookId, [...(actsByBook.get(act.bookId) ?? []), act]);
@@ -154,6 +226,52 @@ export function WriteWorkspace({
     scenesByChapter.set(scene.metadata.chapterId, [...(scenesByChapter.get(scene.metadata.chapterId) ?? []), scene]);
   }
   const orderedBooks: BookManifest[] = sortedByOrder(series.books);
+  const structureScene = selectedStructure?.type === "scene"
+    ? series.scenes.find((scene) => scene.metadata.id === selectedStructure.id) ?? null
+    : null;
+  const selectedStructureChapter = selectedStructure?.type === "act"
+    ? series.chapters.find((chapter) => chapter.id === selectedStructure.id) ?? null
+    : null;
+  const selectedStructureAct = selectedStructure?.type === "chapter"
+    ? series.acts.find((act) => act.id === selectedStructure.id) ?? null
+    : selectedStructureChapter
+      ? series.acts.find((act) => act.id === selectedStructureChapter.actId) ?? null
+      : structureScene
+        ? series.acts.find((act) => act.id === structureScene.metadata.actId) ?? null
+        : null;
+  const selectedStructureBook = selectedStructure?.type === "volume"
+    ? series.books.find((book) => book.id === selectedStructure.id) ?? null
+    : selectedStructureAct
+      ? series.books.find((book) => book.id === selectedStructureAct.bookId) ?? null
+      : structureScene
+        ? series.books.find((book) => book.id === structureScene.metadata.bookId) ?? null
+        : null;
+  const fallbackSceneBook = selectedScene
+    ? series.books.find((book) => book.id === selectedScene.metadata.bookId) ?? null
+    : null;
+  const fallbackSceneAct = selectedScene
+    ? series.acts.find((act) => act.id === selectedScene.metadata.actId) ?? null
+    : null;
+  const fallbackSceneChapter = selectedScene
+    ? series.chapters.find((chapter) => chapter.id === selectedScene.metadata.chapterId) ?? null
+    : null;
+  const targetBookForChapter = selectedStructureBook ?? (selectedVolumeId ? series.books.find((book) => book.id === selectedVolumeId) ?? null : null) ?? fallbackSceneBook ?? orderedBooks[0] ?? null;
+  const targetActForProductAct = selectedStructure?.type === "volume"
+    ? null
+    : selectedStructureAct ?? (selectedActId ? series.acts.find((act) => act.id === selectedActId) ?? null : null) ?? fallbackSceneAct ?? sortedByOrder(series.acts)[0] ?? null;
+  const targetChapterForScene = selectedStructure?.type === "act"
+    ? selectedStructureChapter
+    : selectedStructure?.type === "scene"
+      ? series.chapters.find((chapter) => chapter.id === structureScene?.metadata.chapterId) ?? null
+      : selectedStructure
+        ? null
+        : (selectedChapterId ? series.chapters.find((chapter) => chapter.id === selectedChapterId) ?? null : null) ?? fallbackSceneChapter ?? sortedByOrder(series.chapters)[0] ?? null;
+  const targetActForScene = targetChapterForScene
+    ? series.acts.find((act) => act.id === targetChapterForScene.actId) ?? null
+    : null;
+  const canCreateProductChapter = Boolean(targetBookForChapter);
+  const canCreateProductAct = Boolean(targetActForProductAct);
+  const canCreateScene = Boolean(targetActForScene && targetChapterForScene);
   const selectedVolume = selectedStructure?.type === "volume"
     ? series.books.find((book) => book.id === selectedStructure.id)
     : null;
@@ -165,9 +283,7 @@ export function WriteWorkspace({
   const selectedProductAct = selectedStructure?.type === "act"
     ? series.chapters.find((chapter) => chapter.id === selectedStructure.id)
     : null;
-  const selectedStructureScene = selectedStructure?.type === "scene"
-    ? series.scenes.find((scene) => scene.metadata.id === selectedStructure.id)
-    : null;
+  const selectedStructureScene = structureScene;
   const deleteTarget = selectedVolume
     ? { type: "volume" as const, id: selectedVolume.id, title: selectedVolume.title, label: uiText.hierarchy.volume }
     : selectedProductChapter
@@ -176,9 +292,76 @@ export function WriteWorkspace({
         ? { type: "act" as const, id: selectedProductAct.id, title: selectedProductAct.title, label: uiText.hierarchy.act }
         : selectedStructureScene
           ? { type: "scene" as const, id: selectedStructureScene.metadata.id, title: selectedStructureScene.metadata.title, label: uiText.hierarchy.scene }
-          : selectedScene
-            ? { type: "scene" as const, id: selectedScene.metadata.id, title: selectedScene.metadata.title, label: uiText.hierarchy.scene }
-            : null;
+        : null;
+
+  useEffect(() => {
+    if (!selectedScene) {
+      setCodexEntries([]);
+      setActiveSceneCodexPreview(null);
+      setIsCodexLoading(false);
+      return;
+    }
+
+    let isActive = true;
+    setActiveSceneCodexPreview(null);
+    setIsCodexLoading(true);
+    api.codex.listEntries(series.manifest.id)
+      .then((entries) => {
+        if (!isActive) return;
+        setCodexEntries(entries);
+      })
+      .catch(() => {
+        if (!isActive) return;
+        setCodexEntries([]);
+      })
+      .finally(() => {
+        if (isActive) setIsCodexLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [series.manifest.id, selectedScene?.metadata.id]);
+
+  useLayoutEffect(() => {
+    if (pendingCaretOffsetRef.current === null || !editorRef.current) return;
+    restoreEditorCaret(editorRef.current, pendingCaretOffsetRef.current);
+    pendingCaretOffsetRef.current = null;
+  }, [draft?.content]);
+
+  useEffect(() => {
+    if (!activeSceneCodexPreview) return;
+
+    function closeOnOutsidePointer(event: PointerEvent) {
+      const target = event.target as Node | null;
+      if (!target || editorRef.current?.contains(target)) return;
+      setActiveSceneCodexPreview(null);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [activeSceneCodexPreview]);
+
+  const codexEntryById = useMemo(() => {
+    return new Map(codexEntries.map((entry) => [entry.metadata.id, entry]));
+  }, [codexEntries]);
+  const inlineCodexMentions = useMemo(
+    () => findInlineCodexMentions(draft?.content ?? "", codexEntries),
+    [codexEntries, draft?.content],
+  );
+
+  function toggleSceneCodexPreview(markKey: string, entry: CodexEntryDocument, element: HTMLElement) {
+    const position = previewPositionForElement(element);
+    setActiveSceneCodexPreview((current) => (
+      current?.markKey === markKey ? null : { entry, markKey, ...position }
+    ));
+  }
+
+  function updateContentFromEditor(element: HTMLElement) {
+    pendingCaretOffsetRef.current = currentEditorCaretOffset(element);
+    setActiveSceneCodexPreview(null);
+    onUpdateContent(extractEditorText(element));
+  }
 
   function canCreateStructure(type: ProductStructureType) {
     if (type === "volume") return true;
@@ -190,10 +373,27 @@ export function WriteWorkspace({
   async function createStructure(type: ProductStructureType) {
     if (!canCreateStructure(type) || isCreatingStructure) return;
     if (type === "volume") await onCreateVolume();
-    else if (type === "chapter") await onCreateAct();
-    else if (type === "act") await onCreateChapter();
-    else await onCreateScene();
+    else if (type === "chapter") await onCreateAct(targetBookForChapter?.id ?? null);
+    else if (type === "act") await onCreateChapter(targetActForProductAct?.id ?? null);
+    else await onCreateScene(targetActForScene && targetChapterForScene
+      ? {
+          bookId: targetActForScene.bookId,
+          actId: targetActForScene.id,
+          chapterId: targetChapterForScene.id,
+        }
+      : undefined);
     setIsAddOpen(false);
+  }
+
+  function selectStructure(next: SelectedStructure, onSelect: () => void) {
+    setIsDeleteOpen(false);
+    if (selectedStructure?.type === next.type && selectedStructure.id === next.id) {
+      setSelectedStructure(null);
+      onClearStructureSelection();
+      return;
+    }
+    setSelectedStructure(next);
+    onSelect();
   }
 
   async function deleteSelectedStructure() {
@@ -230,10 +430,21 @@ export function WriteWorkspace({
         <div className="segmented" role="tablist" aria-label="Write mode">
           <button className="seg-btn is-active" type="button">Draft</button>
           <button className="seg-btn" type="button">Revise</button>
+          {!isBriefVisible ? (
+            <button
+              aria-label="Show scene brief"
+              className="icon-btn brief-restore-action"
+              onClick={() => setIsBriefVisible(true)}
+              title="Show scene brief"
+              type="button"
+            >
+              <span aria-hidden="true">▦</span>
+            </button>
+          ) : null}
         </div>
       </div>
 
-      <div className="write-grid">
+      <div className={`write-grid${isBriefVisible ? "" : " is-brief-hidden"}`}>
         <aside className="panel no-shadow structure-panel">
           <div className="panel-head">
             <div>
@@ -298,7 +509,7 @@ export function WriteWorkspace({
           </div>
           <div className="panel-body scene-map">
             {orderedBooks.map((book) => {
-              const isSelectedVolume = (selectedStructure?.type === "volume" && selectedStructure.id === book.id) || selectedVolumeId === book.id;
+              const isSelectedVolume = selectedStructure?.type === "volume" && selectedStructure.id === book.id;
               const isRenamingVolume = renamingStructure?.type === "volume" && renamingStructure.id === book.id;
               return (
               <div className="structure-book" key={book.id}>
@@ -324,9 +535,7 @@ export function WriteWorkspace({
                   <button
                     className={`data-row structure-book-row${isSelectedVolume ? " is-active" : ""}`}
                     onClick={() => {
-                      setSelectedStructure({ type: "volume", id: book.id });
-                      setIsDeleteOpen(false);
-                      onSelectVolume(book.id);
+                      selectStructure({ type: "volume", id: book.id }, () => onSelectVolume(book.id));
                     }}
                     onDoubleClick={() => setRenamingStructure({ type: "volume", id: book.id, title: book.title })}
                     title={uiText.structure.doubleClickToRename}
@@ -350,7 +559,7 @@ export function WriteWorkspace({
                 </button>
                 {!collapsedBooks.has(book.id) ? (actsByBook.get(book.id) ?? []).map((act) => {
                   const chapters = chaptersByAct.get(act.id) ?? [];
-                  const isSelectedAct = act.id === selectedActId;
+                  const isSelectedAct = selectedStructure?.type === "chapter" && selectedStructure.id === act.id;
                   const isCollapsedAct = collapsedActs.has(act.id);
                   const isRenamingAct = renamingStructure?.type === "chapter" && renamingStructure.id === act.id;
                   return (
@@ -377,9 +586,7 @@ export function WriteWorkspace({
                         <button
                           className={`data-row structure-act-row${isSelectedAct ? " is-active" : ""}`}
                           onClick={() => {
-                            setSelectedStructure({ type: "chapter", id: act.id });
-                            setIsDeleteOpen(false);
-                            onSelectAct(act.id);
+                            selectStructure({ type: "chapter", id: act.id }, () => onSelectAct(act.id));
                           }}
                           onDoubleClick={() => setRenamingStructure({ type: "chapter", id: act.id, title: act.title })}
                           title={uiText.structure.doubleClickToRename}
@@ -403,7 +610,7 @@ export function WriteWorkspace({
                       </button>
                       {!isCollapsedAct ? chapters.map((chapter) => {
                         const scenes = scenesByChapter.get(chapter.id) ?? [];
-                        const isSelectedChapter = chapter.id === selectedChapterId;
+                        const isSelectedChapter = selectedStructure?.type === "act" && selectedStructure.id === chapter.id;
                         const isCollapsedChapter = collapsedChapters.has(chapter.id);
                         const isRenamingChapter = renamingStructure?.type === "act" && renamingStructure.id === chapter.id;
                         return (
@@ -430,9 +637,7 @@ export function WriteWorkspace({
                               <button
                                 className={`data-row structure-chapter-row${isSelectedChapter ? " is-active" : ""}`}
                                 onClick={() => {
-                                  setSelectedStructure({ type: "act", id: chapter.id });
-                                  setIsDeleteOpen(false);
-                                  onSelectChapter(chapter.id);
+                                  selectStructure({ type: "act", id: chapter.id }, () => onSelectChapter(chapter.id));
                                 }}
                                 onDoubleClick={() => setRenamingStructure({ type: "act", id: chapter.id, title: chapter.title })}
                                 title={uiText.structure.doubleClickToRename}
@@ -457,12 +662,10 @@ export function WriteWorkspace({
                             {!isCollapsedChapter ? <div className="structure-scenes">
                               {scenes.map((scene) => (
                                 <button
-                                  className={`scene-row${scene.metadata.id === selectedScene?.metadata.id ? " is-active" : ""}`}
+                                  className={`scene-row${selectedStructure?.type === "scene" && selectedStructure.id === scene.metadata.id ? " is-active" : ""}`}
                                   key={scene.metadata.id}
                                   onClick={() => {
-                                    setSelectedStructure({ type: "scene", id: scene.metadata.id });
-                                    setIsDeleteOpen(false);
-                                    onSelectScene(scene.metadata.id);
+                                    selectStructure({ type: "scene", id: scene.metadata.id }, () => onSelectScene(scene.metadata.id));
                                   }}
                                   type="button"
                                 >
@@ -515,7 +718,7 @@ export function WriteWorkspace({
               <>
                 <div className="scene-kicker">
                   <span className={isDirty ? "pill amber" : "pill green"}>{isDirty ? "Unsaved" : "Autosave on"}</span>
-                  <span className="pill violet">{charactersInScene} codex marks</span>
+                  {isCodexLoading ? <span className="pill">Loading codex</span> : null}
                 </div>
                 <input
                   aria-label="Scene title"
@@ -523,13 +726,36 @@ export function WriteWorkspace({
                   onChange={(event) => onUpdateTitle(event.target.value)}
                   value={draft.title}
                 />
-                <textarea
+                <div
                   aria-label="Scene content"
-                  className="editor-copy editor-copy-input"
-                  onChange={(event) => onUpdateContent(event.target.value)}
-                  placeholder="Continue the scene..."
-                  value={draft.content}
-                />
+                  className="editor-copy editor-copy-input scene-copy-editor"
+                  contentEditable
+                  data-placeholder="Continue the scene..."
+                  onClick={(event) => {
+                    const target = event.target as HTMLElement;
+                    if (!target.closest(".codex-mention-mark") && !target.closest(".scene-codex-preview")) {
+                      setActiveSceneCodexPreview(null);
+                    }
+                  }}
+                  onInput={(event) => updateContentFromEditor(event.currentTarget)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setActiveSceneCodexPreview(null);
+                  }}
+                  ref={editorRef}
+                  role="textbox"
+                  suppressContentEditableWarning
+                  tabIndex={0}
+                >
+                  {draft.content
+                    ? renderSceneCodexMarks(
+                        draft.content,
+                        inlineCodexMentions,
+                        codexEntryById,
+                        activeSceneCodexPreview,
+                        toggleSceneCodexPreview,
+                      )
+                    : null}
+                </div>
               </>
             ) : (
               <div className="large-note">
@@ -547,33 +773,38 @@ export function WriteWorkspace({
           </footer>
         </section>
 
-        <aside className="panel no-shadow">
-          <div className="panel-head">
-            <div>
-              <div className="panel-title">Scene Brief</div>
-              <div className="panel-kicker">Visible while writing</div>
+        {isBriefVisible ? (
+          <aside className="panel no-shadow">
+            <div className="panel-head">
+              <div>
+                <div className="panel-title">Scene Brief</div>
+                <div className="panel-kicker">Visible while writing</div>
+              </div>
+              <button
+                className="icon-btn"
+                onClick={() => setIsBriefVisible(false)}
+                title="Hide panel"
+                type="button"
+              >
+                x
+              </button>
             </div>
-            <button className="icon-btn" title="Collapse panel" type="button">x</button>
-          </div>
-          <div className="panel-body stack">
-            <div className="brief-block">
-              <div className="brief-label">Goal</div>
-              <p className="brief-text">{selectedScene?.metadata.goal || "No scene goal yet."}</p>
+            <div className="panel-body stack">
+              <div className="brief-block">
+                <div className="brief-label">Goal</div>
+                <p className="brief-text">{selectedScene?.metadata.goal || "No scene goal yet."}</p>
+              </div>
+              <div className="brief-block">
+                <div className="brief-label">Cast</div>
+                <p className="brief-text">{selectedScene?.metadata.characterIds.length || 0} linked characters.</p>
+              </div>
+              <div className="brief-block">
+                <div className="brief-label">Continuity</div>
+                <p className="brief-text">{selectedScene?.metadata.summary || "No continuity note yet."}</p>
+              </div>
             </div>
-            <div className="brief-block">
-              <div className="brief-label">Cast</div>
-              <p className="brief-text">{selectedScene?.metadata.characterIds.length || 0} linked characters.</p>
-            </div>
-            <div className="brief-block">
-              <div className="brief-label">Continuity</div>
-              <p className="brief-text">{selectedScene?.metadata.summary || "No continuity note yet."}</p>
-            </div>
-            <details className="disclosure" open>
-              <summary>Codex in scene <span className="pill">{charactersInScene}</span></summary>
-              <div className="disclosure-body">Characters, locations, and plot threads attached to the selected scene.</div>
-            </details>
-          </div>
-        </aside>
+          </aside>
+        ) : null}
 
       </div>
     </>

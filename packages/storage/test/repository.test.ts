@@ -272,6 +272,127 @@ describe("ProjectRepository", () => {
     expect(restoredEntry.metadata.archivedAt).toBeNull();
   });
 
+  it("moves Codex entry files when the entry category changes", async () => {
+    const store = await repository();
+    const title = "CodexCategoryMove";
+    const series = await store.createSeries({ title });
+    const category = await store.createCodexCategory(series.manifest.id, {
+      name: "Mechanism",
+      icon: "M",
+    });
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Harbor Lock",
+      description: "Weather door mechanism.",
+    });
+    const root = seriesRoot(store, title, series.manifest.id);
+    const originalFile = path.join(root, "codex", "characters", `${entry.metadata.id}.md`);
+    const movedFile = path.join(root, "codex", "custom", category.category.id, `${entry.metadata.id}.md`);
+    expect(await readFile(originalFile, "utf8")).toContain("Weather door mechanism.");
+
+    const moved = await store.updateCodexEntry(series.manifest.id, entry.metadata.id, {
+      baseRevision: entry.revision,
+      categoryId: category.category.id,
+    });
+
+    expect(moved.metadata.categoryId).toBe(category.category.id);
+    expect(await readFile(movedFile, "utf8")).toContain(`categoryId: ${category.category.id}`);
+    await expect(readFile(originalFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await store.getCodexEntry(series.manifest.id, entry.metadata.id)).metadata.categoryId)
+      .toBe(category.category.id);
+  });
+
+  it("rejects duplicate custom Codex category names", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "CodexCategoryDuplicate" });
+    const category = await store.createCodexCategory(series.manifest.id, {
+      name: "Mechanism",
+      icon: "M",
+    });
+    const other = await store.createCodexCategory(series.manifest.id, {
+      name: "Weather",
+      icon: "W",
+    });
+
+    await expect(
+      store.createCodexCategory(series.manifest.id, {
+        name: "Mechanism",
+        icon: "N",
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(
+      store.updateCodexCategory(series.manifest.id, other.category.id, {
+        baseRevision: other.revision!,
+        name: category.category.name,
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+  });
+
+  it("deletes custom Codex categories without deleting their entries", async () => {
+    const store = await repository();
+    const title = "CodexCategoryDelete";
+    const series = await store.createSeries({ title });
+    const category = await store.createCodexCategory(series.manifest.id, {
+      name: "Mechanism",
+      icon: "M",
+    });
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: category.category.id,
+      name: "Harbor Lock",
+      description: "Weather door mechanism.",
+      research: "Private research note.",
+    });
+    const root = seriesRoot(store, title, series.manifest.id);
+    const customFile = path.join(root, "codex", "custom", category.category.id, `${entry.metadata.id}.md`);
+    const uncategorizedFile = path.join(root, "codex", "uncategorized", `${entry.metadata.id}.md`);
+    const researchFile = path.join(root, "codex", "entry-research", `${entry.metadata.id}.md`);
+
+    const deleted = await store.deleteCodexCategory(series.manifest.id, category.category.id, {
+      baseRevision: category.revision!,
+    });
+
+    expect(deleted).toEqual({
+      deletedId: category.category.id,
+      movedEntryIds: [entry.metadata.id],
+    });
+    await expect(readFile(customFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(uncategorizedFile, "utf8")).toContain("categoryId: uncategorized");
+    expect(await readFile(researchFile, "utf8")).toContain("Private research note.");
+    expect((await store.getCodexEntry(series.manifest.id, entry.metadata.id)).metadata.categoryId)
+      .toBe("uncategorized");
+    expect((await store.listCodexCategories(series.manifest.id)).some((document) =>
+      document.category.id === category.category.id,
+    )).toBe(false);
+  });
+
+  it("deletes Codex entries and their research files", async () => {
+    const store = await repository();
+    const title = "CodexEntryDelete";
+    const series = await store.createSeries({ title });
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Harbor Lock",
+      research: "Delete this research note.",
+    });
+    const root = seriesRoot(store, title, series.manifest.id);
+    const entryFile = path.join(root, "codex", "characters", `${entry.metadata.id}.md`);
+    const researchFile = path.join(root, "codex", "entry-research", `${entry.metadata.id}.md`);
+
+    await expect(store.deleteCodexEntry(series.manifest.id, entry.metadata.id, {
+      baseRevision: "0".repeat(64),
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    const deleted = await store.deleteCodexEntry(series.manifest.id, entry.metadata.id, {
+      baseRevision: entry.revision,
+    });
+
+    expect(deleted).toEqual({ deletedId: entry.metadata.id });
+    await expect(readFile(entryFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(researchFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(store.getCodexEntry(series.manifest.id, entry.metadata.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+  });
+
   it("indexes aliases, exclusions, English plurals and same-range ambiguity without changing scenes", async () => {
     const store = await repository();
     const title = "名称索引";

@@ -3,6 +3,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  rm,
 } from "node:fs/promises";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -20,6 +21,9 @@ import {
   CodexCategoryIdSchema,
   CodexContextPreviewSchema,
   CodexCustomCategorySchema,
+  DeleteCodexCategoryResultSchema,
+  DeleteCodexDocumentInputSchema,
+  DeleteCodexEntryResultSchema,
   CodexEntryDocumentSchema,
   CodexEntryMetadataSchema,
   CodexEffectiveStateSchema,
@@ -113,6 +117,9 @@ import {
   type CreateCodexRelationInput,
   type CreateActInput,
   type CreateChapterInput,
+  type DeleteCodexCategoryResult,
+  type DeleteCodexDocumentInput,
+  type DeleteCodexEntryResult,
   type CreateReviewAnchorInput,
   type CreateSceneInput,
   type CreateSceneSectionInput,
@@ -223,6 +230,7 @@ const BUILT_IN_CODEX_CATEGORIES: ReadonlyArray<{
   icon: string;
   directory: string;
 }> = [
+  { id: "uncategorized", name: "Uncategorized", icon: "U", directory: "uncategorized" },
   { id: "character", name: "人物", icon: "人", directory: "characters" },
   { id: "location", name: "地点", icon: "地", directory: "locations" },
   { id: "object", name: "物件", icon: "物", directory: "objects" },
@@ -1664,6 +1672,10 @@ export class ProjectRepository {
   ): Promise<CodexCategoryDocument> {
     const input = CreateCodexCategoryInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    this.assertCodexCategoryNameAvailable(
+      await this.listCodexCategories(seriesId, true),
+      input.name,
+    );
     const now = new Date().toISOString();
     const category = CodexCustomCategorySchema.parse({
       schemaVersion: 1,
@@ -1704,6 +1716,13 @@ export class ProjectRepository {
         currentRevision: current.revision,
       });
     }
+    if (input.name !== undefined) {
+      this.assertCodexCategoryNameAvailable(
+        await this.listCodexCategories(seriesId, true),
+        input.name,
+        categoryId,
+      );
+    }
     const category = CodexCustomCategorySchema.parse({
       ...current.category,
       name: input.name ?? current.category.name,
@@ -1738,6 +1757,70 @@ export class ProjectRepository {
     rawInput: ArchiveCodexDocumentInput,
   ): Promise<CodexCategoryDocument> {
     return this.setCodexCategoryArchived(seriesId, categoryId, rawInput, false);
+  }
+
+  async deleteCodexCategory(
+    seriesId: string,
+    categoryId: string,
+    rawInput: DeleteCodexDocumentInput,
+  ): Promise<DeleteCodexCategoryResult> {
+    const input = DeleteCodexDocumentInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.readCustomCodexCategory(seriesRoot, categoryId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("Codex 绫诲埆宸茶鍏朵粬淇敼鏇存柊", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+
+    const now = new Date().toISOString();
+    const movedEntryIds: string[] = [];
+    const mutations: FileMutation[] = [
+      { targetPath: codexCategoryPath(seriesRoot, categoryId), delete: true },
+    ];
+    const entries = await this.listCodexEntriesFromRoot(seriesRoot);
+    for (const entry of entries.filter((candidate) => candidate.metadata.categoryId === categoryId)) {
+      const currentEntry = await this.findCodexEntry(seriesRoot, entry.metadata.id);
+      const nextPath = assertInside(
+        seriesRoot,
+        codexEntryPath(seriesRoot, "uncategorized", entry.metadata.id),
+      );
+      if (nextPath !== currentEntry.filePath && (await pathExists(nextPath))) {
+        throw new StorageError("Codex entry target path already exists", "INVALID_DATA", {
+          entryId: entry.metadata.id,
+          categoryId: "uncategorized",
+        });
+      }
+      /*
+      if (nextPath !== currentEntry.filePath && (await pathExists(nextPath))) {
+        throw new StorageError("Codex 鏉＄洰鐩爣鍒嗙被璺緞宸插瓨鍦?, "INVALID_DATA", {
+          entryId: entry.metadata.id,
+          categoryId: "uncategorized",
+        });
+      }
+      */
+      const metadata = CodexEntryMetadataSchema.parse({
+        ...currentEntry.document.metadata,
+        categoryId: "uncategorized",
+        updatedAt: now,
+      });
+      mutations.push({
+        targetPath: nextPath,
+        content: serializeMarkdownDocument(metadata, currentEntry.document.description),
+      });
+      if (nextPath !== currentEntry.filePath) {
+        mutations.push({ targetPath: currentEntry.filePath, delete: true });
+      }
+      movedEntryIds.push(entry.metadata.id);
+    }
+
+    await applyFileTransaction(seriesRoot, mutations);
+    await rm(path.join(seriesRoot, CODEX_DIR, CODEX_CUSTOM_DIR, categoryId), {
+      force: true,
+      recursive: true,
+    });
+    await this.rebuildCodexIndex(seriesRoot);
+    return DeleteCodexCategoryResultSchema.parse({ deletedId: categoryId, movedEntryIds });
   }
 
   async listCodexEntries(
@@ -1826,6 +1909,7 @@ export class ProjectRepository {
       throw new StorageError("已归档 Codex 条目不能直接编辑", "INVALID_DATA", { entryId });
     }
     const changesEntry = [
+      input.categoryId,
       input.name,
       input.aliases,
       input.tags,
@@ -1851,8 +1935,13 @@ export class ProjectRepository {
     const now = new Date().toISOString();
     const mutations: FileMutation[] = [];
     if (changesEntry) {
+      const nextCategoryId = input.categoryId ?? current.document.metadata.categoryId;
+      if (input.categoryId !== undefined && input.categoryId !== current.document.metadata.categoryId) {
+        await this.assertCodexCategoryWritable(seriesRoot, input.categoryId);
+      }
       const metadata = CodexEntryMetadataSchema.parse({
         ...current.document.metadata,
+        categoryId: nextCategoryId,
         name: input.name ?? current.document.metadata.name,
         aliases:
           input.aliases === undefined
@@ -1877,13 +1966,26 @@ export class ProjectRepository {
           : current.document.metadata.mention,
         updatedAt: now,
       });
+      const nextEntryPath = assertInside(
+        seriesRoot,
+        codexEntryPath(seriesRoot, nextCategoryId, entryId),
+      );
+      if (nextEntryPath !== current.filePath && (await pathExists(nextEntryPath))) {
+        throw new StorageError("Codex 鏉＄洰鐩爣绫诲埆涓凡瀛樺湪鍚屽悕鏂囦欢", "INVALID_DATA", {
+          entryId,
+          categoryId: nextCategoryId,
+        });
+      }
       mutations.push({
-        targetPath: current.filePath,
+        targetPath: nextEntryPath,
         content: serializeMarkdownDocument(
           metadata,
           input.description ?? current.document.description,
         ),
       });
+      if (nextEntryPath !== current.filePath) {
+        mutations.push({ targetPath: current.filePath, delete: true });
+      }
     }
     if (changesResearch) {
       mutations.push({
@@ -1916,6 +2018,28 @@ export class ProjectRepository {
     rawInput: ArchiveCodexDocumentInput,
   ): Promise<CodexEntryDocument> {
     return this.setCodexEntryArchived(seriesId, entryId, rawInput, false);
+  }
+
+  async deleteCodexEntry(
+    seriesId: string,
+    entryId: string,
+    rawInput: DeleteCodexDocumentInput,
+  ): Promise<DeleteCodexEntryResult> {
+    const input = DeleteCodexDocumentInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.findCodexEntry(seriesRoot, entryId);
+    if (current.document.revision !== input.baseRevision) {
+      throw new StorageError("Codex 鏉＄洰宸茶鍏朵粬淇敼鏇存柊", "CONFLICT", {
+        currentRevision: current.document.revision,
+      });
+    }
+    await this.assertCodexEntryDeletable(seriesId, seriesRoot, entryId);
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: current.filePath, delete: true },
+      { targetPath: current.researchPath, delete: true },
+    ]);
+    await this.rebuildCodexIndex(seriesRoot);
+    return DeleteCodexEntryResultSchema.parse({ deletedId: entryId });
   }
 
   async listCodexRelations(
@@ -4059,6 +4183,33 @@ export class ProjectRepository {
     return { category, revision: contentRevision(raw) };
   }
 
+  private assertCodexCategoryNameAvailable(
+    categories: CodexCategoryDocument[],
+    name: string,
+    exceptCategoryId?: string,
+  ): void {
+    const duplicate = categories.find(
+      ({ category }) =>
+        !category.archivedAt &&
+        category.id !== exceptCategoryId &&
+        category.name === name,
+    );
+    if (duplicate) {
+      throw new StorageError("Codex category name already exists", "INVALID_DATA", {
+        categoryId: duplicate.category.id,
+        name,
+      });
+    }
+    /*
+    if (duplicate) {
+      throw new StorageError("Codex 绫诲埆鍚嶇О宸插瓨鍦?, "INVALID_DATA", {
+        categoryId: duplicate.category.id,
+        name,
+      });
+    }
+    */
+  }
+
   private async assertCodexCategoryWritable(
     seriesRoot: string,
     categoryId: CodexCategoryId,
@@ -4316,6 +4467,46 @@ export class ProjectRepository {
     );
     await this.rebuildCodexIndex(seriesRoot);
     return (await this.findCodexEntry(seriesRoot, entryId)).document;
+  }
+
+  private async assertCodexEntryDeletable(
+    seriesId: string,
+    seriesRoot: string,
+    entryId: string,
+  ): Promise<void> {
+    const relationIds = (await this.listCodexRelations(seriesId, { includeArchived: true }))
+      .filter((document) =>
+        document.relation.sourceEntryId === entryId ||
+        document.relation.targetEntryId === entryId,
+      )
+      .map((document) => document.relation.id);
+    const progressions = await this.listCodexProgressionsFromRoot(seriesRoot);
+    const progressionIds = progressions
+      .filter((document) =>
+        document.progression.target.entryId === entryId ||
+        document.progression.evidence.some(
+          (evidence) => evidence.sourceType === "codex-entry" && evidence.sourceId === entryId,
+        ),
+      )
+      .map((document) => document.progression.id);
+    const knowledge = await this.listCodexKnowledgeFromRoot(seriesRoot);
+    const knowledgeIds = knowledge
+      .filter((document) =>
+        document.knowledge.characterEntryId === entryId ||
+        document.knowledge.subjectEntryId === entryId ||
+        document.knowledge.evidence.some(
+          (evidence) => evidence.sourceType === "codex-entry" && evidence.sourceId === entryId,
+        ),
+      )
+      .map((document) => document.knowledge.id);
+    if (relationIds.length || progressionIds.length || knowledgeIds.length) {
+      throw new StorageError("Codex 鏉＄洰宸茶鏁呬簨鐘舵€佸紩鐢紝涓嶈兘鐩存帴鍒犻櫎", "INVALID_DATA", {
+        entryId,
+        relationIds,
+        progressionIds,
+        knowledgeIds,
+      });
+    }
   }
 
   private async readCodexRelation(

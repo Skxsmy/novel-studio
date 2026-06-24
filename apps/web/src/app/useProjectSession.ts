@@ -33,9 +33,9 @@ export interface SceneDraft {
 
 export interface ProjectSessionState {
   activeSeries: SeriesDetail | null;
-  createAct: (input?: CreateActInput) => Promise<void>;
+  createAct: (bookId?: string | null, input?: CreateActInput) => Promise<void>;
   createVolume: (input?: CreateBookInput) => Promise<void>;
-  createChapter: (input?: CreateChapterInput) => Promise<void>;
+  createChapter: (actId?: string | null, input?: CreateChapterInput) => Promise<void>;
   createScene: (input?: CreateSceneInput) => Promise<void>;
   createSeries: (input: CreateSeriesInput) => Promise<boolean>;
   deleteAct: (actId: string) => Promise<void>;
@@ -51,6 +51,7 @@ export interface ProjectSessionState {
   isOpeningSeries: boolean;
   openSeries: (seriesId: string) => Promise<boolean>;
   refreshSeriesList: () => Promise<void>;
+  resetStructureSelection: () => void;
   saveDraft: () => Promise<void>;
   saveStatus: SaveStatus;
   selectVolume: (bookId: string) => void;
@@ -246,9 +247,9 @@ export function useProjectSession(): ProjectSessionState {
   );
 
   const createAct = useCallback(
-    async (input: CreateActInput = { title: structureDefaults.chapter }) => {
+    async (bookIdOverride?: string | null, input: CreateActInput = { title: structureDefaults.chapter }) => {
       if (!activeSeries || isCreatingStructure) return;
-      const bookId = selectedBookId ?? selectedScene?.metadata.bookId ?? activeSeries.books[0]?.id;
+      const bookId = bookIdOverride ?? selectedBookId ?? selectedScene?.metadata.bookId ?? activeSeries.books[0]?.id;
       const book = bookId ? activeSeries.books.find((candidate) => candidate.id === bookId) : null;
       if (!book) {
         setErrorMessage(uiText.errors.cannotCreateChapterWithoutVolume);
@@ -273,9 +274,9 @@ export function useProjectSession(): ProjectSessionState {
   );
 
   const createChapter = useCallback(
-    async (input: CreateChapterInput = { title: structureDefaults.act }) => {
+    async (actIdOverride?: string | null, input: CreateChapterInput = { title: structureDefaults.act }) => {
       if (!activeSeries || isCreatingStructure) return;
-      const actId = selectedActId ?? selectedScene?.metadata.actId ?? activeSeries.acts[0]?.id ?? activeSeries.books[0]?.actIds[0];
+      const actId = actIdOverride ?? selectedActId ?? selectedScene?.metadata.actId ?? activeSeries.acts[0]?.id ?? activeSeries.books[0]?.actIds[0];
       if (!actId) {
         setErrorMessage(uiText.errors.cannotCreateActWithoutChapter);
         return;
@@ -306,12 +307,14 @@ export function useProjectSession(): ProjectSessionState {
       setIsCreatingStructure(true);
       setErrorMessage(null);
       try {
+        const inputWithDefaults: CreateSceneInput = { title: structureDefaults.scene, content: "", ...input };
+        const hasExplicitTarget = Boolean(inputWithDefaults.bookId && inputWithDefaults.actId && inputWithDefaults.chapterId);
         const targetChapterId = selectedChapterId ?? selectedScene?.metadata.chapterId;
         const targetChapter = targetChapterId ? activeSeries.chapters.find((chapter) => chapter.id === targetChapterId) : null;
         const targetAct = targetChapter ? activeSeries.acts.find((act) => act.id === targetChapter.actId) : null;
-        const sceneInput: CreateSceneInput = targetAct && targetChapter
-          ? { ...input, bookId: targetAct.bookId, actId: targetAct.id, chapterId: targetChapter.id }
-          : input;
+        const sceneInput: CreateSceneInput = !hasExplicitTarget && targetAct && targetChapter
+          ? { ...inputWithDefaults, bookId: targetAct.bookId, actId: targetAct.id, chapterId: targetChapter.id }
+          : inputWithDefaults;
         const scene = await api.series.createScene(activeSeries.manifest.id, sceneInput);
         const detail = await reloadActiveSeries(activeSeries.manifest.id);
         const storedScene = detail.scenes.find((candidate) => candidate.metadata.id === scene.metadata.id) ?? scene;
@@ -337,8 +340,7 @@ export function useProjectSession(): ProjectSessionState {
       if (!act) return;
       setSelectedBookId(act.bookId);
       setSelectedActId(act.id);
-      const chapterId = activeSeries?.chapters.find((chapter) => chapter.actId === act.id)?.id ?? null;
-      setSelectedChapterId(chapterId);
+      setSelectedChapterId(null);
     },
     [activeSeries],
   );
@@ -348,10 +350,8 @@ export function useProjectSession(): ProjectSessionState {
       const book = activeSeries?.books.find((candidate) => candidate.id === bookId);
       if (!book) return;
       setSelectedBookId(book.id);
-      const actId = book.actIds[0] ?? null;
-      const chapterId = actId ? activeSeries?.chapters.find((chapter) => chapter.actId === actId)?.id ?? null : null;
-      setSelectedActId(actId);
-      setSelectedChapterId(chapterId);
+      setSelectedActId(null);
+      setSelectedChapterId(null);
       setErrorMessage(null);
     },
     [activeSeries],
@@ -385,6 +385,15 @@ export function useProjectSession(): ProjectSessionState {
     },
     [activeSeries],
   );
+
+  const resetStructureSelection = useCallback(() => {
+    if (!activeSeries) return;
+    const scene = selectedSceneId
+      ? activeSeries.scenes.find((candidate) => candidate.metadata.id === selectedSceneId) ?? null
+      : null;
+    setStructureSelectionFromSeries(activeSeries, scene);
+    setErrorMessage(null);
+  }, [activeSeries, selectedSceneId, setStructureSelectionFromSeries]);
 
   const updateVolume = useCallback(
     async (bookId: string, input: UpdateBookInput) => {
@@ -581,6 +590,7 @@ export function useProjectSession(): ProjectSessionState {
       const updated = await api.series.updateScene(activeSeries.manifest.id, draft.sceneId, input);
       setActiveSeries((current) => (current ? replaceScene(current, updated) : current));
       setSelectedSceneId(updated.metadata.id);
+      setSelectedBookId(updated.metadata.bookId);
       setSelectedActId(updated.metadata.actId);
       setSelectedChapterId(updated.metadata.chapterId);
       setDraft(toDraft(updated));
@@ -612,6 +622,7 @@ export function useProjectSession(): ProjectSessionState {
     isOpeningSeries,
     openSeries,
     refreshSeriesList,
+    resetStructureSelection,
     saveDraft,
     saveStatus,
     selectVolume,

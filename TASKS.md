@@ -23,20 +23,32 @@ Current decision:
 Immediate task requirements:
 
 - Slice A is recorded in `docs/tasks/PROJECT_RECOVERY.md`.
-- Do Slice B now: repair the empty-library-to-writing path before Codex expansion or visual redesign.
+- Slice B and Slice C are command-verified; browser/visual validation remains user-owned.
 - Done in current Slice B code slice: empty-library creation is tested and opens the first editable scene.
 - Done in current Slice B code slice: Write tracks selected Volume, and Add Chapter targets the selected Volume.
 - Done in current Slice B code slice: selected Chapter, Act, and Scene deletion paths are covered by tests.
 - Done in current Slice B code slice: creating a Scene inside the selected Act is covered by tests.
 - Done in current Slice B code slice: Focus can be entered/exited from Write and exits when leaving Write.
-- Continue repairing Write hierarchy around `Volume -> Chapter -> Act -> Scene`.
+- Done in current Slice B code slice: Write structure selection is explicit and single-target; selecting the same Volume/Chapter/Act/Scene again clears the pale-blue frame, and selecting a parent no longer highlights child rows or a stale open Scene.
+- Done in current Slice C code slice: Codex frontend API coverage now includes entry list options, create, get, update, archive, and restore.
+- Done in current Slice C code slice: Codex entries can be created, opened/closed, renamed, edited, saved with revision protection, reloaded after conflict, archived, and restored through real APIs.
+- Done in current Slice C code slice: fake Release A relations/progressions/knowledge tabs were removed from Codex core and deferred to Codex connections.
+- Done in current Slice C UI repair: Codex custom Details are collapsed until needed, empty Details no longer create a large blank panel, and Research controls no longer stretch into oversized whitespace.
+- Done in current Slice D partial slice: Codex custom categories can be created from the category rail, entry category can be changed and saved, and storage moves the entry Markdown file to the correct category directory.
+- Done in current Slice D partial slice: Codex index row names/descriptions remain visible when the detail pane is open, and `New Entry` / `No description` spacing is repaired before detail open.
+- Done in current Slice D partial slice: Write loads real active Codex entries instead of frontend-only linked-count copy.
+- Done in current Slice D repair: Codex category creation now uses a compact Add menu, custom categories support double-click rename and delete with confirmation, exact duplicate category names are rejected, category deletion moves entries to `Uncategorized`, and Codex entry deletion is available from the entry detail lifecycle area.
+- Done in current Slice D repair: Codex category and Entry Index lists now use bounded scrolling; future list-heavy UI must not stretch the whole page indefinitely.
+- Done in current Slice D connection repair: Codex detail tabs now include real Relations, Mentions, and Tracking. Relations can create new connections and remove active connections through the real relation APIs. Mentions show manuscript hits from the entry mention API and other-Codex-entry hits from loaded entry content; matched names/aliases are rendered as clickable dashed-underlined text that opens a Canon description preview instead of jumping. Write scene text now realtime-matches active Codex entry names/aliases, renders those hits inline as dashed underlines without highlight fill, toggles the fixed scroll-bounded preview from the same hit, and no longer duplicates the scene body in a separate preview block. The redundant Write `Codex in scene` panel was removed, and Scene Brief can be hidden/restored with an icon-only control. Codex canon descriptions use the same realtime name/alias matching for other active entries, with fixed previews that are not clipped by the input area. The header mention count only counts manuscript/scene mentions. Recognition was renamed to Tracking and keeps the existing matching/context-policy behavior.
+- Deferred from current Slice D by user direction: Plan needs a full review and rework, but was not touched in this pass.
+- Keep the Write hierarchy projection around `Volume -> Chapter -> Act -> Scene` stable while later slices touch Write/Plan/Codex connections.
 - Add must open a compact menu and create default-named items.
 - Delete must sit beside Add and delete the selected hierarchy item only after confirmation.
 - Titles must be renameable later, including double-click rename where appropriate.
 - Collapsed sections must not auto-center and waste space.
 - Scroll must exist where hierarchy content can overflow.
-- Codex must become a real entry workflow, not a shell.
-- Codex frontend API coverage must be expanded only after checking existing server routes and contracts.
+- Codex core is a real entry workflow for Release A; Codex connections remain next.
+- Codex connection work must use existing server routes/contracts or record backend gaps, not frontend-only mock state.
 - Settings must complete scoped product behavior.
 - Review and Workshop must become real scoped workflows or honest unavailable states.
 - UI copy must remain adaptable for bilingual support.
@@ -91,9 +103,9 @@ Immediate task requirements:
   - Historical `NS-409D`: wide-screen review for Write, Codex, and Workshop. Not current acceptance.
   - Historical `NS-409E`: planning board/outline/matrix/timeline wide-screen transition. Not current acceptance.
   - Slice A: baseline triage recorded on 2026-06-24.
-  - Current next: Slice B, Start-to-Write vertical slice.
-  - Slice C: Codex core vertical slice.
-  - Slice D: Codex connections.
+  - Slice B: Start-to-Write vertical slice, command-verified; user visual validation remains separate.
+  - Slice C: Codex core vertical slice, command-verified; user visual validation remains separate.
+  - Slice D: Codex connections, command-verified for current Codex scope; Plan review/rework remains deferred.
   - Slice E: Settings and AI safety minimum.
   - Slice F: Review, Workshop, and navigation honesty.
   - Slice G: visual system and responsive acceptance.
