@@ -1,7 +1,7 @@
 # Project Recovery Plan
 
 Status: active
-Updated: 2026-06-23
+Updated: 2026-06-24
 
 ## Decision
 
@@ -45,11 +45,48 @@ It excludes:
 - All remaining real providers unless they are required for the settings baseline.
 - Decorative dashboards, placeholder panels, and screenshot-only acceptance.
 
+## Slice A Triage Record (2026-06-24)
+
+| Area | Current evidence | Release A decision | Required action before deeper work |
+| --- | --- | --- | --- |
+| Library / project lifecycle | `LibraryWorkspace` has a project form and a top `New Project` submit button, but the user saw an empty-library dead end where the primary action was disabled or blocked. Existing tests do not prove the zero-project UI path. | Keep and repair now. | Make empty-library creation a tested UI path. New projects must create a usable first hierarchy and first scene without API/manual workarounds. |
+| App shell / sidebar / top actions | `App.tsx` still shows static workspace pills and counts such as Codex 128, Workshop 4, Review 18. Search and `Review Draft` appear globally but are not product-complete. Focus state is now scoped to Write. | Keep and repair now. | Remove fake counts/actions or make them real. Navigation must not imply unavailable pages are complete. Sidebar expanded/collapsed states must not block the core flow. |
+| Write hierarchy / editor | Real series and scene APIs exist. Add menu, delete confirmation, collapse, double-click rename, and scene save exist in current code, but UI terminology maps storage `Act`/`Chapter` inconsistently against required `Volume -> Chapter -> Act -> Scene`. | Keep and repair now. | Fix hierarchy projection, labels, default names, errors, tests, selection, collapse, scroll, rename, delete, and save/reload. This is Slice B's first implementation target. |
+| Overview | Mostly static status panels. `Continue Scene`, warnings, and review queues are not clearly wired as real workflows. | Keep minimal, repair only where it supports Release A. | Either wire `Continue Scene` to the active editable scene or make it unavailable. Remove fake live status. |
+| Plan | `PlanWorkspace` consumes real planning-board data and has filters, sort, outline/storyboard/tracking/timeline, and reorder commands. It still needs product review but is not the first broken path. | Keep, smoke after hierarchy changes. | Do not redesign first. Verify it survives hierarchy terminology fixes and does not display fake state. |
+| Codex | Backend routes cover categories, entries, mentions, relations, progressions, knowledge, effective state, context, and search. Frontend wrapper exposes only category list plus entry list/create/get. Current UI is mostly read-only detail panels. | Keep and repair now, but scope tightly. | Slice C must first expand only the APIs needed for entry create/edit/save/reload/archive and record remaining backend gaps. No fake tabs. |
+| Settings | Current UI uses real APIs for model profile list/create/update, service-key save, connection test, model list, and cloud policy. It lacks a fully coherent product path, including status/delete coverage in the frontend wrapper. | Keep and repair minimum only. | Finish one supported provider/profile/credential path, including safe status/replace/delete behavior where supported. Defer provider expansion. |
+| Review | Current page is a placeholder dashboard without a real scoped workflow. | Mark unavailable for Release A unless explicitly pulled in. | Replace fake dashboard with an unavailable state or remove from active navigation until a real workflow is defined. |
+| Workshop | Current page is a placeholder with non-functional session/composer affordances. | Mark unavailable for Release A unless explicitly pulled in. | Replace fake dashboard with an unavailable state or remove from active navigation until a real workflow is defined. |
+| API / storage / contracts | `packages/storage/src/index.ts` is still very large. `apps/server/src/app.ts` still owns many series/hierarchy routes. Codex backend capability is much broader than the frontend wrapper. | Audit while repairing touched flows. | Do not grow large dumping-ground files. Split route/storage helpers when touching affected logic. Verify contracts match the UI projection. |
+| i18n / copy | `uiText.ts` centralizes some hierarchy and error strings, but many feature files still hardcode user-facing English copy. Future bilingual support is required. | Repair alongside each slice. | Move changed user-facing copy into shared text structures instead of adding more hardcoded strings. |
+| Validation | Current tests are shallow and command-oriented. `AppShell.test.tsx` covers only 11 flows and misses empty-library creation, Codex edit persistence, unavailable states, and hierarchy semantic correctness. | Expand with each slice. | Add tests for zero-project creation, hierarchy projection, Codex CRUD, Settings key status/delete if implemented, and Review/Workshop honesty. |
+
+## Release A Scope Decisions (2026-06-24)
+
+- Release A is Start-to-Write plus Codex Core plus minimum Settings plus honest navigation. Overview and Plan remain limited support surfaces. Review and Workshop are unavailable unless a later slice deliberately defines one real workflow.
+- The accepted writing hierarchy is `Volume -> Chapter -> Act -> Scene`. The current durable storage remains `Series -> Book -> Act -> Chapter -> Scene` for Release A unless implementation proves the projection is more dangerous than a contract migration. The projection must be explicit in code and tests, not hidden by swapped labels.
+- Codex Release A covers entry list/search, create, open/close detail, rename, edit details/canon description, edit research, save/reload, archive/restore, and visible conflict behavior. Relations, progressions, knowledge, effective state, and scene context are not allowed as fake editable tabs.
+- Settings Release A covers one coherent supported provider/profile/credential path. Additional providers, prompt editors, call-log UI, and broader AI administration are deferred unless they are required to keep the supported path honest.
+- App shell actions must be truthful. Global search, draft review, workspace counts, and navigation badges must be wired to real data, disabled with clear unavailable behavior, or removed from the active path.
+- Visual polish starts only after the target workflow exists. No page receives a visual acceptance pass while its primary controls are placeholders.
+
+## Immediate Implementation Queue
+
+1. Fix and test empty-library project creation and first editable scene creation.
+2. Fix Write hierarchy projection, default names, rename, selected delete, collapse, scroll, selection, and save/reload tests.
+3. Expand the Codex frontend API wrapper only for Release A entry workflows, then make Codex detail editing persistent.
+4. Replace Review and Workshop placeholder dashboards with honest unavailable states unless real workflows are selected.
+5. Finish the minimum Settings credential/profile path and remove unsupported provider illusions.
+6. Clean app-shell fake counts/actions and keep changed copy ready for bilingual adaptation.
+
 ## Execution Order
 
 The order is strict. Later slices should not start until the earlier slice is usable enough to avoid building on broken assumptions.
 
 ### Slice A: Baseline Triage
+
+Status: recorded on 2026-06-24.
 
 Purpose: stop guessing and define the first accepted product slice.
 
@@ -275,6 +312,6 @@ Acceptance:
 
 ## Current Next Action
 
-Do Slice A first.
+Do Slice B now.
 
-The immediate output should be a triage table and hard scope decisions for Recovery Release A. Do not start another UI redesign, Codex implementation, or provider expansion before that table exists.
+Slice A is recorded above. The next implementation work starts with empty-library project creation and the Write hierarchy projection. Do not start Codex UI expansion, provider expansion, or visual redesign before Slice B's core path is usable and tested.

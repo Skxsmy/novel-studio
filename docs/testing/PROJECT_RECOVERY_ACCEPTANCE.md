@@ -1,7 +1,7 @@
 # Project Recovery Acceptance Record
 
 Status: active, not accepted
-Updated: 2026-06-23
+Updated: 2026-06-24
 
 ## Conclusion
 
@@ -15,9 +15,11 @@ Release A is accepted only when the following slices pass.
 
 ### Slice A: Baseline Triage
 
-- Workspace-by-workspace status table exists.
-- Each area is classified as repair now, unavailable now, deferred, or removed from active navigation.
-- Hard decisions exist for hierarchy, Codex minimum workflow, Settings minimum workflow, and Review/Workshop scope.
+Status: recorded on 2026-06-24 in `docs/tasks/PROJECT_RECOVERY.md`.
+
+- Workspace-by-workspace status table exists for Library, App shell, Write, Overview, Plan, Codex, Settings, Review, Workshop, API/storage/contracts, i18n/copy, and validation.
+- Each area is classified as repair now, keep minimal, unavailable for Release A, or audit while touching.
+- Hard decisions exist for hierarchy, Codex minimum workflow, Settings minimum workflow, Review/Workshop scope, app-shell honesty, and visual-pass ordering.
 - No implementation proceeds from vague "fix UI" direction.
 
 ### Slice B: Start-to-Write

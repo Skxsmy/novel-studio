@@ -1,6 +1,6 @@
 # Current Status
 
-Updated: 2026-06-23
+Updated: 2026-06-24
 
 This file is the current project-status authority. Earlier Chinese records were fully read before this rewrite and have been translated, consolidated, and retained here as structured English history instead of being discarded.
 
@@ -59,8 +59,8 @@ Current blockers:
 
 Current recovery slices:
 
-1. Slice A: baseline triage.
-2. Slice B: Start-to-Write vertical slice.
+1. Slice A: baseline triage recorded on 2026-06-24.
+2. Current next: Slice B, Start-to-Write vertical slice.
 3. Slice C: Codex core vertical slice.
 4. Slice D: Codex connections.
 5. Slice E: Settings and AI safety minimum.
@@ -225,9 +225,8 @@ Do not continue to `NS-410`. Continue project recovery until the product has a u
 
 Immediate order:
 
-1. Do Slice A first: write the triage table and hard scope decisions for Recovery Release A.
-2. Do not start another UI redesign, Codex implementation, or provider expansion before Slice A exists.
-3. Then implement Slice B before broader Codex work.
-4. Expand Codex frontend API coverage only after Slice C records the gap list.
-5. Re-run command validation after product/UI changes.
-6. Record the result in `docs/tasks/PROJECT_RECOVERY.md`, `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`, `STATUS.md`, `HANDOFF.md`, `TASKS.md`, and `CHANGELOG.md`.
+1. Do Slice B now: repair the empty-library-to-writing path and Write hierarchy projection.
+2. Do not start Codex UI expansion, provider expansion, or visual redesign before Slice B's core path is usable and tested.
+3. Expand Codex frontend API coverage only after Slice C records the route/contract gap list.
+4. Re-run command validation after product/UI changes.
+5. Record the result in `docs/tasks/PROJECT_RECOVERY.md`, `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`, `STATUS.md`, `HANDOFF.md`, `TASKS.md`, and `CHANGELOG.md`.

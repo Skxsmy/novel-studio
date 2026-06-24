@@ -22,8 +22,8 @@ Current decision:
 
 Immediate task requirements:
 
-- Do Slice A first: write the triage table and hard scope decisions for Recovery Release A.
-- Cover Library, Write, Plan, Codex, Settings, Review, Workshop, app shell, API/storage/contracts, i18n/copy, and validation in that triage.
+- Slice A is recorded in `docs/tasks/PROJECT_RECOVERY.md`.
+- Do Slice B now: repair the empty-library-to-writing path before Codex expansion or visual redesign.
 - Repair Write hierarchy around `Volume -> Chapter -> Act -> Scene`.
 - Add must open a compact menu and create default-named items.
 - Delete must sit beside Add and delete the selected hierarchy item only after confirmation.
@@ -85,8 +85,8 @@ Immediate task requirements:
   - Historical `NS-409A/NS-409C`: image-model-assisted UI redo and plan/write correction records. Not current acceptance.
   - Historical `NS-409D`: wide-screen review for Write, Codex, and Workshop. Not current acceptance.
   - Historical `NS-409E`: planning board/outline/matrix/timeline wide-screen transition. Not current acceptance.
-  - Slice A: baseline triage.
-  - Slice B: Start-to-Write vertical slice.
+  - Slice A: baseline triage recorded on 2026-06-24.
+  - Current next: Slice B, Start-to-Write vertical slice.
   - Slice C: Codex core vertical slice.
   - Slice D: Codex connections.
   - Slice E: Settings and AI safety minimum.

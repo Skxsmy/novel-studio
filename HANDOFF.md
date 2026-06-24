@@ -1,6 +1,6 @@
 # Handoff
 
-Updated: 2026-06-23
+Updated: 2026-06-24
 
 This file is the short operational handoff. The older Chinese handoff was fully read before this rewrite; its task history, verification facts, and warnings have been translated and reorganized here.
 
@@ -61,8 +61,8 @@ Critical blockers:
 
 Current recovery order:
 
-1. Slice A: baseline triage.
-2. Slice B: Start-to-Write vertical slice.
+1. Slice A: baseline triage recorded on 2026-06-24.
+2. Current next: Slice B, Start-to-Write vertical slice.
 3. Slice C: Codex core vertical slice.
 4. Slice D: Codex connections.
 5. Slice E: Settings and AI safety minimum.
@@ -250,4 +250,4 @@ Current recovery order:
 
 ## Immediate Next Step
 
-Stay on project recovery. Start with Slice A: a triage table and hard scope decisions for Recovery Release A. Do not start with cosmetic UI changes, Codex-only implementation, or provider expansion. Do not start a new milestone and do not create parallel handoff files.
+Stay on project recovery. Slice A is recorded in `docs/tasks/PROJECT_RECOVERY.md`; start Slice B by repairing empty-library project creation and the Write hierarchy projection. Do not start with cosmetic UI changes, Codex-only implementation, or provider expansion. Do not start a new milestone and do not create parallel handoff files.
