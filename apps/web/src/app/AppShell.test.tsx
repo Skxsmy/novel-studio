@@ -84,6 +84,21 @@ function sceneDocument(content = "", nextRevision = revision) {
   };
 }
 
+function sceneDocumentWithMetadata(
+  metadata: Partial<ReturnType<typeof sceneDocument>["metadata"]>,
+  content = "",
+  nextRevision = revision,
+) {
+  const scene = sceneDocument(content, nextRevision);
+  return {
+    ...scene,
+    metadata: {
+      ...scene.metadata,
+      ...metadata,
+    },
+  };
+}
+
 function seriesDetail(content = "", nextRevision = revision) {
   return {
     acts: [
@@ -532,6 +547,42 @@ function mockFetch(options: { initialSeriesList?: ReturnType<typeof seriesSummar
       return jsonResponse(sceneDocument(body.content, updatedRevision));
     }
 
+    if (url === `/api/v1/series/${seriesId}/scenes` && method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      const current = detailOverride ?? seriesDetailWithNewChapter();
+      const scene = sceneDocumentWithMetadata({
+        actId: body.actId ?? actId,
+        bookId: body.bookId ?? bookId,
+        chapterId: body.chapterId ?? chapterId,
+        id: secondSceneId,
+        order: current.scenes.filter((candidate) => candidate.metadata.chapterId === (body.chapterId ?? chapterId)).length + 1,
+        title: body.title,
+      }, body.content ?? "", updatedRevision);
+      detailOverride = {
+        ...current,
+        chapters: current.chapters.map((chapter) => (
+          chapter.id === scene.metadata.chapterId
+            ? { ...chapter, sceneIds: [...chapter.sceneIds, scene.metadata.id] }
+            : chapter
+        )),
+        scenes: [...current.scenes, scene],
+      };
+      return jsonResponse(scene, 201);
+    }
+
+    if (url === `/api/v1/series/${seriesId}/scenes/${sceneId}` && method === "DELETE") {
+      const current = detailOverride ?? seriesDetail();
+      detailOverride = {
+        ...current,
+        chapters: current.chapters.map((chapter) => ({
+          ...chapter,
+          sceneIds: chapter.sceneIds.filter((id) => id !== sceneId),
+        })),
+        scenes: current.scenes.filter((scene) => scene.metadata.id !== sceneId),
+      };
+      return jsonResponse({ deletedId: sceneId });
+    }
+
     if (url === `/api/v1/series/${seriesId}/books` && method === "POST") {
       const body = JSON.parse(String(init?.body));
       detailOverride = seriesDetailWithNewBook(body.title);
@@ -595,6 +646,26 @@ function mockFetch(options: { initialSeriesList?: ReturnType<typeof seriesSummar
         acts: current.acts.map((act) => (act.id === newActId ? { ...act, title: body.title } : act)),
       };
       return jsonResponse(detailOverride.acts.find((act) => act.id === newActId));
+    }
+
+    if (url === `/api/v1/series/${seriesId}/acts/${newActId}` && method === "DELETE") {
+      const current = detailOverride ?? seriesDetailWithNewAct();
+      const deletedAct = current.acts.find((act) => act.id === newActId);
+      const deletedChapterIds = deletedAct?.chapterIds ?? [];
+      const deletedSceneIds = current.scenes
+        .filter((scene) => deletedChapterIds.includes(scene.metadata.chapterId))
+        .map((scene) => scene.metadata.id);
+      detailOverride = {
+        ...current,
+        acts: current.acts.filter((act) => act.id !== newActId),
+        books: current.books.map((book) => ({
+          ...book,
+          actIds: book.actIds.filter((id) => id !== newActId),
+        })),
+        chapters: current.chapters.filter((chapter) => !deletedChapterIds.includes(chapter.id)),
+        scenes: current.scenes.filter((scene) => !deletedSceneIds.includes(scene.metadata.id)),
+      };
+      return jsonResponse({ deletedChapterIds, deletedId: newActId, deletedSceneIds });
     }
 
     if (url === `/api/v1/series/${seriesId}/acts/${newActId}/chapters` && method === "POST") {
@@ -774,6 +845,29 @@ describe("App shell", () => {
     expect(screen.queryByLabelText("Codex entry details")).toBeNull();
   });
 
+  it("deletes the selected chapter only after confirmation", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    await screen.findByLabelText("Scene title");
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chapter" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: /^New Chapter/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByText("Delete selected Chapter?")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/acts/${newActId}`,
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    expect(screen.queryByText("New Chapter")).toBeNull();
+  });
+
   it("shows newly created acts and chapters in the write structure", async () => {
     mockFetch();
     render(<App />);
@@ -801,6 +895,39 @@ describe("App shell", () => {
     expect(screen.queryByText("Act Two")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Expand Chapter: Chapter Two" }));
     expect(await screen.findByRole("button", { name: "Collapse Act: Act Two" })).toBeTruthy();
+  });
+
+  it("creates a scene inside the selected act", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    await screen.findByLabelText("Scene title");
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chapter" }));
+    expect(await screen.findByRole("button", { name: /^New Chapter/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Act" })).not.toHaveProperty("disabled", true);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Act" }));
+    expect(await screen.findByRole("button", { name: /^New Act/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Scene" })).not.toHaveProperty("disabled", true);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Scene" }));
+
+    expect(await screen.findByLabelText("Scene title")).toHaveProperty("value", "New Scene");
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/scenes`,
+        expect.objectContaining({
+          body: expect.stringContaining(newChapterId),
+          method: "POST",
+        }),
+      );
+    });
   });
 
   it("deletes the selected act only after confirmation", async () => {
@@ -836,6 +963,26 @@ describe("App shell", () => {
       );
     });
     expect(screen.queryByText("Act Two")).toBeNull();
+  });
+
+  it("deletes the selected scene only after confirmation", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    await screen.findByLabelText("Scene title");
+    fireEvent.click(screen.getByRole("button", { name: /^Opening Scene/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByText("Delete selected Scene?")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/scenes/${sceneId}`,
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    expect(await screen.findByText("No scene open")).toBeTruthy();
   });
 
   it("saves a changed scene through the API", async () => {

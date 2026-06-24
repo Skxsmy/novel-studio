@@ -48,6 +48,7 @@ Current blockers:
   - expected hierarchy is `Volume -> Chapter -> Act -> Scene`;
   - current Slice B code now tests empty-library project creation and first-scene opening;
   - current Slice B code now tracks selected Volume and targets Add Chapter to that Volume;
+  - current Slice B code now tests selected Chapter/Act/Scene deletion and Scene creation inside the selected Act;
   - Add should open a compact menu, not show multiple permanent large buttons;
   - new items should receive default names;
   - titles should be renameable later, including double-click rename where appropriate;

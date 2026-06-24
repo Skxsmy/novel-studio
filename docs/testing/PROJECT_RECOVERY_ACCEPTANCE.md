@@ -27,7 +27,8 @@ Status: recorded on 2026-06-24 in `docs/tasks/PROJECT_RECOVERY.md`.
 Status: in progress, not accepted.
 
 - Current evidence: `AppShell.test.tsx` covers empty-library project creation, opening the first scene, and adding a Chapter to the selected Volume.
-- Current evidence: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed with 13 tests.
+- Current evidence: `AppShell.test.tsx` also covers deleting selected Chapter, deleting selected Act, deleting selected Scene, and creating a Scene inside the selected Act.
+- Current evidence: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed with 16 tests.
 - Current evidence: `npm.cmd run build -w @novel-studio/web` passed.
 - Empty library can create a project through the UI.
 - New project creates coherent first hierarchy and first editable scene.

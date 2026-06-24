@@ -26,6 +26,8 @@ Immediate task requirements:
 - Do Slice B now: repair the empty-library-to-writing path before Codex expansion or visual redesign.
 - Done in current Slice B code slice: empty-library creation is tested and opens the first editable scene.
 - Done in current Slice B code slice: Write tracks selected Volume, and Add Chapter targets the selected Volume.
+- Done in current Slice B code slice: selected Chapter, Act, and Scene deletion paths are covered by tests.
+- Done in current Slice B code slice: creating a Scene inside the selected Act is covered by tests.
 - Continue repairing Write hierarchy around `Volume -> Chapter -> Act -> Scene`.
 - Add must open a compact menu and create default-named items.
 - Delete must sit beside Add and delete the selected hierarchy item only after confirmation.
