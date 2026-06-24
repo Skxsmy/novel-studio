@@ -88,16 +88,20 @@ export function App() {
           isLibraryLoading={session.isLibraryLoading}
           isOpeningSeries={session.isOpeningSeries}
           onCreateSeries={async (input) => {
-            await session.createSeries(input);
-            setActiveWorkspace("write");
-            setIsLibraryOpen(false);
-            setIsFocusMode(false);
+            const created = await session.createSeries(input);
+            if (created) {
+              setActiveWorkspace("write");
+              setIsLibraryOpen(false);
+              setIsFocusMode(false);
+            }
           }}
           onOpenSeries={async (seriesId) => {
-            await session.openSeries(seriesId);
-            setActiveWorkspace("write");
-            setIsLibraryOpen(false);
-            setIsFocusMode(false);
+            const opened = await session.openSeries(seriesId);
+            if (opened) {
+              setActiveWorkspace("write");
+              setIsLibraryOpen(false);
+              setIsFocusMode(false);
+            }
           }}
           onRefresh={session.refreshSeriesList}
           seriesList={session.seriesList}
@@ -128,6 +132,7 @@ export function App() {
           onCreateChapter={session.createChapter}
           onCreateScene={session.createScene}
           onSaveDraft={session.saveDraft}
+          onSelectVolume={session.selectVolume}
           onSelectAct={session.selectAct}
           onSelectChapter={session.selectChapter}
           onSelectScene={session.selectScene}
@@ -138,6 +143,7 @@ export function App() {
           onUpdateContent={session.updateDraftContent}
           onUpdateTitle={session.updateDraftTitle}
           saveStatus={session.saveStatus}
+          selectedVolumeId={session.selectedVolumeId}
           selectedActId={session.selectedActId}
           selectedChapterId={session.selectedChapterId}
           selectedScene={session.selectedScene}

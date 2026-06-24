@@ -18,6 +18,8 @@ const secondSceneId = "66666666-6666-4666-8666-666666666666";
 const newActId = "77777777-7777-4777-8777-777777777777";
 const newChapterId = "88888888-8888-4888-8888-888888888888";
 const newBookId = "99999999-9999-4999-8999-999999999999";
+const newBookActId = "99999999-9999-4999-8999-111111111111";
+const newBookChapterId = "99999999-9999-4999-8999-222222222222";
 const codexEntryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const modelProfileId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const revision = "a".repeat(64);
@@ -162,10 +164,23 @@ function seriesDetailWithNewBook(bookTitle = "New Volume") {
   const detail = seriesDetail();
   return {
     ...detail,
+    acts: [
+      ...detail.acts,
+      {
+        bookId: newBookId,
+        chapterIds: [newBookChapterId],
+        createdAt: "2026-06-23T00:00:00.000Z",
+        id: newBookActId,
+        order: 1,
+        schemaVersion: 1,
+        title: "New Chapter",
+        updatedAt: "2026-06-23T00:00:00.000Z",
+      },
+    ],
     books: [
       ...detail.books,
       {
-        actIds: [],
+        actIds: [newBookActId],
         createdAt: "2026-06-23T00:00:00.000Z",
         id: newBookId,
         order: 2,
@@ -173,6 +188,19 @@ function seriesDetailWithNewBook(bookTitle = "New Volume") {
         seriesId,
         targetCharacters: 0,
         title: bookTitle,
+        updatedAt: "2026-06-23T00:00:00.000Z",
+      },
+    ],
+    chapters: [
+      ...detail.chapters,
+      {
+        actId: newBookActId,
+        createdAt: "2026-06-23T00:00:00.000Z",
+        id: newBookChapterId,
+        order: 1,
+        sceneIds: [],
+        schemaVersion: 1,
+        title: "New Act",
         updatedAt: "2026-06-23T00:00:00.000Z",
       },
     ],
@@ -365,8 +393,9 @@ function modelProfile(overrides: Partial<{
   };
 }
 
-function mockFetch() {
+function mockFetch(options: { initialSeriesList?: ReturnType<typeof seriesSummary>[] } = {}) {
   let detailOverride: ReturnType<typeof seriesDetail> | null = null;
+  let seriesSummaries = options.initialSeriesList ?? [seriesSummary()];
   let codexEntries: ReturnType<typeof codexEntryDocument>[] = [];
   let modelProfiles: ReturnType<typeof modelProfile>[] = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -374,16 +403,26 @@ function mockFetch() {
     const method = init?.method ?? "GET";
 
     if (url === "/api/v1/series" && method === "GET") {
-      return jsonResponse([seriesSummary()]);
+      return jsonResponse(seriesSummaries);
     }
 
     if (url === "/api/v1/series" && method === "POST") {
       const body = JSON.parse(String(init?.body));
+      const base = seriesDetail();
       detailOverride = {
-        ...seriesDetail(),
-        books: [{ ...seriesDetail().books[0]!, title: body.firstBookTitle }],
-        manifest: { ...seriesDetail().manifest, description: body.description, title: body.title },
+        ...base,
+        books: [{ ...base.books[0]!, title: body.firstBookTitle }],
+        manifest: { ...base.manifest, description: body.description, title: body.title },
       };
+      seriesSummaries = [
+        {
+          ...seriesSummary(),
+          bookCount: detailOverride.books.length,
+          description: body.description,
+          sceneCount: detailOverride.scenes.length,
+          title: body.title,
+        },
+      ];
       return jsonResponse(detailOverride, 201);
     }
 
@@ -525,6 +564,29 @@ function mockFetch() {
       return jsonResponse(detailOverride.acts.find((act) => act.id === newActId), 201);
     }
 
+    if (url === `/api/v1/series/${seriesId}/books/${newBookId}/acts` && method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      const current = detailOverride ?? seriesDetailWithNewBook();
+      const createdAct = {
+        bookId: newBookId,
+        chapterIds: [],
+        createdAt: "2026-06-23T00:00:00.000Z",
+        id: newActId,
+        order: current.acts.filter((act) => act.bookId === newBookId).length + 1,
+        schemaVersion: 1 as const,
+        title: body.title,
+        updatedAt: "2026-06-23T00:00:00.000Z",
+      };
+      detailOverride = {
+        ...current,
+        acts: [...current.acts, createdAct],
+        books: current.books.map((book) => (
+          book.id === newBookId ? { ...book, actIds: [...book.actIds, createdAct.id] } : book
+        )),
+      };
+      return jsonResponse(createdAct, 201);
+    }
+
     if (url === `/api/v1/series/${seriesId}/acts/${newActId}` && method === "PUT") {
       const body = JSON.parse(String(init?.body));
       const current = detailOverride ?? seriesDetailWithNewAct();
@@ -585,6 +647,30 @@ describe("App shell", () => {
     expect(await screen.findByRole("button", { name: /Glass Harbor/i })).toBeTruthy();
   });
 
+  it("creates the first project from an empty library and opens its first scene", async () => {
+    const fetchMock = mockFetch({ initialSeriesList: [] });
+    render(<App />);
+
+    expect(await screen.findByText("No projects yet")).toBeTruthy();
+    const createButton = screen.getByRole("button", { name: "New Project" });
+    expect(createButton).toHaveProperty("disabled", false);
+
+    fireEvent.change(screen.getByLabelText("Series title"), { target: { value: "Zero Draft" } });
+    fireEvent.click(createButton);
+
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    expect(await screen.findByLabelText("Scene title")).toHaveProperty("value", "Opening Scene");
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/series",
+        expect.objectContaining({
+          body: expect.stringContaining("Zero Draft"),
+          method: "POST",
+        }),
+      );
+    });
+  });
+
   it("opens a project into the write workspace", async () => {
     mockFetch();
     render(<App />);
@@ -622,6 +708,26 @@ describe("App shell", () => {
       );
     });
     expect(screen.queryByText("New Volume")).toBeNull();
+  });
+
+  it("adds a chapter to the selected volume", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    await screen.findByLabelText("Scene title");
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Volume" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^New Volume/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chapter" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/books/${newBookId}/acts`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
   });
 
   it("renames a volume from the write structure", async () => {

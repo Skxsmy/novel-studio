@@ -133,6 +133,16 @@ Forbidden:
 
 ### Slice B: Start-to-Write Vertical Slice
 
+Status: in progress on 2026-06-24.
+
+Done so far:
+
+- Empty-library creation is now covered by `AppShell.test.tsx`; the first project can be created from the UI and opens the first editable scene.
+- Project create/open calls now report success to the app shell, so failed API calls no longer close the Library page.
+- Write now tracks the selected Volume in session state.
+- The product hierarchy projection is explicit in the Write UI: product `Chapter` maps to current storage `Act`, and product `Act` maps to current storage `Chapter`.
+- Adding a Chapter after selecting a Volume now targets that selected Volume instead of always targeting the first Volume.
+
 Purpose: recover the core author path before advanced work.
 
 Tasks:

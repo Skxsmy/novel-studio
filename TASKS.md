@@ -24,7 +24,9 @@ Immediate task requirements:
 
 - Slice A is recorded in `docs/tasks/PROJECT_RECOVERY.md`.
 - Do Slice B now: repair the empty-library-to-writing path before Codex expansion or visual redesign.
-- Repair Write hierarchy around `Volume -> Chapter -> Act -> Scene`.
+- Done in current Slice B code slice: empty-library creation is tested and opens the first editable scene.
+- Done in current Slice B code slice: Write tracks selected Volume, and Add Chapter targets the selected Volume.
+- Continue repairing Write hierarchy around `Volume -> Chapter -> Act -> Scene`.
 - Add must open a compact menu and create default-named items.
 - Delete must sit beside Add and delete the selected hierarchy item only after confirmation.
 - Titles must be renameable later, including double-click rename where appropriate.

@@ -46,6 +46,8 @@ Current blockers:
 - Current backend Codex routes cover categories, entries, mentions, relations, progressions, knowledge, effective state, context preview, and search. Current frontend Codex API wrapper exposes only categories, entries list/create/get. The gap must be audited before more Codex UI is built.
 - Write hierarchy UX still needs product-level repair:
   - expected hierarchy is `Volume -> Chapter -> Act -> Scene`;
+  - current Slice B code now tests empty-library project creation and first-scene opening;
+  - current Slice B code now tracks selected Volume and targets Add Chapter to that Volume;
   - Add should open a compact menu, not show multiple permanent large buttons;
   - new items should receive default names;
   - titles should be renameable later, including double-click rename where appropriate;

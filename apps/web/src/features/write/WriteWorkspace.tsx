@@ -31,6 +31,7 @@ export interface WriteWorkspaceProps {
   onCreateChapter: (input?: CreateChapterInput) => Promise<void>;
   onCreateScene: (input?: CreateSceneInput) => Promise<void>;
   onSaveDraft: () => Promise<void>;
+  onSelectVolume: (bookId: string) => void;
   onSelectAct: (actId: string) => void;
   onSelectChapter: (chapterId: string) => void;
   onSelectScene: (sceneId: string) => void;
@@ -41,6 +42,7 @@ export interface WriteWorkspaceProps {
   onUpdateContent: (content: string) => void;
   onUpdateTitle: (title: string) => void;
   saveStatus: SaveStatus;
+  selectedVolumeId: string | null;
   selectedActId: string | null;
   selectedChapterId: string | null;
   selectedScene: SceneDocument | null;
@@ -83,14 +85,14 @@ function toggleSetValue(values: Set<string>, value: string) {
   return next;
 }
 
-type StructureCreateType = "volume" | "act" | "chapter" | "scene";
-type RenamingStructure = { type: "volume" | "act" | "chapter"; id: string; title: string };
-type SelectedStructure = { type: StructureCreateType; id: string };
+type ProductStructureType = "volume" | "chapter" | "act" | "scene";
+type RenamingStructure = { type: "volume" | "chapter" | "act"; id: string; title: string };
+type SelectedStructure = { type: ProductStructureType; id: string };
 
-const structureCreateLabels: Record<StructureCreateType, string> = {
+const structureCreateLabels: Record<ProductStructureType, string> = {
   volume: uiText.hierarchy.volume,
-  act: uiText.hierarchy.chapter,
-  chapter: uiText.hierarchy.act,
+  chapter: uiText.hierarchy.chapter,
+  act: uiText.hierarchy.act,
   scene: uiText.hierarchy.scene,
 };
 
@@ -109,6 +111,7 @@ export function WriteWorkspace({
   onCreateChapter,
   onCreateScene,
   onSaveDraft,
+  onSelectVolume,
   onSelectAct,
   onSelectChapter,
   onSelectScene,
@@ -119,6 +122,7 @@ export function WriteWorkspace({
   onUpdateContent,
   onUpdateTitle,
   saveStatus,
+  selectedVolumeId,
   selectedActId,
   selectedChapterId,
   selectedScene,
@@ -134,8 +138,8 @@ export function WriteWorkspace({
   const charactersInScene = selectedScene
     ? selectedScene.metadata.characterIds.length + selectedScene.metadata.locationIds.length + selectedScene.metadata.plotThreadIds.length
     : 0;
-  const canCreateAct = series.books.length > 0;
-  const canCreateChapter = Boolean(selectedActId ?? series.acts[0]?.id ?? series.books[0]?.actIds[0]);
+  const canCreateProductChapter = series.books.length > 0;
+  const canCreateProductAct = Boolean(selectedActId ?? series.acts[0]?.id ?? series.books[0]?.actIds[0]);
   const canCreateScene = Boolean(selectedChapterId ?? selectedScene?.metadata.chapterId ?? series.chapters[0]?.id);
   const actsByBook = new Map<string, ActManifest[]>();
   for (const act of sortedByOrder(series.acts)) {
@@ -153,10 +157,12 @@ export function WriteWorkspace({
   const selectedVolume = selectedStructure?.type === "volume"
     ? series.books.find((book) => book.id === selectedStructure.id)
     : null;
-  const selectedAct = selectedStructure?.type === "act"
+  // Product hierarchy is Volume -> Chapter -> Act -> Scene while the current
+  // storage model is Book -> Act -> Chapter -> Scene.
+  const selectedProductChapter = selectedStructure?.type === "chapter"
     ? series.acts.find((act) => act.id === selectedStructure.id)
     : null;
-  const selectedChapter = selectedStructure?.type === "chapter"
+  const selectedProductAct = selectedStructure?.type === "act"
     ? series.chapters.find((chapter) => chapter.id === selectedStructure.id)
     : null;
   const selectedStructureScene = selectedStructure?.type === "scene"
@@ -164,28 +170,28 @@ export function WriteWorkspace({
     : null;
   const deleteTarget = selectedVolume
     ? { type: "volume" as const, id: selectedVolume.id, title: selectedVolume.title, label: uiText.hierarchy.volume }
-    : selectedAct
-      ? { type: "act" as const, id: selectedAct.id, title: selectedAct.title, label: uiText.hierarchy.chapter }
-      : selectedChapter
-        ? { type: "chapter" as const, id: selectedChapter.id, title: selectedChapter.title, label: uiText.hierarchy.act }
+    : selectedProductChapter
+      ? { type: "chapter" as const, id: selectedProductChapter.id, title: selectedProductChapter.title, label: uiText.hierarchy.chapter }
+      : selectedProductAct
+        ? { type: "act" as const, id: selectedProductAct.id, title: selectedProductAct.title, label: uiText.hierarchy.act }
         : selectedStructureScene
           ? { type: "scene" as const, id: selectedStructureScene.metadata.id, title: selectedStructureScene.metadata.title, label: uiText.hierarchy.scene }
           : selectedScene
             ? { type: "scene" as const, id: selectedScene.metadata.id, title: selectedScene.metadata.title, label: uiText.hierarchy.scene }
             : null;
 
-  function canCreateStructure(type: StructureCreateType) {
+  function canCreateStructure(type: ProductStructureType) {
     if (type === "volume") return true;
-    if (type === "act") return canCreateAct;
-    if (type === "chapter") return canCreateChapter;
+    if (type === "chapter") return canCreateProductChapter;
+    if (type === "act") return canCreateProductAct;
     return canCreateScene;
   }
 
-  async function createStructure(type: StructureCreateType) {
+  async function createStructure(type: ProductStructureType) {
     if (!canCreateStructure(type) || isCreatingStructure) return;
     if (type === "volume") await onCreateVolume();
-    else if (type === "act") await onCreateAct();
-    else if (type === "chapter") await onCreateChapter();
+    else if (type === "chapter") await onCreateAct();
+    else if (type === "act") await onCreateChapter();
     else await onCreateScene();
     setIsAddOpen(false);
   }
@@ -193,8 +199,8 @@ export function WriteWorkspace({
   async function deleteSelectedStructure() {
     if (!deleteTarget || isCreatingStructure) return;
     if (deleteTarget.type === "volume") await onDeleteVolume(deleteTarget.id);
-    else if (deleteTarget.type === "act") await onDeleteAct(deleteTarget.id);
-    else if (deleteTarget.type === "chapter") await onDeleteChapter(deleteTarget.id);
+    else if (deleteTarget.type === "chapter") await onDeleteAct(deleteTarget.id);
+    else if (deleteTarget.type === "act") await onDeleteChapter(deleteTarget.id);
     else await onDeleteScene(deleteTarget.id);
     setSelectedStructure(null);
     setIsDeleteOpen(false);
@@ -205,7 +211,7 @@ export function WriteWorkspace({
     const title = renamingStructure.title.trim();
     if (!title) return;
     if (renamingStructure.type === "volume") await onUpdateVolume(renamingStructure.id, { title });
-    else if (renamingStructure.type === "act") await onUpdateAct(renamingStructure.id, { title });
+    else if (renamingStructure.type === "chapter") await onUpdateAct(renamingStructure.id, { title });
     else await onUpdateChapter(renamingStructure.id, { title });
     setRenamingStructure(null);
   }
@@ -258,7 +264,7 @@ export function WriteWorkspace({
               </button>
               {isAddOpen ? (
                 <div className="structure-add-menu" aria-label={uiText.structure.createItem}>
-                  {(["volume", "act", "chapter", "scene"] as StructureCreateType[]).map((type) => (
+                  {(["volume", "chapter", "act", "scene"] as ProductStructureType[]).map((type) => (
                     <button
                       className="structure-menu-option"
                       disabled={!canCreateStructure(type) || isCreatingStructure}
@@ -292,7 +298,7 @@ export function WriteWorkspace({
           </div>
           <div className="panel-body scene-map">
             {orderedBooks.map((book) => {
-              const isSelectedVolume = selectedStructure?.type === "volume" && selectedStructure.id === book.id;
+              const isSelectedVolume = (selectedStructure?.type === "volume" && selectedStructure.id === book.id) || selectedVolumeId === book.id;
               const isRenamingVolume = renamingStructure?.type === "volume" && renamingStructure.id === book.id;
               return (
               <div className="structure-book" key={book.id}>
@@ -320,6 +326,7 @@ export function WriteWorkspace({
                     onClick={() => {
                       setSelectedStructure({ type: "volume", id: book.id });
                       setIsDeleteOpen(false);
+                      onSelectVolume(book.id);
                     }}
                     onDoubleClick={() => setRenamingStructure({ type: "volume", id: book.id, title: book.title })}
                     title={uiText.structure.doubleClickToRename}
@@ -345,7 +352,7 @@ export function WriteWorkspace({
                   const chapters = chaptersByAct.get(act.id) ?? [];
                   const isSelectedAct = act.id === selectedActId;
                   const isCollapsedAct = collapsedActs.has(act.id);
-                  const isRenamingAct = renamingStructure?.type === "act" && renamingStructure.id === act.id;
+                  const isRenamingAct = renamingStructure?.type === "chapter" && renamingStructure.id === act.id;
                   return (
                     <div className="structure-act" key={act.id}>
                       {isRenamingAct ? (
@@ -354,7 +361,7 @@ export function WriteWorkspace({
                             aria-label={`Rename ${act.title}`}
                             autoFocus
                             className="input structure-rename-input"
-                            onChange={(event) => setRenamingStructure({ type: "act", id: act.id, title: event.target.value })}
+                            onChange={(event) => setRenamingStructure({ type: "chapter", id: act.id, title: event.target.value })}
                             onKeyDown={(event) => {
                               if (event.key === "Enter") void saveRename();
                               if (event.key === "Escape") cancelRename();
@@ -370,11 +377,11 @@ export function WriteWorkspace({
                         <button
                           className={`data-row structure-act-row${isSelectedAct ? " is-active" : ""}`}
                           onClick={() => {
-                            setSelectedStructure({ type: "act", id: act.id });
+                            setSelectedStructure({ type: "chapter", id: act.id });
                             setIsDeleteOpen(false);
                             onSelectAct(act.id);
                           }}
-                          onDoubleClick={() => setRenamingStructure({ type: "act", id: act.id, title: act.title })}
+                          onDoubleClick={() => setRenamingStructure({ type: "chapter", id: act.id, title: act.title })}
                           title={uiText.structure.doubleClickToRename}
                           type="button"
                         >
@@ -398,7 +405,7 @@ export function WriteWorkspace({
                         const scenes = scenesByChapter.get(chapter.id) ?? [];
                         const isSelectedChapter = chapter.id === selectedChapterId;
                         const isCollapsedChapter = collapsedChapters.has(chapter.id);
-                        const isRenamingChapter = renamingStructure?.type === "chapter" && renamingStructure.id === chapter.id;
+                        const isRenamingChapter = renamingStructure?.type === "act" && renamingStructure.id === chapter.id;
                         return (
                           <div className="structure-chapter" key={chapter.id}>
                             {isRenamingChapter ? (
@@ -407,7 +414,7 @@ export function WriteWorkspace({
                                   aria-label={`Rename ${chapter.title}`}
                                   autoFocus
                                   className="input structure-rename-input"
-                                  onChange={(event) => setRenamingStructure({ type: "chapter", id: chapter.id, title: event.target.value })}
+                                  onChange={(event) => setRenamingStructure({ type: "act", id: chapter.id, title: event.target.value })}
                                   onKeyDown={(event) => {
                                     if (event.key === "Enter") void saveRename();
                                     if (event.key === "Escape") cancelRename();
@@ -423,11 +430,11 @@ export function WriteWorkspace({
                               <button
                                 className={`data-row structure-chapter-row${isSelectedChapter ? " is-active" : ""}`}
                                 onClick={() => {
-                                  setSelectedStructure({ type: "chapter", id: chapter.id });
+                                  setSelectedStructure({ type: "act", id: chapter.id });
                                   setIsDeleteOpen(false);
                                   onSelectChapter(chapter.id);
                                 }}
-                                onDoubleClick={() => setRenamingStructure({ type: "chapter", id: chapter.id, title: chapter.title })}
+                                onDoubleClick={() => setRenamingStructure({ type: "act", id: chapter.id, title: chapter.title })}
                                 title={uiText.structure.doubleClickToRename}
                                 type="button"
                               >
