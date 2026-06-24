@@ -49,6 +49,7 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **NS-409E Planning Wide-Screen Transition**: Saved current/target/implemented screenshots for board, outline, matrix, and timeline; removed narrow width locking and moved planning views toward wide workspaces. This was explicitly not a final UI acceptance.
 - **NS-409 Current React Rebuild (`cca70e8`)**: Recorded and committed the current frontend working draft, reorganized React folders, removed obsolete non-backup UI assets, added protected UI baseline backups, updated current docs, fixed Windows `better-sqlite3` typing, and validated commands. The UI remains visually rejected and Codex remains a rough shell.
 - **NS-409 Replan**: Replanned the remaining work instead of mechanically continuing the old task order. M2/M3 hierarchy, Codex API, storage, and index foundations are explicitly open to revision if the rebuilt frontend exposes gaps. The new order starts with hierarchy/project creation and Codex API audit, then proceeds through project recovery, Write hierarchy recovery, Codex API wrapper expansion, real Codex workspace implementation, Codex integration with Write/Plan/AI context, Settings recovery, Review/Workshop decision, and final acceptance.
+- **Project Recovery Reframe**: Replaced the active `NS-409` umbrella with a project-level recovery roadmap. The active plan now covers product/UX baseline, architecture/contracts/storage/API audit, Library, Write, Plan, Codex, Settings, Review, Workshop, design system, app shell, i18n readiness, and validation. Old `NS-409*` records remain historical evidence, not the current task frame.
 
 ### Current Validation Snapshot
 
@@ -56,4 +57,4 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - `npm.cmd run build`: passed.
 - `npm.cmd run test`: server 16, web 11, AI 18, storage 43 tests passed.
 - `git diff --check`: passed with line-ending warnings only.
-- User visual acceptance: failed. `NS-409` must remain open.
+- User visual acceptance: failed. Project recovery remains open.

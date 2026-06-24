@@ -2,7 +2,7 @@
 
 ## Current Rule
 
-Tests prove behavior. They do not prove visual acceptance. For NS-409, user visual review is the acceptance authority.
+Tests prove behavior. They do not prove visual acceptance. For the project recovery phase, user visual review is the acceptance authority.
 
 ## Layers
 
@@ -11,7 +11,7 @@ Tests prove behavior. They do not prove visual acceptance. For NS-409, user visu
 - Browser/E2E tests: real user flows that are stable enough to automate.
 - Manual visual review: required for UI/layout acceptance.
 
-## Current NS-409 Commands
+## Current Recovery Commands
 
 ```powershell
 npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx
@@ -21,7 +21,7 @@ git diff --check
 
 ## Acceptance Records
 
-- Current frontend acceptance record: `NS-409_ACCEPTANCE.md`
+- Current recovery acceptance record: `PROJECT_RECOVERY_ACCEPTANCE.md`
 - General browser process history: `BROWSER_ACCEPTANCE.md`
 - Older `NS-*.md` acceptance files are historical evidence, not current UI acceptance.
 

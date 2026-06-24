@@ -9,8 +9,8 @@ This directory is not the place for routine status notes. Current status lives i
 - `../../../STATUS.md`
 - `../../../HANDOFF.md`
 - `../../../TASKS.md`
-- `../../tasks/NS-409.md`
-- `../../testing/NS-409_ACCEPTANCE.md`
+- `../../tasks/PROJECT_RECOVERY.md`
+- `../../testing/PROJECT_RECOVERY_ACCEPTANCE.md`
 
 ## Protected Backups
 

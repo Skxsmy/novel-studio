@@ -6,17 +6,17 @@ This file is the current project-status authority. Earlier Chinese records were 
 
 ## Read First
 
-- Current active line: `NS-409` frontend and Codex recovery plan.
-- Current decision: `NS-409` is replanned and not accepted. The React application builds and has partial real API wiring, but the user rejected the visual/product result.
-- Do not mechanically follow the old milestone order. M2/M3 foundations may be revised when the rebuilt frontend exposes contract, API, storage, or index gaps.
-- Do not advance as if `NS-409.5` or later frontend acceptance has passed.
+- Current active line: project-level recovery.
+- Current decision: the project is not accepted. The React application builds and has partial real API wiring, but the user rejected the visual/product result.
+- Do not mechanically follow the old milestone order or the old `NS-409` umbrella. M2/M3 foundations may be revised when the rebuilt frontend exposes contract, API, storage, or index gaps.
+- Do not advance to `NS-410` or M5 entry work until project recovery is accepted.
 - Fast reading path for the next contributor:
   - `README.md`
   - `HANDOFF.md`
   - `TASKS.md`
   - `docs/README.md`
-  - `docs/tasks/NS-409.md`
-  - `docs/testing/NS-409_ACCEPTANCE.md`
+  - `docs/tasks/PROJECT_RECOVERY.md`
+  - `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`
   - `docs/design/ui-redesign/README.md`
 - Protected backups: do not delete anything under `docs/design/**/backups/` unless the user explicitly names the backup to delete.
 - Routine progress must be recorded in existing authority files, not in new scattered status files: `STATUS.md`, `HANDOFF.md`, `TASKS.md`, `CHANGELOG.md`, the active task file, and the active acceptance file.
@@ -35,9 +35,9 @@ This file is the current project-status authority. Earlier Chinese records were 
 - `packages/storage` still has an oversized `src/index.ts`; domain behavior should keep moving out instead of growing it.
 - `packages/ai` contains the provider registry, mock provider, OpenAI-compatible path, DeepSeek provider path, credential abstractions, and error classification.
 
-## Active Work: NS-409
+## Active Work: Project Recovery
 
-`NS-409` is a frontend and Codex recovery line, not an accepted baseline.
+The active line is project recovery, not an accepted baseline and not an `NS-409` continuation.
 
 Current blockers:
 
@@ -57,18 +57,16 @@ Current blockers:
 - UI text must stay isolated for later bilingual adaptation; do not hardcode user-facing copy directly into feature logic.
 - Browser screenshots and DOM checks are not user acceptance. The user currently owns visual validation.
 
-Current replanned work packages:
+Current recovery slices:
 
-1. `NS-409.0` rebaseline and guardrails.
-2. `NS-409.1` foundation audit for hierarchy, project creation, and Codex API.
-3. `NS-409.2` project/library recovery from empty state.
-4. `NS-409.3` Write hierarchy recovery.
-5. `NS-409.4` Codex API and frontend wrapper expansion.
-6. `NS-409.5` Codex entry workspace.
-7. `NS-409.6` Codex integration with Write, Plan, and AI context.
-8. `NS-409.7` Settings recovery.
-9. `NS-409.8` Review and Workshop decision.
-10. `NS-409.9` regression, acceptance, and handoff.
+1. Slice A: baseline triage.
+2. Slice B: Start-to-Write vertical slice.
+3. Slice C: Codex core vertical slice.
+4. Slice D: Codex connections.
+5. Slice E: Settings and AI safety minimum.
+6. Slice F: Review, Workshop, and navigation honesty.
+7. Slice G: visual system and responsive acceptance.
+8. Slice H: verification and handoff.
 
 ## Milestone State
 
@@ -77,7 +75,7 @@ Current replanned work packages:
 - M2: complete. File storage, API, conflict protection, index rebuild, and search had automated tests.
 - M3: complete. `NS-301` through `NS-307` were implemented and validated.
 - M3 -> M4 preparation: complete through `NS-400`. Architecture refresh, split baselines, repeatable smoke tests, and M4 minimum contracts were recorded.
-- M4: partially complete. `NS-401` through `NS-407` are complete. `NS-408` implemented DeepSeek and a generic OpenAI-compatible foundation but did not finish every provider listed in the original scope. `NS-409` remains active and not accepted.
+- M4: partially complete. `NS-401` through `NS-407` are complete. `NS-408` implemented DeepSeek and a generic OpenAI-compatible foundation but did not finish every provider listed in the original scope. The old `NS-409` line is historical; active work is now project recovery.
 
 ## Historical Implementation Record
 
@@ -207,7 +205,7 @@ Acceptance evidence files:
 - `docs/testing/NS-406_ACCEPTANCE.md`
 - `docs/testing/NS-407_ACCEPTANCE.md`
 - `docs/testing/NS-408_ACCEPTANCE.md`
-- `docs/testing/NS-409_ACCEPTANCE.md`
+- `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`
 
 ## Known Limitations
 
@@ -223,16 +221,13 @@ Acceptance evidence files:
 
 ## Next Work
 
-Do not continue to `NS-410`. Continue `NS-409` until the frontend has a user-accepted visual and product baseline.
+Do not continue to `NS-410`. Continue project recovery until the product has a user-accepted visual and product baseline.
 
 Immediate order:
 
-1. Run `NS-409.1`: audit hierarchy/project creation and Codex API gaps.
-2. Decide whether hierarchy changes are UI terminology, API projection, or storage/migration work.
-3. Expand Codex frontend API coverage only after the gap list is explicit.
-4. Repair Write hierarchy creation/deletion/rename/collapse/scroll behavior around the resolved hierarchy model.
-5. Make Codex a real entry workflow instead of a shell.
-6. Finish Settings product behavior for scoped model/profile/policy workflows.
-7. Decide whether Review and Workshop become real scoped workflows now or honest unavailable states.
-8. Re-run command validation after product/UI changes.
-9. Record the result in `docs/tasks/NS-409.md`, `docs/testing/NS-409_ACCEPTANCE.md`, `STATUS.md`, `HANDOFF.md`, `TASKS.md`, and `CHANGELOG.md`.
+1. Do Slice A first: write the triage table and hard scope decisions for Recovery Release A.
+2. Do not start another UI redesign, Codex implementation, or provider expansion before Slice A exists.
+3. Then implement Slice B before broader Codex work.
+4. Expand Codex frontend API coverage only after Slice C records the gap list.
+5. Re-run command validation after product/UI changes.
+6. Record the result in `docs/tasks/PROJECT_RECOVERY.md`, `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`, `STATUS.md`, `HANDOFF.md`, `TASKS.md`, and `CHANGELOG.md`.

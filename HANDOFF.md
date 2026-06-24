@@ -8,7 +8,7 @@ This file is the short operational handoff. The older Chinese handoff was fully 
 
 - Branch: `main`.
 - Latest relevant committed baseline before the replan: `d7f1666 NS-409 docs: preserve historical logs in English`.
-- Current active task: `NS-409` frontend and Codex recovery plan.
+- Current active task: project-level recovery roadmap.
 - Current acceptance state: not accepted. Command validation passed, but user visual/product validation failed.
 - Current planning decision: do not mechanically continue old NS-409/NS-410 sequencing. M2/M3 foundations can be modified if the rebuilt frontend exposes real gaps.
 
@@ -20,15 +20,15 @@ Read these files in order:
 2. `STATUS.md`
 3. `TASKS.md`
 4. `docs/README.md`
-5. `docs/tasks/NS-409.md`
-6. `docs/testing/NS-409_ACCEPTANCE.md`
+5. `docs/tasks/PROJECT_RECOVERY.md`
+6. `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`
 7. `docs/design/ui-redesign/README.md`
 
 Do not begin from old `NS-409A` through `NS-409F` screenshots as if they are current guidance. Current truth is the task and acceptance record above.
 
 ## Do Not Break These Rules
 
-- Do not mark `NS-409` complete until the user accepts the visual/product result.
+- Do not mark project recovery complete until the user accepts the visual/product result.
 - Do not assume M2/M3 APIs are sufficient just because older tasks passed. Audit before implementation.
 - Do not add new routine status or handoff files. Update the existing authority files.
 - Do not delete `docs/design/**/backups/` unless the user explicitly names the backup to delete.
@@ -37,9 +37,9 @@ Do not begin from old `NS-409A` through `NS-409F` screenshots as if they are cur
 - Do not claim browser screenshots or DOM checks as user visual acceptance.
 - Do not expose developer/audit details in author-facing writing paths unless the product spec calls for them.
 
-## Current NS-409 Work
+## Current Recovery Work
 
-The current React frontend has a reorganized shell and partial API wiring, but it is not a usable accepted UI. The work has been replanned around foundation audit and Codex recovery.
+The current React frontend has a reorganized shell and partial API wiring, but it is not a usable accepted UI. The work has been reframed as project-level recovery.
 
 Working draft pieces:
 
@@ -59,17 +59,16 @@ Critical blockers:
 - Settings is only partially product-complete.
 - Review and Workshop need either real scoped workflows or honest unavailable states.
 
-Current replanned order:
+Current recovery order:
 
-1. `NS-409.1` audit hierarchy/project creation and Codex API gaps.
-2. `NS-409.2` repair zero-project library flow.
-3. `NS-409.3` repair Write hierarchy behavior.
-4. `NS-409.4` expand Codex frontend API wrapper and document missing contract needs.
-5. `NS-409.5` implement the Codex entry workspace as a real editor.
-6. `NS-409.6` reconnect Codex with Write, Plan, and AI context.
-7. `NS-409.7` finish scoped Settings behavior.
-8. `NS-409.8` decide Review/Workshop scope or honest unavailable states.
-9. `NS-409.9` validate, record, and hand off.
+1. Slice A: baseline triage.
+2. Slice B: Start-to-Write vertical slice.
+3. Slice C: Codex core vertical slice.
+4. Slice D: Codex connections.
+5. Slice E: Settings and AI safety minimum.
+6. Slice F: Review, Workshop, and navigation honesty.
+7. Slice G: visual system and responsive acceptance.
+8. Slice H: verification and handoff.
 
 ## Historical Handoff Record
 
@@ -232,7 +231,7 @@ Current replanned order:
 - `npm.cmd run test:smoke` passed 3 tests after NS-400.
 - Playwright E2E passed for M3 main paths, M4 settings/context/prompt preview paths, AI review/rewrite path, DeepSeek settings path, and multiple NS-409 visual screenshot runs.
 - M4 task tests progressed from server 7/7, web 14/14, storage 39/39 to server 15/15, web 14/14, AI 15/15, storage 41/41 before the later frontend rewrite.
-- Current post-rewrite validation recorded in `docs/testing/NS-409_ACCEPTANCE.md`:
+- Current post-rewrite validation was later carried into `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`:
   - `AppShell.test.tsx`: 11 passed.
   - `npm.cmd run build`: passed.
   - `npm.cmd run test`: server 16, web 11, AI 18, storage 43 passed.
@@ -251,4 +250,4 @@ Current replanned order:
 
 ## Immediate Next Step
 
-Stay on `NS-409`. Start with `NS-409.1`, not with cosmetic UI changes. Audit hierarchy and Codex API gaps, then implement the recovery packages in order. Do not start a new milestone and do not create parallel handoff files.
+Stay on project recovery. Start with Slice A: a triage table and hard scope decisions for Recovery Release A. Do not start with cosmetic UI changes, Codex-only implementation, or provider expansion. Do not start a new milestone and do not create parallel handoff files.
