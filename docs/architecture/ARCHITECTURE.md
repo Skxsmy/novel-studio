@@ -82,7 +82,7 @@ codex/knowledge/<id>.yaml
 
 ### 正文与附属文档
 
-正文使用 Markdown 文件，编辑器采用 Milkdown/ProseMirror。Sections、候选资料和敏感资料保存为独立 Markdown 文件，并拥有独立 revision 与 AI 权限。审阅锚点保存为独立 YAML，查询时只返回定位状态，不写回。
+正文使用 Markdown 文件；当前 Write 场景正文与 Codex Canon 描述编辑器采用 CodeMirror 6 运行时，详见 ADR-0010。Sections、候选资料和敏感资料保存为独立 Markdown 文件，并拥有独立 revision 与 AI 权限。审阅锚点保存为独立 YAML，查询时只返回定位状态，不写回。
 
 ### 设定库与连续性
 

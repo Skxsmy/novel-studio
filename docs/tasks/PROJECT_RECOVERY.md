@@ -295,11 +295,20 @@ Researched options:
 
 Decision for implementation:
 
-- Use CodeMirror 6 unless a concrete blocker is found during the spike.
+- Adopt CodeMirror 6 for Release A editor surfaces. No blocker was found during the spike.
 - Keep scenes and Codex canon descriptions as pure text persisted through the existing Markdown/YAML storage contract.
 - Treat Codex underlines, search hits, warnings, and future comments as editor decorations. They must never become saved text.
 - Keep Canon previews outside the document as editor-anchored tooltips/popovers, positioned from editor coordinates and updated on scroll/resize.
-- Do not continue the current React-rendered contentEditable mark approach after this slice starts.
+- Remove the current React-rendered contentEditable mark approach in Write and Codex Canon description editors.
+- Browser screenshot verification is not required for this slice unless the user or a later task explicitly asks for it.
+
+Implementation notes on 2026-06-24:
+
+- Added shared `EditorSurface` under `apps/web/src/features/editor/` using CodeMirror state/view/commands/lang-markdown.
+- Replaced the Write scene editor and Codex Canon description editor with `EditorSurface`.
+- Reused existing Codex mention matching rules for decorations; duplicate mentions are rendered as independent decoration ranges without changing the document text.
+- Removed the old `editableText.ts` DOM extraction/caret helper and removed unused Milkdown runtime dependencies from `@novel-studio/web`.
+- Added ADR-0010 for the CodeMirror runtime decision and dependency licenses.
 
 Target editor capabilities:
 

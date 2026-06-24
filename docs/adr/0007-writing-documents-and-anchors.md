@@ -2,6 +2,9 @@
 
 状态：已接受
 
+Note: ADR-0010 supersedes the Milkdown runtime choice for the current web Write scene and Codex Canon editor surfaces; the Markdown/YAML persistence decision remains in force.
+
+
 ## 背景
 
 正文必须保持可脱离应用阅读的 Markdown。作者备注、候选版本和敏感资料具有不同 AI 权限，不能塞进正文后再依赖界面隐藏。审阅锚点又必须经得起普通文本编辑，但向正文插入应用私有节点会污染原稿并绑定特定编辑器。

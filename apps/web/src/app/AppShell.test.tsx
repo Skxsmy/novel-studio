@@ -1,9 +1,20 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
+if (typeof Range !== "undefined") {
+  if (!Range.prototype.getClientRects) {
+    Object.defineProperty(Range.prototype, "getClientRects", { value: () => [] });
+  }
+  if (!Range.prototype.getBoundingClientRect) {
+    Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+      value: () => ({ bottom: 0, height: 0, left: 0, right: 0, top: 0, width: 0, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+  }
+}
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -28,6 +39,35 @@ const relationId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const createdRelationId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const revision = "a".repeat(64);
 const updatedRevision = "b".repeat(64);
+
+function findEditorView(label: string) {
+  const editorElement = screen.getByLabelText(label);
+  const view = EditorView.findFromDOM(editorElement);
+  if (!view) throw new Error(`Missing CodeMirror editor for ${label}`);
+  return view;
+}
+
+function setEditorValue(label: string, value: string) {
+  const view = findEditorView(label);
+  act(() => {
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: value },
+      selection: { anchor: value.length },
+    });
+  });
+}
+
+function insertEditorText(label: string, value: string) {
+  const view = findEditorView(label);
+  const range = view.state.selection.main;
+  act(() => {
+    view.dispatch({
+      changes: { from: range.from, to: range.to, insert: value },
+      selection: { anchor: range.from + value.length },
+      userEvent: "input.test",
+    });
+  });
+}
 
 function jsonResponse(body: unknown, status = 200) {
   return Promise.resolve(
@@ -1109,7 +1149,11 @@ describe("App shell", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
     const editor = await screen.findByLabelText("Scene content");
-    const mark = await within(editor).findByRole("button", { name: "Bellgate" });
+    await waitFor(() => {
+      expect(editor.querySelector(".cm-codex-mention")).toBeTruthy();
+    });
+    const mark = editor.querySelector(".cm-codex-mention");
+    if (!mark) throw new Error("Missing Bellgate mark");
 
     expect(screen.queryByText(/codex marks/i)).toBeNull();
     expect(document.querySelector(".scene-content-preview")).toBeNull();
@@ -1283,7 +1327,9 @@ describe("App shell", () => {
       );
     });
 
-    const row = screen.getByText("No description").closest("button");
+    const row = screen.getAllByText("No description")
+      .map((element) => element.closest("button"))
+      .find(Boolean);
     expect(row).toBeTruthy();
     fireEvent.click(row!);
     expect(screen.queryByLabelText("Codex entry details")).toBeNull();
@@ -1298,9 +1344,7 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: "New Entry" }));
 
     fireEvent.change(await screen.findByLabelText("Codex entry name"), { target: { value: "Harbor Lock" } });
-    const canonDescription = screen.getByLabelText("Codex canon description");
-    canonDescription.textContent = "A storm-pressure mechanism below the west quay.";
-    fireEvent.input(canonDescription);
+    setEditorValue("Codex canon description", "A storm-pressure mechanism below the west quay.");
     fireEvent.click(screen.getByRole("button", { name: "Add Detail" }));
     fireEvent.change(screen.getByLabelText("Detail 1 label"), { target: { value: "Gate rule" } });
     fireEvent.change(screen.getByLabelText("Detail 1 value"), { target: { value: "Only opens after the bell." } });
@@ -1445,7 +1489,11 @@ describe("App shell", () => {
     fireEvent.click(harborRow!);
 
     const descriptionEditor = await screen.findByLabelText("Codex canon description");
-    const mark = await within(descriptionEditor).findByRole("button", { name: "Bellgate" });
+    await waitFor(() => {
+      expect(descriptionEditor.querySelector(".cm-codex-mention")).toBeTruthy();
+    });
+    const mark = descriptionEditor.querySelector(".cm-codex-mention");
+    if (!mark) throw new Error("Missing Bellgate mark");
 
     fireEvent.click(mark);
     const preview = screen.getByLabelText("West Quay canon description");
@@ -1468,9 +1516,9 @@ describe("App shell", () => {
     expect(harborRow).toBeTruthy();
     fireEvent.click(harborRow!);
 
-    const descriptionEditor = await screen.findByLabelText("Codex canon description");
-    fireEvent.keyDown(descriptionEditor, { key: "Enter" });
-    fireEvent.keyDown(descriptionEditor, { key: "Enter" });
+    await screen.findByLabelText("Codex canon description");
+    insertEditorText("Codex canon description", "\n");
+    insertEditorText("Codex canon description", "\n");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
@@ -1494,10 +1542,10 @@ describe("App shell", () => {
     expect(harborRow).toBeTruthy();
     fireEvent.click(harborRow!);
 
-    const descriptionEditor = await screen.findByLabelText("Codex canon description");
-    fireEvent.keyDown(descriptionEditor, { key: " " });
-    fireEvent.keyDown(descriptionEditor, { key: "Enter" });
-    fireEvent.keyDown(descriptionEditor, { key: " " });
+    await screen.findByLabelText("Codex canon description");
+    insertEditorText("Codex canon description", " ");
+    insertEditorText("Codex canon description", "\n");
+    insertEditorText("Codex canon description", " ");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
@@ -1911,9 +1959,8 @@ describe("App shell", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
-    const editor = await screen.findByLabelText("Scene content");
-    editor.textContent = "New paragraph";
-    fireEvent.input(editor);
+    await screen.findByLabelText("Scene content");
+    setEditorValue("Scene content", "New paragraph");
     fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
@@ -1933,9 +1980,9 @@ describe("App shell", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
-    const editor = await screen.findByLabelText("Scene content");
-    fireEvent.keyDown(editor, { key: "Enter" });
-    fireEvent.keyDown(editor, { key: "Enter" });
+    await screen.findByLabelText("Scene content");
+    insertEditorText("Scene content", "\n");
+    insertEditorText("Scene content", "\n");
     fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
@@ -1952,10 +1999,10 @@ describe("App shell", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
-    const editor = await screen.findByLabelText("Scene content");
-    fireEvent.keyDown(editor, { key: " " });
-    fireEvent.keyDown(editor, { key: "Enter" });
-    fireEvent.keyDown(editor, { key: " " });
+    await screen.findByLabelText("Scene content");
+    insertEditorText("Scene content", " ");
+    insertEditorText("Scene content", "\n");
+    insertEditorText("Scene content", " ");
     fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {

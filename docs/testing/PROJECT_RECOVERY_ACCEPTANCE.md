@@ -96,20 +96,32 @@ Status: command-verified for the current Codex scope, not visually accepted. Pla
 
 ### Slice D2: Editor Foundation
 
-Status: opened from mature-editor research; CodeMirror 6 is the preferred implementation direction unless a concrete spike blocker is recorded. Not implemented yet.
+Status: command-verified on 2026-06-24 with CodeMirror 6 adopted for the current Write scene and Codex Canon editor surfaces. Real Chinese IME behavior still needs user/manual validation on an actual input method; browser screenshots are not a default requirement for this slice.
 
-- Pending evidence: CodeMirror 6 spike creates a reusable editor surface for Write scene content and proves plain-text save output.
-- Pending evidence: if CodeMirror 6 is rejected, the blocker and replacement choice among ProseMirror/Tiptap/Lexical must be recorded in `docs/tasks/PROJECT_RECOVERY.md`.
-- Pending evidence: tests cover scene and Codex canon-description persistence, including blank lines, line-leading spaces, paste cleanup, punctuation input, and duplicate-prevention for ordinary typed text.
-- Pending evidence: tests cover decoration-based Codex mention marks that do not enter saved text and do not duplicate the underlying Codex name/alias.
-- Pending evidence: tests cover anchored Canon preview popovers that reposition with editor scroll/resize and do not rely on viewport-fixed positioning.
-- Pending evidence: tests cover undo/redo and selection restoration for the chosen editor approach.
-- Pending evidence: real Chinese IME composition is visually/user validated or explicitly recorded as not yet visually accepted.
+Evidence:
 
-- Editor content remains Markdown/YAML-compatible pure text where the product contract requires it.
-- Codex decorations and preview UI never become persisted manuscript or Canon description content.
-- React must not rerender decorated Codex mark nodes inside a contentEditable editor surface.
-- Browser/visual validation remains user-owned unless explicitly requested.
+- Reusable `EditorSurface` added under `apps/web/src/features/editor/` with CodeMirror document state, selection state, transactions, history, keymaps, paste cleanup, read-only state, placeholder support, and state reporting for line/column, selection, character count, word count, and line count.
+- Write scene content and Codex Canon description now use `EditorSurface`; the old shared `contentEditable` DOM extraction/caret helper was removed.
+- Codex names/aliases render through CodeMirror decorations over pure text. Duplicate matches receive independent decorations; preview UI is editor-anchored and does not enter saved content.
+- Saved scene content and Codex Canon descriptions remain plain text, preserving blank lines and line-leading spaces.
+- CodeMirror dependencies added: `@codemirror/state`, `@codemirror/view`, `@codemirror/commands`, and `@codemirror/lang-markdown`, all MIT. Unused `@milkdown/kit` and `@milkdown/react` runtime dependencies were removed from the web package.
+- ADR-0010 records the editor runtime decision and supersedes the old Milkdown runtime choice while preserving the Markdown/YAML persistence contract.
+
+Commands:
+
+- `npm.cmd run build -w @novel-studio/contracts` passed.
+- `npm.cmd run typecheck -w @novel-studio/web` passed.
+- `npm.cmd run test -w @novel-studio/web -- EditorSurface.test.tsx AppShell.test.tsx` passed: 2 files, 41 tests.
+
+Acceptance mapping:
+
+- CodeMirror adopted: covered by implementation and ADR-0010.
+- No React-rendered contentEditable marks: covered by source search and replacement of Write/Codex editors.
+- IME safety: architecture risk addressed by removing React-controlled editable DOM replacement; real Chinese IME manual validation remains outstanding.
+- Duplicate-input and duplicate-decoration behavior: covered by `EditorSurface.test.tsx` and AppShell editor integration tests.
+- Pure text save, blank lines, and leading spaces: covered by AppShell save-payload tests.
+- Decorations/previews do not persist: covered by editor surface tests and save-payload tests.
+- Undo/redo, paste cleanup, selection restoration/state reporting: covered by focused editor tests and typechecked integration.
 
 ### Slice E: Settings and AI Safety
 

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   ActManifest,
   BookManifest,
@@ -17,14 +17,7 @@ import type {
 import { api } from "../../api";
 import { uiText } from "../../app/uiText";
 import type { SaveStatus, SceneDraft } from "../../app/useProjectSession";
-import {
-  currentEditorCaretOffset,
-  extractEditorText,
-  previewPositionWithin,
-  replaceEditorSelectionText,
-  restoreEditorCaret,
-} from "../codex/editableText";
-import { findInlineCodexMentions, type InlineCodexMention } from "../codex/inlineMentions";
+import { EditorSurface, type EditorSurfaceStatus } from "../editor";
 
 export interface WriteWorkspaceProps {
   draft: SceneDraft | null;
@@ -99,63 +92,12 @@ function toggleSetValue(values: Set<string>, value: string) {
 type ProductStructureType = "volume" | "chapter" | "act" | "scene";
 type RenamingStructure = { type: "volume" | "chapter" | "act"; id: string; title: string };
 type SelectedStructure = { type: ProductStructureType; id: string };
-type ActiveSceneCodexPreview = { entry: CodexEntryDocument; left: number; markKey: string; top: number };
-
 const structureCreateLabels: Record<ProductStructureType, string> = {
   volume: uiText.hierarchy.volume,
   chapter: uiText.hierarchy.chapter,
   act: uiText.hierarchy.act,
   scene: uiText.hierarchy.scene,
 };
-
-function renderSceneCodexMarks(
-  content: string,
-  mentions: InlineCodexMention[],
-  entriesById: Map<string, CodexEntryDocument>,
-  activePreview: ActiveSceneCodexPreview | null,
-  onToggle: (markKey: string, entry: CodexEntryDocument, element: HTMLElement) => void,
-): ReactNode {
-  const validMentions = [...mentions]
-    .filter((mention) => (
-      mention.start >= 0 &&
-      mention.end <= content.length &&
-      mention.start < mention.end &&
-      content.slice(mention.start, mention.end) === mention.matchedText
-    ))
-    .sort((left, right) => left.start - right.start || right.end - left.end);
-  if (!validMentions.length) return content;
-
-  const nodes: ReactNode[] = [];
-  let cursor = 0;
-  for (const mention of validMentions) {
-    if (mention.start < cursor) continue;
-    if (mention.start > cursor) nodes.push(content.slice(cursor, mention.start));
-    const entry = entriesById.get(mention.entryId);
-    const matched = content.slice(mention.start, mention.end);
-    const markKey = `${mention.entryId}:${mention.start}:${mention.end}`;
-    nodes.push(entry ? (
-      <span className="scene-codex-mark-wrap" contentEditable={false} data-mention-text={matched} key={markKey}>
-        <button
-          aria-expanded={activePreview?.markKey === markKey}
-          className={`codex-mention-mark${activePreview?.markKey === markKey ? " is-open" : ""}`}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onToggle(markKey, entry, event.currentTarget);
-          }}
-          type="button"
-        >
-          {matched}
-        </button>
-      </span>
-    ) : (
-      <mark className="codex-mention-mark" key={markKey}>{matched}</mark>
-    ));
-    cursor = mention.end;
-  }
-  if (cursor < content.length) nodes.push(content.slice(cursor));
-  return nodes;
-}
 
 export function WriteWorkspace({
   draft,
@@ -198,12 +140,9 @@ export function WriteWorkspace({
   const [collapsedActs, setCollapsedActs] = useState<Set<string>>(() => new Set());
   const [collapsedChapters, setCollapsedChapters] = useState<Set<string>>(() => new Set());
   const [codexEntries, setCodexEntries] = useState<CodexEntryDocument[]>([]);
-  const [activeSceneCodexPreview, setActiveSceneCodexPreview] = useState<ActiveSceneCodexPreview | null>(null);
+  const [sceneEditorStatus, setSceneEditorStatus] = useState<EditorSurfaceStatus | null>(null);
   const [isBriefVisible, setIsBriefVisible] = useState(true);
   const [isCodexLoading, setIsCodexLoading] = useState(false);
-  const editorRef = useRef<HTMLDivElement | null>(null);
-  const editorShellRef = useRef<HTMLDivElement | null>(null);
-  const pendingCaretOffsetRef = useRef<number | null>(null);
   const actsByBook = new Map<string, ActManifest[]>();
   for (const act of sortedByOrder(series.acts)) {
     actsByBook.set(act.bookId, [...(actsByBook.get(act.bookId) ?? []), act]);
@@ -275,6 +214,11 @@ export function WriteWorkspace({
     ? series.chapters.find((chapter) => chapter.id === selectedStructure.id)
     : null;
   const selectedStructureScene = structureScene;
+  const sceneEditorCharacterCount = sceneEditorStatus?.characterCount ?? draft?.characterCount ?? 0;
+  const sceneEditorWordCount = sceneEditorStatus?.wordCount ?? (draft ? Math.max(1, Math.round(draft.characterCount / 5)) : 0);
+  const sceneSelectionCount = sceneEditorStatus
+    ? Math.abs(sceneEditorStatus.selectionTo - sceneEditorStatus.selectionFrom)
+    : 0;
   const deleteTarget = selectedVolume
     ? { type: "volume" as const, id: selectedVolume.id, title: selectedVolume.title, label: uiText.hierarchy.volume }
     : selectedProductChapter
@@ -288,13 +232,11 @@ export function WriteWorkspace({
   useEffect(() => {
     if (!selectedScene) {
       setCodexEntries([]);
-      setActiveSceneCodexPreview(null);
       setIsCodexLoading(false);
       return;
     }
 
     let isActive = true;
-    setActiveSceneCodexPreview(null);
     setIsCodexLoading(true);
     api.codex.listEntries(series.manifest.id)
       .then((entries) => {
@@ -313,55 +255,6 @@ export function WriteWorkspace({
       isActive = false;
     };
   }, [series.manifest.id, selectedScene?.metadata.id]);
-
-  useLayoutEffect(() => {
-    if (pendingCaretOffsetRef.current === null || !editorRef.current) return;
-    restoreEditorCaret(editorRef.current, pendingCaretOffsetRef.current);
-    pendingCaretOffsetRef.current = null;
-  }, [draft?.content]);
-
-  useEffect(() => {
-    if (!activeSceneCodexPreview) return;
-
-    function closeOnOutsidePointer(event: PointerEvent) {
-      const target = event.target as Node | null;
-      if (!target || editorShellRef.current?.contains(target)) return;
-      setActiveSceneCodexPreview(null);
-    }
-
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [activeSceneCodexPreview]);
-
-  const codexEntryById = useMemo(() => {
-    return new Map(codexEntries.map((entry) => [entry.metadata.id, entry]));
-  }, [codexEntries]);
-  const inlineCodexMentions = useMemo(
-    () => findInlineCodexMentions(draft?.content ?? "", codexEntries),
-    [codexEntries, draft?.content],
-  );
-
-  function toggleSceneCodexPreview(markKey: string, entry: CodexEntryDocument, element: HTMLElement) {
-    if (!editorShellRef.current) return;
-    const position = previewPositionWithin(editorShellRef.current, element);
-    setActiveSceneCodexPreview((current) => (
-      current?.markKey === markKey ? null : { entry, markKey, ...position }
-    ));
-  }
-
-  function updateContentFromEditor(element: HTMLElement) {
-    pendingCaretOffsetRef.current = currentEditorCaretOffset(element);
-    setActiveSceneCodexPreview(null);
-    onUpdateContent(extractEditorText(element));
-  }
-
-  function insertContentText(element: HTMLElement, insertedText: string) {
-    if (!draft) return;
-    const next = replaceEditorSelectionText(element, draft.content, insertedText);
-    pendingCaretOffsetRef.current = next.caretOffset;
-    setActiveSceneCodexPreview(null);
-    onUpdateContent(next.text);
-  }
 
   function canCreateStructure(type: ProductStructureType) {
     if (type === "volume") return true;
@@ -700,7 +593,9 @@ export function WriteWorkspace({
             <div className="top-actions">
               <span className={saveClass(saveStatus)}>{saveText(saveStatus)}</span>
               <span className="pill">{selectedScene?.metadata.pov ? `${selectedScene.metadata.pov} POV` : "No POV"}</span>
-              <span className="pill">{draft ? `${draft.characterCount} chars` : "No scene"}</span>
+              <span className="pill">{draft ? `${sceneEditorCharacterCount} chars / ${sceneEditorWordCount} words` : "No scene"}</span>
+              {sceneEditorStatus ? <span className="pill">{`Ln ${sceneEditorStatus.line}, Col ${sceneEditorStatus.column}`}</span> : null}
+              {sceneSelectionCount > 0 ? <span className="pill">{`${sceneSelectionCount} selected`}</span> : null}
               <button
                 aria-pressed={isFocusMode}
                 className={`btn write-focus-action${isFocusMode ? " primary" : ""}`}
@@ -726,63 +621,17 @@ export function WriteWorkspace({
                   onChange={(event) => onUpdateTitle(event.target.value)}
                   value={draft.title}
                 />
-                <div className="inline-mention-shell scene-copy-editor-shell" ref={editorShellRef}>
-                  <div
-                    aria-label="Scene content"
-                    className="editor-copy editor-copy-input scene-copy-editor"
-                    contentEditable
-                    data-placeholder="Continue the scene..."
-                    onClick={(event) => {
-                      const target = event.target as HTMLElement;
-                      if (!target.closest(".codex-mention-mark") && !target.closest(".inline-mention-popover")) {
-                        setActiveSceneCodexPreview(null);
-                      }
-                    }}
-                    onInput={(event) => updateContentFromEditor(event.currentTarget)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        insertContentText(event.currentTarget, "\n");
-                        return;
-                      }
-                      if (event.key === " " && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing) {
-                        event.preventDefault();
-                        insertContentText(event.currentTarget, " ");
-                        return;
-                      }
-                      if (event.key === "Escape") setActiveSceneCodexPreview(null);
-                    }}
-                    ref={editorRef}
-                    role="textbox"
-                    suppressContentEditableWarning
-                    tabIndex={0}
-                  >
-                    {draft.content
-                      ? renderSceneCodexMarks(
-                          draft.content,
-                          inlineCodexMentions,
-                          codexEntryById,
-                          activeSceneCodexPreview,
-                          toggleSceneCodexPreview,
-                        )
-                      : null}
-                  </div>
-                  {activeSceneCodexPreview ? (
-                    <aside
-                      className="codex-preview-popover inline-mention-popover"
-                      aria-label={`${activeSceneCodexPreview.entry.metadata.name} canon description`}
-                      data-codex-preview="true"
-                      style={{ left: activeSceneCodexPreview.left, top: activeSceneCodexPreview.top }}
-                    >
-                      <div className="codex-preview-head">
-                        <div>
-                          <div className="row-meta">Codex</div>
-                          <strong>{activeSceneCodexPreview.entry.metadata.name}</strong>
-                        </div>
-                      </div>
-                      <p>{activeSceneCodexPreview.entry.description || "No description"}</p>
-                    </aside>
-                  ) : null}
+                <div className="inline-mention-shell scene-copy-editor-shell">
+                  <EditorSurface
+                    ariaLabel="Scene content"
+                    className="scene-copy-editor"
+                    codexEntries={codexEntries}
+                    emptyPreviewText="No description"
+                    onChange={onUpdateContent}
+                    onStateChange={setSceneEditorStatus}
+                    placeholder="Continue the scene..."
+                    value={draft.content}
+                  />
                 </div>
               </>
             ) : (
@@ -795,6 +644,7 @@ export function WriteWorkspace({
 
           <footer className="save-bar">
             <span>{saveText(saveStatus)}</span>
+            {sceneEditorStatus ? <span className="save-bar-meta">{`Line ${sceneEditorStatus.line} of ${sceneEditorStatus.lineCount}`}</span> : null}
             <button className="btn primary" disabled={!isDirty || saveStatus === "saving"} onClick={() => void onSaveDraft()} type="button">
               Save now
             </button>

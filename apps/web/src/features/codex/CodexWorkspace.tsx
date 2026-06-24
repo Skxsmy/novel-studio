@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   type CodexAiContextPolicy,
   type CodexCategoryDocument,
@@ -25,14 +25,7 @@ import {
   type CategoryFilter,
   type CodexTab,
 } from "./codexViewModel";
-import {
-  currentEditorCaretOffset,
-  extractEditorText,
-  previewPositionWithin,
-  replaceEditorSelectionText,
-  restoreEditorCaret,
-} from "./editableText";
-import { findInlineCodexMentions, type InlineCodexMention } from "./inlineMentions";
+import { EditorSurface, type EditorSurfaceStatus } from "../editor";
 
 interface CodexWorkspaceProps {
   onOpenScene?: (sceneId: string) => void;
@@ -42,8 +35,6 @@ interface CodexWorkspaceProps {
 type CodexSaveStatus = "idle" | "dirty" | "saving" | "saved" | "conflict" | "failed";
 type MentionSource = "manuscript" | "codex";
 type CodexRelationDirection = "outgoing" | "incoming" | "undirected";
-type ActiveInlineCodexPreview = { entry: CodexEntryDocument; left: number; markKey: string; top: number };
-
 interface DetailDraftRow {
   key: string;
   value: string;
@@ -246,47 +237,6 @@ function renderHighlightedSnippet(snippet: HighlightSnippet, onOpenPreview?: () 
   );
 }
 
-function renderEditableCodexMarks(
-  content: string,
-  mentions: InlineCodexMention[],
-  entriesById: Map<string, CodexEntryDocument>,
-  activePreview: ActiveInlineCodexPreview | null,
-  onToggle: (markKey: string, entry: CodexEntryDocument, element: HTMLElement) => void,
-): ReactNode {
-  if (!mentions.length) return content;
-
-  const nodes: ReactNode[] = [];
-  let cursor = 0;
-  for (const mention of mentions) {
-    if (mention.start < cursor) continue;
-    if (mention.start > cursor) nodes.push(content.slice(cursor, mention.start));
-    const entry = entriesById.get(mention.entryId);
-    const matched = content.slice(mention.start, mention.end);
-    const markKey = `${mention.entryId}:${mention.start}:${mention.end}`;
-    nodes.push(entry ? (
-      <span className="scene-codex-mark-wrap" contentEditable={false} data-mention-text={matched} key={markKey}>
-        <button
-          aria-expanded={activePreview?.markKey === markKey}
-          className={`codex-mention-mark${activePreview?.markKey === markKey ? " is-open" : ""}`}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onToggle(markKey, entry, event.currentTarget);
-          }}
-          type="button"
-        >
-          {matched}
-        </button>
-      </span>
-    ) : (
-      <mark className="codex-mention-mark" key={markKey}>{matched}</mark>
-    ));
-    cursor = mention.end;
-  }
-  if (cursor < content.length) nodes.push(content.slice(cursor));
-  return nodes;
-}
-
 function findMatchesInText(entry: CodexEntryDocument, content: string) {
   const { mention } = entry.metadata;
   const blockers = mention.excludedTerms.flatMap((term) =>
@@ -366,17 +316,14 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [previewEntry, setPreviewEntry] = useState<CodexEntryDocument | null>(null);
-  const [descriptionPreview, setDescriptionPreview] = useState<ActiveInlineCodexPreview | null>(null);
   const [query, setQuery] = useState("");
   const [renamingCategory, setRenamingCategory] = useState<{ id: string; name: string; baseRevision: string } | null>(null);
   const [relationDeleteId, setRelationDeleteId] = useState<string | null>(null);
   const [relationDraft, setRelationDraft] = useState<RelationDraft>(() => relationDraftFor(null, []));
   const [saveStatus, setSaveStatus] = useState<CodexSaveStatus>("idle");
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [descriptionEditorStatus, setDescriptionEditorStatus] = useState<EditorSurfaceStatus | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const descriptionEditorRef = useRef<HTMLDivElement | null>(null);
-  const descriptionEditorShellRef = useRef<HTMLDivElement | null>(null);
-  const pendingDescriptionCaretOffsetRef = useRef<number | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -389,7 +336,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     setEntryMentions([]);
     setEntryRelations([]);
     setPreviewEntry(null);
-    setDescriptionPreview(null);
     setRelationDeleteId(null);
     setRelationDraft(relationDraftFor(null, []));
     setIsDetailsExpanded(false);
@@ -442,7 +388,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
 
   const selectedEntry = selectedEntryId ? entries.find((entry) => entry.metadata.id === selectedEntryId) ?? null : null;
   const entryNameById = useMemo(() => new Map(entries.map((entry) => [entry.metadata.id, entry.metadata.name])), [entries]);
-  const entryById = useMemo(() => new Map(entries.map((entry) => [entry.metadata.id, entry])), [entries]);
   const sceneById = useMemo(() => new Map(series.scenes.map((scene) => [scene.metadata.id, scene])), [series.scenes]);
   const codexContentMentions = useMemo(
     () => (selectedEntry ? findCodexContentMentions(selectedEntry, entries) : []),
@@ -451,10 +396,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const descriptionMentionEntries = useMemo(
     () => entries.filter((entry) => entry.metadata.id !== selectedEntryId && !entry.metadata.archivedAt),
     [entries, selectedEntryId],
-  );
-  const descriptionInlineMentions = useMemo(
-    () => (draft ? findInlineCodexMentions(draft.description, descriptionMentionEntries) : []),
-    [descriptionMentionEntries, draft?.description],
   );
   const relationTargetEntries = useMemo(
     () => entries.filter((entry) => entry.metadata.id !== selectedEntryId && !entry.metadata.archivedAt),
@@ -468,7 +409,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setEntryMentions([]);
       setEntryRelations([]);
       setPreviewEntry(null);
-      setDescriptionPreview(null);
       setRelationDeleteId(null);
       setRelationDraft(relationDraftFor(null, entries));
       setIsConnectionsLoading(false);
@@ -499,25 +439,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       isActive = false;
     };
   }, [series.manifest.id, selectedEntryId]);
-
-  useLayoutEffect(() => {
-    if (pendingDescriptionCaretOffsetRef.current === null || !descriptionEditorRef.current) return;
-    restoreEditorCaret(descriptionEditorRef.current, pendingDescriptionCaretOffsetRef.current);
-    pendingDescriptionCaretOffsetRef.current = null;
-  }, [draft?.description]);
-
-  useEffect(() => {
-    if (!descriptionPreview) return;
-
-    function closeOnOutsidePointer(event: PointerEvent) {
-      const target = event.target as Node | null;
-      if (!target || descriptionEditorShellRef.current?.contains(target)) return;
-      setDescriptionPreview(null);
-    }
-
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [descriptionPreview]);
 
   useEffect(() => {
     setRelationDraft((current) => {
@@ -584,7 +505,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setEntryMentions([]);
       setEntryRelations([]);
       setPreviewEntry(null);
-      setDescriptionPreview(null);
       setRelationDeleteId(null);
       setRelationDraft(relationDraftFor(null, entries));
       setIsDetailsExpanded(false);
@@ -604,7 +524,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setEntryMentions([]);
       setEntryRelations([]);
       setPreviewEntry(null);
-      setDescriptionPreview(null);
       setIsDetailsExpanded(false);
       setIsDeleteEntryOpen(false);
       setSaveStatus("idle");
@@ -618,7 +537,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     setEntryMentions([]);
     setEntryRelations([]);
     setPreviewEntry(null);
-    setDescriptionPreview(null);
     setRelationDeleteId(null);
     setRelationDraft(relationDraftFor(entry.metadata.id, entries));
     setIsDetailsExpanded(false);
@@ -645,7 +563,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setEntryMentions([]);
       setEntryRelations([]);
       setPreviewEntry(null);
-      setDescriptionPreview(null);
       setRelationDeleteId(null);
       setRelationDraft(relationDraftFor(entry.metadata.id, entries));
       setIsDetailsExpanded(false);
@@ -881,28 +798,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     markDirty();
   }
 
-  function toggleDescriptionPreview(markKey: string, entry: CodexEntryDocument, element: HTMLElement) {
-    if (!descriptionEditorShellRef.current) return;
-    const position = previewPositionWithin(descriptionEditorShellRef.current, element);
-    setDescriptionPreview((current) => (
-      current?.markKey === markKey ? null : { entry, markKey, ...position }
-    ));
-  }
-
-  function updateDescriptionFromEditor(element: HTMLElement) {
-    pendingDescriptionCaretOffsetRef.current = currentEditorCaretOffset(element);
-    setDescriptionPreview(null);
-    updateDraft((current) => ({ ...current, description: extractEditorText(element) }));
-  }
-
-  function insertDescriptionText(element: HTMLElement, insertedText: string) {
-    if (!draft) return;
-    const next = replaceEditorSelectionText(element, draft.description, insertedText);
-    pendingDescriptionCaretOffsetRef.current = next.caretOffset;
-    setDescriptionPreview(null);
-    updateDraft((current) => ({ ...current, description: next.text }));
-  }
-
   function addDetailRow() {
     setIsDetailsExpanded(true);
     updateDraft((current) => ({
@@ -912,6 +807,9 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   }
 
   const fieldsDisabled = Boolean(isSaving || selectedEntry?.metadata.archivedAt);
+  const descriptionSelectionCount = descriptionEditorStatus
+    ? Math.abs(descriptionEditorStatus.selectionTo - descriptionEditorStatus.selectionFrom)
+    : 0;
   const saveStatusText = saveStatus === "dirty"
     ? codexText.saveStatus.dirty
     : saveStatus === "saving"
@@ -1251,63 +1149,24 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                 </label>
                 <div className="field wide">
                   <span>{codexText.detail.canonDescription}</span>
-                  <div className="inline-mention-shell canon-description-shell" ref={descriptionEditorShellRef}>
-                    <div
-                      aria-label={codexText.aria.canonDescription}
-                      aria-disabled={fieldsDisabled}
-                      className={`textarea inline-mention-editor${fieldsDisabled ? " is-disabled" : ""}`}
-                      contentEditable={!fieldsDisabled}
-                      data-placeholder={codexText.empty.noDescription}
-                      onClick={(event) => {
-                        const target = event.target as HTMLElement;
-                        if (!target.closest(".codex-mention-mark") && !target.closest(".inline-mention-popover")) {
-                          setDescriptionPreview(null);
-                        }
-                      }}
-                      onInput={(event) => updateDescriptionFromEditor(event.currentTarget)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          insertDescriptionText(event.currentTarget, "\n");
-                          return;
-                        }
-                        if (event.key === " " && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing) {
-                          event.preventDefault();
-                          insertDescriptionText(event.currentTarget, " ");
-                          return;
-                        }
-                        if (event.key === "Escape") setDescriptionPreview(null);
-                      }}
-                      ref={descriptionEditorRef}
-                      role="textbox"
-                      suppressContentEditableWarning
-                      tabIndex={fieldsDisabled ? -1 : 0}
-                    >
-                      {draft.description
-                        ? renderEditableCodexMarks(
-                            draft.description,
-                            descriptionInlineMentions,
-                            entryById,
-                            descriptionPreview,
-                            toggleDescriptionPreview,
-                          )
-                        : null}
-                    </div>
-                    {descriptionPreview ? (
-                      <aside
-                        className="codex-preview-popover inline-mention-popover"
-                        aria-label={`${descriptionPreview.entry.metadata.name} canon description`}
-                        data-codex-preview="true"
-                        style={{ left: descriptionPreview.left, top: descriptionPreview.top }}
-                      >
-                        <div className="codex-preview-head">
-                          <div>
-                            <div className="row-meta">Codex</div>
-                            <strong>{descriptionPreview.entry.metadata.name}</strong>
-                          </div>
-                        </div>
-                        <p>{descriptionPreview.entry.description || codexText.empty.noDescription}</p>
-                      </aside>
+                  <div className="inline-mention-shell canon-description-shell">
+                    <EditorSurface
+                      ariaLabel={codexText.aria.canonDescription}
+                      className={`canon-description-editor${fieldsDisabled ? " is-disabled" : ""}`}
+                      codexEntries={descriptionMentionEntries}
+                      emptyPreviewText={codexText.empty.noDescription}
+                      onChange={(value) => updateDraft((current) => ({ ...current, description: value }))}
+                      onStateChange={setDescriptionEditorStatus}
+                      placeholder={codexText.empty.noDescription}
+                      readOnly={fieldsDisabled}
+                      value={draft.description}
+                    />
+                    {descriptionEditorStatus ? (
+                      <div className="editor-status-row">
+                        <span>{`${descriptionEditorStatus.characterCount} chars / ${descriptionEditorStatus.lineCount} lines`}</span>
+                        <span>{`Ln ${descriptionEditorStatus.line}, Col ${descriptionEditorStatus.column}`}</span>
+                        {descriptionSelectionCount > 0 ? <span>{`${descriptionSelectionCount} selected`}</span> : null}
+                      </div>
                     ) : null}
                   </div>
                 </div>
