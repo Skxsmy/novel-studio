@@ -106,11 +106,13 @@ export function restoreEditorCaret(root: HTMLElement, offset: number) {
   selection?.addRange(range);
 }
 
-export function previewPositionForElement(element: HTMLElement) {
+export function previewPositionWithin(container: HTMLElement, element: HTMLElement) {
+  const containerRect = container.getBoundingClientRect();
   const rect = element.getBoundingClientRect();
   const maxWidth = Math.min(520, Math.max(280, window.innerWidth - 32));
+  const maxLeft = Math.max(0, container.clientWidth - maxWidth);
   return {
-    left: Math.max(16, Math.min(rect.left, window.innerWidth - maxWidth - 16)),
-    top: Math.max(16, Math.min(rect.bottom + 8, window.innerHeight - 180)),
+    left: Math.max(0, Math.min(rect.left - containerRect.left, maxLeft)),
+    top: Math.max(0, rect.bottom - containerRect.top + 8),
   };
 }

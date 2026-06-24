@@ -66,16 +66,18 @@ Status: command-verified for the current Codex scope, not visually accepted. Pla
 
 - Current evidence: `AppShell.test.tsx` covers Write loading real active Codex entries for inline matching. It also covers realtime scene-body alias matching, absence of the old duplicate preview block, removal of the redundant `Codex in scene` panel, Scene Brief hide/restore through an icon-only control, and click-again toggling of the Canon description preview.
 - Current evidence: `AppShell.test.tsx` covers Enter in the Write editor preserving consecutive blank lines in the saved scene content.
+- Current evidence: `AppShell.test.tsx` covers Space in the Write editor preserving line-leading spaces in the saved scene content.
 - Current evidence: `AppShell.test.tsx` covers custom Codex category creation and saving an entry category change through `PUT /codex/entries/:entryId`.
 - Current evidence: `AppShell.test.tsx` covers compact Codex category creation, double-click category rename, duplicate category-name rejection, deleting a custom category without deleting its entries, and deleting a Codex entry from the detail lifecycle area.
 - Current evidence: `AppShell.test.tsx` covers Codex Relations loading real relation-list data for the selected entry, rendering relation type/direction/description/evidence, removing an active relation through the relation archive API, and creating a new relation through `POST /codex/relations`.
 - Current evidence: `AppShell.test.tsx` covers Codex Mentions with manuscript hits from `GET /codex/entries/:entryId/mentions` and other-Codex-entry hits derived from loaded entry canon/research/detail fields. It also covers clicked dashed-underlined mention text opening a Canon description preview instead of jumping to another Codex entry, and covers realtime alias matching inside Codex canon description editing with click-again preview close.
 - Current evidence: `AppShell.test.tsx` covers Enter in Codex canon description preserving consecutive blank lines in the saved entry description.
+- Current evidence: `AppShell.test.tsx` covers Space in Codex canon description preserving line-leading spaces in the saved entry description.
 - Current evidence: the Codex detail header mention count counts manuscript/scene mentions only; Codex-entry mentions are counted inside the Mentions subtab.
 - Current evidence: `AppShell.test.tsx` covers Recognition being removed as a tab, Tracking being present, and Tracking changes saving mention matching and AI context policy through `PUT /codex/entries/:entryId`.
 - Current evidence: `packages/storage/test/repository.test.ts` covers moving a Codex entry file from the built-in Character directory to a custom category directory when `categoryId` changes, and verifies the old file is deleted.
 - Current evidence: `packages/storage/test/repository.test.ts` covers duplicate custom category rejection, deleting a custom category by moving entries to `codex/uncategorized`, and deleting Codex entry plus research files.
-- Current evidence: `npx vitest run apps/web/src/app/AppShell.test.tsx` passed with 35 tests.
+- Current evidence: `npx vitest run apps/web/src/app/AppShell.test.tsx` passed with 37 tests.
 - Current evidence: `npx vitest run packages/storage/test/repository.test.ts` passed with 42 tests.
 - Current evidence: `npm.cmd run typecheck -w @novel-studio/web` passed.
 - Current evidence: `npm.cmd run typecheck -w @novel-studio/storage` passed.

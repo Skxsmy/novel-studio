@@ -28,7 +28,7 @@ import {
 import {
   currentEditorCaretOffset,
   extractEditorText,
-  previewPositionForElement,
+  previewPositionWithin,
   replaceEditorSelectionText,
   restoreEditorCaret,
 } from "./editableText";
@@ -277,22 +277,6 @@ function renderEditableCodexMarks(
         >
           {matched}
         </button>
-        {activePreview?.markKey === markKey ? (
-          <aside
-            className="codex-preview-popover scene-codex-preview"
-            aria-label={`${entry.metadata.name} canon description`}
-            data-codex-preview="true"
-            style={{ left: activePreview.left, top: activePreview.top }}
-          >
-            <div className="codex-preview-head">
-              <div>
-                <div className="row-meta">Codex</div>
-                <strong>{entry.metadata.name}</strong>
-              </div>
-            </div>
-            <p>{entry.description || codexText.empty.noDescription}</p>
-          </aside>
-        ) : null}
       </span>
     ) : (
       <mark className="codex-mention-mark" key={markKey}>{matched}</mark>
@@ -391,6 +375,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const descriptionEditorRef = useRef<HTMLDivElement | null>(null);
+  const descriptionEditorShellRef = useRef<HTMLDivElement | null>(null);
   const pendingDescriptionCaretOffsetRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -526,7 +511,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
 
     function closeOnOutsidePointer(event: PointerEvent) {
       const target = event.target as Node | null;
-      if (!target || descriptionEditorRef.current?.contains(target)) return;
+      if (!target || descriptionEditorShellRef.current?.contains(target)) return;
       setDescriptionPreview(null);
     }
 
@@ -897,7 +882,8 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   }
 
   function toggleDescriptionPreview(markKey: string, entry: CodexEntryDocument, element: HTMLElement) {
-    const position = previewPositionForElement(element);
+    if (!descriptionEditorShellRef.current) return;
+    const position = previewPositionWithin(descriptionEditorShellRef.current, element);
     setDescriptionPreview((current) => (
       current?.markKey === markKey ? null : { entry, markKey, ...position }
     ));
@@ -1265,41 +1251,64 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                 </label>
                 <div className="field wide">
                   <span>{codexText.detail.canonDescription}</span>
-                  <div
-                    aria-label={codexText.aria.canonDescription}
-                    aria-disabled={fieldsDisabled}
-                    className={`textarea inline-mention-editor${fieldsDisabled ? " is-disabled" : ""}`}
-                    contentEditable={!fieldsDisabled}
-                    data-placeholder={codexText.empty.noDescription}
-                    onClick={(event) => {
-                      const target = event.target as HTMLElement;
-                      if (!target.closest(".codex-mention-mark") && !target.closest(".scene-codex-preview")) {
-                        setDescriptionPreview(null);
-                      }
-                    }}
-                    onInput={(event) => updateDescriptionFromEditor(event.currentTarget)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        insertDescriptionText(event.currentTarget, "\n");
-                        return;
-                      }
-                      if (event.key === "Escape") setDescriptionPreview(null);
-                    }}
-                    ref={descriptionEditorRef}
-                    role="textbox"
-                    suppressContentEditableWarning
-                    tabIndex={fieldsDisabled ? -1 : 0}
-                  >
-                    {draft.description
-                      ? renderEditableCodexMarks(
-                          draft.description,
-                          descriptionInlineMentions,
-                          entryById,
-                          descriptionPreview,
-                          toggleDescriptionPreview,
-                        )
-                      : null}
+                  <div className="inline-mention-shell canon-description-shell" ref={descriptionEditorShellRef}>
+                    <div
+                      aria-label={codexText.aria.canonDescription}
+                      aria-disabled={fieldsDisabled}
+                      className={`textarea inline-mention-editor${fieldsDisabled ? " is-disabled" : ""}`}
+                      contentEditable={!fieldsDisabled}
+                      data-placeholder={codexText.empty.noDescription}
+                      onClick={(event) => {
+                        const target = event.target as HTMLElement;
+                        if (!target.closest(".codex-mention-mark") && !target.closest(".inline-mention-popover")) {
+                          setDescriptionPreview(null);
+                        }
+                      }}
+                      onInput={(event) => updateDescriptionFromEditor(event.currentTarget)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          insertDescriptionText(event.currentTarget, "\n");
+                          return;
+                        }
+                        if (event.key === " " && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing) {
+                          event.preventDefault();
+                          insertDescriptionText(event.currentTarget, " ");
+                          return;
+                        }
+                        if (event.key === "Escape") setDescriptionPreview(null);
+                      }}
+                      ref={descriptionEditorRef}
+                      role="textbox"
+                      suppressContentEditableWarning
+                      tabIndex={fieldsDisabled ? -1 : 0}
+                    >
+                      {draft.description
+                        ? renderEditableCodexMarks(
+                            draft.description,
+                            descriptionInlineMentions,
+                            entryById,
+                            descriptionPreview,
+                            toggleDescriptionPreview,
+                          )
+                        : null}
+                    </div>
+                    {descriptionPreview ? (
+                      <aside
+                        className="codex-preview-popover inline-mention-popover"
+                        aria-label={`${descriptionPreview.entry.metadata.name} canon description`}
+                        data-codex-preview="true"
+                        style={{ left: descriptionPreview.left, top: descriptionPreview.top }}
+                      >
+                        <div className="codex-preview-head">
+                          <div>
+                            <div className="row-meta">Codex</div>
+                            <strong>{descriptionPreview.entry.metadata.name}</strong>
+                          </div>
+                        </div>
+                        <p>{descriptionPreview.entry.description || codexText.empty.noDescription}</p>
+                      </aside>
+                    ) : null}
                   </div>
                 </div>
               </div>

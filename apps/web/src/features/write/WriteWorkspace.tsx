@@ -20,7 +20,7 @@ import type { SaveStatus, SceneDraft } from "../../app/useProjectSession";
 import {
   currentEditorCaretOffset,
   extractEditorText,
-  previewPositionForElement,
+  previewPositionWithin,
   replaceEditorSelectionText,
   restoreEditorCaret,
 } from "../codex/editableText";
@@ -147,22 +147,6 @@ function renderSceneCodexMarks(
         >
           {matched}
         </button>
-        {activePreview?.markKey === markKey ? (
-          <aside
-            className="codex-preview-popover scene-codex-preview"
-            aria-label={`${entry.metadata.name} canon description`}
-            data-codex-preview="true"
-            style={{ left: activePreview.left, top: activePreview.top }}
-          >
-            <div className="codex-preview-head">
-              <div>
-                <div className="row-meta">Codex</div>
-                <strong>{entry.metadata.name}</strong>
-              </div>
-            </div>
-            <p>{entry.description || "No description"}</p>
-          </aside>
-        ) : null}
       </span>
     ) : (
       <mark className="codex-mention-mark" key={markKey}>{matched}</mark>
@@ -218,6 +202,7 @@ export function WriteWorkspace({
   const [isBriefVisible, setIsBriefVisible] = useState(true);
   const [isCodexLoading, setIsCodexLoading] = useState(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const editorShellRef = useRef<HTMLDivElement | null>(null);
   const pendingCaretOffsetRef = useRef<number | null>(null);
   const actsByBook = new Map<string, ActManifest[]>();
   for (const act of sortedByOrder(series.acts)) {
@@ -340,7 +325,7 @@ export function WriteWorkspace({
 
     function closeOnOutsidePointer(event: PointerEvent) {
       const target = event.target as Node | null;
-      if (!target || editorRef.current?.contains(target)) return;
+      if (!target || editorShellRef.current?.contains(target)) return;
       setActiveSceneCodexPreview(null);
     }
 
@@ -357,7 +342,8 @@ export function WriteWorkspace({
   );
 
   function toggleSceneCodexPreview(markKey: string, entry: CodexEntryDocument, element: HTMLElement) {
-    const position = previewPositionForElement(element);
+    if (!editorShellRef.current) return;
+    const position = previewPositionWithin(editorShellRef.current, element);
     setActiveSceneCodexPreview((current) => (
       current?.markKey === markKey ? null : { entry, markKey, ...position }
     ));
@@ -740,40 +726,63 @@ export function WriteWorkspace({
                   onChange={(event) => onUpdateTitle(event.target.value)}
                   value={draft.title}
                 />
-                <div
-                  aria-label="Scene content"
-                  className="editor-copy editor-copy-input scene-copy-editor"
-                  contentEditable
-                  data-placeholder="Continue the scene..."
-                  onClick={(event) => {
-                    const target = event.target as HTMLElement;
-                    if (!target.closest(".codex-mention-mark") && !target.closest(".scene-codex-preview")) {
-                      setActiveSceneCodexPreview(null);
-                    }
-                  }}
-                  onInput={(event) => updateContentFromEditor(event.currentTarget)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      insertContentText(event.currentTarget, "\n");
-                      return;
-                    }
-                    if (event.key === "Escape") setActiveSceneCodexPreview(null);
-                  }}
-                  ref={editorRef}
-                  role="textbox"
-                  suppressContentEditableWarning
-                  tabIndex={0}
-                >
-                  {draft.content
-                    ? renderSceneCodexMarks(
-                        draft.content,
-                        inlineCodexMentions,
-                        codexEntryById,
-                        activeSceneCodexPreview,
-                        toggleSceneCodexPreview,
-                      )
-                    : null}
+                <div className="inline-mention-shell scene-copy-editor-shell" ref={editorShellRef}>
+                  <div
+                    aria-label="Scene content"
+                    className="editor-copy editor-copy-input scene-copy-editor"
+                    contentEditable
+                    data-placeholder="Continue the scene..."
+                    onClick={(event) => {
+                      const target = event.target as HTMLElement;
+                      if (!target.closest(".codex-mention-mark") && !target.closest(".inline-mention-popover")) {
+                        setActiveSceneCodexPreview(null);
+                      }
+                    }}
+                    onInput={(event) => updateContentFromEditor(event.currentTarget)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        insertContentText(event.currentTarget, "\n");
+                        return;
+                      }
+                      if (event.key === " " && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing) {
+                        event.preventDefault();
+                        insertContentText(event.currentTarget, " ");
+                        return;
+                      }
+                      if (event.key === "Escape") setActiveSceneCodexPreview(null);
+                    }}
+                    ref={editorRef}
+                    role="textbox"
+                    suppressContentEditableWarning
+                    tabIndex={0}
+                  >
+                    {draft.content
+                      ? renderSceneCodexMarks(
+                          draft.content,
+                          inlineCodexMentions,
+                          codexEntryById,
+                          activeSceneCodexPreview,
+                          toggleSceneCodexPreview,
+                        )
+                      : null}
+                  </div>
+                  {activeSceneCodexPreview ? (
+                    <aside
+                      className="codex-preview-popover inline-mention-popover"
+                      aria-label={`${activeSceneCodexPreview.entry.metadata.name} canon description`}
+                      data-codex-preview="true"
+                      style={{ left: activeSceneCodexPreview.left, top: activeSceneCodexPreview.top }}
+                    >
+                      <div className="codex-preview-head">
+                        <div>
+                          <div className="row-meta">Codex</div>
+                          <strong>{activeSceneCodexPreview.entry.metadata.name}</strong>
+                        </div>
+                      </div>
+                      <p>{activeSceneCodexPreview.entry.description || "No description"}</p>
+                    </aside>
+                  ) : null}
                 </div>
               </>
             ) : (

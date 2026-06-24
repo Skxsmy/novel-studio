@@ -61,13 +61,13 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **Project Recovery Slice D Codex Connection Correction**: Made Relations operational by adding relation creation and active-relation removal through real APIs. Removed the decorative entry-frequency wave from the Codex detail header, limited the large mention count to manuscript/scene mentions, removed alias pills from Mentions snippets, and made dashed-underlined mention hits open Canon description previews instead of jumping.
 - **Project Recovery Slice D Write Mention Correction**: Replaced the duplicate scene-content preview block with an inline-markable Write editor surface. Scene text now appears once, Codex hits open a nearby Canon description preview from the marked text, and clicking the same hit closes it.
 - **Project Recovery Slice D Realtime Mention Correction**: Write scene text and Codex canon descriptions now realtime-match active Codex entry names and aliases, render clickable dashed-underlined hits, and use bounded scrollable Canon description previews.
-- **Project Recovery Slice D Mention UI Correction**: Removed the redundant Write `Codex in scene` panel, made Scene Brief hide/restorable through an icon-only control, removed highlight fill from Codex mention marks, and changed mention previews to fixed bounded popovers so canon-description previews are not clipped by the input area.
-- **Project Recovery Slice D Editor Newline Correction**: Write and Codex canon-description editors now handle Enter by inserting literal newlines into the text model, preserving blank lines instead of relying on browser-generated contentEditable blocks.
+- **Project Recovery Slice D Mention UI Correction**: Removed the redundant Write `Codex in scene` panel, made Scene Brief hide/restorable through an icon-only control, removed highlight fill from Codex mention marks, and changed mention previews to bounded editor-shell overlays so canon-description previews are not clipped by the scrollable input area without using viewport-fixed positioning.
+- **Project Recovery Slice D Editor Whitespace Correction**: Write and Codex canon-description editors now handle Enter and Space by inserting literal characters into the text model, preserving blank lines and line-leading spaces instead of relying on browser-generated contentEditable blocks or whitespace normalization.
 
 ### Current Validation Snapshot
 
 - `npm.cmd run build:packages`: passed after a sandbox-blocked package-dist write attempt was rerun with elevated permissions.
-- `npx vitest run apps/web/src/app/AppShell.test.tsx`: 35 tests passed.
+- `npx vitest run apps/web/src/app/AppShell.test.tsx`: 37 tests passed.
 - `npx vitest run packages/storage/test/repository.test.ts`: 42 tests passed.
 - `npm.cmd run typecheck -w @novel-studio/web`: passed.
 - `npm.cmd run typecheck -w @novel-studio/storage`: passed.

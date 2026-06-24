@@ -605,6 +605,11 @@ button {
   white-space: pre-wrap;
 }
 
+.inline-mention-shell {
+  position: relative;
+  overflow: visible;
+}
+
 .inline-mention-editor:empty::before {
   color: #98a39d;
   content: attr(data-placeholder);
@@ -964,6 +969,17 @@ button {
   white-space: pre-wrap;
 }
 
+.scene-copy-editor-shell {
+  width: 100%;
+  max-width: 860px;
+  margin-top: 26px;
+}
+
+.scene-copy-editor-shell .scene-copy-editor {
+  max-width: none;
+  margin-top: 0;
+}
+
 .scene-copy-editor:empty::before {
   color: #a5aca7;
   content: attr(data-placeholder);
@@ -974,9 +990,9 @@ button {
   display: inline;
 }
 
-.scene-codex-preview {
-  position: fixed;
-  z-index: 12;
+.inline-mention-popover {
+  position: absolute;
+  z-index: 20;
   width: min(520px, 72vw);
 }
 
