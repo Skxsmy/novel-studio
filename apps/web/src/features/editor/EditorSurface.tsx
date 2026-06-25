@@ -19,9 +19,6 @@ import {
   highlightSpecialChars,
   keymap,
   placeholder as editorPlaceholder,
-  showTooltip,
-  tooltips,
-  type Tooltip,
   ViewPlugin,
   type ViewUpdate,
 } from "@codemirror/view";
@@ -62,6 +59,8 @@ interface CodexPreviewState {
 
 const externalDocumentUpdate = Annotation.define<boolean>();
 const setCodexPreview = StateEffect.define<CodexPreviewState | null>();
+const tooltipLayerId = "novel-editor-tooltip-layer";
+const tooltipLayerZIndex = "2147483000";
 
 export function cleanEditorPasteText(text: string) {
   return text.replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ");
@@ -163,48 +162,61 @@ const editorSurfaceTheme = EditorView.theme({
   },
 });
 
-function codexTooltip(preview: CodexPreviewState, emptyText: string): Tooltip {
-  return {
-    above: false,
-    end: preview.to,
-    pos: preview.from,
-    strictSide: false,
-    create() {
-      const dom = document.createElement("aside");
-      dom.className = "codex-preview-popover cm-codex-preview-popover";
-      dom.setAttribute("aria-label", `${preview.entry.metadata.name} canon description`);
-      dom.dataset.codexPreview = "true";
-      dom.style.backgroundColor = "#fffaf0";
-      dom.style.border = "1px solid #8f8170";
-      dom.style.boxShadow = "0 18px 44px rgba(31, 37, 35, 0.32)";
-      dom.style.color = "#1f2723";
-      dom.style.isolation = "isolate";
-      dom.style.opacity = "1";
-      dom.style.position = "relative";
-      dom.style.zIndex = "1000";
+function createCodexPreviewDom(preview: CodexPreviewState, emptyText: string) {
+  const dom = document.createElement("aside");
+  dom.className = "codex-preview-popover cm-codex-preview-popover";
+  dom.setAttribute("aria-label", `${preview.entry.metadata.name} canon description`);
+  dom.dataset.codexPreview = "true";
+  dom.style.backgroundColor = "#fffaf0";
+  dom.style.border = "1px solid #8f8170";
+  dom.style.boxShadow = "0 18px 44px rgba(31, 37, 35, 0.32)";
+  dom.style.color = "#1f2723";
+  dom.style.isolation = "isolate";
+  dom.style.opacity = "1";
+  dom.style.pointerEvents = "auto";
+  dom.style.position = "absolute";
+  dom.style.zIndex = tooltipLayerZIndex;
 
-      const head = document.createElement("div");
-      head.className = "codex-preview-head";
-      const titleBlock = document.createElement("div");
-      const kicker = document.createElement("div");
-      kicker.className = "row-meta";
-      kicker.textContent = "Codex";
-      const title = document.createElement("strong");
-      title.textContent = preview.entry.metadata.name;
-      titleBlock.append(kicker, title);
-      head.append(titleBlock);
+  const head = document.createElement("div");
+  head.className = "codex-preview-head";
+  const titleBlock = document.createElement("div");
+  const kicker = document.createElement("div");
+  kicker.className = "row-meta";
+  kicker.textContent = "Codex";
+  const title = document.createElement("strong");
+  title.textContent = preview.entry.metadata.name;
+  titleBlock.append(kicker, title);
+  head.append(titleBlock);
 
-      const body = document.createElement("p");
-      body.textContent = preview.entry.description || emptyText;
-      dom.append(head, body);
+  const body = document.createElement("p");
+  body.textContent = preview.entry.description || emptyText;
+  dom.append(head, body);
 
-      return {
-        dom,
-        offset: { x: 0, y: 8 },
-        resize: true,
-      };
-    },
-  };
+  return dom;
+}
+
+function editorTooltipLayer(ownerDocument: Document) {
+  let layer = ownerDocument.getElementById(tooltipLayerId);
+  if (!layer) {
+    layer = ownerDocument.createElement("div");
+    layer.id = tooltipLayerId;
+    layer.className = "editor-tooltip-layer";
+    layer.dataset.editorTooltipLayer = "true";
+    layer.style.position = "absolute";
+    layer.style.top = "0";
+    layer.style.left = "0";
+    layer.style.width = "100%";
+    layer.style.height = "0";
+    layer.style.overflow = "visible";
+    layer.style.pointerEvents = "none";
+    layer.style.zIndex = tooltipLayerZIndex;
+    ownerDocument.body.appendChild(layer);
+  }
+  return layer;
+}
+
+function editorWindow(view: EditorView) {
+  return view.dom.ownerDocument.defaultView ?? window;
 }
 
 const codexPreviewField = (emptyText: string) => StateField.define<CodexPreviewState | null>({
@@ -217,12 +229,6 @@ const codexPreviewField = (emptyText: string) => StateField.define<CodexPreviewS
       if (effect.is(setCodexPreview)) value = effect.value;
     }
     return value;
-  },
-  provide(field) {
-    return showTooltip.compute([field], (state) => {
-      const preview = state.field(field);
-      return preview ? codexTooltip(preview, emptyText) : null;
-    });
   },
 });
 
@@ -260,6 +266,7 @@ function buildCodexDecorations(view: EditorView, entries: CodexEntryDocument[]) 
 
 interface CodexMentionPluginConfig {
   entries: CodexEntryDocument[];
+  emptyPreviewText: string;
   previewField: StateField<CodexPreviewState | null>;
 }
 
@@ -267,19 +274,43 @@ class CodexMentionPlugin {
   decorations: DecorationSet;
   private entries: CodexEntryDocument[];
   private entriesById: Map<string, CodexEntryDocument>;
+  private emptyPreviewText: string;
+  private layer: HTMLElement;
+  private positionHandle = -1;
+  private previewDom: HTMLElement | null = null;
   private previewField: StateField<CodexPreviewState | null>;
+  private previewKey: string | null = null;
+  private view: EditorView;
+  private readonly reposition: () => void;
 
   constructor(view: EditorView, config: CodexMentionPluginConfig) {
+    this.view = view;
     this.entries = config.entries;
+    this.emptyPreviewText = config.emptyPreviewText;
     this.previewField = config.previewField;
     this.entriesById = new Map(config.entries.map((entry) => [entry.metadata.id, entry]));
+    this.layer = editorTooltipLayer(view.dom.ownerDocument);
+    this.reposition = () => this.queuePositionPreview();
     this.decorations = buildCodexDecorations(view, config.entries);
+    view.dom.ownerDocument.addEventListener("scroll", this.reposition, true);
+    editorWindow(view).addEventListener("resize", this.reposition);
+    this.syncPreview();
   }
 
   update(update: ViewUpdate) {
     if (update.docChanged || update.viewportChanged) {
       this.decorations = buildCodexDecorations(update.view, this.entries);
     }
+    if (update.docChanged || update.geometryChanged || update.viewportChanged || update.transactions.length) {
+      this.syncPreview();
+    }
+  }
+
+  destroy() {
+    if (this.positionHandle >= 0) editorWindow(this.view).clearTimeout(this.positionHandle);
+    this.removePreview();
+    this.view.dom.ownerDocument.removeEventListener("scroll", this.reposition, true);
+    editorWindow(this.view).removeEventListener("resize", this.reposition);
   }
 
   togglePreview(view: EditorView, markElement: HTMLElement) {
@@ -294,6 +325,72 @@ class CodexMentionPlugin {
     const next = current?.key === key ? null : { entry, from, key, to };
     view.dispatch({ effects: setCodexPreview.of(next) });
     return true;
+  }
+
+  private syncPreview() {
+    const preview = this.view.state.field(this.previewField);
+    if (!preview) {
+      this.removePreview();
+      return;
+    }
+
+    if (!this.previewDom || this.previewKey !== preview.key) {
+      this.removePreview();
+      this.previewDom = createCodexPreviewDom(preview, this.emptyPreviewText);
+      this.previewKey = preview.key;
+      this.layer.appendChild(this.previewDom);
+    }
+    this.queuePositionPreview();
+  }
+
+  private positionPreview() {
+    const preview = this.view.state.field(this.previewField);
+    const dom = this.previewDom;
+    if (!preview || !dom) return;
+
+    const coords = this.view.coordsAtPos(preview.from);
+    const doc = this.view.dom.ownerDocument;
+    const docElement = doc.documentElement;
+    const win = doc.defaultView ?? window;
+    if (!coords) {
+      dom.style.left = "-10000px";
+      dom.style.top = "-10000px";
+      return;
+    }
+
+    const scrollX = win.scrollX;
+    const scrollY = win.scrollY;
+    const viewportLeft = scrollX;
+    const viewportRight = scrollX + docElement.clientWidth;
+    const viewportTop = scrollY;
+    const viewportBottom = scrollY + docElement.clientHeight;
+    const margin = 12;
+    const rect = dom.getBoundingClientRect();
+    const width = rect.width || Math.min(560, Math.max(280, docElement.clientWidth * 0.76));
+    const height = rect.height || 140;
+    const preferredLeft = scrollX + coords.left;
+    const left = Math.min(Math.max(preferredLeft, viewportLeft + margin), viewportRight - width - margin);
+    const belowTop = scrollY + coords.bottom + 8;
+    const aboveTop = scrollY + coords.top - height - 8;
+    const top = belowTop + height > viewportBottom - margin && aboveTop >= viewportTop + margin ? aboveTop : belowTop;
+
+    dom.style.left = `${Math.round(left)}px`;
+    dom.style.top = `${Math.round(top)}px`;
+  }
+
+  private queuePositionPreview() {
+    const win = editorWindow(this.view);
+    if (this.positionHandle >= 0) win.clearTimeout(this.positionHandle);
+    this.positionHandle = win.setTimeout(() => {
+      this.positionHandle = -1;
+      this.positionPreview();
+    }, 0);
+  }
+
+  private removePreview() {
+    this.previewDom?.remove();
+    this.previewDom = null;
+    this.previewKey = null;
   }
 }
 
@@ -327,8 +424,7 @@ function codexMentionExtension(entries: CodexEntryDocument[], emptyPreviewText: 
   const previewField = codexPreviewField(emptyPreviewText);
   return [
     previewField,
-    codexMentionPlugin.of({ entries, previewField }),
-    tooltips({ position: "absolute" }),
+    codexMentionPlugin.of({ emptyPreviewText, entries, previewField }),
   ];
 }
 
@@ -470,6 +566,7 @@ export function EditorSurface({
       if (!host || !view) return;
       const target = event.target as Node | null;
       if (target && host.contains(target)) return;
+      if (target instanceof HTMLElement && target.closest("[data-codex-preview='true']")) return;
       view.dispatch({ effects: setCodexPreview.of(null) });
     }
 

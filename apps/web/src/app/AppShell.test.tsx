@@ -481,7 +481,7 @@ function modelProfile(overrides: Partial<{
   credentialRef: string | null;
   id: string;
   model: string;
-  provider: "mock" | "openai";
+  provider: "mock" | "openai" | "openrouter" | "ollama" | "deepseek" | "openai-compatible";
   title: string;
 }> = {}) {
   return {
@@ -852,6 +852,17 @@ function mockFetch(options: {
       return jsonResponse(updated);
     }
 
+    if (url === `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}` && method === "DELETE") {
+      const current = modelProfiles.find((profile) => profile.id === modelProfileId) ?? modelProfile();
+      const archived = modelProfile({
+        ...current,
+        archivedAt: "2026-06-25T00:00:00.000Z",
+        credentialRef: null,
+      });
+      modelProfiles = modelProfiles.filter((profile) => profile.id !== modelProfileId);
+      return jsonResponse(archived);
+    }
+
     if (url === `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential` && method === "POST") {
       const current = modelProfiles.find((profile) => profile.id === modelProfileId) ?? modelProfile();
       const updated = modelProfile({
@@ -861,6 +872,27 @@ function mockFetch(options: {
       modelProfiles = modelProfiles.map((profile) => (profile.id === modelProfileId ? updated : profile));
       return jsonResponse({
         credentialRef: updated.credentialRef,
+        modelProfile: updated,
+        storeKind: "windows-credential-manager",
+      });
+    }
+
+    if (url === `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential` && method === "GET") {
+      const current = modelProfiles.find((profile) => profile.id === modelProfileId) ?? modelProfile();
+      return jsonResponse({
+        credentialRef: current.credentialRef,
+        exists: Boolean(current.credentialRef),
+        modelProfile: current,
+        storeKind: "windows-credential-manager",
+      });
+    }
+
+    if (url === `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential` && method === "DELETE") {
+      const current = modelProfiles.find((profile) => profile.id === modelProfileId) ?? modelProfile();
+      const updated = modelProfile({ ...current, credentialRef: null });
+      modelProfiles = modelProfiles.map((profile) => (profile.id === modelProfileId ? updated : profile));
+      return jsonResponse({
+        deleted: Boolean(current.credentialRef),
         modelProfile: updated,
         storeKind: "windows-credential-manager",
       });
@@ -2035,6 +2067,8 @@ describe("App shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Models" }));
     expect(await screen.findByText("No model profiles yet")).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Anthropic" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Google" })).toBeNull();
     fireEvent.change(screen.getByLabelText("Model title"), { target: { value: "Mock Continuity" } });
     fireEvent.change(screen.getByLabelText("Model id"), { target: { value: "mock-continuity-v1" } });
     fireEvent.click(screen.getByRole("button", { name: "Save Model" }));
@@ -2046,6 +2080,7 @@ describe("App shell", () => {
       );
     });
     expect(await screen.findByText("Model saved.")).toBeTruthy();
+    expect(await screen.findByText("No service key saved for this model.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Test Connection" }));
     await waitFor(() => {
@@ -2055,6 +2090,70 @@ describe("App shell", () => {
       );
     });
     expect(await screen.findByText("Connection ok.")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Service key"), { target: { value: "settings-test-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Model" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByText("Model and key saved.")).toBeTruthy();
+    expect(await screen.findByText("Saved in the system credential store.")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("settings-test-key");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Key" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential`,
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    expect(await screen.findByText("Service key removed.")).toBeTruthy();
+    expect(await screen.findByText("No service key saved for this model.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive Model" }));
+    expect(screen.getByText("Archive this model?")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Archive Model" }).at(-1)!);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}`,
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    expect(await screen.findByText("Model archived.")).toBeTruthy();
+    expect(await screen.findByText("No model profiles yet")).toBeTruthy();
+  });
+
+  it("keeps review and workshop visible but honest about missing backend workflows", async () => {
+    mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    await screen.findByLabelText("Scene title");
+
+    expect(screen.queryByRole("button", { name: "Review Draft" })).toBeNull();
+    expect(screen.getByLabelText("Search unavailable")).toHaveProperty("disabled", true);
+    expect(screen.queryByText("18")).toBeNull();
+    expect(screen.queryByText("128")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(await screen.findByRole("heading", { name: "Review Inbox" })).toBeTruthy();
+    expect(screen.getByText("Interface retained while the review workflow is rebuilt.")).toBeTruthy();
+    expect(screen.getAllByText("Not connected").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "All" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Prose" })).toHaveProperty("disabled", true);
+    expect(screen.getByText("Review will be rebuilt")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+    expect(screen.getByText("Interface retained while Workshop is rebuilt.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New Session" })).toHaveProperty("disabled", true);
+    expect(screen.getByPlaceholderText("Workshop is not connected")).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Send" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Insert" })).toHaveProperty("disabled", true);
+    expect(screen.getByText("Workshop will be rebuilt")).toBeTruthy();
   });
 
   it("loads and reorders the planning board after a project is selected", async () => {

@@ -60,8 +60,19 @@ export function ensureCloudAllowed(
   series: SeriesManifest,
   profile: ModelProfile,
 ): ModelCallError | null {
-  void series;
-  void profile;
+  if (!isCloudRouted(profile)) return null;
+  if (series.cloudPolicy !== "cloud-allowed") {
+    return modelError(
+      "cloud-disabled",
+      "Project cloud policy is Local only. Enable Cloud allowed in Settings before using a cloud provider.",
+    );
+  }
+  if (profile.cloudPolicy !== "cloud-allowed") {
+    return modelError(
+      "cloud-disabled",
+      "Model profile cloud policy is Local only. Set this profile to Cloud allowed before using a cloud provider.",
+    );
+  }
   return null;
 }
 

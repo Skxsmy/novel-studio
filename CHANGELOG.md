@@ -65,13 +65,15 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **Project Recovery Slice D Editor Whitespace Correction**: Write and Codex canon-description editors now handle Enter and Space by inserting literal characters into the text model, preserving blank lines and line-leading spaces instead of relying on browser-generated contentEditable blocks or whitespace normalization.
 - **Project Recovery Slice D2 Editor Foundation Planned**: Split the mature-editor research takeaways into their own editor foundation slice and recorded CodeMirror 6 as the preferred direction unless a concrete spike blocker is found. D2 will replace the ad hoc contentEditable approach with document/selection/transaction state, decoration-based Codex marks, Chinese IME safety, duplicate-input prevention, paste cleanup, undo/redo, paragraph indentation, writer status/word counts, and anchored Canon preview popovers before more writing-editor feature work.
 - **Project Recovery Slice D2 Editor Foundation**: Replaced the ad hoc React/contentEditable editor path with shared CodeMirror 6 `EditorSurface` surfaces for Write scene content and Codex Canon descriptions. Codex names/aliases now render as decorations over pure text, previews stay editor-anchored, editor state reports line/column, selection, words, characters, and lines, paste is normalized, undo/redo and selection restoration are covered, the old `editableText.ts` helper and unused Milkdown runtime dependencies were removed, and ADR-0010 records the runtime decision. Browser screenshot verification is no longer a default project requirement; real Chinese IME validation remains user/manual.
+- **Project Recovery Slice D2 Preview Layer Fix**: Moved Canon previews out of CodeMirror's tooltip container and into a custom application-level absolute portal with the app's highest overlay z-index, so previews render above editor borders and following Codex detail fields without fixed positioning. Preview self-clicks no longer trigger the outside-click close handler. `EditorSurface.test.tsx`, `AppShell.test.tsx`, and web typecheck passed; the user visually confirmed the reported layer issue is fixed.
+- **Project Recovery Slice E Skipped / Slice F**: User marked Slice E permanently skipped on 2026-06-25. Existing Settings/provider changes remain a working draft, not Recovery Release A evidence. Slice F keeps Review and Workshop visible while making them honest unavailable shells; future Review and Workshop functionality must be designed and implemented from scratch.
+- **Skipped Slice E Settings Draft**: The earlier supported Settings provider/profile safety work remains in the working draft code but is not accepted recovery evidence after the user's skip decision. Do not continue provider expansion from this slice without a fresh task.
 
 ### Current Validation Snapshot
 
-- `npm.cmd run build:packages`: passed after a sandbox-blocked package-dist write attempt was rerun with elevated permissions.
-- `npx vitest run apps/web/src/app/AppShell.test.tsx`: 37 tests passed.
-- `npx vitest run packages/storage/test/repository.test.ts`: 42 tests passed.
+- `npm.cmd run test -w @novel-studio/web -- EditorSurface.test.tsx`: 6 tests passed.
+- `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx`: 37 tests passed.
+- `npm.cmd run test -w @novel-studio/server -- ai-routes.test.ts model-calls.test.ts`: 9 tests passed.
+- `npm.cmd run typecheck -w @novel-studio/server`: passed.
 - `npm.cmd run typecheck -w @novel-studio/web`: passed.
-- `npm.cmd run typecheck -w @novel-studio/storage`: passed.
-- `npm.cmd run build -w @novel-studio/web`: passed.
-- User visual acceptance: failed. Project recovery remains open.
+- User visual acceptance: D2 preview layer repair accepted. Overall project recovery remains open.

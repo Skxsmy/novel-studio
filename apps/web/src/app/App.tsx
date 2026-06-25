@@ -42,7 +42,6 @@ export function App() {
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const session = useProjectSession();
 
   const activeDefinition = workspaces.find((workspace) => workspace.id === activeWorkspace) ?? workspaces.find((w) => w.id === "write")!;
@@ -215,21 +214,15 @@ export function App() {
                   .filter((workspace) => workspace.id !== "settings")
                   .map((workspace) => {
                     const isActive = workspace.id === activeWorkspace && !isLibraryOpen;
-                    const pillClass = workspace.id === "write" ? saveState.className
-                      : workspace.id === "plan" ? "pill amber"
-                      : workspace.id === "workshop" ? "pill violet"
-                      : "pill";
+                    const isUnavailableShell = workspace.id === "workshop" || workspace.id === "review";
+                    const pillClass = workspace.id === "write" ? saveState.className : "pill muted";
                     const pillLabel = workspace.id === "write" ? saveState.label
-                      : workspace.id === "overview" ? "3"
-                      : workspace.id === "plan" ? "6"
-                      : workspace.id === "codex" ? "128"
-                      : workspace.id === "workshop" ? "4"
-                      : workspace.id === "review" ? "18"
+                      : isUnavailableShell ? uiText.navigation.notConnected
                       : "";
                     return (
                       <button
                         aria-label={workspace.label}
-                        className={`nav-row${isActive ? " is-active" : ""}`}
+                        className={`nav-row${isActive ? " is-active" : ""}${isUnavailableShell ? " is-unavailable" : ""}`}
                         disabled={!session.activeSeries}
                         key={workspace.id}
                         onClick={() => showWorkspace(workspace.id)}
@@ -238,8 +231,9 @@ export function App() {
                       >
                         <span>
                           <span className="row-title">{workspace.label}</span>
+                          {isUnavailableShell ? <span className="row-meta">{uiText.navigation.notConnected}</span> : null}
                         </span>
-                        <span className={pillClass}>{pillLabel}</span>
+                        {pillLabel ? <span className={pillClass}>{pillLabel}</span> : <span aria-hidden="true" />}
                       </button>
                     );
                   })}
@@ -268,19 +262,19 @@ export function App() {
               <strong>{barTitle}</strong>
               <span>{barSubtitle}</span>
             </div>
-            <label className="command-input">
+            <label className="command-input is-disabled">
               <span>Q</span>
               <input
-                aria-label="Search"
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Find scene, codex entry, assistant action, or setting"
-                value={searchQuery}
+                aria-label={uiText.navigation.searchLabel}
+                disabled
+                placeholder={uiText.navigation.searchPlaceholder}
+                readOnly
+                value=""
               />
               <span className="key">Ctrl K</span>
             </label>
             <div className="top-actions">
               {!isLibraryOpen ? <span className={saveState.className}>{saveState.label}</span> : null}
-              <button className="btn primary" type="button">Review Draft</button>
             </div>
           </header>
           <ErrorBoundary>

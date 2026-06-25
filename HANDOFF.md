@@ -1,6 +1,6 @@
 # Handoff
 
-Updated: 2026-06-24
+Updated: 2026-06-25
 
 This file is the short operational handoff. The older Chinese handoff was fully read before this rewrite; its task history, verification facts, and warnings have been translated and reorganized here.
 
@@ -46,8 +46,8 @@ Working draft pieces:
 - Library/project creation and no-project handling exist.
 - Write has real project/scene API wiring and partial hierarchy controls.
 - Plan has surfaces, but the current frontend line still needs product-level validation.
-- Codex core can list/search loaded entries, create/open/close entries, rename, edit details/canon description/research/aliases/tags/tracking/context policy, create custom categories, change entry category, save with revision protection, show conflict reload, and archive/restore through real APIs. Custom categories use a compact Add menu, support double-click rename, reject exact duplicate names, and delete with confirmation by moving entries to `Uncategorized` rather than deleting entries. Codex entries can be deleted from the entry detail lifecycle area. User screenshot feedback on the Codex detail tabs has been addressed by collapsing custom Details until needed, tightening Research/Tracking spacing, keeping index summaries visible when detail is open, separating `New Entry` from `No description`, and bounding category/index list scrolling. Codex detail now has real Relations, Mentions, and Tracking tabs; Relations can create/remove active connections through real APIs; Mentions combine manuscript hits from the entry mention API with other-Codex-entry content hits from loaded entries, and matched names/aliases are clickable dashed-underlined text that opens a Canon description preview instead of jumping. Canon description editing also realtime-matches other active Codex entry names/aliases and uses the same scroll-bounded editor-shell overlay preview so it is not clipped by the input area.
-- Write loads active Codex entries for realtime scene-body name/alias matching. The editor renders hits inline as dashed underlines without highlight fill, and clicking the same hit toggles a scroll-bounded editor-shell overlay Canon description preview without duplicating the scene text. Write and Codex canon-description editors now use shared CodeMirror `EditorSurface` state for document changes, selection, line/column, word/character status, paste cleanup, undo/redo, and pure-text saves. Enter and Space insert literal characters into the text model, so consecutive Enter presses preserve blank lines and line-leading spaces are retained. The redundant `Codex in scene` panel was removed; Scene Brief can be hidden and restored with an icon-only control.
+- Codex core can list/search loaded entries, create/open/close entries, rename, edit details/canon description/research/aliases/tags/tracking/context policy, create custom categories, change entry category, save with revision protection, show conflict reload, and archive/restore through real APIs. Custom categories use a compact Add menu, support double-click rename, reject exact duplicate names, and delete with confirmation by moving entries to `Uncategorized` rather than deleting entries. Codex entries can be deleted from the entry detail lifecycle area. User screenshot feedback on the Codex detail tabs has been addressed by collapsing custom Details until needed, tightening Research/Tracking spacing, keeping index summaries visible when detail is open, separating `New Entry` from `No description`, and bounding category/index list scrolling. Codex detail now has real Relations, Mentions, and Tracking tabs; Relations can create/remove active connections through real APIs; Mentions combine manuscript hits from the entry mention API with other-Codex-entry content hits from loaded entries, and matched names/aliases are clickable dashed-underlined text that opens a Canon description preview instead of jumping. Canon description editing also realtime-matches other active Codex entry names/aliases and uses the same scroll-bounded custom application-level absolute portal preview so it is not clipped by the input area or hidden under following fields.
+- Write loads active Codex entries for realtime scene-body name/alias matching. The editor renders hits inline as dashed underlines without highlight fill, and clicking the same hit toggles a scroll-bounded editor-anchored Canon description preview without duplicating the scene text. Write and Codex canon-description editors now use shared CodeMirror `EditorSurface` state for document changes, selection, line/column, word/character status, paste cleanup, undo/redo, and pure-text saves. Enter and Space insert literal characters into the text model, so consecutive Enter presses preserve blank lines and line-leading spaces are retained. Canon previews now mount on a custom application-level absolute portal so they render above editor borders and following detail fields without fixed positioning. The redundant `Codex in scene` panel was removed; Scene Brief can be hidden and restored with an icon-only control.
 - Settings has API-backed model profile, service key, connection test, model list, and project cloud policy behavior.
 - Workshop and Review are incomplete.
 
@@ -67,9 +67,9 @@ Current recovery order:
 2. Slice B: Start-to-Write vertical slice, command-verified; user visual validation remains separate.
 3. Slice C: Codex core vertical slice, command-verified; user visual validation remains separate.
 4. Slice D: Codex connections, command-verified for current Codex scope; Plan review/rework remains deferred.
-5. Slice D2: Editor Foundation, command-verified on 2026-06-24. CodeMirror 6 now backs Write scene content and Codex Canon descriptions through shared `EditorSurface`; old contentEditable mark helpers and unused Milkdown runtime dependencies were removed. Real Chinese IME validation remains user/manual.
-6. Slice E: Settings and AI safety minimum.
-7. Slice F: Review, Workshop, and navigation honesty.
+5. Slice D2: Editor Foundation, command-verified on 2026-06-24. CodeMirror 6 now backs Write scene content and Codex Canon descriptions through shared `EditorSurface`; old contentEditable mark helpers and unused Milkdown runtime dependencies were removed. Real Chinese IME validation remains user/manual. A 2026-06-25 follow-up fixed Canon preview layer order using a custom application-level absolute portal, not fixed positioning.
+6. Slice E: permanently skipped by user decision on 2026-06-25. Existing Settings/provider changes are a working draft, not acceptance evidence.
+7. Slice F: Review, Workshop, and navigation honesty, command-verified on 2026-06-25. Review and Workshop remain visible but are honest unavailable shells; future functionality must be rebuilt from scratch.
 8. Slice G: visual system and responsive acceptance.
 9. Slice H: verification and handoff.
 
@@ -211,7 +211,9 @@ Current recovery order:
 - Browser screenshots use unique run IDs, unique file names, and `*-screenshot-manifest.json`.
 - Settings UI removed developer fallback explanations from the main interface and folded credential refs/capability parameters into advanced info.
 - User confirmed real DeepSeek connection and model list. Codex did not read or print the real secret.
-- Not completed: OpenAI, OpenRouter, Anthropic, Gemini, Ollama providers; real DeepSeek non-writing result was not recorded in the older handoff.
+- Provider follow-up: OpenAI, OpenRouter, and Ollama have existing compatibility paths but still need broader real-provider validation and product polish; Anthropic/Gemini remain deferred. A real DeepSeek non-writing result was not recorded in the older handoff.
+- Provider integration rule: any future provider work must start from that provider's official API entry and documentation, with the official URL and endpoint/auth/streaming/request-response/model-list behavior recorded in the task and acceptance records before the implementation is accepted.
+- Data lifecycle rule: archive may remain as a reversible hiding state, but it must not be the only way to remove unwanted data. Archive-capable objects need a user-visible cleanup/permanent-delete path with reference checks or preserved immutable snapshots for historical views.
 
 ### NS-409 UI Correction History
 
@@ -241,8 +243,19 @@ Current recovery order:
   - `npm.cmd run test`: server 16, web 23, AI 18, storage 43 passed after rerunning the sandbox-blocked package-dist write with elevated permissions.
   - `git diff --check`: passed with line-ending warnings only.
   - Browser/visual validation was not run by Codex per user instruction.
-- Latest Slice D Codex connection repair validation:
-  - `npx vitest run apps/web/src/app/AppShell.test.tsx`: 35 passed.
+- Latest Slice D2 Canon preview layer repair validation:
+  - `npm.cmd run test -w @novel-studio/web -- EditorSurface.test.tsx`: 6 passed.
+  - `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx`: 37 passed.
+  - `npm.cmd run typecheck -w @novel-studio/web`: passed.
+  - User visual check on 2026-06-25 confirmed the reported Canon preview layer issue is fixed.
+- Latest Slice F Review/Workshop honesty validation:
+  - `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx`: 38 passed.
+  - `npm.cmd run typecheck -w @novel-studio/web`: passed.
+  - Browser/visual validation was not run by Codex; user visual acceptance remains separate.
+- Skipped Slice E Settings and AI safety historical validation, not acceptance evidence:
+  - `npm.cmd run test -w @novel-studio/server -- ai-routes.test.ts model-calls.test.ts`: 9 passed across 2 files.
+  - `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx`: 37 passed.
+  - `npm.cmd run typecheck -w @novel-studio/server`: passed.
   - `npm.cmd run typecheck -w @novel-studio/web`: passed.
 - Earlier Slice D category/delete backend validation:
   - `npx vitest run packages/storage/test/repository.test.ts`: 42 passed.
@@ -256,8 +269,8 @@ Current recovery order:
 
 - UI is not accepted.
 - Codex is not product-complete.
-- Settings is API-backed but incomplete.
-- Review and Workshop are not complete.
+- Settings Slice E is permanently skipped and must not be treated as accepted recovery work; broader call-log, preset, and role editing polish remains later work.
+- Review and Workshop are not complete. Slice F keeps their UI visible as honest unavailable shells, removes fake counts/actions, and records that future product workflows must be made from scratch rather than expanded from the placeholder shells.
 - Storage `src/index.ts` remains too large and should be split when touched.
 - Browser visual validation is currently user-owned.
 - List-heavy UI must use bounded internal scrolling; the user explicitly flagged unbounded page growth as a recurring defect on 2026-06-24.
@@ -266,4 +279,4 @@ Current recovery order:
 
 ## Immediate Next Step
 
-Stay on project recovery. Slice A, Slice B, Slice C, and current Codex-scoped Slice D are recorded in `docs/tasks/PROJECT_RECOVERY.md`. Plan still needs a full product review and rework before implementation resumes there. Do not start with cosmetic UI changes, provider expansion, or a new milestone, and do not create parallel handoff files. Keep category deletion as delete semantics, not archive semantics.
+Stay on project recovery and proceed to Slice G: visual system and responsive acceptance unless the user redirects. Do not start provider expansion or a new milestone, and do not create parallel handoff files.

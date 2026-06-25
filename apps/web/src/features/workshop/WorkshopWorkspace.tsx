@@ -1,52 +1,57 @@
+import { uiText } from "../../app/uiText";
+
 export function WorkshopWorkspace() {
+  const text = uiText.workshop;
+
   return (
     <>
       <div className="page-head">
         <div>
-          <h2 className="page-title">Workshop</h2>
-          <p className="page-subtitle">Talk with assistant roles around explicit scene context.</p>
+          <h2 className="page-title">{text.title}</h2>
+          <p className="page-subtitle">{text.subtitle}</p>
         </div>
-        <button className="btn primary" type="button">New Session</button>
+        <span className="pill muted">{text.status}</span>
+        <button className="btn primary" disabled type="button">{text.newSession}</button>
       </div>
-      <div className="workshop-grid">
+      <div className="workshop-grid is-unavailable">
         <aside className="panel no-shadow">
           <div className="panel-head">
             <div>
-              <div className="panel-title">Sessions</div>
-              <div className="panel-kicker">Branches</div>
+              <div className="panel-title">{text.sessionsTitle}</div>
+              <div className="panel-kicker">{text.sessionsKicker}</div>
             </div>
           </div>
           <div className="panel-body row-list">
-            <div className="large-note">
-              <h2>No sessions</h2>
-              <p>Start a new session to work with an assistant role.</p>
+            <div className="unavailable-note">
+              <h2>{text.sessionsEmptyTitle}</h2>
+              <p>{text.sessionsEmptyBody}</p>
             </div>
           </div>
         </aside>
         <section className="panel chat">
           <div className="message-stack">
-            <div className="large-note">
-              <h2>No conversation</h2>
-              <p>Select or create a session to begin.</p>
+            <div className="unavailable-note">
+              <h2>{text.conversationEmptyTitle}</h2>
+              <p>{text.conversationEmptyBody}</p>
             </div>
           </div>
           <div className="composer">
-            <input className="input" placeholder="Ask about this scene" />
-            <button className="btn primary" type="button">Send</button>
+            <input className="input" disabled placeholder={text.inputPlaceholder} />
+            <button className="btn primary" disabled type="button">{text.send}</button>
           </div>
         </section>
         <aside className="panel no-shadow">
           <div className="panel-head">
             <div>
-              <div className="panel-title">Context Basket</div>
-              <div className="panel-kicker">0 selected</div>
+              <div className="panel-title">{text.basketTitle}</div>
+              <div className="panel-kicker">{text.basketKicker}</div>
             </div>
-            <button className="btn" type="button">Insert</button>
+            <button className="btn" disabled type="button">{text.insert}</button>
           </div>
           <div className="panel-body stack">
-            <div className="large-note">
-              <h2>Empty basket</h2>
-              <p>Add scenes, codex entries, or plan items to provide context.</p>
+            <div className="unavailable-note">
+              <h2>{text.basketEmptyTitle}</h2>
+              <p>{text.basketEmptyBody}</p>
             </div>
           </div>
         </aside>

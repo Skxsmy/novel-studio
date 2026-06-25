@@ -1,7 +1,9 @@
 import type { ApiClient } from "./client";
 import type {
   CreateModelProfileInput,
+  DeleteModelProfileCredentialResult,
   ModelProfile,
+  ModelProfileCredentialStatus,
   ProviderConnectionResult,
   ProviderModelDescriptor,
   SaveModelProfileCredentialInput,
@@ -28,12 +30,30 @@ export function createAiApi(client: ApiClient) {
         method: "PUT",
       });
     },
+    archiveModelProfile(seriesId: string, profileId: string) {
+      return client.requestJson<ModelProfile>(`/series/${seriesId}/ai/model-profiles/${profileId}`, {
+        method: "DELETE",
+      });
+    },
     saveModelCredential(seriesId: string, profileId: string, input: SaveModelProfileCredentialInput) {
       return client.requestJson<SaveModelProfileCredentialResult>(
         `/series/${seriesId}/ai/model-profiles/${profileId}/credential`,
         {
           body: input,
           method: "POST",
+        },
+      );
+    },
+    getModelCredentialStatus(seriesId: string, profileId: string) {
+      return client.requestJson<ModelProfileCredentialStatus>(
+        `/series/${seriesId}/ai/model-profiles/${profileId}/credential`,
+      );
+    },
+    deleteModelCredential(seriesId: string, profileId: string) {
+      return client.requestJson<DeleteModelProfileCredentialResult>(
+        `/series/${seriesId}/ai/model-profiles/${profileId}/credential`,
+        {
+          method: "DELETE",
         },
       );
     },
@@ -56,7 +76,9 @@ export function createAiApi(client: ApiClient) {
 
 export type {
   CreateModelProfileInput,
+  DeleteModelProfileCredentialResult,
   ModelProfile,
+  ModelProfileCredentialStatus,
   ProviderConnectionResult,
   ProviderModelDescriptor,
   SaveModelProfileCredentialInput,

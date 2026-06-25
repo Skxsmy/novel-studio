@@ -72,6 +72,8 @@ packages/
 
 删除全部可重建数据后，应用仍能打开和编辑作品，并可重新索引。
 
+Archive is not a data-retention substitute for deletion. Every archive-capable domain object must have an explicit cleanup or permanent-delete design. Destructive cleanup must either prove there are no live references or preserve the minimum immutable snapshot needed for historical views before removing the source object. The UI must expose the cleanup path and reference-blocking reason instead of letting archived data accumulate indefinitely.
+
 ## 5. 领域投影
 
 应用加载项目时执行：
@@ -117,6 +119,8 @@ User Task
 ```
 
 模型输出在写入 Proposal 前使用 Zod 校验。修复失败时保留原始结果为诊断附件，不创建看似完整的结构化更新。
+
+ProviderAdapter 实现必须以该 Provider 的官方 API 入口和官方文档为准。任何新增或变更 Provider 路径，都必须在任务与验收记录中写明官方来源 URL、采用的 endpoint 族、请求/响应形状、认证方式、流式协议以及模型列表行为；不得从第三方示例、其他 Provider 的兼容层或记忆中的接口形状推断语义。
 
 ## 8. 导入数据流
 

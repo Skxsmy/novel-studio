@@ -1,6 +1,7 @@
 import type {
   CloudPolicy,
   ModelProfile,
+  ModelProfileCredentialStatus,
   ProviderConnectionResult,
   ProviderModelDescriptor,
   SeriesDetail,
@@ -10,8 +11,12 @@ import { ApiError, api } from "../../api";
 import {
   cloudPolicyOptions,
   connectionSummary,
+  credentialStatusClass,
+  credentialStatusLabel,
+  credentialSummary,
   emptyModelProfileForm,
   formFromProfile,
+  isCloudProvider,
   modelProfileInputFromForm,
   modelsSummary,
   profileStatusClass,
@@ -56,8 +61,12 @@ function replaceProfile(profiles: ModelProfile[], profile: ModelProfile) {
 export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorkspaceProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>("models");
   const [connectionResult, setConnectionResult] = useState<ProviderConnectionResult | null>(null);
+  const [credentialStatus, setCredentialStatus] = useState<ModelProfileCredentialStatus | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [form, setForm] = useState<ModelProfileForm>(emptyModelProfileForm);
+  const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [isDeletingCredential, setIsDeletingCredential] = useState(false);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -83,6 +92,7 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
   useEffect(() => {
     let cancelled = false;
     setConnectionResult(null);
+    setCredentialStatus(null);
     setErrorMessage(null);
     setModels([]);
     setProfiles([]);
@@ -117,6 +127,33 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
     };
   }, [series]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setCredentialStatus(null);
+    if (!series || !selectedProfileId) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void api.ai.getModelCredentialStatus(series.manifest.id, selectedProfileId)
+      .then((status) => {
+        if (cancelled) return;
+        setCredentialStatus(status);
+        setProfiles((current) => replaceProfile(current, status.modelProfile));
+        setForm((current) => (
+          current.id === status.modelProfile.id ? formFromProfile(status.modelProfile) : current
+        ));
+      })
+      .catch((error) => {
+        if (!cancelled) setErrorMessage(formatError(error, "Failed to load service key status"));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProfileId, series]);
+
   function updateForm<K extends keyof ModelProfileForm>(field: K, value: ModelProfileForm[K]) {
     setForm((current) => ({ ...current, [field]: value }));
   }
@@ -124,8 +161,10 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
   function startNewModel() {
     setActiveSection("models");
     setConnectionResult(null);
+    setCredentialStatus(null);
     setErrorMessage(null);
     setForm(emptyModelProfileForm);
+    setIsArchiveConfirmOpen(false);
     setModels([]);
     setResultMessage(null);
     setSelectedProfileId(null);
@@ -133,8 +172,10 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
 
   function selectProfile(profile: ModelProfile) {
     setConnectionResult(null);
+    setCredentialStatus(null);
     setErrorMessage(null);
     setForm(formFromProfile(profile));
+    setIsArchiveConfirmOpen(false);
     setModels([]);
     setResultMessage(null);
     setSelectedProfileId(profile.id);
@@ -174,11 +215,71 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
       setProfiles((current) => replaceProfile(current, saved));
       setSelectedProfileId(saved.id);
       setForm(formFromProfile(saved));
+      setCredentialStatus((current) => {
+        if (!saved.credentialRef) return null;
+        if (form.secret.trim()) {
+          return {
+            credentialRef: saved.credentialRef,
+            exists: true,
+            modelProfile: saved,
+            storeKind: "windows-credential-manager",
+          };
+        }
+        return current?.credentialRef === saved.credentialRef ? { ...current, modelProfile: saved } : null;
+      });
       setResultMessage(form.secret.trim() ? "Model and key saved." : "Model saved.");
     } catch (error) {
       setErrorMessage(formatError(error, "Failed to save model profile"));
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function deleteCredential() {
+    if (!series || !form.id) return;
+    setIsDeletingCredential(true);
+    setConnectionResult(null);
+    setErrorMessage(null);
+    setResultMessage(null);
+    try {
+      const result = await api.ai.deleteModelCredential(series.manifest.id, form.id);
+      setProfiles((current) => replaceProfile(current, result.modelProfile));
+      setForm(formFromProfile(result.modelProfile));
+      setCredentialStatus({
+        credentialRef: result.modelProfile.credentialRef,
+        exists: false,
+        modelProfile: result.modelProfile,
+        storeKind: result.storeKind,
+      });
+      setResultMessage(result.deleted ? "Service key removed." : "Service key reference cleared.");
+    } catch (error) {
+      setErrorMessage(formatError(error, "Failed to remove service key"));
+    } finally {
+      setIsDeletingCredential(false);
+    }
+  }
+
+  async function archiveModelProfile() {
+    if (!series || !form.id) return;
+    setIsArchiving(true);
+    setConnectionResult(null);
+    setErrorMessage(null);
+    setResultMessage(null);
+    try {
+      await api.ai.archiveModelProfile(series.manifest.id, form.id);
+      const nextProfiles = profiles.filter((profile) => profile.id !== form.id);
+      const nextProfile = nextProfiles[0] ?? null;
+      setProfiles(nextProfiles);
+      setSelectedProfileId(nextProfile?.id ?? null);
+      setForm(nextProfile ? formFromProfile(nextProfile) : emptyModelProfileForm);
+      setCredentialStatus(null);
+      setIsArchiveConfirmOpen(false);
+      setModels([]);
+      setResultMessage("Model archived.");
+    } catch (error) {
+      setErrorMessage(formatError(error, "Failed to archive model profile"));
+    } finally {
+      setIsArchiving(false);
     }
   }
 
@@ -221,8 +322,16 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
     }
   }
 
-  const formDisabled = !series || isSaving;
+  const formDisabled = !series || isSaving || isArchiving || isDeletingCredential;
   const savedProfileRequired = !series || !form.id;
+  const policyPreview = isCloudProvider(form.provider)
+    ? projectCloudPolicy === "cloud-allowed" && form.cloudPolicy === "cloud-allowed"
+      ? "Cloud provider allowed by project and model policy."
+      : "Cloud provider blocked until project and model policy are both Cloud allowed."
+    : "Local provider path.";
+  const isPolicyBlocked = isCloudProvider(form.provider) &&
+    (projectCloudPolicy !== "cloud-allowed" || form.cloudPolicy !== "cloud-allowed");
+  const hasCurrentProviderOption = providerOptions.some((option) => option.value === form.provider);
 
   return (
     <>
@@ -359,6 +468,9 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
                     {providerOptions.map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
+                    {!hasCurrentProviderOption ? (
+                      <option value={form.provider}>{form.provider} (deferred)</option>
+                    ) : null}
                   </select>
                 </div>
                 <div className="field">
@@ -409,17 +521,58 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
                   />
                 </div>
               </div>
+              <div className="model-row">
+                <div>
+                  <div className="row-title">Policy</div>
+                  <div className="row-meta">{policyPreview}</div>
+                </div>
+                <span className={isPolicyBlocked ? "pill amber" : "pill green"}>
+                  {isCloudProvider(form.provider) ? "Cloud" : "Local"}
+                </span>
+              </div>
               <div className="top-actions">
-                <button className="btn" disabled={savedProfileRequired || isTesting} onClick={testConnection} type="button">
+                <button className="btn" disabled={savedProfileRequired || isTesting || isArchiving} onClick={testConnection} type="button">
                   Test Connection
                 </button>
-                <button className="btn" disabled={savedProfileRequired || isFetchingModels} onClick={fetchModels} type="button">
+                <button className="btn" disabled={savedProfileRequired || isFetchingModels || isArchiving} onClick={fetchModels} type="button">
                   Fetch Models
                 </button>
-                <button className="btn primary" disabled={!series || isSaving} onClick={saveModelProfile} type="button">
+                <button
+                  className="btn"
+                  disabled={savedProfileRequired || !selectedProfile?.credentialRef || isDeletingCredential}
+                  onClick={() => void deleteCredential()}
+                  type="button"
+                >
+                  Delete Key
+                </button>
+                <button className="btn primary" disabled={!series || isSaving || isArchiving || isDeletingCredential} onClick={saveModelProfile} type="button">
                   Save Model
                 </button>
+                <button
+                  className="btn danger"
+                  disabled={savedProfileRequired || isArchiving}
+                  onClick={() => setIsArchiveConfirmOpen(true)}
+                  type="button"
+                >
+                  Archive Model
+                </button>
               </div>
+              {isArchiveConfirmOpen ? (
+                <div className="inline-confirm">
+                  <div>
+                    <div className="confirm-title">Archive this model?</div>
+                    <div className="confirm-copy">Archived profiles leave active settings and cannot be selected for new calls.</div>
+                  </div>
+                  <div className="confirm-actions">
+                    <button className="btn compact" disabled={isArchiving} onClick={() => setIsArchiveConfirmOpen(false)} type="button">
+                      Cancel
+                    </button>
+                    <button className="btn compact danger" disabled={isArchiving} onClick={() => void archiveModelProfile()} type="button">
+                      Archive Model
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </section>
@@ -434,6 +587,15 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
           <div className="panel-body stack">
             {errorMessage ? <div className="large-note is-error">{errorMessage}</div> : null}
             {resultMessage ? <div className="large-note is-success">{resultMessage}</div> : null}
+            <div className="model-row">
+              <div>
+                <div className="row-title">Service key</div>
+                <div className="row-meta">{credentialSummary(selectedProfile, credentialStatus)}</div>
+              </div>
+              <span className={credentialStatusClass(selectedProfile, credentialStatus)}>
+                {credentialStatusLabel(selectedProfile, credentialStatus)}
+              </span>
+            </div>
             <div className="model-row">
               <div>
                 <div className="row-title">Connection</div>

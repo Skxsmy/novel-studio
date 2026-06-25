@@ -109,6 +109,12 @@ describe("M4 model settings API", () => {
     });
     const series = created.json();
 
+    await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
+      payload: { cloudPolicy: "cloud-allowed" },
+    });
+
     const cloudProfileResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
@@ -135,6 +141,76 @@ describe("M4 model settings API", () => {
       error: { code: "provider-unavailable" },
     });
     expect(JSON.stringify(unavailable.json())).not.toContain("mock-continuity-v1");
+
+    await app.close();
+  });
+
+  it("blocks cloud providers until both project and model policies allow them", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-ai-api-"));
+    roots.push(root);
+    let providerFetchCount = 0;
+    const app = await buildApp({
+      libraryRoot: root,
+      providerFetch: async () => {
+        providerFetchCount += 1;
+        return new Response("{}", { status: 500 });
+      },
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Cloud policy gates" },
+    });
+    const series = created.json();
+
+    const profileResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      payload: {
+        title: "DeepSeek blocked",
+        provider: "deepseek",
+        baseUrl: "https://api.deepseek.com",
+        model: "deepseek-v4-flash",
+        cloudPolicy: "cloud-allowed",
+        credentialRef: "novel-studio:model:test",
+      },
+    });
+    expect(profileResponse.statusCode).toBe(201);
+    const profile = profileResponse.json();
+
+    const projectBlocked = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/test`,
+    });
+    expect(projectBlocked.statusCode).toBe(403);
+    expect(projectBlocked.json()).toMatchObject({
+      code: "CLOUD_DISABLED",
+      error: { code: "cloud-disabled" },
+    });
+    expect(providerFetchCount).toBe(0);
+
+    await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
+      payload: { cloudPolicy: "cloud-allowed" },
+    });
+    const localProfile = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}`,
+      payload: { cloudPolicy: "local-only" },
+    });
+    expect(localProfile.statusCode).toBe(200);
+
+    const profileBlocked = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/models`,
+    });
+    expect(profileBlocked.statusCode).toBe(403);
+    expect(profileBlocked.json()).toMatchObject({
+      code: "CLOUD_DISABLED",
+      error: { code: "cloud-disabled" },
+    });
+    expect(providerFetchCount).toBe(0);
 
     await app.close();
   });
@@ -171,6 +247,12 @@ describe("M4 model settings API", () => {
       payload: { title: "OpenAI 配置接口" },
     });
     const series = created.json();
+
+    await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
+      payload: { cloudPolicy: "cloud-allowed" },
+    });
 
     const profileResponse = await app.inject({
       method: "POST",
@@ -284,6 +366,12 @@ describe("M4 model settings API", () => {
     });
     expect(JSON.stringify(status.json())).not.toContain("deepseek-test-key");
 
+    await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
+      payload: { cloudPolicy: "cloud-allowed" },
+    });
+
     const tested = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/test`,
@@ -310,6 +398,65 @@ describe("M4 model settings API", () => {
     expect(deleted.json()).toMatchObject({ deleted: true });
     expect(deleted.json().modelProfile.credentialRef).toBeNull();
     expect(secrets.size).toBe(0);
+
+    await app.close();
+  });
+
+  it("archives model profiles and removes profile-owned service keys", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-ai-api-"));
+    roots.push(root);
+    const secrets = new Map<string, string>();
+    const app = await buildApp({
+      libraryRoot: root,
+      credentialStore: memoryCredentialStore(secrets),
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Profile archive" },
+    });
+    const series = created.json();
+
+    const profileResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      payload: {
+        title: "OpenAI archive target",
+        provider: "openai",
+        model: "gpt-test",
+        cloudPolicy: "cloud-allowed",
+      },
+    });
+    expect(profileResponse.statusCode).toBe(201);
+    const profile = profileResponse.json();
+
+    const credential = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+      payload: { secret: "archive-test-key" },
+    });
+    expect(credential.statusCode).toBe(200);
+    expect(secrets.size).toBe(1);
+
+    const archived = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}`,
+    });
+    expect(archived.statusCode).toBe(200);
+    expect(archived.json()).toMatchObject({
+      archivedAt: expect.any(String),
+      credentialRef: null,
+      id: profile.id,
+    });
+    expect(secrets.size).toBe(0);
+    expect(JSON.stringify(archived.json())).not.toContain("archive-test-key");
+
+    const activeProfiles = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+    });
+    expect(activeProfiles.statusCode).toBe(200);
+    expect(activeProfiles.json()).toEqual([]);
 
     await app.close();
   });

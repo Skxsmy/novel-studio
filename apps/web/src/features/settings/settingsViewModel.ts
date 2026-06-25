@@ -26,14 +26,23 @@ export interface ModelProfileForm {
 
 export const providerOptions: Array<SelectOption<AiProvider>> = [
   { label: "Mock", value: "mock" },
-  { label: "OpenAI", value: "openai" },
-  { label: "Anthropic", value: "anthropic" },
-  { label: "Google", value: "google" },
-  { label: "OpenRouter", value: "openrouter" },
   { label: "DeepSeek", value: "deepseek" },
+  { label: "OpenAI", value: "openai" },
+  { label: "OpenRouter", value: "openrouter" },
   { label: "Ollama", value: "ollama" },
   { label: "OpenAI-compatible", value: "openai-compatible" },
 ];
+
+const cloudProviders = new Set<AiProvider>([
+  "deepseek",
+  "openai",
+  "openrouter",
+  "openai-compatible",
+]);
+
+export function isCloudProvider(provider: AiProvider) {
+  return cloudProviders.has(provider);
+}
 
 export const cloudPolicyOptions: Array<SelectOption<CloudPolicy>> = [
   {
@@ -110,4 +119,32 @@ export function connectionSummary(result: ProviderConnectionResult | null): stri
 export function modelsSummary(models: ProviderModelDescriptor[]): string {
   if (models.length === 0) return "Fetch models from a saved profile.";
   return `${models.length} model${models.length === 1 ? "" : "s"} available.`;
+}
+
+export function credentialSummary(
+  profile: ModelProfile | null,
+  status: { exists: boolean; credentialRef: string | null; storeKind: string } | null,
+): string {
+  if (!profile?.credentialRef) return "No service key saved for this model.";
+  if (!status) return "Checking saved service key status.";
+  if (status.exists) return "Saved in the system credential store.";
+  return "A credential reference exists, but the key was not found in the credential store.";
+}
+
+export function credentialStatusClass(
+  profile: ModelProfile | null,
+  status: { exists: boolean; credentialRef: string | null } | null,
+): string {
+  if (!profile?.credentialRef) return "pill";
+  if (!status) return "pill";
+  return status.exists ? "pill green" : "pill amber";
+}
+
+export function credentialStatusLabel(
+  profile: ModelProfile | null,
+  status: { exists: boolean; credentialRef: string | null } | null,
+): string {
+  if (!profile?.credentialRef) return "No key";
+  if (!status) return "Checking";
+  return status.exists ? "Saved" : "Missing";
 }

@@ -286,6 +286,11 @@ describe("NS-407 model call API", () => {
     });
     const series = created.json();
     const scene = series.scenes[0];
+    await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
+      payload: { cloudPolicy: "cloud-allowed" },
+    });
     const profile = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,

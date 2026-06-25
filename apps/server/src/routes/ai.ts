@@ -71,7 +71,10 @@ export function registerAiRoutes(
 
   app.get<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/ai/model-profiles",
-    async (request) => repository.listModelProfiles(request.params.seriesId),
+    async (request) => {
+      const profiles = await repository.listModelProfiles(request.params.seriesId);
+      return profiles.filter((profile) => profile.archivedAt === null);
+    },
   );
 
   app.post<{ Params: { seriesId: string } }>(
@@ -121,6 +124,39 @@ export function registerAiRoutes(
         updatedAt: new Date().toISOString(),
       });
       return repository.saveModelProfile(request.params.seriesId, updated);
+    },
+  );
+
+  app.delete<{ Params: { seriesId: string; profileId: string } }>(
+    "/api/v1/series/:seriesId/ai/model-profiles/:profileId",
+    async (request, reply) => {
+      const current = await repository.getModelProfile(request.params.seriesId, request.params.profileId);
+      const credentialRef = current.credentialRef;
+      if (credentialRef) {
+        const profiles = await repository.listModelProfiles(request.params.seriesId);
+        const shared = profiles.some((profile) => profile.id !== current.id && profile.credentialRef === credentialRef);
+        if (!shared) {
+          try {
+            await credentialStore.deleteSecret(credentialRef);
+          } catch (error) {
+            if (error instanceof CredentialStoreError && error.code === "credential-store-unavailable") {
+              return reply.status(503).send({
+                code: error.code.toUpperCase().replace(/-/gu, "_"),
+                message: error.message,
+              });
+            }
+            throw error;
+          }
+        }
+      }
+
+      const now = new Date().toISOString();
+      return repository.saveModelProfile(request.params.seriesId, ModelProfileSchema.parse({
+        ...current,
+        archivedAt: current.archivedAt ?? now,
+        credentialRef: null,
+        updatedAt: now,
+      }));
     },
   );
 

@@ -43,6 +43,7 @@ Immediate task requirements:
 - Done in current Slice D editor repair: Write and Codex canon-description editors handle Enter and Space by inserting literal characters into the saved text model, so consecutive Enter presses preserve blank lines and line-leading spaces are retained.
 - Deferred from current Slice D by user direction: Plan needs a full review and rework, but was not touched in this pass.
 - Done in current Slice D2 editor foundation: CodeMirror 6 is adopted for Write scene content and Codex Canon descriptions through shared `EditorSurface`; document/selection/transaction state, decoration-based Codex marks, paste cleanup, undo/redo, selection restoration, anchored Canon previews, and writer-facing line/column/word-count status are implemented. Old React-rendered contentEditable mark helpers and unused Milkdown runtime dependencies were removed. Focused tests and typecheck pass; real Chinese IME behavior remains user/manual validation, not a browser-screenshot requirement.
+- Done in current Slice D2 follow-up: Canon preview popovers now render through a custom application-level absolute portal with the app's highest overlay z-index, so previews render above editor borders and following detail fields without using fixed positioning. Clicking inside a preview no longer closes it; outside clicks still close it. Focused editor tests, AppShell tests, and web typecheck pass.
 - Keep the Write hierarchy projection around `Volume -> Chapter -> Act -> Scene` stable while later slices touch Write/Plan/Codex connections.
 - Add must open a compact menu and create default-named items.
 - Delete must sit beside Add and delete the selected hierarchy item only after confirmation.
@@ -51,8 +52,8 @@ Immediate task requirements:
 - Scroll must exist where hierarchy content can overflow.
 - Codex core is a real entry workflow for Release A; Codex connections remain next.
 - Codex connection work must use existing server routes/contracts or record backend gaps, not frontend-only mock state.
-- Settings must complete scoped product behavior.
-- Review and Workshop must become real scoped workflows or honest unavailable states.
+- Slice E Settings work is permanently skipped by user decision and must not be treated as accepted recovery behavior.
+- Done in current Slice F code slice: Review and Workshop remain visible in the UI as honest unavailable shells; fake navigation counts/actions were removed, unconnected controls were disabled, and future product workflows are recorded as from-scratch builds.
 - UI copy must remain adaptable for bilingual support.
 
 ## M0
@@ -99,7 +100,7 @@ Immediate task requirements:
 - [x] `NS-407` Non-writing AI calls, SSE streaming, and ModelCallLog.
 - [-] `NS-408` DeepSeek and OpenAI-compatible provider foundation.
   - Done: DeepSeek provider path, generic OpenAI-compatible foundation, settings credential controls, connection test, model-list flow, and user-confirmed DeepSeek connection/model-list retrieval.
-  - Not finished from original scope: OpenAI, OpenRouter, Anthropic, Gemini, and Ollama providers; recorded real DeepSeek non-writing call result.
+  - Not finished from original scope: broader OpenAI/OpenRouter/Ollama real-provider validation and product polish, Anthropic/Gemini provider paths, and recorded real DeepSeek non-writing call result.
 - [!] `PROJECT-RECOVERY` Project-level recovery roadmap.
   - Historical `NS-409A/NS-409C`: image-model-assisted UI redo and plan/write correction records. Not current acceptance.
   - Historical `NS-409D`: wide-screen review for Write, Codex, and Workshop. Not current acceptance.
@@ -108,9 +109,10 @@ Immediate task requirements:
   - Slice B: Start-to-Write vertical slice, command-verified; user visual validation remains separate.
   - Slice C: Codex core vertical slice, command-verified; user visual validation remains separate.
   - Slice D: Codex connections, command-verified for current Codex scope; Plan review/rework remains deferred.
-  - Slice D2: Editor Foundation, command-verified with CodeMirror 6; real Chinese IME validation remains user/manual.
-  - Slice E: Settings and AI safety minimum.
-  - Slice F: Review, Workshop, and navigation honesty.
+  - Slice D2: Editor Foundation, command-verified with CodeMirror 6; the 2026-06-25 Canon preview layer repair was visually confirmed by the user. Real Chinese IME validation remains user/manual.
+  - Slice E: permanently skipped by user decision on 2026-06-25. Existing Settings/provider changes are working draft only, not acceptance evidence.
+  - Lifecycle follow-up: archive-capable data must also expose cleanup/permanent-delete paths with reference checks or immutable history snapshots; archive-only removal is not acceptable for long-term use.
+  - Slice F: command-verified on 2026-06-25. Review and Workshop remain visible, fake counts/actions are removed, unconnected controls are disabled, and full functionality must be designed and implemented from scratch later.
   - Slice G: visual system and responsive acceptance.
   - Slice H: verification and handoff.
   - Current React working draft is command-verified but visually rejected.

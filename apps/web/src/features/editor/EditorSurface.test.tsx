@@ -89,9 +89,42 @@ describe("EditorSurface", () => {
     const firstMark = editor.querySelectorAll(".cm-codex-mention")[0];
     if (!firstMark) throw new Error("Missing first Bellgate mark");
     fireEvent.click(firstMark);
-    expect(screen.getByLabelText("Harbor Lock canon description")).toBeTruthy();
+    const preview = screen.getByLabelText("Harbor Lock canon description");
+    const layer = preview.closest(".editor-tooltip-layer") as HTMLElement | null;
+    expect(preview).toBeTruthy();
+    expect(preview.closest(".novel-editor")).toBeNull();
+    expect(layer?.dataset.editorTooltipLayer).toBe("true");
+    expect((preview as HTMLElement).style.zIndex).toBe("2147483000");
+    expect(layer?.style.zIndex).toBe("2147483000");
     expect(editorView("Draft").state.doc.toString()).toBe("Bellgate and Bellgate");
     expect(changes).toEqual([]);
+  });
+
+  it("keeps top-layer previews open when the preview itself is clicked", async () => {
+    const entry = codexEntryDocument("Harbor Lock", "A storm-pressure mechanism below the west quay.", ["Bellgate"]);
+    render(
+      <EditorSurface
+        ariaLabel="Draft"
+        codexEntries={[entry]}
+        onChange={() => undefined}
+        value="Bellgate"
+      />,
+    );
+
+    const editor = await screen.findByLabelText("Draft");
+    await waitFor(() => {
+      expect(editor.querySelector(".cm-codex-mention")).toBeTruthy();
+    });
+    const mark = editor.querySelector(".cm-codex-mention");
+    if (!mark) throw new Error("Missing Bellgate mark");
+
+    fireEvent.click(mark);
+    const preview = screen.getByLabelText("Harbor Lock canon description");
+    fireEvent.pointerDown(preview);
+    expect(screen.getByLabelText("Harbor Lock canon description")).toBeTruthy();
+
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByLabelText("Harbor Lock canon description")).toBeNull();
   });
 
   it("emits pure text changes and supports undo and redo", async () => {

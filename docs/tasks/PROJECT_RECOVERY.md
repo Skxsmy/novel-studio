@@ -1,7 +1,7 @@
 # Project Recovery Plan
 
 Status: active
-Updated: 2026-06-24
+Updated: 2026-06-25
 
 ## Decision
 
@@ -34,14 +34,14 @@ It includes:
 - Write: create/select/rename/delete hierarchy items and write/save/reload scenes.
 - Codex: create/edit/save/reload/archive story-memory entries with details and research.
 - Codex integration: show real scene mentions/context where it matters for Write or Plan.
-- Settings: manage the minimum provider/profile/credential flow without leaking secrets.
+- Settings: existing working draft only; Slice E is permanently skipped and is not a Release A acceptance gate.
 - App shell: navigation and sidebar states do not block or distort the core workflows.
-- Review and Workshop: either real scoped workflows or honest unavailable states.
+- Review and Workshop: visible honest unavailable shells for Release A; future functionality must be rebuilt from scratch.
 
 It excludes:
 
 - Full AI editorial team workflows.
-- Full Review/Workshop implementation if not needed for the baseline.
+- Full Review/Workshop implementation. Their later implementation must be made from scratch, not expanded from the current placeholder shells.
 - All remaining real providers unless they are required for the settings baseline.
 - Decorative dashboards, placeholder panels, and screenshot-only acceptance.
 
@@ -50,7 +50,7 @@ It excludes:
 | Area | Current evidence | Release A decision | Required action before deeper work |
 | --- | --- | --- | --- |
 | Library / project lifecycle | `LibraryWorkspace` has a project form and a top `New Project` submit button, but the user saw an empty-library dead end where the primary action was disabled or blocked. Existing tests do not prove the zero-project UI path. | Keep and repair now. | Make empty-library creation a tested UI path. New projects must create a usable first hierarchy and first scene without API/manual workarounds. |
-| App shell / sidebar / top actions | `App.tsx` still shows static workspace pills and counts such as Codex 128, Workshop 4, Review 18. Search and `Review Draft` appear globally but are not product-complete. Focus state is now scoped to Write. | Keep and repair now. | Remove fake counts/actions or make them real. Navigation must not imply unavailable pages are complete. Sidebar expanded/collapsed states must not block the core flow. |
+| App shell / sidebar / top actions | Slice A found static workspace pills and counts such as Codex 128, Workshop 4, Review 18, plus global Search and `Review Draft` actions that were not product-complete. Focus state is scoped to Write. | Keep and repair now. | Slice F removes the fake counts/actions for Review and Workshop and disables unconnected search. Sidebar expanded/collapsed states must not block the core flow. |
 | Write hierarchy / editor | Real series and scene APIs exist. Add menu, delete confirmation, collapse, double-click rename, and scene save exist in current code, but UI terminology maps storage `Act`/`Chapter` inconsistently against required `Volume -> Chapter -> Act -> Scene`. | Keep and repair now. | Fix hierarchy projection, labels, default names, errors, tests, selection, collapse, scroll, rename, delete, and save/reload. This is Slice B's first implementation target. |
 | Overview | Mostly static status panels. `Continue Scene`, warnings, and review queues are not clearly wired as real workflows. | Keep minimal, repair only where it supports Release A. | Either wire `Continue Scene` to the active editable scene or make it unavailable. Remove fake live status. |
 | Plan | `PlanWorkspace` consumes real planning-board data and has filters, sort, outline/storyboard/tracking/timeline, and reorder commands. It still needs product review but is not the first broken path. | Keep, smoke after hierarchy changes. | Do not redesign first. Verify it survives hierarchy terminology fixes and does not display fake state. |
@@ -67,7 +67,8 @@ It excludes:
 - Release A is Start-to-Write plus Codex Core plus minimum Settings plus honest navigation. Overview and Plan remain limited support surfaces. Review and Workshop are unavailable unless a later slice deliberately defines one real workflow.
 - The accepted writing hierarchy is `Volume -> Chapter -> Act -> Scene`. The current durable storage remains `Series -> Book -> Act -> Chapter -> Scene` for Release A unless implementation proves the projection is more dangerous than a contract migration. The projection must be explicit in code and tests, not hidden by swapped labels.
 - Codex Release A covers entry list/search, create, open/close detail, rename, edit details/canon description, edit research, save/reload, archive/restore, and visible conflict behavior. Relations, progressions, knowledge, effective state, and scene context are not allowed as fake editable tabs.
-- Settings Release A covers one coherent supported provider/profile/credential path. Additional providers, prompt editors, call-log UI, and broader AI administration are deferred unless they are required to keep the supported path honest.
+- Settings Release A no longer includes Slice E. On 2026-06-25 the user marked Slice E permanently skipped. Existing Settings code may remain as an unaccepted working draft, but it must not be used as recovery completion evidence.
+- Review and Workshop remain visible in the UI, but Release A treats them as not connected to backend workflows. Their future product workflows must be designed and implemented from scratch.
 - App shell actions must be truthful. Global search, draft review, workspace counts, and navigation badges must be wired to real data, disabled with clear unavailable behavior, or removed from the active path.
 - Visual polish starts only after the target workflow exists. No page receives a visual acceptance pass while its primary controls are placeholders.
 
@@ -77,8 +78,8 @@ It excludes:
 2. Fix Write hierarchy projection, default names, rename, selected delete, collapse, scroll, selection, and save/reload tests.
 3. Slice C has expanded the Codex frontend API wrapper for Release A entry workflows and made Codex detail editing persistent.
 4. Slice D has started: Write now reads real Codex scene mentions/context preview, and Codex category create/change is real instead of read-only.
-5. Replace Review and Workshop placeholder dashboards with honest unavailable states unless real workflows are selected.
-6. Finish the minimum Settings credential/profile path and remove unsupported provider illusions.
+5. Replace Review and Workshop placeholder dashboards with honest retained UI shells: visible, non-operational, and clearly not backend-connected.
+6. Mark Slice E permanently skipped in all active status and acceptance records.
 7. Clean app-shell fake counts/actions and keep changed copy ready for bilingual adaptation.
 
 ## Execution Order
@@ -310,6 +311,12 @@ Implementation notes on 2026-06-24:
 - Removed the old `editableText.ts` DOM extraction/caret helper and removed unused Milkdown runtime dependencies from `@novel-studio/web`.
 - Added ADR-0010 for the CodeMirror runtime decision and dependency licenses.
 
+Follow-up layer fix on 2026-06-25:
+
+- Canon previews now render through a custom application-level absolute portal instead of CodeMirror's tooltip container or the editor's own low-level stacking context. The portal host and preview card use the app's highest overlay layer so the preview stays above the Codex editor border and following detail fields without using viewport-fixed positioning.
+- Clicking inside the preview no longer triggers the editor outside-click close handler; clicking elsewhere still closes it.
+- Focused tests cover top-layer mounting, z-index, preview self-click behavior, AppShell integration, and web typecheck.
+
 Target editor capabilities:
 
 - Chinese IME composition is not interrupted by Codex mention matching or React rerenders.
@@ -339,7 +346,7 @@ Acceptance:
 - Typing a Codex name/alias creates one text occurrence and one decoration range over that occurrence.
 - Saved scene content and Codex canon descriptions remain pure text and preserve blank lines plus line-leading spaces.
 - Codex underline decorations, preview UI, and any future editor overlays never enter saved manuscript or Canon text.
-- Canon preview popovers stay anchored during editor scroll/resize and do not use viewport-fixed positioning as a shortcut.
+- Canon preview popovers stay anchored during editor scroll/resize, render above neighboring editor/detail layers, and do not use viewport-fixed positioning as a shortcut.
 - Undo/redo, paste cleanup, and selection restoration have automated coverage appropriate to the chosen implementation.
 
 Forbidden:
@@ -368,26 +375,59 @@ Acceptance:
 - No silent provider fallback exists.
 - Tests cover behavior that does not require real secrets.
 
+Status: permanently skipped by user decision on 2026-06-25.
+
+Notes:
+
+- Earlier command-verified Settings work remains an unaccepted working draft in the codebase unless explicitly reverted later.
+- Do not claim Slice E as Recovery Release A evidence.
+- Do not continue provider expansion under the skipped Slice E scope.
+- Future provider work still requires official provider API documentation and a fresh task/acceptance record.
+
 Forbidden:
 
 - No provider expansion before the current settings path is coherent.
+- Any future provider integration must start from the provider's official API entry and documentation, and the task record must cite the official URL plus endpoint, auth, streaming, request/response, and model-list behavior before implementation is accepted.
+- Archive-only lifecycle is forbidden for new archive-capable data. Each design must include a user-visible cleanup/delete path and reference-blocking behavior.
 - No developer explanations crowding the main UI.
 
 ### Slice F: Review, Workshop, and Navigation Honesty
+
+Status: command-verified on 2026-06-25; user visual validation remains separate.
 
 Purpose: remove fake completeness.
 
 Tasks:
 
-- Decide whether Review and Workshop are included in Release A.
-- If included, define one real workflow each and wire it to real data.
-- If excluded, show unavailable states and stop wasting layout space.
+- Keep Review and Workshop visible in the UI.
+- Mark both pages as not connected to backend workflows in the current recovery release.
+- Remove fake counts, fake queue totals, and active-looking backend actions.
+- Disable composer/session/review action controls that do not have real backend support.
+- Record that future Review and Workshop functionality must be designed and implemented from scratch.
 - Sidebar/navigation must not imply unavailable pages are complete.
+
+Done:
+
+- Review and Workshop remain in the sidebar and can still be opened.
+- Sidebar fake counts for Overview, Plan, Codex, Workshop, and Review were removed; Write keeps the real save-state pill.
+- Workshop and Review sidebar rows show `Not connected` instead of fake totals.
+- The unconnected global `Review Draft` button was removed.
+- Global search is shown as unavailable instead of acting like a connected command search.
+- Review keeps its inbox layout but disables filters and replaces fake queue/stat cards with compact unavailable states.
+- Workshop keeps sessions, conversation, composer, and context basket UI, but disables New Session, Send, Insert, and composer input.
+- Changed user-facing Slice F copy is centralized in `uiText`.
+- Future Review and Workshop implementation is recorded as a from-scratch build.
 
 Acceptance:
 
-- Review and Workshop are honest.
+- Review and Workshop remain visible but honest: no backend-connected workflow is implied.
+- Future functionality is explicitly recorded as a from-scratch build.
 - No placeholder dashboard is accepted as a product workflow.
+
+Command evidence:
+
+- `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed: 38 tests.
+- `npm.cmd run typecheck -w @novel-studio/web` passed.
 
 Forbidden:
 
@@ -445,6 +485,4 @@ Acceptance:
 
 ## Current Next Action
 
-Slice D is command-verified for the current Codex scope. Browser/visual validation was not run by Codex per user instruction.
-
-The next implementation work should not be another incremental Plan patch. Plan needs the separate full review/rework requested by the user; context boundary behavior must stay aligned with M4 `ContextBundle` preview. Do not start provider expansion, Review/Workshop polish, or visual redesign before that scope is explicitly selected.
+Slice F is command-verified. The next implementation work is Slice G: visual system and responsive acceptance unless the user redirects. Plan still needs the separate full review/rework requested by the user; context boundary behavior must stay aligned with M4 `ContextBundle` preview. Do not start provider expansion or a new milestone before that scope is explicitly selected.

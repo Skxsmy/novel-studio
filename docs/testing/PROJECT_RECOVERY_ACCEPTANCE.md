@@ -1,7 +1,7 @@
 # Project Recovery Acceptance Record
 
 Status: active, not accepted
-Updated: 2026-06-24
+Updated: 2026-06-25
 
 ## Conclusion
 
@@ -96,7 +96,7 @@ Status: command-verified for the current Codex scope, not visually accepted. Pla
 
 ### Slice D2: Editor Foundation
 
-Status: command-verified on 2026-06-24 with CodeMirror 6 adopted for the current Write scene and Codex Canon editor surfaces. Real Chinese IME behavior still needs user/manual validation on an actual input method; browser screenshots are not a default requirement for this slice.
+Status: command-verified on 2026-06-24 with CodeMirror 6 adopted for the current Write scene and Codex Canon editor surfaces. The 2026-06-25 Canon preview layer follow-up was visually confirmed by the user. Real Chinese IME behavior still needs user/manual validation on an actual input method; browser screenshots are not a default requirement for this slice.
 
 Evidence:
 
@@ -106,12 +106,16 @@ Evidence:
 - Saved scene content and Codex Canon descriptions remain plain text, preserving blank lines and line-leading spaces.
 - CodeMirror dependencies added: `@codemirror/state`, `@codemirror/view`, `@codemirror/commands`, and `@codemirror/lang-markdown`, all MIT. Unused `@milkdown/kit` and `@milkdown/react` runtime dependencies were removed from the web package.
 - ADR-0010 records the editor runtime decision and supersedes the old Milkdown runtime choice while preserving the Markdown/YAML persistence contract.
+- Follow-up user feedback on 2026-06-25 corrected Canon preview layer order. Canon previews now render through a custom application-level absolute portal instead of CodeMirror's tooltip container; the portal host and preview card use the app's highest overlay layer above editor/detail content, without using viewport-fixed positioning. Clicking inside the preview keeps it open; clicking elsewhere still closes it.
 
 Commands:
 
 - `npm.cmd run build -w @novel-studio/contracts` passed.
 - `npm.cmd run typecheck -w @novel-studio/web` passed.
 - `npm.cmd run test -w @novel-studio/web -- EditorSurface.test.tsx AppShell.test.tsx` passed: 2 files, 41 tests.
+- 2026-06-25 follow-up: `npm.cmd run test -w @novel-studio/web -- EditorSurface.test.tsx` passed: 1 file, 6 tests.
+- 2026-06-25 follow-up: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed: 1 file, 37 tests.
+- 2026-06-25 follow-up: `npm.cmd run typecheck -w @novel-studio/web` passed.
 
 Acceptance mapping:
 
@@ -121,21 +125,60 @@ Acceptance mapping:
 - Duplicate-input and duplicate-decoration behavior: covered by `EditorSurface.test.tsx` and AppShell editor integration tests.
 - Pure text save, blank lines, and leading spaces: covered by AppShell save-payload tests.
 - Decorations/previews do not persist: covered by editor surface tests and save-payload tests.
+- Preview layer order: covered by `EditorSurface.test.tsx`, which verifies the preview is mounted outside `.novel-editor` on `.editor-tooltip-layer`, the layer and preview card both use the top overlay z-index, and the preview remains open when the preview itself is clicked.
 - Undo/redo, paste cleanup, selection restoration/state reporting: covered by focused editor tests and typechecked integration.
 
 ### Slice E: Settings and AI Safety
 
-- Supported model/profile/credential workflow uses real APIs.
-- Secrets are not written to project files, logs, console, screenshots, or Git.
-- Provider/cloud policy is explicit.
-- No silent provider fallback exists.
-- Unfinished providers are explicitly deferred or completed.
+Status: permanently skipped by user decision on 2026-06-25. This slice is not Recovery Release A acceptance evidence.
+
+Historical command evidence, not acceptance evidence:
+
+- Settings can list, create, update, test, fetch models for, delete service keys from, and archive active model profiles through real APIs.
+- Service-key status is shown as saved/missing/no key without displaying credential references or secret values.
+- Anthropic and Google stay deferred in the Settings provider selector; this slice did not add provider implementations.
+- Project and model cloud policies are enforced before provider access for cloud-routed providers.
+- Archived profiles are hidden from the active Settings list.
+- Remaining lifecycle requirement: archive is not enough for long-term use. A later cleanup/permanent-delete path must let users clear unwanted archived model profiles after reference checks or immutable snapshots.
+
+Commands:
+
+- `npm.cmd run test -w @novel-studio/server -- ai-routes.test.ts model-calls.test.ts` passed: 2 files, 9 tests.
+- `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed: 1 file, 37 tests.
+- `npm.cmd run typecheck -w @novel-studio/server` passed.
+- `npm.cmd run typecheck -w @novel-studio/web` passed.
+
+Acceptance mapping:
+
+- Skipped: no Slice E behavior is required for Recovery Release A acceptance.
+- Existing Settings/provider code remains a working draft unless a later task explicitly accepts, reworks, or removes it.
+- Future provider integrations are not accepted unless the task and acceptance records cite the provider's official API entry and document the endpoint, auth, streaming, request/response, and model-list behavior used by the implementation.
+- Future archive-capable objects are not accepted unless they include both archive/restore behavior and a user-visible cleanup/permanent-delete path with reference protection.
 
 ### Slice F: Review, Workshop, and Navigation Honesty
 
-- Review and Workshop are real scoped workflows or honest unavailable states.
+Status: command-verified on 2026-06-25, not visually accepted.
+
+- Review and Workshop remain visible in the UI.
+- Review and Workshop are honest unavailable shells, with no implied backend-connected workflow.
+- Future Review and Workshop functionality is recorded as a from-scratch build.
 - Navigation does not imply incomplete pages are complete.
 - No decorative placeholder dashboard is accepted.
+
+Evidence:
+
+- Sidebar still exposes Review and Workshop.
+- Sidebar no longer shows fake workspace counts such as Review 18, Workshop 4, or Codex 128.
+- Global `Review Draft` was removed.
+- Global search is disabled and labeled unavailable instead of implying command-search support.
+- Review keeps the inbox shape but disables unconnected filters and shows compact unavailable states.
+- Workshop keeps sessions, conversation, composer, and context basket shape but disables New Session, Send, Insert, and composer input.
+- Changed Slice F copy is centralized in `uiText`.
+
+Commands:
+
+- `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed: 1 file, 38 tests.
+- `npm.cmd run typecheck -w @novel-studio/web` passed.
 
 ### Slice G: Visual System and Responsive Acceptance
 
