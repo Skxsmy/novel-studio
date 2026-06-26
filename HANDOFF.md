@@ -8,9 +8,9 @@ This file is the short operational handoff. The older Chinese handoff was fully 
 
 - Branch: `codex/publish-novel-studio-20260624-9957a1f`.
 - Latest relevant committed baseline before the replan: `d7f1666 NS-409 docs: preserve historical logs in English`.
-- Current active task: project-level recovery roadmap.
-- Current acceptance state: not accepted. Command validation passed, but user visual/product validation failed.
-- Current planning decision: do not mechanically continue old NS-409/NS-410 sequencing. M2/M3 foundations can be modified if the rebuilt frontend exposes real gaps.
+- Current active task: `NS-410` Block Write Editor and Codex Field Progression.
+- Current acceptance state: NS-410 is in progress; project recovery remains not visually/product accepted.
+- Current planning decision: the prior “do not start NS-410” warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and field progression change. Implementation is paused until the user confirms; do not commit these documentation changes yet.
 
 ## Start Here
 
@@ -20,15 +20,18 @@ Read these files in order:
 2. `STATUS.md`
 3. `TASKS.md`
 4. `docs/README.md`
-5. `docs/tasks/PROJECT_RECOVERY.md`
-6. `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`
-7. `docs/design/ui-redesign/README.md`
+5. `docs/tasks/NS-410.md`
+6. `docs/testing/NS-410_ACCEPTANCE.md`
+7. `docs/adr/0012-scene-block-documents-and-codex-field-progression.md`
+8. `docs/tasks/PROJECT_RECOVERY.md`
+9. `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`
 
 Do not begin from old `NS-409A` through `NS-409F` screenshots as if they are current guidance. Current truth is the task and acceptance record above.
 
 ## Do Not Break These Rules
 
 - Do not mark project recovery complete until the user accepts the visual/product result.
+- Do not mark NS-410 complete until all NS-410 acceptance IDs are mapped to passing tests or explicit manual/user validation.
 - Do not assume M2/M3 APIs are sufficient just because older tasks passed. Audit before implementation.
 - Do not add new routine status or handoff files. Update the existing authority files.
 - Do not delete `docs/design/**/backups/` unless the user explicitly names the backup to delete.
@@ -36,6 +39,22 @@ Do not begin from old `NS-409A` through `NS-409F` screenshots as if they are cur
 - Do not hardcode user-facing UI text inside feature logic; later bilingual support is required.
 - Do not claim browser screenshots or DOM checks as user visual acceptance.
 - Do not expose developer/audit details in author-facing writing paths unless the product spec calls for them.
+- Do not interpret JSON authority as permission to break all existing APIs. Preserve current frontend-used route contracts through adapters where feasible.
+
+## Current NS-410 Work
+
+NS-410 changes the writing and Codex foundations:
+
+- Project authority moves from Markdown/YAML files to schema-versioned JSON files; current test data can be migrated or regenerated.
+- Scene body authority becomes JSON `SceneBlockDocument`; Markdown remains a projection/export/import boundary format.
+- Current frontend-used scene APIs should remain compatible during transition: reads keep projected `content`, and legacy `content` writes convert to JSON block documents.
+- Codex field progression is stored under `codex/field-progressions/` as JSON and remains separate from old world fact progressions and character knowledge.
+- Effective Codex entry reads must support scene/block position and hide future field progression content.
+- Context Builder must use projected Canon Description and Details.
+- Write needs ordinary blocks, embedded progression blocks, and a scene progression panel.
+- Codex needs baseline/history/effective-at-scene views for progressed fields.
+
+Implementation order is now the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Do not skip from JSON storage directly to full Write/Codex UI.
 
 ## Current Recovery Work
 
@@ -306,4 +325,4 @@ Current recovery order:
 
 ## Immediate Next Step
 
-Stay on project recovery and proceed to Slice G: visual system and responsive acceptance unless the user redirects. Do not start provider expansion or a new milestone, and do not create parallel handoff files.
+Wait for user confirmation before starting NS-410 implementation. When confirmed, start with Slice 1: contracts and JSON file foundation. Each slice must leave the app buildable and record its exit checks before the next slice starts. Do not start provider expansion, do not commit before the user's prior commits are pushed, and do not create parallel handoff files.

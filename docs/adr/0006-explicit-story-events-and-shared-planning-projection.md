@@ -2,6 +2,8 @@
 
 状态：已接受（2026-06-20）
 
+Superseded note: ADR-0012 supersedes the YAML/Markdown file-format assumption with schema-versioned JSON project authority. The explicit event and shared projection semantics still apply.
+
 ## 背景
 
 场景父清单只能表达读者看到故事的叙事顺序。倒叙、插叙、并行事件和模糊时间不能由同一个 Scene 日期字段可靠表达；Grid、Outline、Matrix 和 Timeline 若各自读取文件，也会产生顺序与筛选分叉。

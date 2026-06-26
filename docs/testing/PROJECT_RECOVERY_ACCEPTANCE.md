@@ -1,11 +1,11 @@
 # Project Recovery Acceptance Record
 
-Status: active, not accepted
+Status: paused by NS-410 user redirect, not accepted
 Updated: 2026-06-26
 
 ## Conclusion
 
-The project recovery phase is not accepted yet.
+The project recovery phase is not accepted yet. It is paused while `NS-410` is active by explicit user direction on 2026-06-26. NS-410/ADR-0012 supersedes earlier Markdown/YAML persistence assumptions with JSON project authority.
 
 The current React app is command-verified but failed user visual/product acceptance. The active acceptance target is Recovery Release A, not completion of an `NS-409` task.
 
@@ -105,7 +105,7 @@ Evidence:
 - Codex names/aliases render through CodeMirror decorations over pure text. Duplicate matches receive independent decorations; preview UI is editor-anchored and does not enter saved content.
 - Saved scene content and Codex Canon descriptions remain plain text, preserving blank lines and line-leading spaces.
 - CodeMirror dependencies added: `@codemirror/state`, `@codemirror/view`, `@codemirror/commands`, and `@codemirror/lang-markdown`, all MIT. Unused `@milkdown/kit` and `@milkdown/react` runtime dependencies were removed from the web package.
-- ADR-0010 records the editor runtime decision and supersedes the old Milkdown runtime choice while preserving the Markdown/YAML persistence contract.
+- ADR-0010 records the editor runtime decision and supersedes the old Milkdown runtime choice. Its Markdown/YAML persistence assumption is now superseded by NS-410/ADR-0012.
 - Follow-up user feedback on 2026-06-25 corrected Canon preview layer order. Canon previews now render through a custom application-level absolute portal instead of CodeMirror's tooltip container; the portal host and preview card use the app's highest overlay layer above editor/detail content, without using viewport-fixed positioning. Clicking inside the preview keeps it open; clicking elsewhere still closes it.
 - Follow-up user feedback on 2026-06-26 corrected Canon preview close and scroll-bound behavior. Preview state now closes when the user clicks any non-mention position inside the editor, preview positioning is clamped to the visible editor/scroll-container top and bottom when the referenced text scrolls away, and the preview card scrolls vertically only with horizontal overflow hidden.
 

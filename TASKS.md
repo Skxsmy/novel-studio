@@ -6,19 +6,23 @@ This index keeps the original milestone/task history translated from the earlier
 
 ## Current Active Work
 
-- [!] `PROJECT-RECOVERY` Project-level recovery roadmap.
+- [-] `NS-410` Block Write Editor and Codex Field Progression.
+- [!] `PROJECT-RECOVERY` Project-level recovery roadmap, paused while NS-410 is in progress by explicit user direction.
 
 Current decision:
 
 - The active work is not an `NS-409` continuation.
 - The current product is not accepted.
-- Do not continue to `NS-410` or M5 entry work.
+- The previous “do not continue to NS-410” instruction is superseded by explicit user direction on 2026-06-26 for this JSON authority / block document / field progression task.
+- Implementation must not begin until the user confirms. Documentation/planning changes should not be committed yet because the user needs to push previous commits first.
 - Do not treat old `NS-409A` through `NS-409F` assets as current guidance.
 - M2/M3 completion does not make their contracts untouchable. Hierarchy, Codex API, storage, and index behavior may be revised if the rebuilt frontend requires it.
 - Current source files:
+  - `docs/tasks/NS-410.md`
+  - `docs/testing/NS-410_ACCEPTANCE.md`
+  - `docs/adr/0012-scene-block-documents-and-codex-field-progression.md`
   - `docs/tasks/PROJECT_RECOVERY.md`
   - `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`
-  - `docs/design/ui-redesign/README.md`
 
 Immediate task requirements:
 
@@ -120,6 +124,12 @@ Immediate task requirements:
   - Slice G: visual system and responsive acceptance.
   - Slice H: verification and handoff.
   - Current React working draft is command-verified but visually rejected.
-- [ ] `NS-410` M4 closeout, security check, state handoff, and M5 entry confirmation. Do not start until project recovery is accepted.
+- [-] `NS-410` Block Write Editor and Codex Field Progression.
+  - Source: `docs/tasks/NS-410.md`.
+  - Acceptance: `docs/testing/NS-410_ACCEPTANCE.md`.
+  - ADR: `docs/adr/0012-scene-block-documents-and-codex-field-progression.md`.
+  - Scope: JSON project authority, Scene block document authority, Markdown projection/export/import boundary, compatibility adapters for existing scene APIs, Codex field progression for Canon Description and Details, scene/block-position projection, Context Builder projection, Write embedded progression blocks, Codex baseline/history/effective UI.
+  - Execution control: `docs/tasks/NS-410.md` now breaks implementation into controlled vertical slices 0-10; every slice must record exit evidence in `docs/testing/NS-410_ACCEPTANCE.md` before the next slice starts.
+  - Current status: project/spec/ADR records created; implementation in progress.
 
-M4 detailed planning remains in `docs/tasks/M4.md`. Throughout M4, AI must not directly modify prose, canon, summaries, character state, story progressions, or character knowledge.
+M4 detailed planning remains in `docs/tasks/M4.md`. Throughout M4 and NS-410, AI must not directly modify prose, canon, summaries, character state, story progressions, field progressions, or character knowledge without explicit author action/proposal flow.

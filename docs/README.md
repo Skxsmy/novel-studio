@@ -4,14 +4,16 @@ This directory is for durable project knowledge. Temporary browser notes, failed
 
 ## Fast Reading Path
 
-For the current project recovery state, read:
+For the current NS-410 implementation state, read:
 
 1. `../STATUS.md`
 2. `../HANDOFF.md`
 3. `../TASKS.md`
-4. `tasks/PROJECT_RECOVERY.md`
-5. `testing/PROJECT_RECOVERY_ACCEPTANCE.md`
-6. `design/ui-redesign/README.md`
+4. `tasks/NS-410.md`
+5. `testing/NS-410_ACCEPTANCE.md`
+6. `adr/0012-scene-block-documents-and-codex-field-progression.md`
+7. `tasks/PROJECT_RECOVERY.md`
+8. `testing/PROJECT_RECOVERY_ACCEPTANCE.md`
 
 Only read older milestone documents when the current task depends on that area.
 
@@ -33,4 +35,4 @@ Only read older milestone documents when the current task depends on that area.
 
 ## Current Warning
 
-The current product is not accepted. The active work is project-level recovery across product baseline, architecture/contracts/storage/API, Library, Write, Plan, Codex, Settings, Review, Workshop, design system, i18n readiness, and validation. The current React UI is a command-verified working draft with rejected visuals.
+The current product is not visually accepted. By explicit user direction on 2026-06-26, the active planning line is `NS-410` JSON Authority, Block Write Editor, and Codex Field Progression. Project recovery is paused but still not accepted; automated NS-410 checks must not be reported as user visual acceptance. Implementation is paused until the user confirms; do not commit the documentation changes yet.

@@ -2,11 +2,13 @@
 
 Status: Accepted
 
+Superseded note: ADR-0012 supersedes this ADR's Markdown/YAML persistence assumption with schema-versioned JSON project authority. The CodeMirror runtime decision and editor-private-state boundary still apply.
+
 ## Context
 
 Release A still treats scene manuscript and Codex Canon descriptions as pure text persisted through the existing Markdown/YAML contract. The previous React-rendered `contentEditable` path mixed browser editing, IME composition, and realtime Codex mark rerenders in the same DOM. That caused duplicate punctuation/text, unstable Chinese input, and inconsistent duplicate Codex underlines.
 
-ADR-0004 and ADR-0007 remain authoritative for Markdown/YAML persistence and for keeping editor-private state out of saved work. Their Milkdown runtime choice is superseded for the current Write scene and Codex Canon editor surfaces.
+ADR-0004 and ADR-0007 were authoritative for Markdown/YAML persistence at the time of this ADR and remain relevant for keeping editor-private state out of saved work. ADR-0012 later supersedes the persistence format with JSON authority. Their Milkdown runtime choice is superseded for the current Write scene and Codex Canon editor surfaces.
 
 ## Decision
 

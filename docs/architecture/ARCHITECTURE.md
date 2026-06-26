@@ -22,7 +22,7 @@ File store   SQLite / FTS5
 - `apps/web`：中文浏览器界面，包含概览、规划、写作、设定库、编辑室和待确认。
 - `apps/server`：Fastify 本地 API、错误处理、静态资源服务和领域路由注册。
 - `packages/contracts`：Zod 契约和共享 TypeScript 类型。
-- `packages/storage`：文件原子写入、Markdown/YAML 读写、层级校验、索引重建和查询。
+- `packages/storage`：JSON 权威文件原子写入、Markdown/Word 边界格式导入导出、层级校验、索引重建和查询。
 
 依赖方向固定为：
 
@@ -36,23 +36,23 @@ packages/contracts -> no app/storage dependency
 
 ## 当前数据权威
 
-作品目录中的 Markdown/YAML 是权威数据；SQLite 只保存可重建索引。
+作品目录中的结构化 JSON 文件是权威数据；Markdown/Word 是导入导出边界格式；SQLite 只保存可重建索引。
 
 ```text
-series.yaml
-books/<book-id>/book.yaml
-books/<book-id>/acts/<act-id>.yaml
-books/<book-id>/chapters/<chapter-id>.yaml
-books/<book-id>/manuscript/<act-id>/<chapter-id>/<scene-id>.md
-planning/events/<event-id>.yaml
-sections/<scene-id>/<section-id>.md
-review/anchors/<anchor-id>.yaml
-codex/categories/<category-id>.yaml
-codex/<category-id>/<entry-id>.md
-codex/entry-research/<entry-id>.md
-codex/relations/<relation-id>.yaml
-codex/progressions/<id>.yaml
-codex/knowledge/<id>.yaml
+series.json
+books/<book-id>/book.json
+books/<book-id>/acts/<act-id>.json
+books/<book-id>/chapters/<chapter-id>.json
+books/<book-id>/manuscript/<act-id>/<chapter-id>/<scene-id>.json
+planning/events/<event-id>.json
+sections/<scene-id>/<section-id>.json
+review/anchors/<anchor-id>.json
+codex/categories/<category-id>.json
+codex/<category-id>/<entry-id>.json
+codex/entry-research/<entry-id>.json
+codex/relations/<relation-id>.json
+codex/progressions/<id>.json
+codex/knowledge/<id>.json
 .studio/index.sqlite
 .studio/transactions/*.json
 ```
@@ -82,7 +82,7 @@ codex/knowledge/<id>.yaml
 
 ### 正文与附属文档
 
-正文使用 Markdown 文件；当前 Write 场景正文与 Codex Canon 描述编辑器采用 CodeMirror 6 运行时，详见 ADR-0010。Sections、候选资料和敏感资料保存为独立 Markdown 文件，并拥有独立 revision 与 AI 权限。审阅锚点保存为独立 YAML，查询时只返回定位状态，不写回。
+正文使用 JSON `SceneBlockDocument` 文件；当前 Write 场景正文与 Codex Canon 描述编辑器采用 CodeMirror 6 运行时，详见 ADR-0010 和 ADR-0012。Markdown 只作为导入导出/镜像格式。Sections、候选资料和敏感资料保存为独立 JSON 文件，并拥有独立 revision 与 AI 权限。审阅锚点保存为独立 JSON，查询时只返回定位状态，不写回。
 
 ### 设定库与连续性
 
@@ -145,7 +145,7 @@ packages/storage/src/fileTransactions.ts  # 多文件事务、事务恢复和 Fi
 
 ## 故障边界
 
-- YAML/Markdown 无法解析：返回明确错误，不静默修复。
+- JSON 权威文件或 Markdown/Word 边界输入无法解析：返回明确错误，不静默修复。
 - 层级引用缺失、重复、遗漏或父链不一致：校验报告问题，结构命令返回 `INVALID_DATA`。
 - 多文件事务中断：下次访问前恢复到提交前状态或完成提交，不留下半状态。
 - SQLite 损坏或缺失：从权威文件重建。

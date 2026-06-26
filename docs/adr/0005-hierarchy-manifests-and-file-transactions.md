@@ -2,6 +2,8 @@
 
 状态：已接受（2026-06-20）
 
+Superseded note: ADR-0012 supersedes the Markdown/YAML file-format assumption with schema-versioned JSON project authority. The explicit parent-list and recoverable transaction principles still apply.
+
 ## 背景
 
 场景 frontmatter 能描述自身所属幕章，但不能可靠表达空幕、空章、用户排序和父级对子级的完整成员关系。单次结构操作还会同时修改多个 YAML/Markdown 文件；逐个写入会在进程中断后留下半完成状态。

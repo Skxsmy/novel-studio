@@ -2,6 +2,8 @@
 
 状态：已接受
 
+Superseded note: ADR-0012 supersedes the YAML/frontmatter file-format assumption with schema-versioned JSON project authority. Reusable detail types should use stable detail type IDs as JSON keys where this ADR conflicts with NS-410.
+
 ## 背景
 
 Codex Details 需要表达作者按作品定义的结构化信息，例如人物年龄、样貌、阵营，或地点布局、禁忌、线索。早期实现把详情作为条目内的自由标签/键值直接编辑，导致不同条目难以复用同一类型，也无法集中添加、删除或约束名称。`tags` 对 Codex 条目没有有效产品语义，继续保留会混淆规划标签和设定详情。

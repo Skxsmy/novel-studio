@@ -1,11 +1,11 @@
 # Project Recovery Plan
 
-Status: active
+Status: paused by NS-410 user redirect
 Updated: 2026-06-26
 
 ## Decision
 
-The active work is a project recovery plan, not an `NS-409` continuation and not a Codex-only cleanup.
+Project recovery remains not accepted, but it is paused while `NS-410` is active by explicit user direction on 2026-06-26. The active task is `docs/tasks/NS-410.md`. NS-410/ADR-0012 supersedes this recovery document's older Markdown/YAML persistence assumptions with JSON project authority.
 
 The next target is a small accepted product slice: a user can create a project from zero, write in a coherent hierarchy, manage basic story memory in Codex, and configure the minimum AI/provider settings without fake placeholder pages.
 
@@ -290,8 +290,8 @@ Research sources:
 
 Researched options:
 
-- CodeMirror 6 is the preferred direction for Release A. It provides immutable editor state, explicit transactions, selection mapping, extensions, keymaps/commands, view plugins, viewport-aware rendering, decorations, input/clipboard hooks, and tooltip/panel placement. It fits the current product contract because scenes and Codex canon descriptions are plain text with UI-only Codex decorations.
-- ProseMirror is a strong rich-text engine with transactions, plugins, schema, history, and decorations. It is appropriate if Novel Studio decides scene/canon content should become structured rich text. It is heavier for the current pure-text Markdown/YAML contract because the schema and serialization rules would become product-critical.
+- CodeMirror 6 was the preferred direction for the Release A pure-text editor surfaces. It provides immutable editor state, explicit transactions, selection mapping, extensions, keymaps/commands, view plugins, viewport-aware rendering, decorations, input/clipboard hooks, and tooltip/panel placement. NS-410 keeps CodeMirror usable as a block text-editing surface, but the old Markdown/YAML persistence reason is superseded by ADR-0012.
+- ProseMirror is a strong rich-text engine with transactions, plugins, schema, history, and decorations. It is appropriate if Novel Studio later decides scene/canon content should become structured rich text beyond the NS-410 block document model.
 - Tiptap is a headless ProseMirror framework with a higher-level extension ecosystem. It is useful if the product needs rich content blocks, comments, or collaboration UI, but it inherits the ProseMirror schema/serialization cost and is not the first choice for the current plain-text editor.
 - Lexical has editor state, commands, transforms, listeners, and React-oriented rich-text architecture. It is viable for complex rich text, but Codex underline decorations and pure-text persistence would require more custom node/plugin work than CodeMirror.
 - Zettlr is not an embeddable editor library for this app, but it is a useful writing-product reference: Markdown-first editor, status bar, autocomplete, language/style tools, writing statistics, project/workbench behavior, and a clear separation of content and presentation.
@@ -299,7 +299,7 @@ Researched options:
 Decision for implementation:
 
 - Adopt CodeMirror 6 for Release A editor surfaces. No blocker was found during the spike.
-- Keep scenes and Codex canon descriptions as pure text persisted through the existing Markdown/YAML storage contract.
+- Historical Release A decision: keep scenes and Codex canon descriptions as pure text. Superseded by NS-410/ADR-0012 for persistence: scene authority becomes JSON `SceneBlockDocument`; `content` may remain as a projected compatibility field.
 - Treat Codex underlines, search hits, warnings, and future comments as editor decorations. They must never become saved text.
 - Keep Canon previews outside the document as editor-anchored tooltips/popovers, positioned from editor coordinates and updated on scroll/resize.
 - Remove the current React-rendered contentEditable mark approach in Write and Codex Canon description editors.
@@ -362,7 +362,7 @@ Forbidden:
 
 - Do not add more unrelated keydown patches as the long-term editor strategy.
 - Do not save Codex underline markup, preview components, or UI-only spans into manuscript or Codex Canon text.
-- Do not replace the editor with a heavy rich-text schema unless Markdown/YAML persistence and plain-text scene/canon contracts remain explicit.
+- Do not replace the editor with a heavy rich-text schema unless the JSON block-document persistence and plain-text projection contracts remain explicit.
 - Do not continue with a self-built editor core unless CodeMirror, ProseMirror/Tiptap, and Lexical have all been rejected with concrete blockers.
 
 ### Slice E: Settings and AI Safety Minimum

@@ -6,25 +6,27 @@ This file is the current project-status authority. Earlier Chinese records were 
 
 ## Read First
 
-- Current active line: project-level recovery.
-- Current decision: the project is not accepted. The React application builds and has partial real API wiring, but the user rejected the visual/product result.
-- Do not mechanically follow the old milestone order or the old `NS-409` umbrella. M2/M3 foundations may be revised when the rebuilt frontend exposes contract, API, storage, or index gaps.
-- Do not advance to `NS-410` or M5 entry work until project recovery is accepted.
+- Current active line: `NS-410` Block Write Editor and Codex Field Progression, started by explicit user direction on 2026-06-26.
+- Current decision: the previous recovery warning not to start `NS-410` is superseded for this task. The project is still not visually/product accepted, so NS-410 command verification must not be reported as user visual acceptance.
+- Do not mechanically follow the old milestone order or old `NS-409` assets. M2/M3 foundations may be revised for this block-document and field-progression change.
+- Project recovery remains not accepted, but is no longer the active implementation line while NS-410 is in progress.
 - Fast reading path for the next contributor:
   - `README.md`
   - `HANDOFF.md`
   - `TASKS.md`
   - `docs/README.md`
+  - `docs/tasks/NS-410.md`
+  - `docs/testing/NS-410_ACCEPTANCE.md`
+  - `docs/adr/0012-scene-block-documents-and-codex-field-progression.md`
   - `docs/tasks/PROJECT_RECOVERY.md`
   - `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`
-  - `docs/design/ui-redesign/README.md`
 - Protected backups: do not delete anything under `docs/design/**/backups/` unless the user explicitly names the backup to delete.
 - Routine progress must be recorded in existing authority files, not in new scattered status files: `STATUS.md`, `HANDOFF.md`, `TASKS.md`, `CHANGELOG.md`, the active task file, and the active acceptance file.
 
 ## Current Implementation Snapshot
 
 - Local-first React/Vite + Fastify application, bound to `127.0.0.1`.
-- Markdown/YAML files remain the durable authority; SQLite/FTS5 remains a rebuildable derived index.
+- Project JSON files are the target durable authority; Markdown/Word are boundary formats; SQLite/FTS5 remains a rebuildable derived index. Current runtime code has not yet been migrated.
 - Current frontend structure:
   - `apps/web/src/app`
   - `apps/web/src/api`
@@ -35,9 +37,41 @@ This file is the current project-status authority. Earlier Chinese records were 
 - `packages/storage` still has an oversized `src/index.ts`; domain behavior should keep moving out instead of growing it.
 - `packages/ai` contains the provider registry, mock provider, OpenAI-compatible path, DeepSeek/OpenAI/OpenRouter/Ollama paths, the Anthropic Messages API path, the Google Gemini GenerateContent API path, credential abstractions, and error classification.
 
-## Active Work: Project Recovery
+## Active Work: NS-410 Block Write Editor and Codex Field Progression
 
-The active line is project recovery, not an accepted baseline and not an `NS-409` continuation.
+The active line is now NS-410 by explicit user direction. Project recovery remains not accepted and must not be described as complete.
+
+NS-410 product decisions now recorded:
+
+- Project authority moves from Markdown/YAML files to schema-versioned JSON files.
+- Scene manuscript authority moves from Markdown-only body text to a structured JSON `SceneBlockDocument`.
+- Markdown remains a projection/export/import compatibility format and mirror.
+- Existing frontend-used scene APIs should remain compatible during transition: reads can keep returning projected `content`, and legacy `content` writes should convert to JSON block documents instead of forcing an immediate frontend-wide rewrite.
+- Word and full Markdown re-import are later workflows, not part of this implementation.
+- Codex field progression is a new field-content system under `codex/field-progressions/`, separate from old world-fact `codex/progressions/`.
+- Canon Description and reusable Detail values can vary by scene and block position.
+- Same-scene block order is part of visibility; future progression body, summary, and IDs must not leak backward.
+- Empty `replace` clears and hides a field.
+- Context Builder must use projected Codex fields at the current scene/block position.
+- AI/Proposal paths may use the API shape later, but must not directly write authoritative files without explicit author action/proposal flow.
+
+Current NS-410 implementation order:
+
+The task now uses controlled vertical slices in `docs/tasks/NS-410.md`:
+
+1. Slice 0 Planning Lock.
+2. Slice 1 Contracts and JSON file foundation.
+3. Slice 2 Scene JSON authority with legacy scene API compatibility.
+4. Slice 3 Scene document API and Markdown export.
+5. Slice 4 Field progression JSON storage and CRUD API.
+6. Slice 5 Projection engine and effective entry API.
+7. Slice 6 Context Builder and preview projection.
+8. Slice 7 Write block editor MVP for ordinary blocks.
+9. Slice 8 Write embedded progression blocks and scene progression panel.
+10. Slice 9 Codex baseline/history/effective-at-scene UI.
+11. Slice 10 Final regression, rollback, and handoff.
+
+Each slice must leave the app buildable and must not proceed until its exit checks are recorded in `docs/testing/NS-410_ACCEPTANCE.md`.
 
 Current blockers:
 
@@ -234,12 +268,6 @@ Acceptance evidence files:
 
 ## Next Work
 
-Do not continue to `NS-410`. Continue project recovery until the product has a user-accepted visual and product baseline.
+Continue NS-410 only after user confirms implementation should begin. Current approved work is documentation/planning; do not commit these changes yet because the user wants to push previous commits first. Start with Slice 1 from `docs/tasks/NS-410.md`, then update `docs/testing/NS-410_ACCEPTANCE.md` with actual exit evidence before moving to Slice 2.
 
-Immediate order:
-
-1. Continue to Slice G: visual system and responsive acceptance unless the user redirects.
-2. Do not continue with another incremental Plan patch; Plan needs the separate full review/rework requested by the user.
-3. Do not start provider expansion or a new milestone before the next recovery scope is explicitly selected.
-4. Re-run command validation after product/UI changes.
-5. Record the result in `docs/tasks/PROJECT_RECOVERY.md`, `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`, `STATUS.md`, `HANDOFF.md`, `TASKS.md`, and `CHANGELOG.md`.
+After NS-410, return to project recovery visual/product acceptance unless the user redirects again.

@@ -2,6 +2,8 @@
 
 状态：已接受（2026-06-20）
 
+Superseded note: ADR-0012 supersedes the YAML file-format assumption with schema-versioned JSON project authority. The separation of world-fact progressions and character knowledge still applies.
+
 ## 背景
 
 NS-304 已经建立设定库条目、参考笔记、关系和正文提及索引，但它们只表达基础资料与名称出现。长篇小说需要知道“从哪一场起事实发生变化”，以及“某个角色在这一刻知道、相信或误解什么”。如果把人物状态、关系状态或知识直接覆盖到条目详情里，后续场景会失去历史，也会让 AI 在早期场景看到未来信息。

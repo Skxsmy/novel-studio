@@ -2,7 +2,7 @@
 
 状态：已接受
 
-Note: ADR-0010 supersedes the Milkdown runtime choice for the current web Write scene and Codex Canon editor surfaces; the Markdown/YAML persistence decision remains in force.
+Note: ADR-0010 supersedes the Milkdown runtime choice for the current web Write scene and Codex Canon editor surfaces. ADR-0012 later supersedes the Markdown/YAML persistence decision with schema-versioned JSON project authority.
 
 
 ## 背景

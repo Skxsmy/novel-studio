@@ -67,7 +67,7 @@ AI、资料导入、批量替换和连续性分析都只能提出候选变更。
 
 ### P-02 文件为真
 
-Markdown/YAML 是作品的权威数据。SQLite、向量索引和搜索缓存必须可以删除并重建。作者不应因为数据库损坏而失去小说。
+项目目录中的结构化 JSON 文件是作品的权威数据。SQLite、向量索引和搜索缓存必须可以删除并重建。作者不应因为数据库损坏而失去小说。Markdown 和 Word 是导入、导出、镜像和迁移边界格式，不能再被默认视为内部正文权威格式。编辑器运行时 JSON、浏览器 localStorage、缓存和索引数据库都不是权威；只有带 `schemaVersion`、可校验、可迁移并通过原子写入保存的项目 JSON 文件才是权威副本。
 
 归档只用于从日常工作流隐藏数据，不能作为唯一的删除方式。凡是提供归档的对象，都必须在产品设计中提供用户可理解的清理/永久删除手段；若对象仍被历史记录、上下文快照、调用日志、关系或证据引用，界面必须说明阻止原因或先保留必要快照后再允许清理。长期使用不能依赖无限堆积归档数据。
 
@@ -241,9 +241,12 @@ AI 在某场景工作时只能看到截至该叙事位置有效的状态。未�
 - 面板宽度、开关状态和最近工作区按设备记忆。
 - 自动保存必须明确显示保存中、已保存、失败和冲突状态。
 
-### FR-WRITE-02 Markdown 与格式
+### FR-WRITE-02 JSON block document 与格式
 
-- 权威正文保存为 Markdown，不保存编辑器私有 JSON 作为唯一副本。
+- 权威正文保存为结构化 `SceneBlockDocument`，该结构必须位于项目 JSON 权威文件中，不保存编辑器私有运行时状态作为唯一副本。
+- 现有测试 Markdown 数据可以迁移或重新生成；兼容读取旧 Markdown 只作为导入/迁移路径，不再约束内部权威格式。
+- Markdown/Word 是导入导出格式；完整 Markdown/Word 回导必须经过预览和确认，不能直接覆盖内部 block document。
+- JSON 权威迁移不得被实现为前后端公共接口的全面破坏性重写；现有前端正在使用的场景读写 API 应通过服务端投影/转换适配继续工作，直到对应界面迁移到 block document API。
 - 支持段落、强调、场景分隔符、标题、列表、链接和基础引用。
 - 中文段首、引号和出版样式属于显示/导出主题，不通过破坏原文的空格硬编码实现。
 
@@ -290,6 +293,14 @@ Sections 使用独立文件和权限元数据，不混入正文后再靠隐藏�
 - 保存项目内自由笔记、清单、语句碎片和临时构思。
 - 可钉到编辑器旁边或加入 Workshop 上下文。
 - Snippet 默认不是 Canon，也不自动提供给 AI。
+
+### FR-WRITE-08 Codex Field Progression Blocks
+
+- 写作正文可插入 Codex 字段变化 block，用来记录某个场景位置起生效的 Canon Description 或 Detail 变化。
+- 变化 block 必须引用独立的 field progression 记录；删除正文 block 时同步删除该记录，若历史引用阻止硬删，界面必须说明阻止原因。
+- Progression block 可折叠、展开、编辑和删除；专注模式中默认以不打断写作的折叠状态存在。
+- 右侧管理面板可按当前场景 block 顺序列出变化，点击后定位到正文 block，并与正文 block 编辑保持同步。
+- 这些 block 不得污染普通 Markdown 导出正文；导出时可作为可选注释或附录处理。
 
 ## 8. Codex 与故事状态
 
@@ -339,6 +350,11 @@ Sections 使用独立文件和权限元数据，不混入正文后再靠隐藏�
 - Replacement：从指定场景起替换此前状态。
 - 可绑定某个 Detail 或整体描述。
 - 默认沿叙事顺序生效；故事时间用于矛盾检测，不自动改写叙事知识状态。
+- Codex field progression 独立于上述世界事实/关系 Progression。它专门作用于 Canon Description 和按稳定 detail type ID 识别的 Detail 值。
+- Field progression 只支持 `add` 与 `replace`；空 `replace` 表示清空并在悬浮预览、Context Builder 和 AI 上下文中隐藏该字段。
+- 同一 Scene 内 field progression 还必须按 block 顺序生效；查询某个 block 位置时，只能看到当前位置之前或当前位置自身已经生效的字段变化。
+- 后文 field progression 不能向早期场景、早期 block、悬浮预览或 AI 上下文泄露正文、摘要或内部 ID；最多返回隐藏数量。
+- Codex 主页面编辑的是整部小说的初始/基准状态。按 Scene 查看时必须明确区分“初始设定”和“此刻有效”。
 
 ### FR-CODEX-07 世界真相与角色知识
 

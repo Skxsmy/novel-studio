@@ -111,13 +111,14 @@
 
 ## 9. Markdown 与 DOCX 导出边界
 
-- Markdown 是可迁移原稿和结构资料格式。
+- NS-410 起，内部正文权威是 JSON `SceneBlockDocument`。Markdown 是可迁移原稿、镜像和导出格式，不再是内部正文权威格式。
 - DOCX 是交稿、外部编辑和普通阅读格式。
 - PDF/EPUB 不是首版权威导出；以后只能作为阅读副本，不能成为编辑往返源。
+- 从 block document 导出 Markdown 时，普通正文必须保持可读；Codex progression block 默认不污染正文，可在后续导出设置中选择输出为注释或附录。
 
 ## 10. 数据迁移
 
-- 所有 YAML 和数据库结构带 `schemaVersion`。
+- 所有 JSON 权威文件和数据库结构带 `schemaVersion`。
 - 迁移分“分析 → 备份 → 执行 → 验证 → 提交”五步。
 - 中途失败打开旧格式只读模式并提供恢复。
 - 不允许应用启动时无提示批量重写全部作品。

@@ -2,6 +2,8 @@
 
 状态：已接受
 
+Superseded note: ADR-0012 supersedes the Markdown/YAML file-format assumption with schema-versioned JSON project authority. The separation of Canon, Research, relations, mentions, and rebuildable indexes still applies.
+
 ## 背景
 
 Codex 同时包含作者确认的 Canon、仅供参考的 Research、结构化元数据、关系和从正文机械计算出的提及。把这些内容放进同一数据库会破坏文件权威；把 Canon 与 Research 混进同一 Markdown 正文又会让后续上下文装配器难以证明发送边界。同名人物、短名称和方向性关系还要求系统在证据不足时明确保守。

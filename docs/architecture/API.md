@@ -34,13 +34,16 @@
 - `POST /series/:seriesId/scenes`
 - `GET /series/:seriesId/scenes/:sceneId`
 - `PUT /series/:seriesId/scenes/:sceneId`
+- `GET /series/:seriesId/scenes/:sceneId/document`
+- `PUT /series/:seriesId/scenes/:sceneId/document`
+- `GET /series/:seriesId/scenes/:sceneId/export/markdown`
 - `POST /series/:seriesId/scenes/:sceneId/move`
 - `POST /series/:seriesId/chapters/:chapterId/scenes/reorder`
 - `POST /series/:seriesId/index/rebuild`
 - `GET /series/:seriesId/search?q=`
 - `PATCH /series/:seriesId/scenes/:sceneId/planning`
 
-场景创建默认落在第一本书的第一个可用章节；若客户端要把场景放入指定位置，`POST /series/:seriesId/scenes` 必须同时提供 `bookId`、`actId` 和 `chapterId`。场景更新必须提供 `baseRevision`。移动只接受 `targetChapterId` 与可选 `order`，祖先 ID 由服务端推导。
+场景创建默认落在第一本书的第一个可用章节；若客户端要把场景放入指定位置，`POST /series/:seriesId/scenes` 必须同时提供 `bookId`、`actId` 和 `chapterId`。NS-410 起，`/document` 是 JSON `SceneBlockDocument` 主路径，更新必须提供 `baseRevision`。传统 Markdown content 更新仅作为导入/迁移兼容入口，并转换为 block document 后写入 JSON 权威文件。Markdown 导出从 block document 投影，不返回编辑器私有状态。移动只接受 `targetChapterId` 与可选 `order`，祖先 ID 由服务端推导。
 
 ## Act 与 Chapter
 
@@ -99,6 +102,9 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 - `POST /series/:seriesId/codex/relations/:relationId/archive`
 - `POST /series/:seriesId/codex/relations/:relationId/restore`
 - `GET /series/:seriesId/codex/context?sceneId=&pinnedIds=`
+- `GET /series/:seriesId/codex/entries/:entryId/effective?sceneId=&blockId=`
+- `GET|POST /series/:seriesId/codex/field-progressions`
+- `GET|PUT|DELETE /series/:seriesId/codex/field-progressions/:fieldProgressionId`
 - `GET|POST /series/:seriesId/codex/progressions`
 - `GET|PUT /series/:seriesId/codex/progressions/:progressionId`
 - `POST /series/:seriesId/codex/progressions/:progressionId/archive`
@@ -111,7 +117,9 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 
 条目更新分别检查条目 `baseRevision` 和 Research `baseResearchRevision`；只修改其中一类时只要求对应 revision。内置类别不能更新或归档。Codex 条目请求和响应不再包含 `tags`；详情正文通过 `details` 对象保存，键名来自同类别的可复用详情类型。`detailAiContext` 通过同一键名保存条目级详情发送开关，`false` 的详情不得进入 M4 ContextBundle。详情类型创建会拒绝同类别重名；更新要求 `baseRevision`，当前只允许切换 NSFW 标记；删除要求 `baseRevision`，且当同类别任何条目仍使用该详情类型名称时返回 `422 INVALID_DATA`。自动提及与上下文预览是派生查询，不写回正文、Scene 关联或 Canon。`never` 条目即使出现在 `pinnedIds` 中也必须排除。
 
-进展记录和角色所知均为权威 YAML 文件，更新、归档和恢复要求自身 `baseRevision`。有效状态查询只按当前叙事位置返回已生效记录；未来记录只返回数量，不返回摘要、证据或 ID。
+Field progression 是 Canon Description / Detail 字段级变化，存放于 `codex/field-progressions/`，不同于 `codex/progressions/` 的世界事实/关系摘要。创建和更新必须校验 entry、detail type、scene、block 和 source 引用。`DELETE` 仅在没有历史引用阻止时硬删。按 entry 的 effective API 可带 `sceneId` 与 `blockId`，返回 projected entry、fieldStates 和 hidden future count，不返回未来记录正文、摘要或 ID。
+
+进展记录和角色所知均为权威 JSON 文件，更新、归档和恢复要求自身 `baseRevision`。有效状态查询只按当前叙事位置返回已生效记录；未来记录只返回数量，不返回摘要、证据或 ID。
 
 ## M4 AI 基础设施
 
@@ -159,7 +167,7 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 
 内置角色首版包括：主笔伙伴、结构编辑、人物编辑、连续性编辑、文风编辑、冷酷读者和研究员。内置角色不可原地改写；用户只能复制后修改。
 
-提示词模板是声明式 YAML。当前实现只允许 `{{变量名}}` 替换和组件拼接；不得执行任意 JavaScript。每次修改模板都生成新版本，旧调用日志继续指向旧版本。
+提示词模板是声明式 JSON。当前实现只允许 `{{变量名}}` 替换和组件拼接；不得执行任意 JavaScript。每次修改模板都生成新版本，旧调用日志继续指向旧版本。
 
 `POST /prompts/:promptTemplateId/preview` 只返回渲染后的提示词片段，不触发模型调用。缺少必填输入时返回 `400 PROMPT_INPUT_MISSING`；模板包含表达式或未闭合占位符时返回 `422 PROMPT_TEMPLATE_INVALID`。
 
