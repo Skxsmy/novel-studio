@@ -60,8 +60,8 @@ Current NS-410 implementation order:
 The task now uses controlled vertical slices in `docs/tasks/NS-410.md`:
 
 1. Slice 0 Planning Lock.
-2. Slice 1 Contracts and JSON file foundation.
-3. Slice 2 Scene JSON authority with legacy scene API compatibility.
+2. Slice 1 Contracts and JSON file foundation. Passed for Slice 1 scope on 2026-06-26.
+3. Slice 2 Scene JSON authority with legacy scene API compatibility. Next implementation slice.
 4. Slice 3 Scene document API and Markdown export.
 5. Slice 4 Field progression JSON storage and CRUD API.
 6. Slice 5 Projection engine and effective entry API.
@@ -268,6 +268,6 @@ Acceptance evidence files:
 
 ## Next Work
 
-Continue NS-410 only after user confirms implementation should begin. Current approved work is documentation/planning; do not commit these changes yet because the user wants to push previous commits first. Start with Slice 1 from `docs/tasks/NS-410.md`, then update `docs/testing/NS-410_ACCEPTANCE.md` with actual exit evidence before moving to Slice 2.
+Continue NS-410 with Slice 2 from `docs/tasks/NS-410.md`: scene JSON authority with legacy scene API compatibility. Slice 1 is verified and recorded in `docs/testing/NS-410_ACCEPTANCE.md`; do not skip Slice 2's compatibility exit checks.
 
 After NS-410, return to project recovery visual/product acceptance unless the user redirects again.

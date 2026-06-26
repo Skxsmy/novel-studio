@@ -171,6 +171,76 @@ export const HierarchyValidationResultSchema = z.object({
 });
 export type HierarchyValidationResult = z.infer<typeof HierarchyValidationResultSchema>;
 
+export const SceneBlockIdSchema = z.string().uuid();
+export type SceneBlockId = z.infer<typeof SceneBlockIdSchema>;
+
+export const SceneParagraphBlockSchema = z.object({
+  id: SceneBlockIdSchema,
+  kind: z.literal("paragraph"),
+  text: z.string().max(400000).default(""),
+});
+export type SceneParagraphBlock = z.infer<typeof SceneParagraphBlockSchema>;
+
+export const SceneHeadingBlockSchema = z.object({
+  id: SceneBlockIdSchema,
+  kind: z.literal("heading"),
+  level: z.number().int().min(1).max(6).default(1),
+  text: z.string().max(4000).default(""),
+});
+export type SceneHeadingBlock = z.infer<typeof SceneHeadingBlockSchema>;
+
+export const SceneQuoteBlockSchema = z.object({
+  id: SceneBlockIdSchema,
+  kind: z.literal("quote"),
+  text: z.string().max(400000).default(""),
+});
+export type SceneQuoteBlock = z.infer<typeof SceneQuoteBlockSchema>;
+
+export const SceneBreakBlockSchema = z.object({
+  id: SceneBlockIdSchema,
+  kind: z.literal("sceneBreak"),
+});
+export type SceneBreakBlock = z.infer<typeof SceneBreakBlockSchema>;
+
+export const CodexProgressionSceneBlockSchema = z.object({
+  id: SceneBlockIdSchema,
+  kind: z.literal("codexProgression"),
+  progressionId: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type CodexProgressionSceneBlock = z.infer<typeof CodexProgressionSceneBlockSchema>;
+
+export const SceneBlockSchema = z.discriminatedUnion("kind", [
+  SceneParagraphBlockSchema,
+  SceneHeadingBlockSchema,
+  SceneQuoteBlockSchema,
+  SceneBreakBlockSchema,
+  CodexProgressionSceneBlockSchema,
+]);
+export type SceneBlock = z.infer<typeof SceneBlockSchema>;
+
+export const SceneBlockDocumentSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    blocks: z.array(SceneBlockSchema).default([]),
+  })
+  .superRefine((document, context) => {
+    const seen = new Set<string>();
+    for (let index = 0; index < document.blocks.length; index += 1) {
+      const block = document.blocks[index]!;
+      if (seen.has(block.id)) {
+        context.addIssue({
+          code: "custom",
+          message: "Scene block document contains duplicate block IDs",
+          path: ["blocks", index, "id"],
+        });
+      }
+      seen.add(block.id);
+    }
+  });
+export type SceneBlockDocument = z.infer<typeof SceneBlockDocumentSchema>;
+
 export const SceneFrontmatterSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string().uuid(),
@@ -378,6 +448,18 @@ export const SceneDocumentSchema = z.object({
 });
 export type SceneDocument = z.infer<typeof SceneDocumentSchema>;
 
+export const SceneBlockDocumentResponseSchema = z.object({
+  metadata: SceneFrontmatterSchema,
+  document: SceneBlockDocumentSchema,
+  plainText: z.string(),
+  content: z.string(),
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  relativePath: z.string(),
+  characterCount: z.number().int().nonnegative(),
+  paragraphCount: z.number().int().nonnegative(),
+});
+export type SceneBlockDocumentResponse = z.infer<typeof SceneBlockDocumentResponseSchema>;
+
 export const SeriesSummarySchema = z.object({
   id: z.string().uuid(),
   title: z.string(),
@@ -433,6 +515,23 @@ export const UpdateSceneInputSchema = z.object({
   summary: z.string().optional(),
 });
 export type UpdateSceneInput = z.infer<typeof UpdateSceneInputSchema>;
+
+export const UpdateSceneBlockDocumentInputSchema = z.object({
+  baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  title: z.string().trim().min(1).max(160).optional(),
+  document: SceneBlockDocumentSchema,
+  status: SceneStatusSchema.optional(),
+  goal: z.string().optional(),
+  summary: z.string().optional(),
+});
+export type UpdateSceneBlockDocumentInput = z.infer<typeof UpdateSceneBlockDocumentInputSchema>;
+
+export const SceneMarkdownExportSchema = z.object({
+  sceneId: z.string().uuid(),
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  markdown: z.string(),
+});
+export type SceneMarkdownExport = z.infer<typeof SceneMarkdownExportSchema>;
 
 export const SceneSectionKindSchema = z.enum([
   "author-note",

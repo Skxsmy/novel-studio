@@ -54,7 +54,7 @@ NS-410 changes the writing and Codex foundations:
 - Write needs ordinary blocks, embedded progression blocks, and a scene progression panel.
 - Codex needs baseline/history/effective-at-scene views for progressed fields.
 
-Implementation order is now the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Do not skip from JSON storage directly to full Write/Codex UI.
+Implementation order is now the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Slice 1 passed for its scope on 2026-06-26. Do not skip from JSON storage directly to full Write/Codex UI.
 
 ## Current Recovery Work
 
@@ -325,4 +325,4 @@ Current recovery order:
 
 ## Immediate Next Step
 
-Wait for user confirmation before starting NS-410 implementation. When confirmed, start with Slice 1: contracts and JSON file foundation. Each slice must leave the app buildable and record its exit checks before the next slice starts. Do not start provider expansion, do not commit before the user's prior commits are pushed, and do not create parallel handoff files.
+Continue with Slice 2: scene JSON authority with legacy scene API compatibility. Each slice must leave the app buildable and record its exit checks before the next slice starts. Do not start provider expansion, and do not create parallel handoff files.

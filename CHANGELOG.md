@@ -9,6 +9,7 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **NS-410 Start**: Recorded the Block Write Editor and Codex Field Progression task in product specs, traceability, architecture docs, ADR-0012, task docs, and acceptance records. The prior project-recovery warning against starting NS-410 is explicitly superseded by user direction for this scope.
 - **NS-410 JSON Authority Replan**: Updated the authoritative direction from Markdown/YAML persistence to schema-versioned JSON project files. Markdown/Word are now boundary formats. Existing frontend-used scene APIs must remain compatible through projection/conversion adapters where feasible. Implementation is paused until user confirmation; no commit should be made before the user's prior commits are pushed.
 - **NS-410 Slice Control**: Replaced the linear implementation order with a controlled vertical slice plan covering planning lock, contracts, JSON scene authority, document APIs, field progression CRUD, projection, Context Builder, Write blocks, Write progression UI, Codex effective UI, and final regression. Each slice has exit checks and acceptance mapping.
+- **NS-410 Slice 1**: Added scene block document and Codex field progression contracts plus deterministic JSON authority storage helpers with focused tests for revision stability, malformed JSON, schema mismatch, duplicate block IDs, path containment, and atomic-write cleanup. Existing repository scene tests still pass.
 
 ### Project Foundation
 

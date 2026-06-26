@@ -14,9 +14,9 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | ID | Status | Evidence |
 | --- | --- | --- |
 | NS-410-A01 | pending | Storage/migration test planned: current Markdown/YAML test data migrates or regenerates into JSON block documents; Markdown import preserves supported structure where kept. |
-| NS-410-A02 | pending | Storage/server tests planned: save/reload revision behavior. |
+| NS-410-A02 | partial | Slice 1 covered deterministic JSON serialization/revision and reload via `json-authority.test.ts`; scene block save/reload remains for Slice 2/3. |
 | NS-410-A03 | pending | Storage/server tests planned: Markdown export. |
-| NS-410-A04 | pending | Storage/server adversarial tests planned. |
+| NS-410-A04 | partial | Slice 1 covered malformed JSON, schema-version mismatch, duplicate block IDs, path escape, and atomic replacement cleanup via `json-authority.test.ts`; scene/progression reference diagnostics remain later. |
 | NS-410-A05 | pending | Storage/server tests planned: field progression CRUD and validation. |
 | NS-410-A06 | pending | Storage/web tests planned: progression block deletion synchronization. |
 | NS-410-A07 | pending | Projection tests planned: baseline only. |
@@ -29,7 +29,7 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | NS-410-A14 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
 | NS-410-A15 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
 | NS-410-A16 | pending | Storage/context/search/mention regression tests planned. |
-| NS-410-A17 | pending | API/web regression planned: existing frontend-used scene responses still include projected `content`, and legacy `content` updates convert to JSON block authority without breaking current callers. |
+| NS-410-A17 | partial | Slice 1 kept scene APIs untouched and `repository.test.ts` passed; explicit compatibility conversion remains for Slice 2. |
 
 ## Slice Exit Map
 
@@ -64,6 +64,28 @@ git diff --check
 ```
 
 If any full command is blocked by the sandbox, rerun with the required approval and record both the failed command and the passing rerun.
+
+## Slice Results
+
+### Slice 1: Contracts And JSON File Foundation
+
+Status: passed for Slice 1 scope on 2026-06-26.
+
+Changes verified:
+
+- Added scene block document contracts, scene document block-response/update/export DTOs, Codex field progression DTOs, and effective-entry DTOs.
+- Added `packages/storage/src/jsonAuthority.ts` with deterministic JSON serialization, SHA-256 revision calculation, schema validation, root path containment, and atomic write integration.
+- Added focused JSON authority tests for deterministic revision/reload, malformed JSON, schema-version mismatch, duplicate scene block IDs, path escape, and atomic-replacement temp cleanup.
+- Kept repository scene APIs untouched in Slice 1.
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `npm.cmd run build -w @novel-studio/contracts` | Passed. |
+| `npm.cmd run test -w @novel-studio/storage -- json-authority.test.ts` | Initial parallel run failed because it raced the contracts build and loaded stale contracts dist; rerun after contracts build passed with 5/5 tests. |
+| `npm.cmd run build -w @novel-studio/storage` | Passed. |
+| `npm.cmd run test -w @novel-studio/storage -- repository.test.ts` | Passed with 43/43 tests. |
 
 ## Invariant Checklist
 

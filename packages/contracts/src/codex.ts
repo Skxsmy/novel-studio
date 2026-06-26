@@ -161,6 +161,112 @@ export const CodexEntryDocumentSchema = z.object({
 });
 export type CodexEntryDocument = z.infer<typeof CodexEntryDocumentSchema>;
 
+export const CodexFieldProgressionFieldSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("description"),
+    detailTypeId: z.null().default(null),
+  }),
+  z.object({
+    kind: z.literal("detail"),
+    detailTypeId: z.string().uuid(),
+  }),
+]);
+export type CodexFieldProgressionField = z.infer<typeof CodexFieldProgressionFieldSchema>;
+
+export const CodexFieldProgressionOperationSchema = z.enum(["add", "replace"]);
+export type CodexFieldProgressionOperation = z.infer<typeof CodexFieldProgressionOperationSchema>;
+
+export const CodexFieldProgressionSourceSchema = z
+  .object({
+    kind: z.enum(["write-block", "codex-page", "proposal"]),
+    sceneId: z.string().uuid().nullable().default(null),
+    blockId: z.string().uuid().nullable().default(null),
+  })
+  .superRefine((source, context) => {
+    if (source.kind !== "write-block") return;
+    if (!source.sceneId) {
+      context.addIssue({
+        code: "custom",
+        message: "Write-block field progression source requires sceneId",
+        path: ["sceneId"],
+      });
+    }
+    if (!source.blockId) {
+      context.addIssue({
+        code: "custom",
+        message: "Write-block field progression source requires blockId",
+        path: ["blockId"],
+      });
+    }
+  });
+export type CodexFieldProgressionSource = z.infer<typeof CodexFieldProgressionSourceSchema>;
+
+export const CodexFieldProgressionSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  entryId: z.string().uuid(),
+  field: CodexFieldProgressionFieldSchema,
+  operation: CodexFieldProgressionOperationSchema,
+  body: z.string().max(16000).default(""),
+  summary: z.string().trim().max(1000).default(""),
+  effectiveFromSceneId: z.string().uuid(),
+  source: CodexFieldProgressionSourceSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  archivedAt: z.string().datetime().nullable().default(null),
+});
+export type CodexFieldProgression = z.infer<typeof CodexFieldProgressionSchema>;
+
+export const CodexFieldProgressionDocumentSchema = z.object({
+  progression: CodexFieldProgressionSchema,
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type CodexFieldProgressionDocument = z.infer<typeof CodexFieldProgressionDocumentSchema>;
+
+export const CreateCodexFieldProgressionInputSchema = CodexFieldProgressionSchema.pick({
+  entryId: true,
+  field: true,
+  operation: true,
+  body: true,
+  summary: true,
+  effectiveFromSceneId: true,
+  source: true,
+}).partial({
+  summary: true,
+});
+export type CreateCodexFieldProgressionInput = z.input<typeof CreateCodexFieldProgressionInputSchema>;
+
+export const UpdateCodexFieldProgressionInputSchema = CreateCodexFieldProgressionInputSchema.partial()
+  .extend({ baseRevision: z.string().regex(/^[a-f0-9]{64}$/) })
+  .superRefine((input, context) => {
+    if (Object.keys(input).every((key) => key === "baseRevision")) {
+      context.addIssue({ code: "custom", message: "At least one field progression field is required" });
+    }
+  });
+export type UpdateCodexFieldProgressionInput = z.infer<typeof UpdateCodexFieldProgressionInputSchema>;
+
+export const DeleteCodexFieldProgressionResultSchema = z.object({
+  deletedId: z.string().uuid(),
+});
+export type DeleteCodexFieldProgressionResult = z.infer<typeof DeleteCodexFieldProgressionResultSchema>;
+
+export const CodexEffectiveFieldStateSchema = z.object({
+  field: CodexFieldProgressionFieldSchema,
+  source: z.enum(["baseline", "progression"]),
+  lastProgressionId: z.string().uuid().nullable(),
+  hiddenFutureCount: z.number().int().nonnegative(),
+});
+export type CodexEffectiveFieldState = z.infer<typeof CodexEffectiveFieldStateSchema>;
+
+export const CodexEffectiveEntrySchema = z.object({
+  sceneId: z.string().uuid(),
+  blockId: z.string().uuid().nullable().default(null),
+  entry: CodexEntryDocumentSchema,
+  fieldStates: z.array(CodexEffectiveFieldStateSchema),
+  hiddenFutureFieldProgressionCount: z.number().int().nonnegative(),
+});
+export type CodexEffectiveEntry = z.infer<typeof CodexEffectiveEntrySchema>;
+
 export const CreateCodexEntryInputSchema = z.object({
   categoryId: CodexCategoryIdSchema.default(DefaultCodexEntryValues.categoryId),
   name: z.string().trim().min(1).max(160).default(DefaultCodexEntryValues.name),

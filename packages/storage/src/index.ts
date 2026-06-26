@@ -211,6 +211,7 @@ import {
   savePromptPreset,
   savePromptTemplate,
 } from "./aiFiles.js";
+export * from "./jsonAuthority.js";
 
 export { StorageError } from "./errors.js";
 export { pathExists } from "./fileSystem.js";
