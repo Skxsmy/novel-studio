@@ -203,7 +203,6 @@ describe("ProjectRepository", () => {
       categoryId: updatedCategory.category.id,
       name: "白泽",
       aliases: ["泽兽"],
-      tags: ["传说"],
       description: "能言，通万物之情。",
       research: "现实资料尚待核实。",
     });
@@ -326,6 +325,49 @@ describe("ProjectRepository", () => {
         name: category.category.name,
       }),
     ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+  });
+
+  it("manages reusable Codex detail types and blocks deletion while used", async () => {
+    const store = await repository();
+    const title = "CodexDetailTypes";
+    const series = await store.createSeries({ title });
+    const age = await store.createCodexDetailType(series.manifest.id, {
+      categoryId: "character",
+      name: "年龄",
+    });
+    const appearance = await store.createCodexDetailType(series.manifest.id, {
+      categoryId: "character",
+      name: "样貌",
+    });
+
+    await expect(store.createCodexDetailType(series.manifest.id, {
+      categoryId: "character",
+      name: "年龄",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "克莉斯多",
+      details: { 年龄: "十七岁" },
+    });
+
+    await expect(store.deleteCodexDetailType(series.manifest.id, age.detailType.id, {
+      baseRevision: age.revision,
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    const deleted = await store.deleteCodexDetailType(series.manifest.id, appearance.detailType.id, {
+      baseRevision: appearance.revision,
+    });
+
+    expect(deleted).toEqual({ deletedId: appearance.detailType.id });
+    expect((await store.listCodexDetailTypes(series.manifest.id, { categoryId: "character" }))
+      .map((document) => document.detailType.name)).toEqual(["年龄"]);
+    expect((await store.getCodexEntry(series.manifest.id, entry.metadata.id)).metadata.details)
+      .toEqual({ 年龄: "十七岁" });
+    await expect(readFile(
+      path.join(seriesRoot(store, title, series.manifest.id), "codex", "detail-types", `${appearance.detailType.id}.yaml`),
+      "utf8",
+    )).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("deletes custom Codex categories without deleting their entries", async () => {

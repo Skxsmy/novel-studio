@@ -3,15 +3,18 @@ import type {
   CodexCategoryDocument,
   CodexCategoryId,
   CodexContextPreview,
+  CodexDetailTypeDocument,
   CodexEntryDocument,
   CodexMention,
   CodexRelationDocument,
   CreateCodexCategoryInput,
+  CreateCodexDetailTypeInput,
   CreateCodexEntryInput,
   CreateCodexRelationInput,
   ArchiveCodexDocumentInput,
   DeleteCodexCategoryResult,
   DeleteCodexDocumentInput,
+  DeleteCodexDetailTypeResult,
   DeleteCodexEntryResult,
   SceneCodexMentions,
   UpdateCodexCategoryInput,
@@ -40,6 +43,24 @@ export function createCodexApi(client: ApiClient) {
     },
     deleteCategory(seriesId: string, categoryId: string, input: DeleteCodexDocumentInput) {
       return client.requestJson<DeleteCodexCategoryResult>(`/series/${seriesId}/codex/categories/${categoryId}`, {
+        body: input,
+        method: "DELETE",
+      });
+    },
+    listDetailTypes(seriesId: string, options: { categoryId?: CodexCategoryId } = {}) {
+      const params = new URLSearchParams();
+      if (options.categoryId) params.set("categoryId", options.categoryId);
+      const query = params.size ? `?${params.toString()}` : "";
+      return client.requestJson<CodexDetailTypeDocument[]>(`/series/${seriesId}/codex/detail-types${query}`);
+    },
+    createDetailType(seriesId: string, input: CreateCodexDetailTypeInput) {
+      return client.requestJson<CodexDetailTypeDocument>(`/series/${seriesId}/codex/detail-types`, {
+        body: input,
+        method: "POST",
+      });
+    },
+    deleteDetailType(seriesId: string, detailTypeId: string, input: DeleteCodexDocumentInput) {
+      return client.requestJson<DeleteCodexDetailTypeResult>(`/series/${seriesId}/codex/detail-types/${detailTypeId}`, {
         body: input,
         method: "DELETE",
       });
@@ -122,14 +143,17 @@ export type {
   CodexCategoryDocument,
   CodexCategoryId,
   CodexContextPreview,
+  CodexDetailTypeDocument,
   CodexEntryDocument,
   CodexMention,
   CodexRelationDocument,
   CreateCodexCategoryInput,
+  CreateCodexDetailTypeInput,
   CreateCodexEntryInput,
   CreateCodexRelationInput,
   DeleteCodexCategoryResult,
   DeleteCodexDocumentInput,
+  DeleteCodexDetailTypeResult,
   DeleteCodexEntryResult,
   SceneCodexMentions,
   UpdateCodexCategoryInput,

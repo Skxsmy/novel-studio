@@ -185,7 +185,7 @@ Done:
   - storage already supports entry update plus archive/restore with revision checks;
   - contracts already separate entry revision and research revision through `baseRevision` and `baseResearchRevision`.
 - Expanded `apps/web/src/api/codex.ts` for Release A entry routes only: list options, create, get, update, archive, and restore.
-- Replaced the read-only Codex detail shell with a persistent editor for entry name, aliases, tags, details, canon description, research notes, mention rules, and context policy.
+- Replaced the read-only Codex detail shell with a persistent editor for entry name, aliases, details, canon description, research notes, mention rules, and context policy.
 - Added visible save states, 409 conflict messaging, explicit reload, and archive/restore through real API calls.
 - Removed fake Release A relations/progressions/knowledge tabs from the core detail area. Those remain Slice D+ connection work.
 - Tightened Codex detail tab density after user screenshot review: custom Details are collapsed until needed, empty Details no longer render a large dashed blank panel, Add Detail expands the section, and Research controls no longer stretch vertically.
@@ -204,7 +204,7 @@ Tasks:
   - rename entry;
   - edit details/canon description;
   - edit research;
-  - edit aliases/tags/mention policy/context policy if supported;
+  - edit aliases/mention policy/context policy if supported;
   - save with revision protection;
   - archive/restore.
 - Decide whether the dense index needs a summary endpoint instead of full document lists.
@@ -248,6 +248,7 @@ Done so far:
 - Removed the redundant Write `Codex in scene` panel; Scene Brief can now be hidden and restored through an icon-only control.
 - Codex canon description editing now uses the same realtime name/alias matching for other active Codex entries, with the same clickable dashed-underlined hits and editor-shell overlay Canon description preview that is not clipped by the scrollable input area.
 - Write and Codex canon-description editors now preserve blank lines and line-leading spaces by applying Enter and Space as literal text-model insertions instead of relying on browser contentEditable defaults.
+- User screenshot follow-up on 2026-06-26 removed invalid Codex entry tags from contracts, storage writes, server routes, frontend API payloads, table/search UI, and the detail form. Details now use category-scoped reusable detail types persisted under `codex/detail-types/`, managed through real list/create/delete APIs, protected from deletion while any same-category entry still uses the type, and edited in rows whose text values reuse the same `EditorSurface` as Canon Description and Write.
 - Left Plan untouched in this pass. The user identified Plan as requiring a full review and rebuild rather than incremental repair.
 
 Purpose: connect story memory to actual writing and planning.

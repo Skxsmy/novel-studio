@@ -63,6 +63,33 @@ export const UpdateCodexCategoryInputSchema = z
   });
 export type UpdateCodexCategoryInput = z.infer<typeof UpdateCodexCategoryInputSchema>;
 
+export const CodexDetailTypeSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  categoryId: CodexCategoryIdSchema,
+  name: z.string().trim().min(1).max(120),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type CodexDetailType = z.infer<typeof CodexDetailTypeSchema>;
+
+export const CodexDetailTypeDocumentSchema = z.object({
+  detailType: CodexDetailTypeSchema,
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type CodexDetailTypeDocument = z.infer<typeof CodexDetailTypeDocumentSchema>;
+
+export const CreateCodexDetailTypeInputSchema = z.object({
+  categoryId: CodexCategoryIdSchema,
+  name: z.string().trim().min(1).max(120),
+});
+export type CreateCodexDetailTypeInput = z.input<typeof CreateCodexDetailTypeInputSchema>;
+
+export const DeleteCodexDetailTypeResultSchema = z.object({
+  deletedId: z.string().uuid(),
+});
+export type DeleteCodexDetailTypeResult = z.infer<typeof DeleteCodexDetailTypeResultSchema>;
+
 export const CodexAiContextPolicySchema = z.enum([
   "always",
   "on-mention",
@@ -85,7 +112,6 @@ export const CodexEntryMetadataSchema = z.object({
   categoryId: CodexCategoryIdSchema,
   name: z.string().trim().min(1).max(160),
   aliases: z.array(z.string().trim().min(1).max(160)).default([]),
-  tags: z.array(z.string().trim().min(1).max(80)).default([]),
   thumbnail: z.string().max(500).nullable().default(null),
   details: z.record(z.string(), z.string().max(16000)).default({}),
   aiContextPolicy: CodexAiContextPolicySchema.default("on-mention"),
@@ -130,7 +156,6 @@ export const CreateCodexEntryInputSchema = z.object({
   categoryId: CodexCategoryIdSchema.default(DefaultCodexEntryValues.categoryId),
   name: z.string().trim().min(1).max(160).default(DefaultCodexEntryValues.name),
   aliases: z.array(z.string().trim().min(1).max(160)).default([]),
-  tags: z.array(z.string().trim().min(1).max(80)).default([]),
   thumbnail: z.string().max(500).nullable().default(null),
   details: z.record(z.string(), z.string().max(16000)).default({}),
   aiContextPolicy: CodexAiContextPolicySchema.default("on-mention"),
@@ -152,7 +177,6 @@ export const UpdateCodexEntryInputSchema = z
     categoryId: CodexCategoryIdSchema.optional(),
     name: z.string().trim().min(1).max(160).optional(),
     aliases: z.array(z.string().trim().min(1).max(160)).optional(),
-    tags: z.array(z.string().trim().min(1).max(80)).optional(),
     thumbnail: z.string().max(500).nullable().optional(),
     details: z.record(z.string(), z.string().max(16000)).optional(),
     aiContextPolicy: CodexAiContextPolicySchema.optional(),
@@ -165,7 +189,6 @@ export const UpdateCodexEntryInputSchema = z
       input.categoryId,
       input.name,
       input.aliases,
-      input.tags,
       input.thumbnail,
       input.details,
       input.aiContextPolicy,

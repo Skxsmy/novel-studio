@@ -3,6 +3,7 @@ import {
   ArchiveCodexDocumentInputSchema,
   CodexCategoryIdSchema,
   CreateCodexCategoryInputSchema,
+  CreateCodexDetailTypeInputSchema,
   CreateCodexEntryInputSchema,
   DeleteCodexDocumentInputSchema,
   CreateCodexKnowledgeInputSchema,
@@ -83,6 +84,39 @@ export function registerCodexRoutes(
       return repository.deleteCodexCategory(
         request.params.seriesId,
         request.params.categoryId,
+        input,
+      );
+    },
+  );
+
+  app.get<{
+    Params: { seriesId: string };
+    Querystring: { categoryId?: string };
+  }>("/api/v1/series/:seriesId/codex/detail-types", async (request) =>
+    repository.listCodexDetailTypes(request.params.seriesId, {
+      ...(request.query.categoryId
+        ? { categoryId: CodexCategoryIdSchema.parse(request.query.categoryId) }
+        : {}),
+    }),
+  );
+
+  app.post<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId/codex/detail-types",
+    async (request, reply) => {
+      const input = CreateCodexDetailTypeInputSchema.parse(request.body);
+      return reply
+        .status(201)
+        .send(await repository.createCodexDetailType(request.params.seriesId, input));
+    },
+  );
+
+  app.delete<{ Params: { seriesId: string; detailTypeId: string } }>(
+    "/api/v1/series/:seriesId/codex/detail-types/:detailTypeId",
+    async (request) => {
+      const input = DeleteCodexDocumentInputSchema.parse(request.body);
+      return repository.deleteCodexDetailType(
+        request.params.seriesId,
+        request.params.detailTypeId,
         input,
       );
     },

@@ -3,6 +3,7 @@ import {
   type CodexAiContextPolicy,
   type CodexCategoryDocument,
   type CodexCategoryId,
+  type CodexDetailTypeDocument,
   type CodexEntryDocument,
   type CodexMention,
   type CodexMentionRules,
@@ -36,7 +37,7 @@ type CodexSaveStatus = "idle" | "dirty" | "saving" | "saved" | "conflict" | "fai
 type MentionSource = "manuscript" | "codex";
 type CodexRelationDirection = "outgoing" | "incoming" | "undirected";
 interface DetailDraftRow {
-  key: string;
+  typeName: string;
   value: string;
 }
 
@@ -54,7 +55,6 @@ interface CodexDraft {
   matchAliases: boolean;
   name: string;
   research: string;
-  tags: string;
 }
 
 interface RelationDraft {
@@ -89,12 +89,11 @@ function draftFromEntry(entry: CodexEntryDocument): CodexDraft {
     caseSensitive: entry.metadata.mention.caseSensitive,
     categoryId: entry.metadata.categoryId,
     description: entry.description,
-    detailRows: Object.entries(entry.metadata.details).map(([key, value]) => ({ key, value })),
+    detailRows: Object.entries(entry.metadata.details).map(([typeName, value]) => ({ typeName, value })),
     excludedTerms: commaList(entry.metadata.mention.excludedTerms),
     matchAliases: entry.metadata.mention.matchAliases,
     name: entry.metadata.name,
     research: entry.research.content,
-    tags: commaList(entry.metadata.tags),
   };
 }
 
@@ -130,11 +129,11 @@ function buildUpdateInput(draft: CodexDraft): UpdateCodexEntryInput {
 
   const details: Record<string, string> = {};
   for (const row of draft.detailRows) {
-    const key = row.key.trim();
-    if (!key && !row.value.trim()) continue;
-    if (!key) throw new Error(codexText.errors.detailBlank);
-    if (details[key] !== undefined) throw new Error(codexText.errors.detailDuplicate(key));
-    details[key] = row.value;
+    const typeName = row.typeName.trim();
+    if (!typeName && !row.value.trim()) continue;
+    if (!typeName) throw new Error(codexText.errors.detailBlank);
+    if (details[typeName] !== undefined) throw new Error(codexText.errors.detailDuplicate(typeName));
+    details[typeName] = row.value;
   }
 
   const mention: CodexMentionRules = {
@@ -155,7 +154,6 @@ function buildUpdateInput(draft: CodexDraft): UpdateCodexEntryInput {
     mention,
     name,
     research: draft.research,
-    tags: parseCommaList(draft.tags),
   };
 }
 
@@ -300,6 +298,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [draft, setDraft] = useState<CodexDraft | null>(null);
   const [entries, setEntries] = useState<CodexEntryDocument[]>([]);
   const [categories, setCategories] = useState<CodexCategoryDocument[]>([]);
+  const [detailTypes, setDetailTypes] = useState<CodexDetailTypeDocument[]>([]);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [entryMentions, setEntryMentions] = useState<CodexMention[]>([]);
   const [entryRelations, setEntryRelations] = useState<CodexRelationDocument[]>([]);
@@ -308,16 +307,20 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [isCategoryDeleteOpen, setIsCategoryDeleteOpen] = useState(false);
   const [isDeleteEntryOpen, setIsDeleteEntryOpen] = useState(false);
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
+  const [isDetailTypeAddOpen, setIsDetailTypeAddOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [isCreatingDetailType, setIsCreatingDetailType] = useState(false);
   const [isConnectionsLoading, setIsConnectionsLoading] = useState(false);
   const [isCreatingRelation, setIsCreatingRelation] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [newDetailTypeName, setNewDetailTypeName] = useState("");
   const [previewEntry, setPreviewEntry] = useState<CodexEntryDocument | null>(null);
   const [query, setQuery] = useState("");
   const [renamingCategory, setRenamingCategory] = useState<{ id: string; name: string; baseRevision: string } | null>(null);
+  const [detailTypeDeleteId, setDetailTypeDeleteId] = useState<string | null>(null);
   const [relationDeleteId, setRelationDeleteId] = useState<string | null>(null);
   const [relationDraft, setRelationDraft] = useState<RelationDraft>(() => relationDraftFor(null, []));
   const [saveStatus, setSaveStatus] = useState<CodexSaveStatus>("idle");
@@ -342,17 +345,21 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     setIsCategoryAddOpen(false);
     setIsCategoryDeleteOpen(false);
     setIsDeleteEntryOpen(false);
+    setIsDetailTypeAddOpen(false);
+    setDetailTypeDeleteId(null);
     setRenamingCategory(null);
     setSaveStatus("idle");
     setActiveTab("details");
 
     Promise.all([
       api.codex.listCategories(series.manifest.id),
+      api.codex.listDetailTypes(series.manifest.id),
       api.codex.listEntries(series.manifest.id, { includeArchived: showArchived }),
     ])
-      .then(([nextCategories, nextEntries]) => {
+      .then(([nextCategories, nextDetailTypes, nextEntries]) => {
         if (!isActive) return;
         setCategories(nextCategories);
+        setDetailTypes(nextDetailTypes);
         setEntries(sortEntries(nextEntries));
       })
       .catch((error: unknown) => {
@@ -379,7 +386,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
         entry.description,
         entry.research.content,
         ...entry.metadata.aliases,
-        ...entry.metadata.tags,
         ...Object.values(entry.metadata.details),
       ].join("\n").toLowerCase();
       return haystack.includes(normalizedQuery);
@@ -401,6 +407,18 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     () => entries.filter((entry) => entry.metadata.id !== selectedEntryId && !entry.metadata.archivedAt),
     [entries, selectedEntryId],
   );
+  const activeDetailTypes = useMemo(
+    () => detailTypes.filter((document) => document.detailType.categoryId === draft?.categoryId),
+    [detailTypes, draft?.categoryId],
+  );
+  const detailTypeNames = useMemo(() => {
+    const names = new Set(activeDetailTypes.map((document) => document.detailType.name));
+    for (const row of draft?.detailRows ?? []) {
+      const typeName = row.typeName.trim();
+      if (typeName) names.add(typeName);
+    }
+    return [...names].sort((left, right) => left.localeCompare(right, "zh-CN"));
+  }, [activeDetailTypes, draft?.detailRows]);
   const sceneMentionCount = entryMentions.length;
 
   useEffect(() => {
@@ -492,6 +510,35 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     );
   }
 
+  function detailTypeNameExists(name: string, categoryId: CodexCategoryId) {
+    const normalized = name.trim().toLocaleLowerCase("und");
+    if (!normalized) return false;
+    return detailTypes.some((document) =>
+      document.detailType.categoryId === categoryId &&
+      document.detailType.name.trim().toLocaleLowerCase("und") === normalized,
+    );
+  }
+
+  function detailTypeUsageCount(detailType: CodexDetailTypeDocument) {
+    const entryIds = new Set<string>();
+    for (const entry of entries) {
+      if (
+        entry.metadata.categoryId === detailType.detailType.categoryId &&
+        Object.prototype.hasOwnProperty.call(entry.metadata.details, detailType.detailType.name)
+      ) {
+        entryIds.add(entry.metadata.id);
+      }
+    }
+    if (
+      selectedEntryId &&
+      draft?.categoryId === detailType.detailType.categoryId &&
+      draft.detailRows.some((row) => row.typeName.trim() === detailType.detailType.name)
+    ) {
+      entryIds.add(selectedEntryId);
+    }
+    return entryIds.size;
+  }
+
   function syncEntryList(nextEntries: CodexEntryDocument[]) {
     const sortedEntries = sortEntries(nextEntries);
     setEntries(sortedEntries);
@@ -508,6 +555,8 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setRelationDeleteId(null);
       setRelationDraft(relationDraftFor(null, entries));
       setIsDetailsExpanded(false);
+      setIsDetailTypeAddOpen(false);
+      setDetailTypeDeleteId(null);
       setSaveStatus("idle");
       return;
     }
@@ -525,6 +574,8 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setEntryRelations([]);
       setPreviewEntry(null);
       setIsDetailsExpanded(false);
+      setIsDetailTypeAddOpen(false);
+      setDetailTypeDeleteId(null);
       setIsDeleteEntryOpen(false);
       setSaveStatus("idle");
       setActiveTab("details");
@@ -540,6 +591,8 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     setRelationDeleteId(null);
     setRelationDraft(relationDraftFor(entry.metadata.id, entries));
     setIsDetailsExpanded(false);
+    setIsDetailTypeAddOpen(false);
+    setDetailTypeDeleteId(null);
     setIsDeleteEntryOpen(false);
     setSaveStatus("idle");
     setActiveTab("details");
@@ -566,6 +619,8 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setRelationDeleteId(null);
       setRelationDraft(relationDraftFor(entry.metadata.id, entries));
       setIsDetailsExpanded(false);
+      setIsDetailTypeAddOpen(false);
+      setDetailTypeDeleteId(null);
       setSaveStatus("idle");
       setActiveTab("details");
     } catch (error) {
@@ -594,6 +649,54 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setErrorMessage(formatCodexError(error, codexText.errors.createCategoryFailed));
     } finally {
       setIsCreatingCategory(false);
+    }
+  }
+
+  async function createDetailType() {
+    if (!draft || isCreatingDetailType) return;
+    const name = newDetailTypeName.trim();
+    if (!name) {
+      setErrorMessage(codexText.errors.detailTypeNameRequired);
+      return;
+    }
+    if (detailTypeNameExists(name, draft.categoryId)) {
+      setErrorMessage(codexText.errors.detailTypeDuplicate(name));
+      return;
+    }
+    setIsCreatingDetailType(true);
+    setErrorMessage(null);
+    try {
+      const detailType = await api.codex.createDetailType(series.manifest.id, {
+        categoryId: draft.categoryId,
+        name,
+      });
+      setDetailTypes((current) => [...current, detailType].sort((left, right) =>
+        left.detailType.categoryId.localeCompare(right.detailType.categoryId, "zh-CN") ||
+        left.detailType.name.localeCompare(right.detailType.name, "zh-CN"),
+      ));
+      setNewDetailTypeName("");
+      setIsDetailTypeAddOpen(false);
+    } catch (error) {
+      setErrorMessage(formatCodexError(error, codexText.errors.createDetailTypeFailed));
+    } finally {
+      setIsCreatingDetailType(false);
+    }
+  }
+
+  async function deleteDetailType(detailType: CodexDetailTypeDocument) {
+    if (isCreatingDetailType || detailTypeUsageCount(detailType) > 0) return;
+    setIsCreatingDetailType(true);
+    setErrorMessage(null);
+    try {
+      await api.codex.deleteDetailType(series.manifest.id, detailType.detailType.id, {
+        baseRevision: detailType.revision,
+      });
+      setDetailTypes((current) => current.filter((document) => document.detailType.id !== detailType.detailType.id));
+      setDetailTypeDeleteId(null);
+    } catch (error) {
+      setErrorMessage(formatCodexError(error, codexText.errors.deleteDetailTypeFailed));
+    } finally {
+      setIsCreatingDetailType(false);
     }
   }
 
@@ -735,6 +838,8 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setRelationDeleteId(null);
       setRelationDraft(relationDraftFor(null, entries));
       setIsDetailsExpanded(false);
+      setIsDetailTypeAddOpen(false);
+      setDetailTypeDeleteId(null);
       setIsDeleteEntryOpen(false);
       setSaveStatus("idle");
     } catch (error) {
@@ -799,10 +904,18 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   }
 
   function addDetailRow() {
+    if (!draft) return;
+    const used = new Set(draft.detailRows.map((row) => row.typeName.trim()).filter(Boolean));
+    const nextTypeName = activeDetailTypes.find((document) => !used.has(document.detailType.name))?.detailType.name;
+    if (!nextTypeName) {
+      setIsDetailsExpanded(true);
+      setIsDetailTypeAddOpen(true);
+      return;
+    }
     setIsDetailsExpanded(true);
     updateDraft((current) => ({
       ...current,
-      detailRows: [...current.detailRows, { key: "", value: "" }],
+      detailRows: [...current.detailRows, { typeName: nextTypeName, value: "" }],
     }));
   }
 
@@ -1024,7 +1137,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                   <span>{codexText.table.entry}</span>
                   <span>{codexText.table.type}</span>
                   <span>{codexText.table.aliases}</span>
-                  <span>{codexText.table.tags}</span>
                   <span>{codexText.table.status}</span>
                 </div>
                 {filteredEntries.map((entry) => (
@@ -1041,7 +1153,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                     </span>
                     <span>{categoryLabel(entry.metadata.categoryId, categories)}</span>
                     <span>{entry.metadata.aliases.length}</span>
-                    <span>{entry.metadata.tags.length}</span>
                     <span className="pill">{statusLabel(entry)}</span>
                   </button>
                 ))}
@@ -1137,16 +1248,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                     value={draft.aliases}
                   />
                 </label>
-                <label className="field wide">
-                  <span>{codexText.detail.tags}</span>
-                  <input
-                    className="input"
-                    disabled={fieldsDisabled}
-                    onChange={(event) => updateDraft((current) => ({ ...current, tags: event.target.value }))}
-                    placeholder={codexText.commaPlaceholder("tags")}
-                    value={draft.tags}
-                  />
-                </label>
                 <div className="field wide">
                   <span>{codexText.detail.canonDescription}</span>
                   <div className="inline-mention-shell canon-description-shell">
@@ -1189,36 +1290,134 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                 </div>
                 {isDetailsExpanded ? (
                   <div className="detail-section-body">
+                    <div className="detail-type-manager">
+                      <div className="detail-type-manager-head">
+                        <span>{codexText.detail.detailTypes}</span>
+                        <button
+                          className="btn compact"
+                          disabled={fieldsDisabled || isCreatingDetailType}
+                          onClick={() => {
+                            setDetailTypeDeleteId(null);
+                            setIsDetailTypeAddOpen((current) => !current);
+                          }}
+                          type="button"
+                        >
+                          {codexText.actions.addDetailType}
+                        </button>
+                      </div>
+                      {isDetailTypeAddOpen ? (
+                        <form
+                          aria-label={codexText.aria.detailTypeCreateForm}
+                          className="detail-type-add-form"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void createDetailType();
+                          }}
+                        >
+                          <input
+                            aria-label={codexText.aria.newDetailTypeName}
+                            className="input compact-input"
+                            disabled={fieldsDisabled || isCreatingDetailType}
+                            onChange={(event) => setNewDetailTypeName(event.target.value)}
+                            placeholder={codexText.detail.detailTypePlaceholder}
+                            value={newDetailTypeName}
+                          />
+                          <button
+                            className="btn compact primary"
+                            disabled={fieldsDisabled || isCreatingDetailType || !newDetailTypeName.trim()}
+                            type="submit"
+                          >
+                            {codexText.actions.addDetailType}
+                          </button>
+                        </form>
+                      ) : null}
+                      {activeDetailTypes.length ? (
+                        <div className="detail-type-list">
+                          {activeDetailTypes.map((detailType) => {
+                            const usageCount = detailTypeUsageCount(detailType);
+                            const isConfirmingDelete = detailTypeDeleteId === detailType.detailType.id;
+                            return (
+                              <div className="detail-type-chip" key={detailType.detailType.id}>
+                                <span>{detailType.detailType.name}</span>
+                                <small>{codexText.detail.detailTypeInUse(usageCount)}</small>
+                                {isConfirmingDelete ? (
+                                  <>
+                                    <button
+                                      className="btn compact danger"
+                                      disabled={fieldsDisabled || isCreatingDetailType || usageCount > 0}
+                                      onClick={() => void deleteDetailType(detailType)}
+                                      type="button"
+                                    >
+                                      {codexText.actions.deleteDetailType}
+                                    </button>
+                                    <button
+                                      className="btn compact"
+                                      disabled={isCreatingDetailType}
+                                      onClick={() => setDetailTypeDeleteId(null)}
+                                      type="button"
+                                    >
+                                      {codexText.actions.cancel}
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    className="btn compact"
+                                    disabled={fieldsDisabled || isCreatingDetailType || usageCount > 0}
+                                    onClick={() => setDetailTypeDeleteId(detailType.detailType.id)}
+                                    type="button"
+                                  >
+                                    {codexText.actions.deleteDetailType}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="detail-empty compact-empty">{codexText.detail.noDetailTypes}</div>
+                      )}
+                    </div>
                     {draft.detailRows.length > 0 ? (
                       draft.detailRows.map((row, index) => (
-                        <div className="detail-row" key={`${index}-${row.key}`}>
-                          <input
-                            aria-label={codexText.detail.detailLabel(index + 1)}
-                            className="input"
-                            disabled={fieldsDisabled}
-                            onChange={(event) => updateDraft((current) => ({
-                              ...current,
-                              detailRows: current.detailRows.map((candidate, rowIndex) => (
-                                rowIndex === index ? { ...candidate, key: event.target.value } : candidate
-                              )),
-                            }))}
-                            placeholder={codexText.detail.labelPlaceholder}
-                            value={row.key}
-                          />
-                          <textarea
-                            aria-label={codexText.detail.detailValue(index + 1)}
-                            className="textarea compact-textarea"
-                            disabled={fieldsDisabled}
-                            onChange={(event) => updateDraft((current) => ({
-                              ...current,
-                              detailRows: current.detailRows.map((candidate, rowIndex) => (
-                                rowIndex === index ? { ...candidate, value: event.target.value } : candidate
-                              )),
-                            }))}
-                            placeholder={codexText.detail.valuePlaceholder}
-                            rows={3}
-                            value={row.value}
-                          />
+                        <div className="detail-row" key={`${index}-${row.typeName}`}>
+                          <label className="field detail-type-select-field">
+                            <span>{codexText.detail.selectType}</span>
+                            <select
+                              aria-label={codexText.detail.detailLabel(index + 1)}
+                              className="select"
+                              disabled={fieldsDisabled}
+                              onChange={(event) => updateDraft((current) => ({
+                                ...current,
+                                detailRows: current.detailRows.map((candidate, rowIndex) => (
+                                  rowIndex === index ? { ...candidate, typeName: event.target.value } : candidate
+                                )),
+                              }))}
+                              value={row.typeName}
+                            >
+                              {detailTypeNames.map((typeName) => (
+                                <option key={typeName} value={typeName}>
+                                  {typeName}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <div className="inline-mention-shell detail-value-shell">
+                            <EditorSurface
+                              ariaLabel={codexText.detail.detailValue(index + 1)}
+                              className={`detail-value-editor${fieldsDisabled ? " is-disabled" : ""}`}
+                              codexEntries={descriptionMentionEntries}
+                              emptyPreviewText={codexText.empty.noDescription}
+                              onChange={(value) => updateDraft((current) => ({
+                                ...current,
+                                detailRows: current.detailRows.map((candidate, rowIndex) => (
+                                  rowIndex === index ? { ...candidate, value } : candidate
+                                )),
+                              }))}
+                              placeholder={codexText.detail.valuePlaceholder}
+                              readOnly={fieldsDisabled}
+                              value={row.value}
+                            />
+                          </div>
                           <button
                             className="btn compact"
                             disabled={fieldsDisabled}

@@ -24,7 +24,10 @@ import {
   DeleteCodexCategoryResultSchema,
   DeleteCodexDocumentInputSchema,
   DeleteCodexEntryResultSchema,
+  DeleteCodexDetailTypeResultSchema,
   CodexEntryDocumentSchema,
+  CodexDetailTypeDocumentSchema,
+  CodexDetailTypeSchema,
   CodexEntryMetadataSchema,
   CodexEffectiveStateSchema,
   CodexKnowledgeDocumentSchema,
@@ -39,6 +42,7 @@ import {
   CodexSearchResultSchema,
   CreateBookInputSchema,
   CreateCodexCategoryInputSchema,
+  CreateCodexDetailTypeInputSchema,
   CreateCodexEntryInputSchema,
   CreateCodexKnowledgeInputSchema,
   CreateCodexProgressionInputSchema,
@@ -96,6 +100,8 @@ import {
   type CodexContextExclusionReason,
   type CodexContextPreview,
   type CodexCustomCategory,
+  type CodexDetailType,
+  type CodexDetailTypeDocument,
   type CodexEntryDocument,
   type CodexEntryMetadata,
   type CodexEffectiveState,
@@ -111,6 +117,7 @@ import {
   type CodexSearchResult,
   type CreateBookInput,
   type CreateCodexCategoryInput,
+  type CreateCodexDetailTypeInput,
   type CreateCodexEntryInput,
   type CreateCodexKnowledgeInput,
   type CreateCodexProgressionInput,
@@ -120,6 +127,7 @@ import {
   type DeleteCodexCategoryResult,
   type DeleteCodexDocumentInput,
   type DeleteCodexEntryResult,
+  type DeleteCodexDetailTypeResult,
   type CreateReviewAnchorInput,
   type CreateSceneInput,
   type CreateSceneSectionInput,
@@ -218,6 +226,7 @@ const REVIEW_DIR = "review";
 const ANCHORS_DIR = "anchors";
 const CODEX_DIR = "codex";
 const CODEX_CATEGORIES_DIR = "categories";
+const CODEX_DETAIL_TYPES_DIR = "detail-types";
 const CODEX_CUSTOM_DIR = "custom";
 const CODEX_RESEARCH_DIR = "entry-research";
 const CODEX_RELATIONS_DIR = "relations";
@@ -799,6 +808,10 @@ function reviewAnchorPath(seriesRoot: string, anchorId: string): string {
 
 function codexCategoryPath(seriesRoot: string, categoryId: string): string {
   return path.join(seriesRoot, CODEX_DIR, CODEX_CATEGORIES_DIR, `${categoryId}.yaml`);
+}
+
+function codexDetailTypePath(seriesRoot: string, detailTypeId: string): string {
+  return path.join(seriesRoot, CODEX_DIR, CODEX_DETAIL_TYPES_DIR, `${detailTypeId}.yaml`);
 }
 
 function builtInCodexDirectory(categoryId: CodexCategoryId): string | null {
@@ -1823,6 +1836,98 @@ export class ProjectRepository {
     return DeleteCodexCategoryResultSchema.parse({ deletedId: categoryId, movedEntryIds });
   }
 
+  async listCodexDetailTypes(
+    seriesId: string,
+    options: { categoryId?: CodexCategoryId } = {},
+  ): Promise<CodexDetailTypeDocument[]> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const directory = path.join(seriesRoot, CODEX_DIR, CODEX_DETAIL_TYPES_DIR);
+    let files;
+    try {
+      files = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    const documents: CodexDetailTypeDocument[] = [];
+    const seen = new Set<string>();
+    for (const entry of files) {
+      if (!entry.isFile() || !entry.name.endsWith(".yaml")) continue;
+      const document = await this.readCodexDetailType(seriesRoot, path.basename(entry.name, ".yaml"));
+      if (seen.has(document.detailType.id)) {
+        throw new StorageError("多个 Codex detail type 文件使用同一 ID", "INVALID_DATA", {
+          detailTypeId: document.detailType.id,
+        });
+      }
+      seen.add(document.detailType.id);
+      if (options.categoryId && document.detailType.categoryId !== options.categoryId) continue;
+      documents.push(document);
+    }
+    return documents.sort((left, right) =>
+      left.detailType.categoryId.localeCompare(right.detailType.categoryId, "zh-CN") ||
+      left.detailType.name.localeCompare(right.detailType.name, "zh-CN"),
+    );
+  }
+
+  async createCodexDetailType(
+    seriesId: string,
+    rawInput: CreateCodexDetailTypeInput,
+  ): Promise<CodexDetailTypeDocument> {
+    const input = CreateCodexDetailTypeInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    await this.assertCodexCategoryWritable(seriesRoot, input.categoryId);
+    this.assertCodexDetailTypeNameAvailable(
+      await this.listCodexDetailTypes(seriesId, { categoryId: input.categoryId }),
+      input.name,
+      input.categoryId,
+    );
+    const now = new Date().toISOString();
+    const detailType = CodexDetailTypeSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      categoryId: input.categoryId,
+      name: input.name,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const raw = serializeYaml(detailType);
+    await atomicWrite(codexDetailTypePath(seriesRoot, detailType.id), raw);
+    return CodexDetailTypeDocumentSchema.parse({
+      detailType,
+      revision: contentRevision(raw),
+    });
+  }
+
+  async deleteCodexDetailType(
+    seriesId: string,
+    detailTypeId: string,
+    rawInput: DeleteCodexDocumentInput,
+  ): Promise<DeleteCodexDetailTypeResult> {
+    const input = DeleteCodexDocumentInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.readCodexDetailType(seriesRoot, detailTypeId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("Codex detail type changed on disk", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+    const usedByEntryIds = (await this.listCodexEntriesFromRoot(seriesRoot))
+      .filter((entry) =>
+        entry.metadata.categoryId === current.detailType.categoryId &&
+        Object.prototype.hasOwnProperty.call(entry.metadata.details, current.detailType.name),
+      )
+      .map((entry) => entry.metadata.id);
+    if (usedByEntryIds.length) {
+      throw new StorageError("Codex detail type is still used by entries", "INVALID_DATA", {
+        detailTypeId,
+        detailTypeName: current.detailType.name,
+        entryIds: usedByEntryIds,
+      });
+    }
+    await rm(codexDetailTypePath(seriesRoot, detailTypeId), { force: true });
+    return DeleteCodexDetailTypeResultSchema.parse({ deletedId: detailTypeId });
+  }
+
   async listCodexEntries(
     seriesId: string,
     options: { categoryId?: CodexCategoryId; includeArchived?: boolean } = {},
@@ -1860,7 +1965,6 @@ export class ProjectRepository {
       categoryId: input.categoryId,
       name: input.name,
       aliases: normalizeUniqueStrings(input.aliases),
-      tags: normalizeUniqueStrings(input.tags),
       thumbnail: input.thumbnail,
       details: input.details,
       aiContextPolicy: input.aiContextPolicy,
@@ -1912,7 +2016,6 @@ export class ProjectRepository {
       input.categoryId,
       input.name,
       input.aliases,
-      input.tags,
       input.thumbnail,
       input.details,
       input.aiContextPolicy,
@@ -1947,10 +2050,6 @@ export class ProjectRepository {
           input.aliases === undefined
             ? current.document.metadata.aliases
             : normalizeUniqueStrings(input.aliases),
-        tags:
-          input.tags === undefined
-            ? current.document.metadata.tags
-            : normalizeUniqueStrings(input.tags),
         thumbnail:
           input.thumbnail === undefined
             ? current.document.metadata.thumbnail
@@ -4208,6 +4307,61 @@ export class ProjectRepository {
       });
     }
     */
+  }
+
+  private async readCodexDetailType(
+    seriesRoot: string,
+    detailTypeId: string,
+  ): Promise<CodexDetailTypeDocument> {
+    const filePath = assertInside(seriesRoot, codexDetailTypePath(seriesRoot, detailTypeId));
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("Codex detail type does not exist", "NOT_FOUND", { detailTypeId });
+      }
+      throw error;
+    }
+    let detailType: CodexDetailType;
+    try {
+      detailType = CodexDetailTypeSchema.parse(YAML.parse(raw));
+    } catch (error) {
+      throw new StorageError("Codex detail type YAML is invalid", "INVALID_DATA", {
+        detailTypeId,
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (detailType.id !== detailTypeId) {
+      throw new StorageError("Codex detail type file name and ID differ", "INVALID_DATA", {
+        detailTypeId,
+        actualId: detailType.id,
+      });
+    }
+    return CodexDetailTypeDocumentSchema.parse({
+      detailType,
+      revision: contentRevision(raw),
+    });
+  }
+
+  private assertCodexDetailTypeNameAvailable(
+    detailTypes: CodexDetailTypeDocument[],
+    name: string,
+    categoryId: CodexCategoryId,
+  ): void {
+    const normalizedName = name.trim().toLocaleLowerCase("und");
+    const duplicate = detailTypes.find(
+      (document) =>
+        document.detailType.categoryId === categoryId &&
+        document.detailType.name.trim().toLocaleLowerCase("und") === normalizedName,
+    );
+    if (duplicate) {
+      throw new StorageError("Codex detail type name already exists", "INVALID_DATA", {
+        categoryId,
+        detailTypeId: duplicate.detailType.id,
+        name,
+      });
+    }
   }
 
   private async assertCodexCategoryWritable(

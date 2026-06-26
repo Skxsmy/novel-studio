@@ -337,6 +337,43 @@ describe("local API", () => {
     expect(zhouResponse.statusCode).toBe(201);
     const lin = linResponse.json();
     const zhou = zhouResponse.json();
+    expect(lin.metadata).not.toHaveProperty("tags");
+
+    const detailTypeResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: {
+        categoryId: "character",
+        name: "年龄",
+      },
+    });
+    expect(detailTypeResponse.statusCode).toBe(201);
+    const detailType = detailTypeResponse.json();
+    const detailTypes = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types?categoryId=character`,
+    });
+    expect(detailTypes.statusCode).toBe(200);
+    expect(detailTypes.json().map((document: { detailType: { name: string } }) => document.detailType.name))
+      .toEqual(["年龄"]);
+
+    const updatedLinResponse = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries/${lin.metadata.id}`,
+      payload: {
+        baseRevision: lin.revision,
+        details: { 年龄: "二十四岁" },
+      },
+    });
+    expect(updatedLinResponse.statusCode).toBe(200);
+    expect(updatedLinResponse.json().metadata.details).toEqual({ 年龄: "二十四岁" });
+
+    const deleteUsedDetailType = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types/${detailType.detailType.id}`,
+      payload: { baseRevision: detailType.revision },
+    });
+    expect(deleteUsedDetailType.statusCode).toBe(422);
 
     const relationResponse = await app.inject({
       method: "POST",

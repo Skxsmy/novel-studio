@@ -40,7 +40,6 @@ function codexEntryDocument(
       },
       name,
       schemaVersion: 1,
-      tags: [],
       thumbnail: null,
       updatedAt: "2026-06-23T00:00:00.000Z",
     },

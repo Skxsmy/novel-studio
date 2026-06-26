@@ -34,6 +34,7 @@ Immediate task requirements:
 - Done in current Slice C code slice: Codex entries can be created, opened/closed, renamed, edited, saved with revision protection, reloaded after conflict, archived, and restored through real APIs.
 - Done in current Slice C code slice: fake Release A relations/progressions/knowledge tabs were removed from Codex core and deferred to Codex connections.
 - Done in current Slice C UI repair: Codex custom Details are collapsed until needed, empty Details no longer create a large blank panel, and Research controls no longer stretch into oversized whitespace.
+- Done in current Codex Details follow-up: Codex entry tags were removed from contracts/storage/server/frontend; reusable detail types are category-scoped, stored under `codex/detail-types/`, managed through real list/create/delete APIs, protected from deletion while used, and used by Details rows whose text values now reuse the shared editor.
 - Done in current Slice D partial slice: Codex custom categories can be created from the category rail, entry category can be changed and saved, and storage moves the entry Markdown file to the correct category directory.
 - Done in current Slice D partial slice: Codex index row names/descriptions remain visible when the detail pane is open, and `New Entry` / `No description` spacing is repaired before detail open.
 - Done in current Slice D partial slice: Write loads real active Codex entries instead of frontend-only linked-count copy.
@@ -110,6 +111,7 @@ Immediate task requirements:
   - Slice C: Codex core vertical slice, command-verified; user visual validation remains separate.
   - Slice D: Codex connections, command-verified for current Codex scope; Plan review/rework remains deferred.
   - Slice D2: Editor Foundation, command-verified with CodeMirror 6; the 2026-06-25 Canon preview layer repair was visually confirmed by the user. Real Chinese IME validation remains user/manual.
+  - Codex Details follow-up: command-verified on 2026-06-26; Playwright screenshot self-check passed because the in-app browser was unavailable. This is not user visual acceptance.
   - Slice E: permanently skipped by user decision on 2026-06-25. Existing Settings/provider changes are working draft only, not acceptance evidence.
   - Lifecycle follow-up: archive-capable data must also expose cleanup/permanent-delete paths with reference checks or immutable history snapshots; archive-only removal is not acceptable for long-term use.
   - Slice F: command-verified on 2026-06-25. Review and Workshop remain visible, fake counts/actions are removed, unconnected controls are disabled, and full functionality must be designed and implemented from scratch later.

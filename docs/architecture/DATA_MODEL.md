@@ -1,6 +1,6 @@
 # 数据模型与磁盘格式
 
-详细产品语义见 `docs/product/PRODUCT_SPEC.md`，层级操作、写作附属文档和 Codex 的强制不变量见 `docs/tasks/M3.md`，决策依据见 ADR-0001、ADR-0005、ADR-0007 与 ADR-0008。
+详细产品语义见 `docs/product/PRODUCT_SPEC.md`，层级操作、写作附属文档和 Codex 的强制不变量见 `docs/tasks/M3.md`，决策依据见 ADR-0001、ADR-0005、ADR-0007、ADR-0008 与 ADR-0011。
 
 ## 系列目录
 
@@ -14,6 +14,7 @@ series-slug-id/
 │  └─ manuscript/<act-id>/<chapter-id>/<scene-id>.md
 ├─ codex/{characters,locations,objects,lore,organizations,plot-threads}/
 ├─ codex/categories/
+├─ codex/detail-types/
 ├─ codex/custom/<category-id>/
 ├─ codex/entry-research/
 ├─ codex/relations/
@@ -103,7 +104,9 @@ SQLite 保存可重建的场景定位、正文搜索、Codex 搜索、名称候�
 
 ## Codex
 
-六个内置类别使用稳定字符串 ID 和固定目录；自定义类别元数据位于 `codex/categories/<categoryId>.yaml`，条目位于 `codex/custom/<categoryId>/<entryId>.md`。条目 Markdown 正文只保存 Canon Description，Research 位于独立的 `codex/entry-research/<entryId>.md`，两者 revision 独立。
+六个内置类别使用稳定字符串 ID 和固定目录；自定义类别元数据位于 `codex/categories/<categoryId>.yaml`，条目位于 `codex/custom/<categoryId>/<entryId>.md`。条目 Markdown 正文只保存 Canon Description，Research 位于独立的 `codex/entry-research/<entryId>.md`，两者 revision 独立。Codex 条目元数据不保存 `tags`；旧文件中的 `tags` 仅按未知字段兼容读取，并会在下次条目写入时移除。
+
+可复用详情类型位于 `codex/detail-types/<detailTypeId>.yaml`，按 `categoryId` 归属到一个内置或自定义类别。条目 `metadata.details` 仍以作者可读的详情类型名称作为键保存正文值，便于 Markdown/YAML 人工查看；详情类型文件保存稳定 ID、名称、类别和 revision，用于 UI 集中管理、重名校验和删除保护。删除详情类型前必须确认同类别条目没有使用该详情类型名称。
 
 关系位于 `codex/relations/<relationId>.yaml`。有向关系只表达 `sourceEntryId → targetEntryId`；无向关系从两端查询同一文件，不复制第二条边。提及索引只表示名称或别名在场景正文中出现，不改变 Scene 显式关联或任何 Canon。
 

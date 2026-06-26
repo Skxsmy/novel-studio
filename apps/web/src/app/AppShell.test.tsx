@@ -37,6 +37,8 @@ const customCategoryId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const relatedCodexEntryId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const relationId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const createdRelationId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+const detailTypeId = "12121212-1212-4121-8121-121212121212";
+const secondDetailTypeId = "23232323-2323-4232-8232-232323232323";
 const revision = "a".repeat(64);
 const updatedRevision = "b".repeat(64);
 
@@ -424,7 +426,6 @@ function codexEntryDocument(
       },
       name,
       schemaVersion: 1,
-      tags: [],
       thumbnail: null as string | null,
       updatedAt: "2026-06-23T00:00:00.000Z",
     },
@@ -439,6 +440,20 @@ function codexEntryDocument(
       },
       relativePath: `codex/entry-research/${entryId}.md`,
       revision,
+    },
+    revision,
+  };
+}
+
+function codexDetailTypeDocument(name = "Gate rule", categoryId = "character", id = detailTypeId) {
+  return {
+    detailType: {
+      categoryId,
+      createdAt: "2026-06-23T00:00:00.000Z",
+      id,
+      name,
+      schemaVersion: 1,
+      updatedAt: "2026-06-23T00:00:00.000Z",
     },
     revision,
   };
@@ -520,6 +535,7 @@ function modelProfile(overrides: Partial<{
 function mockFetch(options: {
   conflictCodexUpdate?: boolean;
   initialCodexEntries?: ReturnType<typeof codexEntryDocument>[];
+  initialCodexDetailTypes?: ReturnType<typeof codexDetailTypeDocument>[];
   initialCodexRelations?: ReturnType<typeof codexRelationDocument>[];
   initialSeriesDetail?: ReturnType<typeof seriesDetail>;
   initialSeriesList?: ReturnType<typeof seriesSummary>[];
@@ -528,6 +544,7 @@ function mockFetch(options: {
   let seriesSummaries = options.initialSeriesList ?? [seriesSummary()];
   let codexCategoryDocs = codexCategories();
   let codexEntries: ReturnType<typeof codexEntryDocument>[] = options.initialCodexEntries ?? [];
+  let codexDetailTypes: ReturnType<typeof codexDetailTypeDocument>[] = options.initialCodexDetailTypes ?? [];
   let codexRelations: ReturnType<typeof codexRelationDocument>[] = options.initialCodexRelations ?? [];
   let conflictCodexUpdate = options.conflictCodexUpdate ?? false;
   let modelProfiles: ReturnType<typeof modelProfile>[] = [];
@@ -631,6 +648,29 @@ function mockFetch(options: {
           .filter((entry) => entry.metadata.categoryId === "uncategorized")
           .map((entry) => entry.metadata.id),
       });
+    }
+
+    if (url.startsWith(`/api/v1/series/${seriesId}/codex/detail-types`) && method === "GET") {
+      const parsedUrl = new URL(url, "http://localhost");
+      const categoryId = parsedUrl.searchParams.get("categoryId");
+      return jsonResponse(codexDetailTypes.filter((document) =>
+        !categoryId || document.detailType.categoryId === categoryId,
+      ));
+    }
+
+    if (url === `/api/v1/series/${seriesId}/codex/detail-types` && method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      const id = codexDetailTypes.length === 0 ? detailTypeId : secondDetailTypeId;
+      const detailType = codexDetailTypeDocument(body.name, body.categoryId, id);
+      codexDetailTypes = [...codexDetailTypes, detailType];
+      return jsonResponse(detailType, 201);
+    }
+
+    const detailTypeDeleteMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/codex/detail-types/([^/]+)$`));
+    if (detailTypeDeleteMatch && method === "DELETE") {
+      const deletedId = detailTypeDeleteMatch[1];
+      codexDetailTypes = codexDetailTypes.filter((document) => document.detailType.id !== deletedId);
+      return jsonResponse({ deletedId });
     }
 
     if (url === `/api/v1/series/${seriesId}/codex/scenes/${sceneId}/mentions` && method === "GET") {
@@ -768,7 +808,6 @@ function mockFetch(options: {
           details: body.details ?? current.metadata.details,
           mention: body.mention ?? current.metadata.mention,
           name: body.name ?? current.metadata.name,
-          tags: body.tags ?? current.metadata.tags,
           updatedAt: "2026-06-24T00:00:00.000Z",
         },
         relativePath: codexEntryRelativePath(nextCategoryId, current.metadata.id),
@@ -1396,9 +1435,31 @@ describe("App shell", () => {
 
     fireEvent.change(await screen.findByLabelText("Codex entry name"), { target: { value: "Harbor Lock" } });
     setEditorValue("Codex canon description", "A storm-pressure mechanism below the west quay.");
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Type" }));
+    fireEvent.change(screen.getByLabelText("New detail type name"), { target: { value: "Gate rule" } });
+    fireEvent.click(within(screen.getByLabelText("Create detail type")).getByRole("button", { name: "Add Type" }));
+    expect(await screen.findByText("Gate rule")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Type" }));
+    fireEvent.change(screen.getByLabelText("New detail type name"), { target: { value: "Appearance" } });
+    fireEvent.click(within(screen.getByLabelText("Create detail type")).getByRole("button", { name: "Add Type" }));
+    const appearanceType = (await screen.findByText("Appearance")).closest(".detail-type-chip");
+    expect(appearanceType).toBeTruthy();
+    fireEvent.click(within(appearanceType as HTMLElement).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(appearanceType as HTMLElement).getByRole("button", { name: "Delete" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/detail-types/${secondDetailTypeId}`,
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Appearance")).toBeNull();
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "Add Detail" }));
-    fireEvent.change(screen.getByLabelText("Detail 1 label"), { target: { value: "Gate rule" } });
-    fireEvent.change(screen.getByLabelText("Detail 1 value"), { target: { value: "Only opens after the bell." } });
+    setEditorValue("Detail 1 value", "Only opens after the bell.");
     fireEvent.click(screen.getByRole("tab", { name: "Research" }));
     fireEvent.change(screen.getByLabelText("Codex research notes"), {
       target: { value: "Research source stays private until confirmed." },
@@ -1419,6 +1480,7 @@ describe("App shell", () => {
         name: "Harbor Lock",
         research: "Research source stays private until confirmed.",
       }));
+      expect(body).not.toHaveProperty("tags");
     });
     expect(await screen.findByRole("heading", { name: "Harbor Lock" })).toBeTruthy();
     await waitFor(() => {
@@ -1790,7 +1852,7 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hide details" }));
     expect(screen.queryByText("No details yet.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add Detail" }));
-    expect(screen.getByLabelText("Detail 1 label")).toBeTruthy();
+    expect(screen.getByLabelText("New detail type name")).toBeTruthy();
   });
 
   it("shows a codex conflict and reloads the disk version", async () => {

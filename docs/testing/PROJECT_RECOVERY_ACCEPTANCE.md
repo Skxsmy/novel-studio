@@ -128,6 +128,48 @@ Acceptance mapping:
 - Preview layer order: covered by `EditorSurface.test.tsx`, which verifies the preview is mounted outside `.novel-editor` on `.editor-tooltip-layer`, the layer and preview card both use the top overlay z-index, and the preview remains open when the preview itself is clicked.
 - Undo/redo, paste cleanup, selection restoration/state reporting: covered by focused editor tests and typechecked integration.
 
+### Codex Details Follow-up
+
+Status: command-verified on 2026-06-26. Screenshot self-check passed, but user visual acceptance remains separate.
+
+Scope covered:
+
+- Codex entry `tags` are invalid and removed from contracts, storage writes, server routes, frontend API payloads, search/table UI, and detail form UI.
+- Reusable detail types are category-scoped and persisted as YAML under `codex/detail-types/`.
+- Detail types can be listed, created, and permanently deleted through real APIs.
+- Detail type deletion requires `baseRevision` and is blocked while any same-category Codex entry still uses that type name.
+- Details rows select a reusable type instead of free-typing an isolated label.
+- Detail value editing uses the shared editor surface used by Canon Description and Write.
+
+Evidence:
+
+- `packages/contracts/src/codex.ts` removes Codex entry tags and adds detail type contracts.
+- `packages/storage/src/index.ts` reads/writes `codex/detail-types/`, rejects duplicate type names in the same category, and blocks deletion while used.
+- `apps/server/src/routes/codex.ts` exposes detail type list/create/delete routes.
+- `apps/web/src/features/codex/CodexWorkspace.tsx` removes the Tags field, adds detail type management, and renders detail values with `EditorSurface`.
+- ADR-0011 records the data-format decision, compatibility, migration, rollback, and tests.
+
+Commands:
+
+- `npm.cmd run build -w @novel-studio/contracts` passed.
+- `npm.cmd run build -w @novel-studio/storage` passed.
+- `npm.cmd run typecheck -w @novel-studio/server` passed.
+- `npm.cmd run typecheck -w @novel-studio/web` passed.
+- `npm.cmd run test -w @novel-studio/storage -- repository.test.ts` passed: 1 file, 43 tests.
+- `npm.cmd run test -w @novel-studio/server -- app.test.ts` passed: 1 file, 7 tests.
+- `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed: 1 file, 38 tests.
+- `npm.cmd run test -w @novel-studio/web -- EditorSurface.test.tsx` passed: 1 file, 6 tests.
+- `npm.cmd run build` passed.
+- `npm.cmd run test` passed: server 20 tests, web 44 tests, AI 20 tests, storage 48 tests.
+- `git diff --check` passed with line-ending warnings only.
+
+Screenshot self-check:
+
+- In-app browser was unavailable; the available browser list only exposed a Chrome extension backend. A local Playwright fallback was used for screenshot inspection.
+- The Playwright check created a temporary ignored library, opened Codex Details, and saved ignored screenshots under `.browser-acceptance/`.
+- Automated visual checks reported `Add Type` visible, detail type manager visible, 2 detail rows, 2 detail value editors, no visible `Tags` text, and no detected clipped control text.
+- Element screenshots confirmed the centralized `Detail types` manager and detail rows with type selects plus editor text areas.
+
 ### Slice E: Settings and AI Safety
 
 Status: permanently skipped by user decision on 2026-06-25. This slice is not Recovery Release A acceptance evidence.
@@ -198,6 +240,13 @@ npm.cmd run build
 npm.cmd run test
 git diff --check
 ```
+
+2026-06-26 current run:
+
+- `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed: 1 file, 38 tests.
+- `npm.cmd run build` passed.
+- `npm.cmd run test` passed: server 20, web 44, AI 20, storage 48 tests.
+- `git diff --check` passed with line-ending warnings only.
 
 Final docs are updated:
 
