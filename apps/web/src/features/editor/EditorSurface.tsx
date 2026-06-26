@@ -57,6 +57,93 @@ interface CodexPreviewState {
   to: number;
 }
 
+interface RectBounds {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+}
+
+interface SizeBounds {
+  height: number;
+  width: number;
+}
+
+interface PreviewPositionInput {
+  anchor: RectBounds | null;
+  anchorVertical: "above" | "below" | "visible";
+  editorBounds: RectBounds;
+  fallbackLeft: number;
+  margin?: number;
+  previewSize: SizeBounds;
+  viewportBounds: RectBounds;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function rectBounds(rect: RectBounds): RectBounds {
+  return {
+    bottom: rect.bottom,
+    left: rect.left,
+    right: rect.right,
+    top: rect.top,
+  };
+}
+
+function intersectBounds(left: RectBounds, right: RectBounds): RectBounds {
+  return {
+    bottom: Math.min(left.bottom, right.bottom),
+    left: Math.max(left.left, right.left),
+    right: Math.min(left.right, right.right),
+    top: Math.max(left.top, right.top),
+  };
+}
+
+function boundsHeight(bounds: RectBounds) {
+  return Math.max(0, bounds.bottom - bounds.top);
+}
+
+function boundsWidth(bounds: RectBounds) {
+  return Math.max(0, bounds.right - bounds.left);
+}
+
+export function computeCodexPreviewPosition(input: PreviewPositionInput) {
+  const margin = input.margin ?? 12;
+  const visibleBounds = intersectBounds(input.editorBounds, input.viewportBounds);
+  const visibleLeft = visibleBounds.left + margin;
+  const visibleRight = visibleBounds.right - margin;
+  const visibleTop = visibleBounds.top + margin;
+  const visibleBottom = visibleBounds.bottom - margin;
+  const maxLeft = Math.max(visibleLeft, visibleRight - input.previewSize.width);
+  const maxTop = Math.max(visibleTop, visibleBottom - input.previewSize.height);
+  const preferredLeft = input.anchor?.left ?? input.fallbackLeft;
+  const left = clamp(preferredLeft, visibleLeft, maxLeft);
+
+  if (!input.anchor) {
+    const top = input.anchorVertical === "below" ? maxTop : visibleTop;
+    return {
+      availableHeight: Math.max(0, visibleBottom - visibleTop),
+      left,
+      top,
+    };
+  }
+
+  const belowTop = input.anchor.bottom + 8;
+  const aboveTop = input.anchor.top - input.previewSize.height - 8;
+  const preferredTop =
+    belowTop + input.previewSize.height <= visibleBottom || aboveTop < visibleTop
+      ? belowTop
+      : aboveTop;
+
+  return {
+    availableHeight: Math.max(0, visibleBottom - visibleTop),
+    left,
+    top: clamp(preferredTop, visibleTop, maxTop),
+  };
+}
+
 const externalDocumentUpdate = Annotation.define<boolean>();
 const setCodexPreview = StateEffect.define<CodexPreviewState | null>();
 const tooltipLayerId = "novel-editor-tooltip-layer";
@@ -173,6 +260,8 @@ function createCodexPreviewDom(preview: CodexPreviewState, emptyText: string) {
   dom.style.color = "#1f2723";
   dom.style.isolation = "isolate";
   dom.style.opacity = "1";
+  dom.style.overflowX = "hidden";
+  dom.style.overflowY = "auto";
   dom.style.pointerEvents = "auto";
   dom.style.position = "absolute";
   dom.style.zIndex = tooltipLayerZIndex;
@@ -275,6 +364,7 @@ class CodexMentionPlugin {
   private entries: CodexEntryDocument[];
   private entriesById: Map<string, CodexEntryDocument>;
   private emptyPreviewText: string;
+  private lastAnchorLeft: number | null = null;
   private layer: HTMLElement;
   private positionHandle = -1;
   private previewDom: HTMLElement | null = null;
@@ -327,6 +417,12 @@ class CodexMentionPlugin {
     return true;
   }
 
+  closePreview(view: EditorView) {
+    if (!view.state.field(this.previewField)) return false;
+    view.dispatch({ effects: setCodexPreview.of(null) });
+    return false;
+  }
+
   private syncPreview() {
     const preview = this.view.state.field(this.previewField);
     if (!preview) {
@@ -352,30 +448,45 @@ class CodexMentionPlugin {
     const doc = this.view.dom.ownerDocument;
     const docElement = doc.documentElement;
     const win = doc.defaultView ?? window;
-    if (!coords) {
-      dom.style.left = "-10000px";
-      dom.style.top = "-10000px";
-      return;
-    }
-
     const scrollX = win.scrollX;
     const scrollY = win.scrollY;
-    const viewportLeft = scrollX;
-    const viewportRight = scrollX + docElement.clientWidth;
-    const viewportTop = scrollY;
-    const viewportBottom = scrollY + docElement.clientHeight;
+    const viewportBounds = {
+      bottom: docElement.clientHeight,
+      left: 0,
+      right: docElement.clientWidth,
+      top: 0,
+    };
     const margin = 12;
+    const editorBounds = this.visibleEditorBounds(viewportBounds);
+    const visibleRanges = this.view.visibleRanges;
+    const firstVisible = visibleRanges[0]?.from ?? 0;
+    const lastVisible = visibleRanges[visibleRanges.length - 1]?.to ?? this.view.state.doc.length;
+    const anchorVertical = coords
+      ? "visible"
+      : preview.to <= firstVisible
+        ? "above"
+        : preview.from >= lastVisible
+          ? "below"
+          : "visible";
     const rect = dom.getBoundingClientRect();
     const width = rect.width || Math.min(560, Math.max(280, docElement.clientWidth * 0.76));
     const height = rect.height || 140;
-    const preferredLeft = scrollX + coords.left;
-    const left = Math.min(Math.max(preferredLeft, viewportLeft + margin), viewportRight - width - margin);
-    const belowTop = scrollY + coords.bottom + 8;
-    const aboveTop = scrollY + coords.top - height - 8;
-    const top = belowTop + height > viewportBottom - margin && aboveTop >= viewportTop + margin ? aboveTop : belowTop;
+    const anchor = coords ? rectBounds(coords) : null;
+    if (coords) this.lastAnchorLeft = coords.left;
+    const fallbackLeft = this.lastAnchorLeft ?? editorBounds.left + margin;
+    const position = computeCodexPreviewPosition({
+      anchor,
+      anchorVertical,
+      editorBounds,
+      fallbackLeft,
+      margin,
+      previewSize: { height, width },
+      viewportBounds,
+    });
 
-    dom.style.left = `${Math.round(left)}px`;
-    dom.style.top = `${Math.round(top)}px`;
+    dom.style.left = `${Math.round(scrollX + position.left)}px`;
+    dom.style.maxHeight = `${Math.round(position.availableHeight)}px`;
+    dom.style.top = `${Math.round(scrollY + position.top)}px`;
   }
 
   private queuePositionPreview() {
@@ -392,6 +503,21 @@ class CodexMentionPlugin {
     this.previewDom = null;
     this.previewKey = null;
   }
+
+  private visibleEditorBounds(viewportBounds: RectBounds) {
+    const win = editorWindow(this.view);
+    let bounds = rectBounds(this.view.dom.getBoundingClientRect());
+    for (let node = this.view.dom.parentElement; node; node = node.parentElement) {
+      const style = win.getComputedStyle(node);
+      const clips = /(auto|scroll|hidden|clip)/.test(
+        `${style.overflow} ${style.overflowX} ${style.overflowY}`,
+      );
+      if (clips) bounds = intersectBounds(bounds, rectBounds(node.getBoundingClientRect()));
+    }
+    const viewportClipped = intersectBounds(bounds, viewportBounds);
+    if (boundsHeight(viewportClipped) > 0 && boundsWidth(viewportClipped) > 0) return viewportClipped;
+    return intersectBounds(rectBounds(this.view.dom.getBoundingClientRect()), viewportBounds);
+  }
 }
 
 const codexMentionPlugin = ViewPlugin.define<CodexMentionPlugin, CodexMentionPluginConfig>(
@@ -399,6 +525,11 @@ const codexMentionPlugin = ViewPlugin.define<CodexMentionPlugin, CodexMentionPlu
   {
     decorations: (plugin) => plugin.decorations,
     eventHandlers: {
+      pointerdown(event, view) {
+        if (closestMentionElement(event.target)) return false;
+        if (event.target instanceof HTMLElement && event.target.closest("[data-codex-preview='true']")) return false;
+        return this.closePreview(view);
+      },
       click(event, view) {
         const mark = closestMentionElement(event.target);
         if (!mark) return false;

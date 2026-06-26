@@ -1,7 +1,7 @@
 # Project Recovery Acceptance Record
 
 Status: active, not accepted
-Updated: 2026-06-25
+Updated: 2026-06-26
 
 ## Conclusion
 
@@ -96,7 +96,7 @@ Status: command-verified for the current Codex scope, not visually accepted. Pla
 
 ### Slice D2: Editor Foundation
 
-Status: command-verified on 2026-06-24 with CodeMirror 6 adopted for the current Write scene and Codex Canon editor surfaces. The 2026-06-25 Canon preview layer follow-up was visually confirmed by the user. Real Chinese IME behavior still needs user/manual validation on an actual input method; browser screenshots are not a default requirement for this slice.
+Status: command-verified on 2026-06-24 with CodeMirror 6 adopted for the current Write scene and Codex Canon editor surfaces. The 2026-06-25 Canon preview layer follow-up was visually confirmed by the user. A 2026-06-26 follow-up closes previews from non-mention editor clicks and clamps previews to visible editor bounds. Real Chinese IME behavior still needs user/manual validation on an actual input method; browser screenshots are not a default requirement for this slice.
 
 Evidence:
 
@@ -107,6 +107,7 @@ Evidence:
 - CodeMirror dependencies added: `@codemirror/state`, `@codemirror/view`, `@codemirror/commands`, and `@codemirror/lang-markdown`, all MIT. Unused `@milkdown/kit` and `@milkdown/react` runtime dependencies were removed from the web package.
 - ADR-0010 records the editor runtime decision and supersedes the old Milkdown runtime choice while preserving the Markdown/YAML persistence contract.
 - Follow-up user feedback on 2026-06-25 corrected Canon preview layer order. Canon previews now render through a custom application-level absolute portal instead of CodeMirror's tooltip container; the portal host and preview card use the app's highest overlay layer above editor/detail content, without using viewport-fixed positioning. Clicking inside the preview keeps it open; clicking elsewhere still closes it.
+- Follow-up user feedback on 2026-06-26 corrected Canon preview close and scroll-bound behavior. Preview state now closes when the user clicks any non-mention position inside the editor, preview positioning is clamped to the visible editor/scroll-container top and bottom when the referenced text scrolls away, and the preview card scrolls vertically only with horizontal overflow hidden.
 
 Commands:
 
@@ -116,6 +117,9 @@ Commands:
 - 2026-06-25 follow-up: `npm.cmd run test -w @novel-studio/web -- EditorSurface.test.tsx` passed: 1 file, 6 tests.
 - 2026-06-25 follow-up: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed: 1 file, 37 tests.
 - 2026-06-25 follow-up: `npm.cmd run typecheck -w @novel-studio/web` passed.
+- 2026-06-26 follow-up: `npm.cmd run test -w @novel-studio/web -- EditorSurface.test.tsx` passed: 1 file, 8 tests.
+- 2026-06-26 follow-up: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed: 1 file, 38 tests.
+- 2026-06-26 follow-up: `npm.cmd run typecheck -w @novel-studio/web` passed.
 
 Acceptance mapping:
 
@@ -126,6 +130,7 @@ Acceptance mapping:
 - Pure text save, blank lines, and leading spaces: covered by AppShell save-payload tests.
 - Decorations/previews do not persist: covered by editor surface tests and save-payload tests.
 - Preview layer order: covered by `EditorSurface.test.tsx`, which verifies the preview is mounted outside `.novel-editor` on `.editor-tooltip-layer`, the layer and preview card both use the top overlay z-index, and the preview remains open when the preview itself is clicked.
+- Preview close/bounds behavior: covered by `EditorSurface.test.tsx`, which verifies non-mention editor clicks close the preview, `computeCodexPreviewPosition` clamps top/bottom positioning to visible editor bounds, and the preview card has vertical-only scroll styling.
 - Undo/redo, paste cleanup, selection restoration/state reporting: covered by focused editor tests and typechecked integration.
 
 ### Codex Details Follow-up
@@ -143,6 +148,7 @@ Scope covered:
 - Details rows select a reusable type instead of free-typing an isolated label.
 - Each entry detail row has its own switch for whether that detail is sent with the entry into AI context.
 - Detail value editing uses the shared editor surface used by Canon Description and Write.
+- The detail-open Codex workspace makes the category rail and Entry Index auxiliary-width panels while the selected entry editor takes the main workspace; the entry header is compressed so editing controls appear earlier.
 
 Evidence:
 
@@ -151,6 +157,7 @@ Evidence:
 - `apps/server/src/routes/codex.ts` exposes detail type list/create/update/delete routes.
 - `apps/server/src/routes/context.ts` filters detail values whose entry-level AI switch is off when building M4 ContextBundles.
 - `apps/web/src/features/codex/CodexWorkspace.tsx` removes the Tags field, adds modal detail type management, supports NSFW toggling, and renders detail values with `EditorSurface`.
+- `apps/web/src/app/app-shell.css` widens the selected Codex entry workspace in detail-open mode and removes nonessential rail/index copy from that mode.
 - ADR-0011 records the data-format decision, compatibility, migration, rollback, and tests.
 
 Commands:
@@ -247,8 +254,10 @@ git diff --check
 2026-06-26 current run:
 
 - `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed: 1 file, 38 tests.
+- `npm.cmd run test -w @novel-studio/web -- EditorSurface.test.tsx` passed: 1 file, 8 tests.
+- `npm.cmd run typecheck -w @novel-studio/web` passed.
 - `npm.cmd run build` passed.
-- `npm.cmd run test` passed: server 20, web 44, AI 20, storage 48 tests.
+- `npm.cmd run test` passed: server 20, web 46, AI 20, storage 48 tests.
 - `git diff --check` passed with line-ending warnings only.
 
 Final docs are updated:

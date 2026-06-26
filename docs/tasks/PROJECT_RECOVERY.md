@@ -1,7 +1,7 @@
 # Project Recovery Plan
 
 Status: active
-Updated: 2026-06-25
+Updated: 2026-06-26
 
 ## Decision
 
@@ -249,6 +249,7 @@ Done so far:
 - Codex canon description editing now uses the same realtime name/alias matching for other active Codex entries, with the same clickable dashed-underlined hits and editor-shell overlay Canon description preview that is not clipped by the scrollable input area.
 - Write and Codex canon-description editors now preserve blank lines and line-leading spaces by applying Enter and Space as literal text-model insertions instead of relying on browser contentEditable defaults.
 - User screenshot follow-up on 2026-06-26 removed invalid Codex entry tags from contracts, storage writes, server routes, frontend API payloads, table/search UI, and the detail form. Details now use category-scoped reusable detail types persisted under `codex/detail-types/`, managed through a large modal with real list/create/update/delete APIs, protected from deletion while any same-category entry still uses the type, and edited in rows whose text values reuse the same `EditorSurface` as Canon Description and Write. Detail types can be assigned to custom categories and marked NSFW; each entry detail row has its own switch for whether that detail is sent with the entry into AI context.
+- Later 2026-06-26 screenshot feedback widened the detail-open Codex workbench by turning the category rail and Entry Index into auxiliary-width panels and giving the selected entry editor the dominant workspace. The entry header was compressed so Details editing appears earlier without simply resizing one sidebar.
 - Left Plan untouched in this pass. The user identified Plan as requiring a full review and rebuild rather than incremental repair.
 
 Purpose: connect story memory to actual writing and planning.
@@ -317,6 +318,13 @@ Follow-up layer fix on 2026-06-25:
 - Canon previews now render through a custom application-level absolute portal instead of CodeMirror's tooltip container or the editor's own low-level stacking context. The portal host and preview card use the app's highest overlay layer so the preview stays above the Codex editor border and following detail fields without using viewport-fixed positioning.
 - Clicking inside the preview no longer triggers the editor outside-click close handler; clicking elsewhere still closes it.
 - Focused tests cover top-layer mounting, z-index, preview self-click behavior, AppShell integration, and web typecheck.
+
+Follow-up close/bounds fix on 2026-06-26:
+
+- Clicking any non-mention position inside the same editor now closes the open Canon preview, matching the outside-click behavior without requiring editing text.
+- Canon preview positioning now clamps to the visible editor/scroll-container bounds. When the referenced text scrolls above or below the visible editor, the preview remains at the editor top or bottom boundary instead of disappearing with the text.
+- Preview card scrolling is vertical-only; horizontal overflow is hidden and long preview text wraps instead of creating a sideways scrollbar.
+- Focused tests cover the non-mention editor click close behavior and the top/bottom clamping math.
 
 Target editor capabilities:
 
