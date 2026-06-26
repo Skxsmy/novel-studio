@@ -33,7 +33,7 @@ This file is the current project-status authority. Earlier Chinese records were 
 - Current server route structure includes domain route modules for series, Codex, AI/model settings, prompts, context, and calls.
 - `packages/contracts` has split domain schemas re-exported through `src/index.ts`.
 - `packages/storage` still has an oversized `src/index.ts`; domain behavior should keep moving out instead of growing it.
-- `packages/ai` contains the provider registry, mock provider, OpenAI-compatible path, DeepSeek provider path, credential abstractions, and error classification.
+- `packages/ai` contains the provider registry, mock provider, OpenAI-compatible path, DeepSeek/OpenAI/OpenRouter/Ollama paths, the Anthropic Messages API path, the Google Gemini GenerateContent API path, credential abstractions, and error classification.
 
 ## Active Work: Project Recovery
 
@@ -81,7 +81,7 @@ Current recovery slices:
 - M2: complete. File storage, API, conflict protection, index rebuild, and search had automated tests.
 - M3: complete. `NS-301` through `NS-307` were implemented and validated.
 - M3 -> M4 preparation: complete through `NS-400`. Architecture refresh, split baselines, repeatable smoke tests, and M4 minimum contracts were recorded.
-- M4: partially complete. `NS-401` through `NS-407` are complete. `NS-408` implemented DeepSeek and a generic OpenAI-compatible foundation but did not finish every provider listed in the original scope. The old `NS-409` line is historical; active work is now project recovery.
+- M4: partially complete. `NS-401` through `NS-407` are complete. `NS-408` now has DeepSeek, OpenAI, OpenRouter, Ollama, Anthropic, Google Gemini, and generic OpenAI-compatible protocol paths, but real external non-writing call validation remains unfinished. The old `NS-409` line is historical; active work is now project recovery.
 
 ## Historical Implementation Record
 
@@ -139,7 +139,7 @@ Current recovery slices:
 - `NS-405` added scene-level `ContextBundle` assembly and preview APIs. Preview bundles record included items, excluded items, source, reason, and usage estimates. `never`, hidden sections, and future information are excluded from current-scene context.
 - `NS-406` added seven built-in editorial roles, prompt templates, presets, declarative rendering, template version APIs, and a settings-page prompt preview. Context preview records real PromptTemplate ID/version. Missing required input and invalid expressions are rejected.
 - `NS-407` added non-writing AI call APIs, SSE streaming, call-log persistence, and a minimal writing-page review/rewrite loop. Rewrite produces an inline prose candidate; the author must explicitly keep it before it is saved.
-- `NS-408` added a dedicated DeepSeek provider and generic OpenAI-compatible provider foundation. Settings can create DeepSeek config, save/replace/delete/reuse service keys, fetch model lists, test connections, and call through the shared ProviderRegistry. The user manually confirmed DeepSeek connection and model-list retrieval. OpenAI, OpenRouter, Anthropic, Gemini, and Ollama were not fully completed in the old `NS-408` scope.
+- `NS-408` added a dedicated DeepSeek provider, generic OpenAI-compatible provider foundation, OpenAI/OpenRouter/Ollama provider paths, an Anthropic Messages API provider path, and a Google Gemini GenerateContent provider path. Settings can create provider configs, save/replace/delete/reuse service keys, fetch model lists, select fetched provider models, test connections, and call through the shared ProviderRegistry. The user manually confirmed DeepSeek connection and model-list retrieval. Real external non-writing call validation is not fully completed in the `NS-408` scope.
 
 ### UI History Before Current Rebuild
 
@@ -184,6 +184,8 @@ Current recovery slices:
 - `NS-406`: typecheck passed; tests passed server 11, web 14, AI 10, storage 41; E2E covered roles/prompts and prompt preview with `m4-prompt-template-preview.png`; full check passed.
 - `NS-407`: typecheck passed; tests passed server 13, web 14, AI 10, storage 41; E2E covered AI review, selected rewrite, inline candidate, keep action, and screenshots `m4-ai-panel-ready.png`, `m4-ai-review-result.png`, `m4-ai-inline-candidate-selected.png`. Manual screenshot review confirmed the writing candidate bar did not expose call source, base version, usage, or call ID.
 - `NS-408`: tests passed server 15, web 14, AI 12, storage 41; E2E covered DeepSeek/OpenAI-compatible config UI, unique screenshot manifest, context preview, AI review, and prose candidate loop. Later provider split validation passed typecheck, AI 15/15, server 15/15, full check, and E2E. User confirmed real DeepSeek connection and model-list retrieval; Codex did not read or print the real key.
+- `NS-408` Anthropic follow-up: official Anthropic Messages/Models API behavior was checked before implementation. `npm.cmd run test -w @novel-studio/ai` passed 19/19; `npm.cmd run test -w @novel-studio/server -- ai-routes.test.ts` passed 7/7; `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed 38/38. Full `npm.cmd run check` initially hit a sandbox EPERM while writing `packages/contracts/dist`, then passed with elevated permissions: Server 19/19, Web 44/44, AI 19/19, Storage 47/47, production build passed. Real external Anthropic calls were not run by Codex.
+- `NS-408` Gemini follow-up: official Google Gemini GenerateContent/Models/API key behavior was checked before implementation. `npm.cmd run test -w @novel-studio/ai` passed 20/20; `npm.cmd run build -w @novel-studio/ai` passed; `npm.cmd run test -w @novel-studio/server -- ai-routes.test.ts` passed 8/8; `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed 38/38. Full `npm.cmd run check` first hit sandbox EPERM while writing `packages/contracts/dist`, then passed with elevated permissions: Server 20/20, Web 44/44, AI 20/20, Storage 47/47, production build passed with the existing Vite large-chunk warning. Real external Gemini calls were not run by Codex.
 
 ### NS-409 UI Validation History
 
@@ -220,9 +222,9 @@ Acceptance evidence files:
 - The Windows/Codex sandbox can reject writes to fixed `data/server.*` files; startup scripts fall back to `%TEMP%\novel-studio` for PID/log state.
 - First-start library selection, in-app service stop, and tray entry are not implemented.
 - Editor room, review/candidate workflows, and Workshop are not complete product workflows.
-- `NS-404` through `NS-408` implemented minimum settings, context preview, prompt preview, writing AI review/rewrite entry points, DeepSeek provider, and OpenAI-compatible foundation. Project Recovery Slice E was later marked permanently skipped by the user, so its working-draft Settings/provider changes are not acceptance evidence. Full context grouping UI, call-log UI, full role/variable/preset editors, and wider browser coverage remain later work.
+- `NS-404` through `NS-408` implemented minimum settings, context preview, prompt preview, writing AI review/rewrite entry points, DeepSeek/OpenAI/OpenRouter/Ollama/Anthropic/Google Gemini provider paths, and OpenAI-compatible foundation. Project Recovery Slice E was later marked permanently skipped by the user, so its working-draft Settings/provider changes are not Recovery Release A acceptance evidence. Full context grouping UI, call-log UI, full role/variable/preset editors, and wider browser coverage remain later work.
 - Real DeepSeek connection/model list was user-validated; a real DeepSeek non-writing call result was not recorded in the old handoff.
-- OpenAI, OpenRouter, and Ollama have existing compatibility paths but still need broader real-provider validation and product polish; Anthropic/Gemini remain deferred.
+- OpenAI, OpenRouter, Ollama, Anthropic, and Google Gemini have provider paths covered by fake fetch protocol tests but still need broader real-provider validation and product polish.
 - Future provider integrations must be based on the provider's official API entry and documentation, with the official source and endpoint/auth/streaming/request-response/model-list behavior recorded in the task and acceptance records.
 - Archive is allowed only as a reversible hiding state. Product design must also provide user-visible cleanup/permanent-delete paths for unwanted archived data, with reference checks or immutable history snapshots so long-term use does not accumulate unbounded archive data.
 - Current UI remains rejected overall. Fonts, type hierarchy, border weight, page design language, empty states, Plan, Review, Workshop, and final Settings polish still need product-level work. Review and Workshop must remain visible for now, but their future product functionality must be designed and implemented from scratch.

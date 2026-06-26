@@ -1,5 +1,7 @@
 import type { AiProvider } from "@novel-studio/contracts";
+import { AnthropicProvider } from "./anthropicProvider.js";
 import { createSystemCredentialStore, type CredentialStore } from "./credentials.js";
+import { GeminiProvider } from "./geminiProvider.js";
 import { MockProvider } from "./mockProvider.js";
 import { OpenAiCompatibleProvider } from "./openAiCompatibleProvider.js";
 import type { ProviderAdapter } from "./provider.js";
@@ -89,6 +91,14 @@ export function createDefaultProviderRegistry(options: ProviderRegistryOptions =
     provider: "ollama",
     title: "Ollama",
     defaultBaseUrl: "http://localhost:11434/v1",
+  }));
+  registry.register(new AnthropicProvider({
+    credentialStore: openAiCompatibleOptions.credentialStore,
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+  }));
+  registry.register(new GeminiProvider({
+    credentialStore: openAiCompatibleOptions.credentialStore,
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   }));
   return registry;
 }

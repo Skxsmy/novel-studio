@@ -322,6 +322,16 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
     }
   }
 
+  function selectProviderModel(model: ProviderModelDescriptor) {
+    setForm((current) => ({
+      ...current,
+      capabilities: model.capabilities,
+      contextWindowTokens: model.contextWindowTokens,
+      model: model.id,
+    }));
+    setResultMessage("Model selected. Save the profile to use it.");
+  }
+
   const formDisabled = !series || isSaving || isArchiving || isDeletingCredential;
   const savedProfileRequired = !series || !form.id;
   const policyPreview = isCloudProvider(form.provider)
@@ -611,13 +621,19 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
               <span className="pill">{models.length}</span>
             </div>
             {models.map((model) => (
-              <div className="data-row" key={model.id}>
+              <button
+                className="data-row"
+                disabled={formDisabled}
+                key={model.id}
+                onClick={() => selectProviderModel(model)}
+                type="button"
+              >
                 <div>
                   <div className="row-title">{model.title}</div>
                   <div className="row-meta">{model.id}</div>
                 </div>
                 <span className="pill">{model.contextWindowTokens.toLocaleString()}</span>
-              </div>
+              </button>
             ))}
           </div>
         </aside>

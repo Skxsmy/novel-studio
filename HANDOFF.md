@@ -201,17 +201,22 @@ Current recovery order:
 ### NS-408
 
 - Added `packages/ai/src/openAiCompatibleProvider.ts`.
-- Default registry registers `mock`, `deepseek`, and `openai-compatible`.
+- Added `packages/ai/src/anthropicProvider.ts`.
+- Added `packages/ai/src/geminiProvider.ts`.
+- Default registry registers `mock`, `openai-compatible`, `deepseek`, `openai`, `openrouter`, `ollama`, `anthropic`, and `google`.
 - DeepSeek and generic OpenAI-compatible share OpenAI-format transport, but provider semantics are separate.
 - Generic compatible services do not inherit DeepSeek default address, model, or provider-specific errors.
-- DeepSeek supports connection test, model list, streaming text, basic structured output, token estimate, and unified error classification.
+- DeepSeek, OpenAI, OpenRouter, Ollama, Anthropic, Google Gemini, and generic OpenAI-compatible paths support connection test, model list, streaming text, basic structured output, token estimate, and unified error classification where their protocol allows it.
+- Anthropic uses official Messages API and Models API (`/v1/messages`, `/v1/models`, `x-api-key`, `anthropic-version: 2023-06-01`) and parses `content_block_delta` stream events; it is not routed through the OpenAI-compatible adapter.
+- Google Gemini uses official GenerateContent and Models API (`/v1beta/models`, `:generateContent`, `:streamGenerateContent?alt=sse`, `x-goog-api-key`) and filters the model list to entries that support `generateContent`; it is not routed through the OpenAI-compatible adapter.
 - Settings can create DeepSeek config with default base URL `https://api.deepseek.com` and default model `deepseek-v4-flash`.
+- Settings includes Anthropic and Google Gemini in the provider selector, can fetch provider model lists, and lets the user select a fetched model into the current profile before saving.
 - Added service-key save/status/delete endpoints. Plain keys go only into `CredentialStore`; model config stores only credential references.
 - Server injects one `CredentialStore` and one `ProviderRegistry` into AI, context, and model-call routes.
 - Browser screenshots use unique run IDs, unique file names, and `*-screenshot-manifest.json`.
 - Settings UI removed developer fallback explanations from the main interface and folded credential refs/capability parameters into advanced info.
 - User confirmed real DeepSeek connection and model list. Codex did not read or print the real secret.
-- Provider follow-up: OpenAI, OpenRouter, and Ollama have existing compatibility paths but still need broader real-provider validation and product polish; Anthropic/Gemini remain deferred. A real DeepSeek non-writing result was not recorded in the older handoff.
+- Provider follow-up: OpenAI, OpenRouter, Ollama, Anthropic, and Google Gemini have protocol paths covered by fake fetch tests but still need broader real-provider validation and product polish. A real DeepSeek, Anthropic, or Gemini non-writing result was not recorded in the handoff.
 - Provider integration rule: any future provider work must start from that provider's official API entry and documentation, with the official URL and endpoint/auth/streaming/request-response/model-list behavior recorded in the task and acceptance records before the implementation is accepted.
 - Data lifecycle rule: archive may remain as a reversible hiding state, but it must not be the only way to remove unwanted data. Archive-capable objects need a user-visible cleanup/permanent-delete path with reference checks or preserved immutable snapshots for historical views.
 
@@ -257,6 +262,19 @@ Current recovery order:
   - `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx`: 37 passed.
   - `npm.cmd run typecheck -w @novel-studio/server`: passed.
   - `npm.cmd run typecheck -w @novel-studio/web`: passed.
+- NS-408 Anthropic follow-up validation:
+  - `npm.cmd run test -w @novel-studio/ai`: 19 passed.
+  - `npm.cmd run test -w @novel-studio/server -- ai-routes.test.ts`: 7 passed.
+  - `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx`: 38 passed.
+  - `npm.cmd run check`: first sandboxed run failed with EPERM writing `packages/contracts/dist`; rerun with elevated permissions passed with Server 19, Web 44, AI 19, Storage 47 and production build.
+  - Real external Anthropic calls were not run by Codex.
+- NS-408 Gemini follow-up validation:
+  - `npm.cmd run test -w @novel-studio/ai`: 20 passed.
+  - `npm.cmd run build -w @novel-studio/ai`: passed.
+  - `npm.cmd run test -w @novel-studio/server -- ai-routes.test.ts`: 8 passed.
+  - `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx`: 38 passed.
+  - `npm.cmd run check`: first sandboxed run failed with EPERM writing `packages/contracts/dist`; rerun with elevated permissions passed with Server 20, Web 44, AI 20, Storage 47 and production build. Vite still reports the existing large frontend chunk warning.
+  - Real external Gemini calls were not run by Codex.
 - Earlier Slice D category/delete backend validation:
   - `npx vitest run packages/storage/test/repository.test.ts`: 42 passed.
   - `npm.cmd run typecheck -w @novel-studio/storage`: passed.

@@ -99,8 +99,8 @@ Immediate task requirements:
 - [x] `NS-406` Prompt templates, editorial roles, presets, declarative rendering, and version history.
 - [x] `NS-407` Non-writing AI calls, SSE streaming, and ModelCallLog.
 - [-] `NS-408` DeepSeek and OpenAI-compatible provider foundation.
-  - Done: DeepSeek provider path, generic OpenAI-compatible foundation, settings credential controls, connection test, model-list flow, and user-confirmed DeepSeek connection/model-list retrieval.
-  - Not finished from original scope: broader OpenAI/OpenRouter/Ollama real-provider validation and product polish, Anthropic/Gemini provider paths, and recorded real DeepSeek non-writing call result.
+  - Done: DeepSeek provider path, generic OpenAI-compatible foundation, OpenAI/OpenRouter/Ollama provider paths, Anthropic Messages API provider path, Google Gemini GenerateContent provider path, settings credential controls, connection test, model-list flow, selectable fetched provider models, and user-confirmed DeepSeek connection/model-list retrieval.
+  - Not finished from original scope: real external non-writing call validation for DeepSeek/OpenAI/OpenRouter/Ollama/Anthropic/Google Gemini, broader real-provider product polish, and recorded real DeepSeek non-writing call result.
 - [!] `PROJECT-RECOVERY` Project-level recovery roadmap.
   - Historical `NS-409A/NS-409C`: image-model-assisted UI redo and plan/write correction records. Not current acceptance.
   - Historical `NS-409D`: wide-screen review for Write, Codex, and Workshop. Not current acceptance.

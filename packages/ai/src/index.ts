@@ -3,4 +3,6 @@ export * from "./provider.js";
 export * from "./registry.js";
 export * from "./mockProvider.js";
 export * from "./openAiCompatibleProvider.js";
+export * from "./anthropicProvider.js";
+export * from "./geminiProvider.js";
 export * from "./credentials.js";

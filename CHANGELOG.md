@@ -40,6 +40,8 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **NS-406**: Added seven built-in editorial roles, prompt templates, presets, declarative rendering, and prompt-template version history. Settings gained a roles/prompts section and prompt preview. Invalid or missing template inputs are rejected.
 - **NS-407**: Added non-writing AI call APIs, SSE streaming, ModelCallLog persistence, and a minimal writing-page review/rewrite loop. Rewrite only creates an inline candidate; the author must explicitly keep it before it is saved. The writing main path does not expose audit fields.
 - **NS-408**: Added a dedicated DeepSeek provider and generic OpenAI-compatible provider foundation. Settings can create DeepSeek config, save/replace/delete/reuse service keys, fetch model lists, and test connections through ProviderRegistry. The user confirmed real DeepSeek connection and model-list retrieval. OpenAI, OpenRouter, Anthropic, Gemini, and Ollama were not finished in the old scope.
+- **NS-408 Anthropic Follow-up**: Added an independent Anthropic Messages API provider, registered it in ProviderRegistry, covered `/v1/models` and `/v1/messages` with fake fetch tests, exposed Anthropic in Settings, and made fetched provider models selectable before saving a profile. At that point Gemini and real external non-writing calls remained pending.
+- **NS-408 Gemini Follow-up**: Added an independent Google Gemini GenerateContent provider, registered `google` in ProviderRegistry, covered `/v1beta/models`, `:streamGenerateContent?alt=sse`, `:generateContent`, `x-goog-api-key`, JSON mode, and selectable fetched Gemini models with fake fetch tests. Real external non-writing calls remain pending.
 
 ### UI Principles and NS-409 History
 

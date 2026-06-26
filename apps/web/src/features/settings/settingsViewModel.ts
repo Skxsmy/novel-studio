@@ -2,6 +2,7 @@ import type {
   AiProvider,
   CloudPolicy,
   CreateModelProfileInput,
+  ModelCapability,
   ModelProfile,
   ProviderConnectionResult,
   ProviderModelDescriptor,
@@ -16,7 +17,9 @@ export interface SelectOption<T extends string> {
 
 export interface ModelProfileForm {
   baseUrl: string;
+  capabilities: ModelCapability;
   cloudPolicy: CloudPolicy;
+  contextWindowTokens: number;
   id: string | null;
   model: string;
   provider: AiProvider;
@@ -28,13 +31,17 @@ export const providerOptions: Array<SelectOption<AiProvider>> = [
   { label: "Mock", value: "mock" },
   { label: "DeepSeek", value: "deepseek" },
   { label: "OpenAI", value: "openai" },
+  { label: "Anthropic", value: "anthropic" },
+  { label: "Google Gemini", value: "google" },
   { label: "OpenRouter", value: "openrouter" },
   { label: "Ollama", value: "ollama" },
   { label: "OpenAI-compatible", value: "openai-compatible" },
 ];
 
 const cloudProviders = new Set<AiProvider>([
+  "anthropic",
   "deepseek",
+  "google",
   "openai",
   "openrouter",
   "openai-compatible",
@@ -59,7 +66,15 @@ export const cloudPolicyOptions: Array<SelectOption<CloudPolicy>> = [
 
 export const emptyModelProfileForm: ModelProfileForm = {
   baseUrl: "",
+  capabilities: {
+    embeddings: false,
+    modelList: true,
+    streamText: true,
+    structuredOutput: true,
+    tokenEstimate: true,
+  },
   cloudPolicy: "local-only",
+  contextWindowTokens: 8192,
   id: null,
   model: "mock-continuity-v1",
   provider: "mock",
@@ -70,7 +85,9 @@ export const emptyModelProfileForm: ModelProfileForm = {
 export function formFromProfile(profile: ModelProfile): ModelProfileForm {
   return {
     baseUrl: profile.baseUrl ?? "",
+    capabilities: profile.capabilities,
     cloudPolicy: profile.cloudPolicy,
+    contextWindowTokens: profile.contextWindowTokens,
     id: profile.id,
     model: profile.model,
     provider: profile.provider,
@@ -82,7 +99,9 @@ export function formFromProfile(profile: ModelProfile): ModelProfileForm {
 export function modelProfileInputFromForm(form: ModelProfileForm): CreateModelProfileInput {
   return {
     baseUrl: form.baseUrl.trim() || null,
+    capabilities: form.capabilities,
     cloudPolicy: form.cloudPolicy,
+    contextWindowTokens: form.contextWindowTokens,
     model: form.model.trim() || emptyModelProfileForm.model,
     provider: form.provider,
     title: form.title.trim() || "Untitled Model",
@@ -92,7 +111,9 @@ export function modelProfileInputFromForm(form: ModelProfileForm): CreateModelPr
 export function updateModelProfileInputFromForm(form: ModelProfileForm): UpdateModelProfileInput {
   return {
     baseUrl: form.baseUrl.trim() || null,
+    capabilities: form.capabilities,
     cloudPolicy: form.cloudPolicy,
+    contextWindowTokens: form.contextWindowTokens,
     model: form.model.trim() || emptyModelProfileForm.model,
     provider: form.provider,
     title: form.title.trim() || "Untitled Model",

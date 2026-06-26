@@ -477,11 +477,19 @@ function codexRelationDocument(
 function modelProfile(overrides: Partial<{
   archivedAt: string | null;
   baseUrl: string | null;
+  capabilities: {
+    embeddings: boolean;
+    modelList: boolean;
+    streamText: boolean;
+    structuredOutput: boolean;
+    tokenEstimate: boolean;
+  };
   cloudPolicy: "local-only" | "cloud-allowed";
+  contextWindowTokens: number;
   credentialRef: string | null;
   id: string;
   model: string;
-  provider: "mock" | "openai" | "openrouter" | "ollama" | "deepseek" | "openai-compatible";
+  provider: "mock" | "openai" | "openrouter" | "ollama" | "deepseek" | "openai-compatible" | "anthropic" | "google";
   title: string;
 }> = {}) {
   return {
@@ -835,7 +843,9 @@ function mockFetch(options: {
       const body = JSON.parse(String(init?.body));
       const profile = modelProfile({
         baseUrl: body.baseUrl,
+        capabilities: body.capabilities,
         cloudPolicy: body.cloudPolicy,
+        contextWindowTokens: body.contextWindowTokens,
         model: body.model,
         provider: body.provider,
         title: body.title,
@@ -925,6 +935,15 @@ function mockFetch(options: {
           contextWindowTokens: profile.contextWindowTokens,
           id: profile.model,
           title: profile.model,
+        },
+        {
+          capabilities: {
+            ...profile.capabilities,
+            structuredOutput: true,
+          },
+          contextWindowTokens: 128000,
+          id: "fetched-long-context-model",
+          title: "Fetched Long Context",
         },
       ]);
     }
@@ -2067,8 +2086,8 @@ describe("App shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Models" }));
     expect(await screen.findByText("No model profiles yet")).toBeTruthy();
-    expect(screen.queryByRole("option", { name: "Anthropic" })).toBeNull();
-    expect(screen.queryByRole("option", { name: "Google" })).toBeNull();
+    expect(screen.getByRole("option", { name: "Anthropic" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Google Gemini" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Model title"), { target: { value: "Mock Continuity" } });
     fireEvent.change(screen.getByLabelText("Model id"), { target: { value: "mock-continuity-v1" } });
     fireEvent.click(screen.getByRole("button", { name: "Save Model" }));
@@ -2090,6 +2109,17 @@ describe("App shell", () => {
       );
     });
     expect(await screen.findByText("Connection ok.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Fetch Models" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/models`,
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Fetched Long Context/i }));
+    expect(screen.getByLabelText("Model id")).toHaveProperty("value", "fetched-long-context-model");
+    expect(await screen.findByText("Model selected. Save the profile to use it.")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Service key"), { target: { value: "settings-test-key" } });
     fireEvent.click(screen.getByRole("button", { name: "Save Model" }));

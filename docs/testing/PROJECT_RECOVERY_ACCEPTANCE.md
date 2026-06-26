@@ -136,7 +136,7 @@ Historical command evidence, not acceptance evidence:
 
 - Settings can list, create, update, test, fetch models for, delete service keys from, and archive active model profiles through real APIs.
 - Service-key status is shown as saved/missing/no key without displaying credential references or secret values.
-- Anthropic and Google stay deferred in the Settings provider selector; this slice did not add provider implementations.
+- Anthropic and Google/Gemini were later implemented under the NS-408 provider scope, not as Project Recovery Slice E evidence.
 - Project and model cloud policies are enforced before provider access for cloud-routed providers.
 - Archived profiles are hidden from the active Settings list.
 - Remaining lifecycle requirement: archive is not enough for long-term use. A later cleanup/permanent-delete path must let users clear unwanted archived model profiles after reference checks or immutable snapshots.

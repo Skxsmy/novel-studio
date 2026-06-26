@@ -9,6 +9,8 @@ import {
   type ModelProfile,
 } from "@novel-studio/contracts";
 import {
+  AnthropicProvider,
+  GeminiProvider,
   MockProvider,
   OpenAiCompatibleProvider,
   ProviderAdapterError,
@@ -144,7 +146,7 @@ function sseResponse(...events: string[]): Response {
 }
 
 describe("ProviderAdapter core and MockProvider", () => {
-  it("registers MockProvider, generic OpenAI-compatible and DeepSeek providers", () => {
+  it("registers MockProvider and the enabled real provider adapters", () => {
     const registry = createDefaultProviderRegistry({ credentialStore: fakeCredentialStore() });
 
     expect(registry.list().map((adapter) => adapter.provider)).toEqual([
@@ -154,12 +156,15 @@ describe("ProviderAdapter core and MockProvider", () => {
       "openai",
       "openrouter",
       "ollama",
+      "anthropic",
+      "google",
     ]);
     expect(registry.get("mock")).toBeInstanceOf(MockProvider);
     expect(registry.get("openai")).toBeInstanceOf(OpenAiCompatibleProvider);
     expect(registry.get("openrouter")).toBeInstanceOf(OpenAiCompatibleProvider);
     expect(registry.get("ollama")).toBeInstanceOf(OpenAiCompatibleProvider);
-    expect(() => registry.get("anthropic")).toThrow("Provider is not registered");
+    expect(registry.get("anthropic")).toBeInstanceOf(AnthropicProvider);
+    expect(registry.get("google")).toBeInstanceOf(GeminiProvider);
   });
 
   it("describes capabilities, tests connection and lists models", async () => {
@@ -629,6 +634,214 @@ describe("ProviderAdapter core and MockProvider", () => {
         { role: "system" },
         { role: "user" },
       ],
+    });
+  });
+
+  it("uses official Anthropic Messages fields, stream events, and model list shape", async () => {
+    const requests: Array<{
+      anthropicVersion: string | null;
+      body?: unknown;
+      url: string;
+      xApiKey: string | null;
+    }> = [];
+    const registry = createDefaultProviderRegistry({
+      credentialStore: fakeCredentialStore("anthropic-test-key"),
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const headers = new Headers(init?.headers);
+        requests.push({
+          anthropicVersion: headers.get("anthropic-version"),
+          body: init?.body ? JSON.parse(String(init.body)) as unknown : undefined,
+          url,
+          xApiKey: headers.get("x-api-key"),
+        });
+        if (url === "https://api.anthropic.com/v1/models?limit=1000") {
+          return new Response(JSON.stringify({
+            data: [
+              {
+                id: "claude-test",
+                display_name: "Claude Test",
+                max_input_tokens: 200000,
+                max_tokens: 64000,
+                type: "model",
+              },
+            ],
+            first_id: "claude-test",
+            has_more: false,
+            last_id: "claude-test",
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        if (url === "https://api.anthropic.com/v1/messages") {
+          return new Response(new TextEncoder().encode([
+            'data: {"type":"message_start","message":{"id":"msg_test","type":"message","role":"assistant","content":[],"model":"claude-test","usage":{"input_tokens":10,"output_tokens":0}}}',
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Claude"}}',
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" says hi."}}',
+            'data: {"type":"message_stop"}',
+            "",
+          ].join("\n\n")), { status: 200, headers: { "content-type": "text/event-stream" } });
+        }
+        return new Response(JSON.stringify({ error: { type: "not_found_error", message: "not found" } }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const provider = registry.get("anthropic");
+    const profile = modelProfile({
+      provider: "anthropic",
+      baseUrl: null,
+      model: "claude-test",
+      cloudPolicy: "cloud-allowed",
+      credentialRef: "novel-studio/model-profile/anthropic",
+      contextWindowTokens: 200000,
+    });
+
+    await expect(provider.listModels(profile)).resolves.toEqual([
+      expect.objectContaining({
+        id: "claude-test",
+        title: "Claude Test",
+        contextWindowTokens: 200000,
+      }),
+    ]);
+    await expect(collect(provider.streamText({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      parameters: { maxOutputTokens: 64 },
+    }))).resolves.toBe("Claude says hi.");
+
+    const listRequest = requests.find((request) => request.url === "https://api.anthropic.com/v1/models?limit=1000");
+    expect(listRequest?.xApiKey).toBe("anthropic-test-key");
+    expect(listRequest?.anthropicVersion).toBe("2023-06-01");
+    const messageRequest = requests.find((request) => request.url === "https://api.anthropic.com/v1/messages");
+    expect(messageRequest?.xApiKey).toBe("anthropic-test-key");
+    expect(messageRequest?.anthropicVersion).toBe("2023-06-01");
+    expect(messageRequest?.body).toMatchObject({
+      model: "claude-test",
+      stream: true,
+      max_tokens: 64,
+      messages: [{ role: "user" }],
+    });
+    expect(JSON.stringify(messageRequest?.body)).toContain("当前场景");
+    expect(JSON.stringify(messageRequest?.body)).not.toContain("authorization");
+  });
+
+  it("uses official Gemini model list, GenerateContent fields, and SSE stream shape", async () => {
+    const requests: Array<{
+      authorization: string | null;
+      body?: unknown;
+      url: string;
+      xGoogApiKey: string | null;
+    }> = [];
+    const registry = createDefaultProviderRegistry({
+      credentialStore: fakeCredentialStore("gemini-test-key"),
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const headers = new Headers(init?.headers);
+        requests.push({
+          authorization: headers.get("authorization"),
+          body: init?.body ? JSON.parse(String(init.body)) as unknown : undefined,
+          url,
+          xGoogApiKey: headers.get("x-goog-api-key"),
+        });
+        if (url === "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000") {
+          return new Response(JSON.stringify({
+            models: [
+              {
+                name: "models/gemini-test",
+                baseModelId: "gemini-test",
+                version: "001",
+                displayName: "Gemini Test",
+                inputTokenLimit: 1048576,
+                outputTokenLimit: 8192,
+                supportedGenerationMethods: ["generateContent", "countTokens"],
+              },
+              {
+                name: "models/text-embedding-test",
+                baseModelId: "text-embedding-test",
+                displayName: "Embedding Test",
+                inputTokenLimit: 8192,
+                supportedGenerationMethods: ["embedContent"],
+              },
+            ],
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        if (url === "https://generativelanguage.googleapis.com/v1beta/models/gemini-test:streamGenerateContent?alt=sse") {
+          return sseResponse(
+            JSON.stringify({ candidates: [{ content: { parts: [{ text: "Gemini" }] } }] }),
+            JSON.stringify({ candidates: [{ content: { parts: [{ text: " says hi." }] } }] }),
+          );
+        }
+        if (url === "https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent") {
+          return new Response(JSON.stringify({
+            candidates: [{ content: { parts: [{ text: "{\"safeToWrite\":false}" }] } }],
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        return new Response(JSON.stringify({ error: { code: 404, message: "not found", status: "NOT_FOUND" } }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const provider = registry.get("google");
+    const profile = modelProfile({
+      provider: "google",
+      baseUrl: null,
+      model: "gemini-test",
+      cloudPolicy: "cloud-allowed",
+      credentialRef: "novel-studio/model-profile/google",
+      contextWindowTokens: 1048576,
+    });
+
+    await expect(provider.listModels(profile)).resolves.toEqual([
+      expect.objectContaining({
+        id: "gemini-test",
+        title: "Gemini Test",
+        contextWindowTokens: 1048576,
+      }),
+    ]);
+    await expect(collect(provider.streamText({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      parameters: { maxOutputTokens: 64, temperature: 0.4 },
+    }))).resolves.toBe("Gemini says hi.");
+    await expect(provider.generateObject({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      outputSchemaName: "safe_write_check",
+      parameters: { maxOutputTokens: 64 },
+    }, z.object({ safeToWrite: z.literal(false) }))).resolves.toEqual({ safeToWrite: false });
+
+    const listRequest = requests.find((request) =>
+      request.url === "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000"
+    );
+    expect(listRequest?.xGoogApiKey).toBe("gemini-test-key");
+    expect(listRequest?.authorization).toBeNull();
+    const streamRequest = requests.find((request) =>
+      request.url === "https://generativelanguage.googleapis.com/v1beta/models/gemini-test:streamGenerateContent?alt=sse"
+    );
+    expect(streamRequest?.xGoogApiKey).toBe("gemini-test-key");
+    expect(streamRequest?.authorization).toBeNull();
+    expect(streamRequest?.body).toMatchObject({
+      contents: [{ role: "user" }],
+      generationConfig: {
+        maxOutputTokens: 64,
+        temperature: 0.4,
+      },
+      systemInstruction: { parts: [{ text: expect.any(String) }] },
+    });
+    expect(JSON.stringify(streamRequest?.body)).toContain("当前场景");
+    expect(JSON.stringify(streamRequest?.body)).not.toContain("gemini-test-key");
+    const objectRequest = requests.find((request) =>
+      request.url === "https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent"
+    );
+    expect(objectRequest?.body).toMatchObject({
+      generationConfig: {
+        maxOutputTokens: 64,
+        responseMimeType: "application/json",
+      },
     });
   });
 

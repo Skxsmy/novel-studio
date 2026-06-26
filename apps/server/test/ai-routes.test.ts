@@ -101,7 +101,21 @@ describe("M4 model settings API", () => {
   it("does not fall back to MockProvider when a configured provider is unavailable", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-ai-api-"));
     roots.push(root);
-    const app = await buildApp({ libraryRoot: root });
+    const requests: Array<{ url: string; xGoogApiKey: string | null }> = [];
+    const app = await buildApp({
+      libraryRoot: root,
+      credentialStore: memoryCredentialStore(new Map([["novel-studio:google:test", "gemini-failure-key"]])),
+      providerFetch: async (input, init) => {
+        const url = String(input);
+        requests.push({
+          url,
+          xGoogApiKey: new Headers(init?.headers).get("x-goog-api-key"),
+        });
+        return new Response(JSON.stringify({
+          error: { code: 503, message: "service unavailable", status: "UNAVAILABLE" },
+        }), { status: 503, headers: { "content-type": "application/json" } });
+      },
+    });
     const created = await app.inject({
       method: "POST",
       url: "/api/v1/series",
@@ -120,10 +134,10 @@ describe("M4 model settings API", () => {
       url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
       payload: {
         title: "云端测试模型",
-        provider: "anthropic",
-        model: "gpt-test",
+        provider: "google",
+        model: "gemini-test",
         cloudPolicy: "cloud-allowed",
-        credentialRef: "novel-studio:anthropic:test",
+        credentialRef: "novel-studio:google:test",
       },
     });
     expect(cloudProfileResponse.statusCode).toBe(201);
@@ -136,11 +150,214 @@ describe("M4 model settings API", () => {
     expect(unavailable.statusCode).toBe(503);
     expect(unavailable.json()).toMatchObject({
       ok: false,
-      provider: "anthropic",
+      provider: "google",
       modelProfileId: cloudProfile.id,
       error: { code: "provider-unavailable" },
     });
     expect(JSON.stringify(unavailable.json())).not.toContain("mock-continuity-v1");
+    expect(requests).toContainEqual({
+      url: "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+      xGoogApiKey: "gemini-failure-key",
+    });
+
+    await app.close();
+  });
+
+  it("saves an Anthropic key and fetches current provider models", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-anthropic-api-"));
+    roots.push(root);
+    const secrets = new Map<string, string>();
+    const requests: Array<{
+      anthropicVersion: string | null;
+      url: string;
+      xApiKey: string | null;
+    }> = [];
+    const app = await buildApp({
+      libraryRoot: root,
+      credentialStore: memoryCredentialStore(secrets),
+      providerFetch: async (input, init) => {
+        const url = String(input);
+        const headers = new Headers(init?.headers);
+        requests.push({
+          anthropicVersion: headers.get("anthropic-version"),
+          url,
+          xApiKey: headers.get("x-api-key"),
+        });
+        if (url === "https://api.anthropic.com/v1/models?limit=1000") {
+          return new Response(JSON.stringify({
+            data: [{
+              id: "claude-test",
+              display_name: "Claude Test",
+              max_input_tokens: 200000,
+              max_tokens: 64000,
+              type: "model",
+            }],
+            first_id: "claude-test",
+            has_more: false,
+            last_id: "claude-test",
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        return new Response(JSON.stringify({ error: { type: "not_found_error", message: "not found" } }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Anthropic 配置接口" },
+    });
+    const series = created.json();
+
+    await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
+      payload: { cloudPolicy: "cloud-allowed" },
+    });
+
+    const profileResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      payload: {
+        title: "Anthropic 写作模型",
+        provider: "anthropic",
+        baseUrl: null,
+        model: "claude-test",
+        cloudPolicy: "cloud-allowed",
+      },
+    });
+    expect(profileResponse.statusCode).toBe(201);
+    const profile = profileResponse.json();
+
+    const credential = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+      payload: { secret: "anthropic-test-key" },
+    });
+    expect(credential.statusCode).toBe(200);
+    expect(JSON.stringify(credential.json())).not.toContain("anthropic-test-key");
+
+    const models = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/models`,
+    });
+    expect(models.statusCode).toBe(200);
+    expect(models.json()).toEqual([
+      expect.objectContaining({
+        id: "claude-test",
+        title: "Claude Test",
+        contextWindowTokens: 200000,
+      }),
+    ]);
+    expect(requests).toContainEqual({
+      anthropicVersion: "2023-06-01",
+      url: "https://api.anthropic.com/v1/models?limit=1000",
+      xApiKey: "anthropic-test-key",
+    });
+
+    await app.close();
+  });
+
+  it("saves a Gemini key and fetches current provider models", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-gemini-api-"));
+    roots.push(root);
+    const secrets = new Map<string, string>();
+    const requests: Array<{
+      authorization: string | null;
+      url: string;
+      xGoogApiKey: string | null;
+    }> = [];
+    const app = await buildApp({
+      libraryRoot: root,
+      credentialStore: memoryCredentialStore(secrets),
+      providerFetch: async (input, init) => {
+        const url = String(input);
+        const headers = new Headers(init?.headers);
+        requests.push({
+          authorization: headers.get("authorization"),
+          url,
+          xGoogApiKey: headers.get("x-goog-api-key"),
+        });
+        if (url === "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000") {
+          return new Response(JSON.stringify({
+            models: [
+              {
+                name: "models/gemini-test",
+                baseModelId: "gemini-test",
+                displayName: "Gemini Test",
+                inputTokenLimit: 1048576,
+                outputTokenLimit: 8192,
+                supportedGenerationMethods: ["generateContent"],
+              },
+              {
+                name: "models/text-embedding-test",
+                baseModelId: "text-embedding-test",
+                displayName: "Embedding Test",
+                inputTokenLimit: 8192,
+                supportedGenerationMethods: ["embedContent"],
+              },
+            ],
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        return new Response(JSON.stringify({ error: { code: 404, message: "not found", status: "NOT_FOUND" } }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Gemini 配置接口" },
+    });
+    const series = created.json();
+
+    await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
+      payload: { cloudPolicy: "cloud-allowed" },
+    });
+
+    const profileResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      payload: {
+        title: "Gemini 写作模型",
+        provider: "google",
+        baseUrl: null,
+        model: "gemini-test",
+        cloudPolicy: "cloud-allowed",
+      },
+    });
+    expect(profileResponse.statusCode).toBe(201);
+    const profile = profileResponse.json();
+
+    const credential = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+      payload: { secret: "gemini-test-key" },
+    });
+    expect(credential.statusCode).toBe(200);
+    expect(JSON.stringify(credential.json())).not.toContain("gemini-test-key");
+
+    const models = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/models`,
+    });
+    expect(models.statusCode).toBe(200);
+    expect(models.json()).toEqual([
+      expect.objectContaining({
+        id: "gemini-test",
+        title: "Gemini Test",
+        contextWindowTokens: 1048576,
+      }),
+    ]);
+    expect(requests).toContainEqual({
+      authorization: null,
+      url: "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+      xGoogApiKey: "gemini-test-key",
+    });
 
     await app.close();
   });

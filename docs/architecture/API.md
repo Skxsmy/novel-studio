@@ -112,7 +112,7 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 
 ## M4 AI 基础设施
 
-`NS-404` 至 `NS-407` 已实现模型配置、权限边界、上下文预览、角色与提示词模板版本、MockProvider 流式调用和调用日志。真实 Provider 和完整调用记录 UI 仍在后续 M4 任务中完成。M4 的第一条纵向闭环已使用 MockProvider 完成“上下文预览 → 流式调用 → 调用日志 → 写作页结果展示”。
+`NS-404` 至 `NS-408` 已实现模型配置、权限边界、上下文预览、角色与提示词模板版本、MockProvider 流式调用、真实 Provider 协议路径和调用日志。DeepSeek、OpenAI、OpenRouter、Ollama、Anthropic、Google Gemini 与通用 OpenAI-compatible 路径已接入协议层；真实外部非写入调用验收和完整调用记录 UI 仍在后续 M4 任务中完成。M4 的第一条纵向闭环已使用 MockProvider 完成“上下文预览 → 流式调用 → 调用日志 → 写作页结果展示”。
 
 所有 M4 AI 接口必须满足：
 
