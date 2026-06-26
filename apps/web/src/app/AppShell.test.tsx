@@ -1433,6 +1433,10 @@ describe("App shell", () => {
 
     expect(await screen.findByRole("heading", { name: "New Entry" })).toBeTruthy();
     expect(screen.getByLabelText("Codex entry details")).toBeTruthy();
+    const focusEdit = screen.getByRole("button", { name: "Focus Edit" });
+    expect(focusEdit.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(focusEdit);
+    expect(screen.getByRole("button", { name: "Browse Entries" }).getAttribute("aria-pressed")).toBe("true");
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/v1/series/${seriesId}/codex/entries`,

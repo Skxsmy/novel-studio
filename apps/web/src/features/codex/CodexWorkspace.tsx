@@ -322,6 +322,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [isCreatingDetailType, setIsCreatingDetailType] = useState(false);
   const [isConnectionsLoading, setIsConnectionsLoading] = useState(false);
   const [isCreatingRelation, setIsCreatingRelation] = useState(false);
+  const [isDetailFocus, setIsDetailFocus] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [detailTypeManagerCategoryId, setDetailTypeManagerCategoryId] = useState<CodexCategoryId>(DefaultCodexEntryValues.categoryId);
@@ -358,6 +359,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     setIsCategoryDeleteOpen(false);
     setIsDeleteEntryOpen(false);
     setIsDetailTypeManagerOpen(false);
+    setIsDetailFocus(false);
     setDetailTypeDeleteId(null);
     setRenamingCategory(null);
     setSaveStatus("idle");
@@ -572,6 +574,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setRelationDraft(relationDraftFor(null, entries));
       setIsDetailsExpanded(false);
       setIsDetailTypeManagerOpen(false);
+      setIsDetailFocus(false);
       setDetailTypeDeleteId(null);
       setSaveStatus("idle");
       return;
@@ -591,6 +594,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setPreviewEntry(null);
       setIsDetailsExpanded(false);
       setIsDetailTypeManagerOpen(false);
+      setIsDetailFocus(false);
       setDetailTypeDeleteId(null);
       setIsDeleteEntryOpen(false);
       setSaveStatus("idle");
@@ -598,6 +602,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       return;
     }
     setSelectedEntryId(entry.metadata.id);
+    setIsDetailFocus(false);
     setDraft(draftFromEntry(entry));
     setActiveMentionSource("manuscript");
     setConnectionError(null);
@@ -626,6 +631,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       });
       replaceEntry(entry);
       setSelectedEntryId(entry.metadata.id);
+      setIsDetailFocus(false);
       setDraft(draftFromEntry(entry));
       setActiveMentionSource("manuscript");
       setConnectionError(null);
@@ -876,6 +882,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setRelationDraft(relationDraftFor(null, entries));
       setIsDetailsExpanded(false);
       setIsDetailTypeManagerOpen(false);
+      setIsDetailFocus(false);
       setDetailTypeDeleteId(null);
       setIsDeleteEntryOpen(false);
       setSaveStatus("idle");
@@ -987,7 +994,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
           </button>
         </div>
       </div>
-      <div className={`codex-grid${selectedEntry ? " detail-open" : ""}`}>
+      <div className={`codex-grid${selectedEntry ? " detail-open" : ""}${isDetailFocus ? " is-detail-focus" : ""}`}>
         <aside className="panel no-shadow">
           <div className="panel-head">
             <div>
@@ -1141,6 +1148,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                   if (!event.target.checked && selectedEntry?.metadata.archivedAt) {
                     setSelectedEntryId(null);
                     setDraft(null);
+                    setIsDetailFocus(false);
                     setSaveStatus("idle");
                   }
                 }}
@@ -1217,6 +1225,14 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
               <div className="entry-meta-line">
                 <span>{saveStatusText}</span>
                 <div className="top-actions">
+                  <button
+                    aria-pressed={isDetailFocus}
+                    className="btn compact"
+                    onClick={() => setIsDetailFocus((current) => !current)}
+                    type="button"
+                  >
+                    {isDetailFocus ? codexText.actions.browseEntries : codexText.actions.focusEdit}
+                  </button>
                   <button className="btn compact" onClick={() => void reloadSelectedEntry()} type="button">{codexText.actions.reload}</button>
                   <button
                     className="btn compact primary"
@@ -1347,26 +1363,28 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                     {draft.detailRows.length > 0 ? (
                       draft.detailRows.map((row, index) => (
                         <div className="detail-row" key={`${index}-${row.typeName}`}>
-                          <label className="field detail-type-select-field">
-                            <span>{codexText.detail.selectType}</span>
-                            <select
-                              aria-label={codexText.detail.detailLabel(index + 1)}
-                              className="select"
-                              disabled={fieldsDisabled}
-                              onChange={(event) => updateDraft((current) => ({
-                                ...current,
-                                detailRows: current.detailRows.map((candidate, rowIndex) => (
-                                  rowIndex === index ? { ...candidate, typeName: event.target.value } : candidate
-                                )),
-                              }))}
-                              value={row.typeName}
-                            >
-                              {detailTypeNames.map((typeName) => (
-                                <option key={typeName} value={typeName}>
-                                  {typeName}
-                                </option>
-                              ))}
-                            </select>
+                          <div className="detail-row-controls">
+                            <label className="field detail-type-select-field">
+                              <span>{codexText.detail.selectType}</span>
+                              <select
+                                aria-label={codexText.detail.detailLabel(index + 1)}
+                                className="select"
+                                disabled={fieldsDisabled}
+                                onChange={(event) => updateDraft((current) => ({
+                                  ...current,
+                                  detailRows: current.detailRows.map((candidate, rowIndex) => (
+                                    rowIndex === index ? { ...candidate, typeName: event.target.value } : candidate
+                                  )),
+                                }))}
+                                value={row.typeName}
+                              >
+                                {detailTypeNames.map((typeName) => (
+                                  <option key={typeName} value={typeName}>
+                                    {typeName}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
                             <label className="switch-line detail-ai-toggle">
                               <input
                                 checked={row.includeInAi}
@@ -1381,7 +1399,18 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                               />
                               <span>{codexText.detail.sendDetailToAi}</span>
                             </label>
-                          </label>
+                            <button
+                              className="btn compact"
+                              disabled={fieldsDisabled}
+                              onClick={() => updateDraft((current) => ({
+                                ...current,
+                                detailRows: current.detailRows.filter((_, rowIndex) => rowIndex !== index),
+                              }))}
+                              type="button"
+                            >
+                              {codexText.actions.remove}
+                            </button>
+                          </div>
                           <div className="inline-mention-shell detail-value-shell">
                             <EditorSurface
                               ariaLabel={codexText.detail.detailValue(index + 1)}
@@ -1399,17 +1428,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                               value={row.value}
                             />
                           </div>
-                          <button
-                            className="btn compact"
-                            disabled={fieldsDisabled}
-                            onClick={() => updateDraft((current) => ({
-                              ...current,
-                              detailRows: current.detailRows.filter((_, rowIndex) => rowIndex !== index),
-                            }))}
-                            type="button"
-                          >
-                            {codexText.actions.remove}
-                          </button>
                         </div>
                       ))
                     ) : (

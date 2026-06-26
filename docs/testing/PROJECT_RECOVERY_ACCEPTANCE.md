@@ -148,7 +148,8 @@ Scope covered:
 - Details rows select a reusable type instead of free-typing an isolated label.
 - Each entry detail row has its own switch for whether that detail is sent with the entry into AI context.
 - Detail value editing uses the shared editor surface used by Canon Description and Write.
-- The detail-open Codex workspace makes the category rail and Entry Index auxiliary-width panels while the selected entry editor takes the main workspace; the entry header is compressed so editing controls appear earlier.
+- The detail-open Codex workspace defaults to Browse Entries: selecting or creating an entry keeps the category rail and Entry Index visible, `Focus Edit` explicitly hides those panels so the selected entry editor can take the whole workbench, and `Browse Entries` returns to list browsing.
+- The Details tab uses enlarged author-editing typography, taller inputs, a larger Canon editor, and full-width per-detail editor rows instead of compact backend-form rows.
 
 Evidence:
 
@@ -157,7 +158,9 @@ Evidence:
 - `apps/server/src/routes/codex.ts` exposes detail type list/create/update/delete routes.
 - `apps/server/src/routes/context.ts` filters detail values whose entry-level AI switch is off when building M4 ContextBundles.
 - `apps/web/src/features/codex/CodexWorkspace.tsx` removes the Tags field, adds modal detail type management, supports NSFW toggling, and renders detail values with `EditorSurface`.
-- `apps/web/src/app/app-shell.css` widens the selected Codex entry workspace in detail-open mode and removes nonessential rail/index copy from that mode.
+- `apps/web/src/features/codex/CodexWorkspace.tsx` adds focused entry-editing state and the `Browse Entries` / `Focus Edit` switch.
+- `apps/web/src/app/app-shell.css` hides the category rail and Entry Index in focused entry-editing mode and enlarges the Details tab editing layout.
+- `AppShell.test.tsx` covers that a newly created Codex entry opens in Browse Entries mode and can explicitly switch into focused edit mode.
 - ADR-0011 records the data-format decision, compatibility, migration, rollback, and tests.
 
 Commands:
