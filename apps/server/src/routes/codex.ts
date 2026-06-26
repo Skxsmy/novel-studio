@@ -10,6 +10,7 @@ import {
   CreateCodexProgressionInputSchema,
   CreateCodexRelationInputSchema,
   UpdateCodexCategoryInputSchema,
+  UpdateCodexDetailTypeInputSchema,
   UpdateCodexEntryInputSchema,
   UpdateCodexKnowledgeInputSchema,
   UpdateCodexProgressionInputSchema,
@@ -107,6 +108,18 @@ export function registerCodexRoutes(
       return reply
         .status(201)
         .send(await repository.createCodexDetailType(request.params.seriesId, input));
+    },
+  );
+
+  app.put<{ Params: { seriesId: string; detailTypeId: string } }>(
+    "/api/v1/series/:seriesId/codex/detail-types/:detailTypeId",
+    async (request) => {
+      const input = UpdateCodexDetailTypeInputSchema.parse(request.body);
+      return repository.updateCodexDetailType(
+        request.params.seriesId,
+        request.params.detailTypeId,
+        input,
+      );
     },
   );
 

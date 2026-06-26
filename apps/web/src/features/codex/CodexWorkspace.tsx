@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  DefaultCodexEntryValues,
   type CodexAiContextPolicy,
   type CodexCategoryDocument,
   type CodexCategoryId,
@@ -37,6 +38,7 @@ type CodexSaveStatus = "idle" | "dirty" | "saving" | "saved" | "conflict" | "fai
 type MentionSource = "manuscript" | "codex";
 type CodexRelationDirection = "outgoing" | "incoming" | "undirected";
 interface DetailDraftRow {
+  includeInAi: boolean;
   typeName: string;
   value: string;
 }
@@ -89,7 +91,11 @@ function draftFromEntry(entry: CodexEntryDocument): CodexDraft {
     caseSensitive: entry.metadata.mention.caseSensitive,
     categoryId: entry.metadata.categoryId,
     description: entry.description,
-    detailRows: Object.entries(entry.metadata.details).map(([typeName, value]) => ({ typeName, value })),
+    detailRows: Object.entries(entry.metadata.details).map(([typeName, value]) => ({
+      includeInAi: entry.metadata.detailAiContext[typeName] !== false,
+      typeName,
+      value,
+    })),
     excludedTerms: commaList(entry.metadata.mention.excludedTerms),
     matchAliases: entry.metadata.mention.matchAliases,
     name: entry.metadata.name,
@@ -128,12 +134,14 @@ function buildUpdateInput(draft: CodexDraft): UpdateCodexEntryInput {
   if (!name) throw new Error(codexText.errors.nameRequired);
 
   const details: Record<string, string> = {};
+  const detailAiContext: Record<string, boolean> = {};
   for (const row of draft.detailRows) {
     const typeName = row.typeName.trim();
     if (!typeName && !row.value.trim()) continue;
     if (!typeName) throw new Error(codexText.errors.detailBlank);
     if (details[typeName] !== undefined) throw new Error(codexText.errors.detailDuplicate(typeName));
     details[typeName] = row.value;
+    detailAiContext[typeName] = row.includeInAi;
   }
 
   const mention: CodexMentionRules = {
@@ -151,6 +159,7 @@ function buildUpdateInput(draft: CodexDraft): UpdateCodexEntryInput {
     categoryId: draft.categoryId,
     description: draft.description,
     details,
+    detailAiContext,
     mention,
     name,
     research: draft.research,
@@ -307,7 +316,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [isCategoryDeleteOpen, setIsCategoryDeleteOpen] = useState(false);
   const [isDeleteEntryOpen, setIsDeleteEntryOpen] = useState(false);
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
-  const [isDetailTypeAddOpen, setIsDetailTypeAddOpen] = useState(false);
+  const [isDetailTypeManagerOpen, setIsDetailTypeManagerOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [isCreatingDetailType, setIsCreatingDetailType] = useState(false);
@@ -315,8 +324,11 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [isCreatingRelation, setIsCreatingRelation] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [detailTypeManagerCategoryId, setDetailTypeManagerCategoryId] = useState<CodexCategoryId>(DefaultCodexEntryValues.categoryId);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [newDetailTypeCategoryId, setNewDetailTypeCategoryId] = useState<CodexCategoryId>(DefaultCodexEntryValues.categoryId);
   const [newDetailTypeName, setNewDetailTypeName] = useState("");
+  const [newDetailTypeNsfw, setNewDetailTypeNsfw] = useState(false);
   const [previewEntry, setPreviewEntry] = useState<CodexEntryDocument | null>(null);
   const [query, setQuery] = useState("");
   const [renamingCategory, setRenamingCategory] = useState<{ id: string; name: string; baseRevision: string } | null>(null);
@@ -345,7 +357,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     setIsCategoryAddOpen(false);
     setIsCategoryDeleteOpen(false);
     setIsDeleteEntryOpen(false);
-    setIsDetailTypeAddOpen(false);
+    setIsDetailTypeManagerOpen(false);
     setDetailTypeDeleteId(null);
     setRenamingCategory(null);
     setSaveStatus("idle");
@@ -419,6 +431,10 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     }
     return [...names].sort((left, right) => left.localeCompare(right, "zh-CN"));
   }, [activeDetailTypes, draft?.detailRows]);
+  const managedDetailTypes = useMemo(
+    () => detailTypes.filter((document) => document.detailType.categoryId === detailTypeManagerCategoryId),
+    [detailTypes, detailTypeManagerCategoryId],
+  );
   const sceneMentionCount = entryMentions.length;
 
   useEffect(() => {
@@ -555,7 +571,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setRelationDeleteId(null);
       setRelationDraft(relationDraftFor(null, entries));
       setIsDetailsExpanded(false);
-      setIsDetailTypeAddOpen(false);
+      setIsDetailTypeManagerOpen(false);
       setDetailTypeDeleteId(null);
       setSaveStatus("idle");
       return;
@@ -574,7 +590,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setEntryRelations([]);
       setPreviewEntry(null);
       setIsDetailsExpanded(false);
-      setIsDetailTypeAddOpen(false);
+      setIsDetailTypeManagerOpen(false);
       setDetailTypeDeleteId(null);
       setIsDeleteEntryOpen(false);
       setSaveStatus("idle");
@@ -591,7 +607,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     setRelationDeleteId(null);
     setRelationDraft(relationDraftFor(entry.metadata.id, entries));
     setIsDetailsExpanded(false);
-    setIsDetailTypeAddOpen(false);
+    setIsDetailTypeManagerOpen(false);
     setDetailTypeDeleteId(null);
     setIsDeleteEntryOpen(false);
     setSaveStatus("idle");
@@ -619,7 +635,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setRelationDeleteId(null);
       setRelationDraft(relationDraftFor(entry.metadata.id, entries));
       setIsDetailsExpanded(false);
-      setIsDetailTypeAddOpen(false);
+      setIsDetailTypeManagerOpen(false);
       setDetailTypeDeleteId(null);
       setSaveStatus("idle");
       setActiveTab("details");
@@ -653,13 +669,13 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   }
 
   async function createDetailType() {
-    if (!draft || isCreatingDetailType) return;
+    if (isCreatingDetailType) return;
     const name = newDetailTypeName.trim();
     if (!name) {
       setErrorMessage(codexText.errors.detailTypeNameRequired);
       return;
     }
-    if (detailTypeNameExists(name, draft.categoryId)) {
+    if (detailTypeNameExists(name, newDetailTypeCategoryId)) {
       setErrorMessage(codexText.errors.detailTypeDuplicate(name));
       return;
     }
@@ -667,17 +683,38 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     setErrorMessage(null);
     try {
       const detailType = await api.codex.createDetailType(series.manifest.id, {
-        categoryId: draft.categoryId,
+        categoryId: newDetailTypeCategoryId,
         name,
+        nsfw: newDetailTypeNsfw,
       });
       setDetailTypes((current) => [...current, detailType].sort((left, right) =>
         left.detailType.categoryId.localeCompare(right.detailType.categoryId, "zh-CN") ||
         left.detailType.name.localeCompare(right.detailType.name, "zh-CN"),
       ));
+      setDetailTypeManagerCategoryId(detailType.detailType.categoryId);
       setNewDetailTypeName("");
-      setIsDetailTypeAddOpen(false);
+      setNewDetailTypeNsfw(false);
     } catch (error) {
       setErrorMessage(formatCodexError(error, codexText.errors.createDetailTypeFailed));
+    } finally {
+      setIsCreatingDetailType(false);
+    }
+  }
+
+  async function toggleDetailTypeNsfw(detailType: CodexDetailTypeDocument, nsfw: boolean) {
+    if (isCreatingDetailType) return;
+    setIsCreatingDetailType(true);
+    setErrorMessage(null);
+    try {
+      const updated = await api.codex.updateDetailType(series.manifest.id, detailType.detailType.id, {
+        baseRevision: detailType.revision,
+        nsfw,
+      });
+      setDetailTypes((current) => current.map((document) =>
+        document.detailType.id === updated.detailType.id ? updated : document,
+      ));
+    } catch (error) {
+      setErrorMessage(formatCodexError(error, codexText.errors.updateDetailTypeFailed));
     } finally {
       setIsCreatingDetailType(false);
     }
@@ -838,7 +875,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setRelationDeleteId(null);
       setRelationDraft(relationDraftFor(null, entries));
       setIsDetailsExpanded(false);
-      setIsDetailTypeAddOpen(false);
+      setIsDetailTypeManagerOpen(false);
       setDetailTypeDeleteId(null);
       setIsDeleteEntryOpen(false);
       setSaveStatus("idle");
@@ -909,13 +946,15 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     const nextTypeName = activeDetailTypes.find((document) => !used.has(document.detailType.name))?.detailType.name;
     if (!nextTypeName) {
       setIsDetailsExpanded(true);
-      setIsDetailTypeAddOpen(true);
+      setDetailTypeManagerCategoryId(draft.categoryId);
+      setNewDetailTypeCategoryId(draft.categoryId);
+      setIsDetailTypeManagerOpen(true);
       return;
     }
     setIsDetailsExpanded(true);
     updateDraft((current) => ({
       ...current,
-      detailRows: [...current.detailRows, { typeName: nextTypeName, value: "" }],
+      detailRows: [...current.detailRows, { includeInAi: true, typeName: nextTypeName, value: "" }],
     }));
   }
 
@@ -1284,99 +1323,27 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                     <span>{codexText.detail.details}</span>
                     <span className="pill">{codexText.detail.detailCount(draft.detailRows.length)}</span>
                   </button>
-                  <button className="btn compact" disabled={fieldsDisabled} onClick={addDetailRow} type="button">
-                    {codexText.actions.addDetail}
-                  </button>
+                  <div className="detail-section-actions">
+                    <button
+                      className="btn compact"
+                      disabled={fieldsDisabled}
+                      onClick={() => {
+                        setDetailTypeDeleteId(null);
+                        setDetailTypeManagerCategoryId(draft.categoryId);
+                        setNewDetailTypeCategoryId(draft.categoryId);
+                        setIsDetailTypeManagerOpen(true);
+                      }}
+                      type="button"
+                    >
+                      {codexText.actions.manageDetailTypes}
+                    </button>
+                    <button className="btn compact" disabled={fieldsDisabled} onClick={addDetailRow} type="button">
+                      {codexText.actions.addDetail}
+                    </button>
+                  </div>
                 </div>
                 {isDetailsExpanded ? (
                   <div className="detail-section-body">
-                    <div className="detail-type-manager">
-                      <div className="detail-type-manager-head">
-                        <span>{codexText.detail.detailTypes}</span>
-                        <button
-                          className="btn compact"
-                          disabled={fieldsDisabled || isCreatingDetailType}
-                          onClick={() => {
-                            setDetailTypeDeleteId(null);
-                            setIsDetailTypeAddOpen((current) => !current);
-                          }}
-                          type="button"
-                        >
-                          {codexText.actions.addDetailType}
-                        </button>
-                      </div>
-                      {isDetailTypeAddOpen ? (
-                        <form
-                          aria-label={codexText.aria.detailTypeCreateForm}
-                          className="detail-type-add-form"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            void createDetailType();
-                          }}
-                        >
-                          <input
-                            aria-label={codexText.aria.newDetailTypeName}
-                            className="input compact-input"
-                            disabled={fieldsDisabled || isCreatingDetailType}
-                            onChange={(event) => setNewDetailTypeName(event.target.value)}
-                            placeholder={codexText.detail.detailTypePlaceholder}
-                            value={newDetailTypeName}
-                          />
-                          <button
-                            className="btn compact primary"
-                            disabled={fieldsDisabled || isCreatingDetailType || !newDetailTypeName.trim()}
-                            type="submit"
-                          >
-                            {codexText.actions.addDetailType}
-                          </button>
-                        </form>
-                      ) : null}
-                      {activeDetailTypes.length ? (
-                        <div className="detail-type-list">
-                          {activeDetailTypes.map((detailType) => {
-                            const usageCount = detailTypeUsageCount(detailType);
-                            const isConfirmingDelete = detailTypeDeleteId === detailType.detailType.id;
-                            return (
-                              <div className="detail-type-chip" key={detailType.detailType.id}>
-                                <span>{detailType.detailType.name}</span>
-                                <small>{codexText.detail.detailTypeInUse(usageCount)}</small>
-                                {isConfirmingDelete ? (
-                                  <>
-                                    <button
-                                      className="btn compact danger"
-                                      disabled={fieldsDisabled || isCreatingDetailType || usageCount > 0}
-                                      onClick={() => void deleteDetailType(detailType)}
-                                      type="button"
-                                    >
-                                      {codexText.actions.deleteDetailType}
-                                    </button>
-                                    <button
-                                      className="btn compact"
-                                      disabled={isCreatingDetailType}
-                                      onClick={() => setDetailTypeDeleteId(null)}
-                                      type="button"
-                                    >
-                                      {codexText.actions.cancel}
-                                    </button>
-                                  </>
-                                ) : (
-                                  <button
-                                    className="btn compact"
-                                    disabled={fieldsDisabled || isCreatingDetailType || usageCount > 0}
-                                    onClick={() => setDetailTypeDeleteId(detailType.detailType.id)}
-                                    type="button"
-                                  >
-                                    {codexText.actions.deleteDetailType}
-                                  </button>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="detail-empty compact-empty">{codexText.detail.noDetailTypes}</div>
-                      )}
-                    </div>
                     {draft.detailRows.length > 0 ? (
                       draft.detailRows.map((row, index) => (
                         <div className="detail-row" key={`${index}-${row.typeName}`}>
@@ -1400,6 +1367,20 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                                 </option>
                               ))}
                             </select>
+                            <label className="switch-line detail-ai-toggle">
+                              <input
+                                checked={row.includeInAi}
+                                disabled={fieldsDisabled}
+                                onChange={(event) => updateDraft((current) => ({
+                                  ...current,
+                                  detailRows: current.detailRows.map((candidate, rowIndex) => (
+                                    rowIndex === index ? { ...candidate, includeInAi: event.target.checked } : candidate
+                                  )),
+                                }))}
+                                type="checkbox"
+                              />
+                              <span>{codexText.detail.sendDetailToAi}</span>
+                            </label>
                           </label>
                           <div className="inline-mention-shell detail-value-shell">
                             <EditorSurface
@@ -1795,6 +1776,177 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
           </section>
         ) : null}
       </div>
+      {isDetailTypeManagerOpen ? (
+        <div className="codex-modal-backdrop" role="presentation">
+          <section
+            aria-label={codexText.aria.detailTypeManager}
+            aria-modal="true"
+            className="codex-detail-type-dialog"
+            role="dialog"
+          >
+            <header className="codex-modal-head">
+              <div>
+                <div className="panel-kicker">{codexText.detail.detailTypes}</div>
+                <h3>{codexText.detail.manageDetailTypesTitle}</h3>
+              </div>
+              <button
+                className="btn compact"
+                disabled={isCreatingDetailType}
+                onClick={() => {
+                  setDetailTypeDeleteId(null);
+                  setIsDetailTypeManagerOpen(false);
+                }}
+                type="button"
+              >
+                {codexText.actions.close}
+              </button>
+            </header>
+            <div className="detail-type-dialog-grid">
+              <form
+                aria-label={codexText.aria.detailTypeCreateForm}
+                className="detail-type-create-panel"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void createDetailType();
+                }}
+              >
+                <div className="panel-title">{codexText.detail.createDetailType}</div>
+                <label className="field">
+                  <span>{codexText.detail.detailTypeName}</span>
+                  <input
+                    aria-label={codexText.aria.newDetailTypeName}
+                    className="input"
+                    disabled={fieldsDisabled || isCreatingDetailType}
+                    onChange={(event) => setNewDetailTypeName(event.target.value)}
+                    placeholder={codexText.detail.detailTypePlaceholder}
+                    value={newDetailTypeName}
+                  />
+                </label>
+                <label className="field">
+                  <span>{codexText.detail.detailTypeCategory}</span>
+                  <select
+                    aria-label={codexText.aria.newDetailTypeCategory}
+                    className="select"
+                    disabled={fieldsDisabled || isCreatingDetailType}
+                    onChange={(event) => {
+                      const categoryId = event.target.value as CodexCategoryId;
+                      setNewDetailTypeCategoryId(categoryId);
+                      setDetailTypeManagerCategoryId(categoryId);
+                    }}
+                    value={newDetailTypeCategoryId}
+                  >
+                    {categories
+                      .filter(({ category }) => !category.archivedAt)
+                      .map(({ category }) => (
+                        <option key={category.id} value={category.id}>
+                          {categoryLabel(category.id, categories)}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <label className="switch-line nsfw-switch">
+                  <input
+                    checked={newDetailTypeNsfw}
+                    disabled={fieldsDisabled || isCreatingDetailType}
+                    onChange={(event) => setNewDetailTypeNsfw(event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span>{codexText.detail.markNsfw}</span>
+                </label>
+                <button
+                  className="btn primary"
+                  disabled={fieldsDisabled || isCreatingDetailType || !newDetailTypeName.trim()}
+                  type="submit"
+                >
+                  {codexText.actions.addDetailType}
+                </button>
+              </form>
+              <section className="detail-type-list-panel">
+                <div className="detail-type-list-toolbar">
+                  <label className="field compact-field">
+                    <span>{codexText.detail.manageCategory}</span>
+                    <select
+                      aria-label={codexText.aria.detailTypeManagerCategory}
+                      className="select"
+                      disabled={isCreatingDetailType}
+                      onChange={(event) => setDetailTypeManagerCategoryId(event.target.value as CodexCategoryId)}
+                      value={detailTypeManagerCategoryId}
+                    >
+                      {categories
+                        .filter(({ category }) => !category.archivedAt)
+                        .map(({ category }) => (
+                          <option key={category.id} value={category.id}>
+                            {categoryLabel(category.id, categories)}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                </div>
+                {managedDetailTypes.length ? (
+                  <div className="detail-type-dialog-list">
+                    {managedDetailTypes.map((detailType) => {
+                      const usageCount = detailTypeUsageCount(detailType);
+                      const isConfirmingDelete = detailTypeDeleteId === detailType.detailType.id;
+                      return (
+                        <article className="detail-type-dialog-row" key={detailType.detailType.id}>
+                          <div>
+                            <strong>{detailType.detailType.name}</strong>
+                            <div className="row-meta">
+                              {categoryLabel(detailType.detailType.categoryId, categories)}
+                              {" · "}
+                              {codexText.detail.detailTypeInUse(usageCount)}
+                            </div>
+                          </div>
+                          <label className="switch-line nsfw-switch">
+                            <input
+                              checked={detailType.detailType.nsfw}
+                              disabled={fieldsDisabled || isCreatingDetailType}
+                              onChange={(event) => void toggleDetailTypeNsfw(detailType, event.target.checked)}
+                              type="checkbox"
+                            />
+                            <span>{codexText.detail.nsfw}</span>
+                          </label>
+                          {isConfirmingDelete ? (
+                            <div className="confirm-actions">
+                              <button
+                                className="btn compact danger"
+                                disabled={fieldsDisabled || isCreatingDetailType || usageCount > 0}
+                                onClick={() => void deleteDetailType(detailType)}
+                                type="button"
+                              >
+                                {codexText.actions.deleteDetailType}
+                              </button>
+                              <button
+                                className="btn compact"
+                                disabled={isCreatingDetailType}
+                                onClick={() => setDetailTypeDeleteId(null)}
+                                type="button"
+                              >
+                                {codexText.actions.cancel}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              className="btn compact"
+                              disabled={fieldsDisabled || isCreatingDetailType || usageCount > 0}
+                              onClick={() => setDetailTypeDeleteId(detailType.detailType.id)}
+                              type="button"
+                            >
+                              {codexText.actions.deleteDetailType}
+                            </button>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="detail-empty compact-empty">{codexText.detail.noDetailTypes}</div>
+                )}
+              </section>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }

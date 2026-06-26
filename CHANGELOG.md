@@ -71,11 +71,12 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **Project Recovery Slice D2 Preview Layer Fix**: Moved Canon previews out of CodeMirror's tooltip container and into a custom application-level absolute portal with the app's highest overlay z-index, so previews render above editor borders and following Codex detail fields without fixed positioning. Preview self-clicks no longer trigger the outside-click close handler. `EditorSurface.test.tsx`, `AppShell.test.tsx`, and web typecheck passed; the user visually confirmed the reported layer issue is fixed.
 - **Project Recovery Slice E Skipped / Slice F**: User marked Slice E permanently skipped on 2026-06-25. Existing Settings/provider changes remain a working draft, not Recovery Release A evidence. Slice F keeps Review and Workshop visible while making them honest unavailable shells; future Review and Workshop functionality must be designed and implemented from scratch.
 - **Skipped Slice E Settings Draft**: The earlier supported Settings provider/profile safety work remains in the working draft code but is not accepted recovery evidence after the user's skip decision. Do not continue provider expansion from this slice without a fresh task.
+- **Project Recovery Codex Details Manager Follow-up**: Replaced the inline detail-type manager with a large modal manager. Detail types now support built-in/custom category assignment, NSFW flags through the update API, and per-entry detail switches that decide whether each detail is included in AI context. ContextBundle assembly now filters details whose switch is off.
 
 ### Current Validation Snapshot
 
 - `npm.cmd run build`: passed.
 - `npm.cmd run test`: passed; server 20, web 44, AI 20, and storage 48 tests.
-- Focused Codex Details checks also passed: storage `repository.test.ts` 43 tests, server `app.test.ts` 7 tests, web `AppShell.test.tsx` 38 tests, and web `EditorSurface.test.tsx` 6 tests.
-- Playwright screenshot self-check for Codex Details passed after the in-app browser was unavailable; screenshots were saved under ignored `.browser-acceptance/` paths and are not user visual acceptance.
+- Focused Codex Details checks also passed: storage `repository.test.ts` 43 tests, server `app.test.ts context-routes.test.ts` 8 tests, and web `AppShell.test.tsx EditorSurface.test.tsx` 44 tests.
+- Screenshot self-check for the Codex Details modal follow-up was skipped by user instruction and is not user visual acceptance.
 - User visual acceptance: D2 preview layer repair accepted. Overall project recovery remains open.

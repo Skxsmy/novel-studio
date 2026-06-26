@@ -404,6 +404,7 @@ function codexEntryDocument(
   entryId = codexEntryId,
   options: {
     aliases?: string[];
+    detailAiContext?: Record<string, boolean>;
     details?: Record<string, string>;
     research?: string;
   } = {},
@@ -417,6 +418,7 @@ function codexEntryDocument(
       categoryId,
       createdAt: "2026-06-23T00:00:00.000Z",
       details: options.details ?? {},
+      detailAiContext: options.detailAiContext ?? {},
       id: entryId,
       mention: {
         automaticPlural: false,
@@ -445,13 +447,14 @@ function codexEntryDocument(
   };
 }
 
-function codexDetailTypeDocument(name = "Gate rule", categoryId = "character", id = detailTypeId) {
+function codexDetailTypeDocument(name = "Gate rule", categoryId = "character", id = detailTypeId, nsfw = false) {
   return {
     detailType: {
       categoryId,
       createdAt: "2026-06-23T00:00:00.000Z",
       id,
       name,
+      nsfw,
       schemaVersion: 1,
       updatedAt: "2026-06-23T00:00:00.000Z",
     },
@@ -661,12 +664,31 @@ function mockFetch(options: {
     if (url === `/api/v1/series/${seriesId}/codex/detail-types` && method === "POST") {
       const body = JSON.parse(String(init?.body));
       const id = codexDetailTypes.length === 0 ? detailTypeId : secondDetailTypeId;
-      const detailType = codexDetailTypeDocument(body.name, body.categoryId, id);
+      const detailType = codexDetailTypeDocument(body.name, body.categoryId, id, body.nsfw ?? false);
       codexDetailTypes = [...codexDetailTypes, detailType];
       return jsonResponse(detailType, 201);
     }
 
     const detailTypeDeleteMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/codex/detail-types/([^/]+)$`));
+    if (detailTypeDeleteMatch && method === "PUT") {
+      const detailTypeIdFromUrl = detailTypeDeleteMatch[1];
+      const body = JSON.parse(String(init?.body));
+      const current = codexDetailTypes.find((document) => document.detailType.id === detailTypeIdFromUrl);
+      if (!current) return jsonResponse({ message: "Not found" }, 404);
+      const updated = {
+        ...current,
+        detailType: {
+          ...current.detailType,
+          nsfw: body.nsfw,
+          updatedAt: "2026-06-24T00:00:00.000Z",
+        },
+        revision: updatedRevision,
+      };
+      codexDetailTypes = codexDetailTypes.map((document) =>
+        document.detailType.id === detailTypeIdFromUrl ? updated : document,
+      );
+      return jsonResponse(updated);
+    }
     if (detailTypeDeleteMatch && method === "DELETE") {
       const deletedId = detailTypeDeleteMatch[1];
       codexDetailTypes = codexDetailTypes.filter((document) => document.detailType.id !== deletedId);
@@ -806,6 +828,7 @@ function mockFetch(options: {
           aliases: body.aliases ?? current.metadata.aliases,
           categoryId: nextCategoryId,
           details: body.details ?? current.metadata.details,
+          detailAiContext: body.detailAiContext ?? current.metadata.detailAiContext,
           mention: body.mention ?? current.metadata.mention,
           name: body.name ?? current.metadata.name,
           updatedAt: "2026-06-24T00:00:00.000Z",
@@ -1436,16 +1459,26 @@ describe("App shell", () => {
     fireEvent.change(await screen.findByLabelText("Codex entry name"), { target: { value: "Harbor Lock" } });
     setEditorValue("Codex canon description", "A storm-pressure mechanism below the west quay.");
     fireEvent.click(screen.getByRole("button", { name: "Show details" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add Type" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage Types" }));
+    const detailTypeDialog = await screen.findByRole("dialog", { name: "Manage detail types" });
     fireEvent.change(screen.getByLabelText("New detail type name"), { target: { value: "Gate rule" } });
-    fireEvent.click(within(screen.getByLabelText("Create detail type")).getByRole("button", { name: "Add Type" }));
+    fireEvent.click(within(detailTypeDialog).getByRole("button", { name: "Add Type" }));
     expect(await screen.findByText("Gate rule")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add Type" }));
     fireEvent.change(screen.getByLabelText("New detail type name"), { target: { value: "Appearance" } });
-    fireEvent.click(within(screen.getByLabelText("Create detail type")).getByRole("button", { name: "Add Type" }));
-    const appearanceType = (await screen.findByText("Appearance")).closest(".detail-type-chip");
+    fireEvent.click(within(detailTypeDialog).getByRole("button", { name: "Add Type" }));
+    const appearanceType = (await screen.findByText("Appearance")).closest(".detail-type-dialog-row");
     expect(appearanceType).toBeTruthy();
+    fireEvent.click(within(appearanceType as HTMLElement).getByLabelText("NSFW"));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/detail-types/${secondDetailTypeId}`,
+        expect.objectContaining({
+          body: JSON.stringify({ baseRevision: revision, nsfw: true }),
+          method: "PUT",
+        }),
+      );
+    });
     fireEvent.click(within(appearanceType as HTMLElement).getByRole("button", { name: "Delete" }));
     fireEvent.click(within(appearanceType as HTMLElement).getByRole("button", { name: "Delete" }));
     await waitFor(() => {
@@ -1457,8 +1490,10 @@ describe("App shell", () => {
     await waitFor(() => {
       expect(screen.queryByText("Appearance")).toBeNull();
     });
+    fireEvent.click(within(detailTypeDialog).getByRole("button", { name: "Close" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Add Detail" }));
+    fireEvent.click(screen.getByLabelText("Send to AI"));
     setEditorValue("Detail 1 value", "Only opens after the bell.");
     fireEvent.click(screen.getByRole("tab", { name: "Research" }));
     fireEvent.change(screen.getByLabelText("Codex research notes"), {
@@ -1476,6 +1511,7 @@ describe("App shell", () => {
         baseResearchRevision: revision,
         baseRevision: revision,
         description: "A storm-pressure mechanism below the west quay.",
+        detailAiContext: { "Gate rule": false },
         details: { "Gate rule": "Only opens after the bell." },
         name: "Harbor Lock",
         research: "Research source stays private until confirmed.",
@@ -1852,6 +1888,7 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hide details" }));
     expect(screen.queryByText("No details yet.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add Detail" }));
+    expect(screen.getByRole("dialog", { name: "Manage detail types" })).toBeTruthy();
     expect(screen.getByLabelText("New detail type name")).toBeTruthy();
   });
 

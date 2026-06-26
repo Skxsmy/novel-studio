@@ -77,6 +77,21 @@ describe("M4 context preview API", () => {
     expect(lin.statusCode).toBe(201);
     expect(bell.statusCode).toBe(201);
     expect(forbidden.statusCode).toBe(201);
+    const bellDetails = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries/${bell.json().metadata.id}`,
+      payload: {
+        baseRevision: bell.json().revision,
+        details: {
+          公开线索: "旧钟声只在雨夜响起。",
+          隐藏真相: "旧钟声内部藏着密室地图。",
+        },
+        detailAiContext: {
+          隐藏真相: false,
+        },
+      },
+    });
+    expect(bellDetails.statusCode).toBe(200);
 
     await app.inject({
       method: "PATCH",
@@ -163,6 +178,8 @@ describe("M4 context preview API", () => {
       item.source.id !== undefined && item.inclusionReason.length > 0,
     )).toBe(true);
     expect(JSON.stringify(bundle.items)).toContain("林岚听见旧钟声");
+    expect(JSON.stringify(bundle.items)).toContain("旧钟声只在雨夜响起");
+    expect(JSON.stringify(bundle.items)).not.toContain("旧钟声内部藏着密室地图");
     expect(JSON.stringify(bundle.items)).not.toContain("后文得知旧钟声来自密室");
     expect(JSON.stringify(bundle.items)).not.toContain("密室真相不应进入上下文");
     expect(bundle.excluded.map((item: { reason: string }) => item.reason)).toEqual(expect.arrayContaining([

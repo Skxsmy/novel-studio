@@ -345,33 +345,50 @@ describe("local API", () => {
       payload: {
         categoryId: "character",
         name: "年龄",
+        nsfw: true,
       },
     });
     expect(detailTypeResponse.statusCode).toBe(201);
     const detailType = detailTypeResponse.json();
+    expect(detailType.detailType.nsfw).toBe(true);
+    const updatedDetailTypeResponse = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types/${detailType.detailType.id}`,
+      payload: {
+        baseRevision: detailType.revision,
+        nsfw: false,
+      },
+    });
+    expect(updatedDetailTypeResponse.statusCode).toBe(200);
+    const updatedDetailType = updatedDetailTypeResponse.json();
+    expect(updatedDetailType.detailType.nsfw).toBe(false);
     const detailTypes = await app.inject({
       method: "GET",
       url: `/api/v1/series/${series.manifest.id}/codex/detail-types?categoryId=character`,
     });
     expect(detailTypes.statusCode).toBe(200);
-    expect(detailTypes.json().map((document: { detailType: { name: string } }) => document.detailType.name))
-      .toEqual(["年龄"]);
+    expect(detailTypes.json().map((document: { detailType: { name: string; nsfw: boolean } }) => ({
+      name: document.detailType.name,
+      nsfw: document.detailType.nsfw,
+    }))).toEqual([{ name: "年龄", nsfw: false }]);
 
     const updatedLinResponse = await app.inject({
       method: "PUT",
       url: `/api/v1/series/${series.manifest.id}/codex/entries/${lin.metadata.id}`,
       payload: {
         baseRevision: lin.revision,
+        detailAiContext: { 年龄: false },
         details: { 年龄: "二十四岁" },
       },
     });
     expect(updatedLinResponse.statusCode).toBe(200);
     expect(updatedLinResponse.json().metadata.details).toEqual({ 年龄: "二十四岁" });
+    expect(updatedLinResponse.json().metadata.detailAiContext).toEqual({ 年龄: false });
 
     const deleteUsedDetailType = await app.inject({
       method: "DELETE",
-      url: `/api/v1/series/${series.manifest.id}/codex/detail-types/${detailType.detailType.id}`,
-      payload: { baseRevision: detailType.revision },
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types/${updatedDetailType.detailType.id}`,
+      payload: { baseRevision: updatedDetailType.revision },
     });
     expect(deleteUsedDetailType.statusCode).toBe(422);
 

@@ -30,6 +30,7 @@ export type {
   DeleteCodexEntryResult,
   SceneCodexMentions,
   UpdateCodexCategoryInput,
+  UpdateCodexDetailTypeInput,
   UpdateCodexEntryInput,
 } from "./codex";
 export type { CreateSeriesInput, SeriesSummary } from "./series";

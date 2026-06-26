@@ -68,6 +68,7 @@ export const CodexDetailTypeSchema = z.object({
   id: z.string().uuid(),
   categoryId: CodexCategoryIdSchema,
   name: z.string().trim().min(1).max(120),
+  nsfw: z.boolean().default(false),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -82,8 +83,15 @@ export type CodexDetailTypeDocument = z.infer<typeof CodexDetailTypeDocumentSche
 export const CreateCodexDetailTypeInputSchema = z.object({
   categoryId: CodexCategoryIdSchema,
   name: z.string().trim().min(1).max(120),
+  nsfw: z.boolean().default(false),
 });
 export type CreateCodexDetailTypeInput = z.input<typeof CreateCodexDetailTypeInputSchema>;
+
+export const UpdateCodexDetailTypeInputSchema = z.object({
+  baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  nsfw: z.boolean(),
+});
+export type UpdateCodexDetailTypeInput = z.infer<typeof UpdateCodexDetailTypeInputSchema>;
 
 export const DeleteCodexDetailTypeResultSchema = z.object({
   deletedId: z.string().uuid(),
@@ -114,6 +122,7 @@ export const CodexEntryMetadataSchema = z.object({
   aliases: z.array(z.string().trim().min(1).max(160)).default([]),
   thumbnail: z.string().max(500).nullable().default(null),
   details: z.record(z.string(), z.string().max(16000)).default({}),
+  detailAiContext: z.record(z.string(), z.boolean()).default({}),
   aiContextPolicy: CodexAiContextPolicySchema.default("on-mention"),
   mention: CodexMentionRulesSchema.default({
     caseSensitive: false,
@@ -158,6 +167,7 @@ export const CreateCodexEntryInputSchema = z.object({
   aliases: z.array(z.string().trim().min(1).max(160)).default([]),
   thumbnail: z.string().max(500).nullable().default(null),
   details: z.record(z.string(), z.string().max(16000)).default({}),
+  detailAiContext: z.record(z.string(), z.boolean()).default({}),
   aiContextPolicy: CodexAiContextPolicySchema.default("on-mention"),
   mention: CodexMentionRulesSchema.default({
     caseSensitive: false,
@@ -179,6 +189,7 @@ export const UpdateCodexEntryInputSchema = z
     aliases: z.array(z.string().trim().min(1).max(160)).optional(),
     thumbnail: z.string().max(500).nullable().optional(),
     details: z.record(z.string(), z.string().max(16000)).optional(),
+    detailAiContext: z.record(z.string(), z.boolean()).optional(),
     aiContextPolicy: CodexAiContextPolicySchema.optional(),
     mention: CodexMentionRulesSchema.optional(),
     description: z.string().optional(),
@@ -191,6 +202,7 @@ export const UpdateCodexEntryInputSchema = z
       input.aliases,
       input.thumbnail,
       input.details,
+      input.detailAiContext,
       input.aiContextPolicy,
       input.mention,
       input.description,

@@ -31,6 +31,7 @@ function codexEntryDocument(
       categoryId: "location",
       createdAt: "2026-06-23T00:00:00.000Z",
       details: {},
+      detailAiContext: {},
       id: codexEntryId,
       mention: {
         automaticPlural: false,

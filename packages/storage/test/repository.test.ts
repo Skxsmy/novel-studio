@@ -334,11 +334,25 @@ describe("ProjectRepository", () => {
     const age = await store.createCodexDetailType(series.manifest.id, {
       categoryId: "character",
       name: "年龄",
+      nsfw: true,
     });
     const appearance = await store.createCodexDetailType(series.manifest.id, {
       categoryId: "character",
       name: "样貌",
     });
+    expect(age.detailType.nsfw).toBe(true);
+    expect(appearance.detailType.nsfw).toBe(false);
+
+    const updatedAge = await store.updateCodexDetailType(series.manifest.id, age.detailType.id, {
+      baseRevision: age.revision,
+      nsfw: false,
+    });
+    expect(updatedAge.detailType.nsfw).toBe(false);
+    expect(updatedAge.revision).not.toBe(age.revision);
+    await expect(store.updateCodexDetailType(series.manifest.id, age.detailType.id, {
+      baseRevision: age.revision,
+      nsfw: true,
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
 
     await expect(store.createCodexDetailType(series.manifest.id, {
       categoryId: "character",
@@ -349,10 +363,11 @@ describe("ProjectRepository", () => {
       categoryId: "character",
       name: "克莉斯多",
       details: { 年龄: "十七岁" },
+      detailAiContext: { 年龄: false },
     });
 
-    await expect(store.deleteCodexDetailType(series.manifest.id, age.detailType.id, {
-      baseRevision: age.revision,
+    await expect(store.deleteCodexDetailType(series.manifest.id, updatedAge.detailType.id, {
+      baseRevision: updatedAge.revision,
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
 
     const deleted = await store.deleteCodexDetailType(series.manifest.id, appearance.detailType.id, {
@@ -361,9 +376,11 @@ describe("ProjectRepository", () => {
 
     expect(deleted).toEqual({ deletedId: appearance.detailType.id });
     expect((await store.listCodexDetailTypes(series.manifest.id, { categoryId: "character" }))
-      .map((document) => document.detailType.name)).toEqual(["年龄"]);
-    expect((await store.getCodexEntry(series.manifest.id, entry.metadata.id)).metadata.details)
-      .toEqual({ 年龄: "十七岁" });
+      .map((document) => ({ name: document.detailType.name, nsfw: document.detailType.nsfw })))
+      .toEqual([{ name: "年龄", nsfw: false }]);
+    const savedEntry = await store.getCodexEntry(series.manifest.id, entry.metadata.id);
+    expect(savedEntry.metadata.details).toEqual({ 年龄: "十七岁" });
+    expect(savedEntry.metadata.detailAiContext).toEqual({ 年龄: false });
     await expect(readFile(
       path.join(seriesRoot(store, title, series.manifest.id), "codex", "detail-types", `${appearance.detailType.id}.yaml`),
       "utf8",

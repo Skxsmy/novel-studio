@@ -339,10 +339,14 @@ async function buildContextBundle(
   const codexPreview = await repository.previewCodexContext(seriesId, currentScene.metadata.id, pinnedCodexIds);
   for (const entry of codexPreview.included) {
     const selected = manualIdMatches(manualIds, "codex", entry.metadata.id);
+    const includedDetails = Object.entries(entry.metadata.details)
+      .filter(([key]) => entry.metadata.detailAiContext[key] !== false)
+      .map(([key, value]) => `${key}：${value}`)
+      .join("\n");
     const content = [
       `名称：${entry.metadata.name}`,
       entry.description ? `已确认设定：${entry.description}` : "",
-      Object.entries(entry.metadata.details).map(([key, value]) => `${key}：${value}`).join("\n"),
+      includedDetails,
     ].filter(Boolean).join("\n\n");
     items.push(contextItem({
       kind: "codex-entry",

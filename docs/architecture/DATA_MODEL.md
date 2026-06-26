@@ -106,7 +106,7 @@ SQLite 保存可重建的场景定位、正文搜索、Codex 搜索、名称候�
 
 六个内置类别使用稳定字符串 ID 和固定目录；自定义类别元数据位于 `codex/categories/<categoryId>.yaml`，条目位于 `codex/custom/<categoryId>/<entryId>.md`。条目 Markdown 正文只保存 Canon Description，Research 位于独立的 `codex/entry-research/<entryId>.md`，两者 revision 独立。Codex 条目元数据不保存 `tags`；旧文件中的 `tags` 仅按未知字段兼容读取，并会在下次条目写入时移除。
 
-可复用详情类型位于 `codex/detail-types/<detailTypeId>.yaml`，按 `categoryId` 归属到一个内置或自定义类别。条目 `metadata.details` 仍以作者可读的详情类型名称作为键保存正文值，便于 Markdown/YAML 人工查看；详情类型文件保存稳定 ID、名称、类别和 revision，用于 UI 集中管理、重名校验和删除保护。删除详情类型前必须确认同类别条目没有使用该详情类型名称。
+可复用详情类型位于 `codex/detail-types/<detailTypeId>.yaml`，按 `categoryId` 归属到一个内置或自定义类别。详情类型文件保存稳定 ID、名称、类别、NSFW 标记和 revision，用于 UI 集中管理、重名校验和删除保护。条目 `metadata.details` 仍以作者可读的详情类型名称作为键保存正文值，便于 Markdown/YAML 人工查看；条目 `metadata.detailAiContext` 以同一详情类型名称为键保存布尔开关，`false` 表示该条目发送给 AI 时排除此详情，缺失或 `true` 表示沿用默认包含。删除详情类型前必须确认同类别条目没有使用该详情类型名称。
 
 关系位于 `codex/relations/<relationId>.yaml`。有向关系只表达 `sourceEntryId → targetEntryId`；无向关系从两端查询同一文件，不复制第二条边。提及索引只表示名称或别名在场景正文中出现，不改变 Scene 显式关联或任何 Canon。
 

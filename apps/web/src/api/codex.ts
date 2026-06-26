@@ -18,6 +18,7 @@ import type {
   DeleteCodexEntryResult,
   SceneCodexMentions,
   UpdateCodexCategoryInput,
+  UpdateCodexDetailTypeInput,
   UpdateCodexEntryInput,
 } from "@novel-studio/contracts";
 
@@ -57,6 +58,12 @@ export function createCodexApi(client: ApiClient) {
       return client.requestJson<CodexDetailTypeDocument>(`/series/${seriesId}/codex/detail-types`, {
         body: input,
         method: "POST",
+      });
+    },
+    updateDetailType(seriesId: string, detailTypeId: string, input: UpdateCodexDetailTypeInput) {
+      return client.requestJson<CodexDetailTypeDocument>(`/series/${seriesId}/codex/detail-types/${detailTypeId}`, {
+        body: input,
+        method: "PUT",
       });
     },
     deleteDetailType(seriesId: string, detailTypeId: string, input: DeleteCodexDocumentInput) {
@@ -157,5 +164,6 @@ export type {
   DeleteCodexEntryResult,
   SceneCodexMentions,
   UpdateCodexCategoryInput,
+  UpdateCodexDetailTypeInput,
   UpdateCodexEntryInput,
 };

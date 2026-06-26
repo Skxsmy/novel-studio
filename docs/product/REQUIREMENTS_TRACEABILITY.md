@@ -32,7 +32,7 @@
 - `FR-WRITE-01`–`FR-WRITE-04`、`FR-WRITE-06/07`
 - `FR-CODEX-01`–`FR-CODEX-08`
 
-完成标准：四种规划视图和双时间线使用真实数据；编辑器与 Markdown 往返；Codex 条目、按类别复用的详情类型、Relations、Progression、角色知识和提及索引均有文件契约和测试。
+完成标准：四种规划视图和双时间线使用真实数据；编辑器与 Markdown 往返；Codex 条目、按类别复用的详情类型、详情类型 NSFW 标记、条目级 detail AI 发送开关、Relations、Progression、角色知识和提及索引均有文件契约和测试。
 
 ## M4 模型、Prompt 与上下文
 

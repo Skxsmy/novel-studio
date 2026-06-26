@@ -75,6 +75,7 @@ import {
   TimelineEventSchema,
   TimelineManifestSchema,
   UpdateCodexCategoryInputSchema,
+  UpdateCodexDetailTypeInputSchema,
   UpdateCodexEntryInputSchema,
   UpdateCodexKnowledgeInputSchema,
   UpdateCodexProgressionInputSchema,
@@ -169,6 +170,7 @@ import {
   type UpdateActInput,
   type UpdateBookInput,
   type UpdateCodexCategoryInput,
+  type UpdateCodexDetailTypeInput,
   type UpdateCodexEntryInput,
   type UpdateCodexKnowledgeInput,
   type UpdateCodexProgressionInput,
@@ -1887,11 +1889,39 @@ export class ProjectRepository {
       id: randomUUID(),
       categoryId: input.categoryId,
       name: input.name,
+      nsfw: input.nsfw,
       createdAt: now,
       updatedAt: now,
     });
     const raw = serializeYaml(detailType);
     await atomicWrite(codexDetailTypePath(seriesRoot, detailType.id), raw);
+    return CodexDetailTypeDocumentSchema.parse({
+      detailType,
+      revision: contentRevision(raw),
+    });
+  }
+
+  async updateCodexDetailType(
+    seriesId: string,
+    detailTypeId: string,
+    rawInput: UpdateCodexDetailTypeInput,
+  ): Promise<CodexDetailTypeDocument> {
+    const input = UpdateCodexDetailTypeInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.readCodexDetailType(seriesRoot, detailTypeId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("Codex detail type changed on disk", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+    const now = new Date().toISOString();
+    const detailType = CodexDetailTypeSchema.parse({
+      ...current.detailType,
+      nsfw: input.nsfw,
+      updatedAt: now,
+    });
+    const raw = serializeYaml(detailType);
+    await atomicWrite(codexDetailTypePath(seriesRoot, detailTypeId), raw);
     return CodexDetailTypeDocumentSchema.parse({
       detailType,
       revision: contentRevision(raw),
@@ -1967,6 +1997,7 @@ export class ProjectRepository {
       aliases: normalizeUniqueStrings(input.aliases),
       thumbnail: input.thumbnail,
       details: input.details,
+      detailAiContext: input.detailAiContext,
       aiContextPolicy: input.aiContextPolicy,
       mention: {
         ...input.mention,
@@ -2018,6 +2049,7 @@ export class ProjectRepository {
       input.aliases,
       input.thumbnail,
       input.details,
+      input.detailAiContext,
       input.aiContextPolicy,
       input.mention,
       input.description,
@@ -2055,6 +2087,10 @@ export class ProjectRepository {
             ? current.document.metadata.thumbnail
             : input.thumbnail,
         details: input.details ?? current.document.metadata.details,
+        detailAiContext:
+          input.detailAiContext === undefined
+            ? current.document.metadata.detailAiContext
+            : input.detailAiContext,
         aiContextPolicy:
           input.aiContextPolicy ?? current.document.metadata.aiContextPolicy,
         mention: input.mention
