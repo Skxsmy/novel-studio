@@ -480,7 +480,7 @@ export function registerCodexRoutes(
 
   app.get<{
     Params: { seriesId: string };
-    Querystring: { sceneId?: string; pinnedIds?: string };
+    Querystring: { sceneId?: string; blockId?: string; pinnedIds?: string };
   }>("/api/v1/series/:seriesId/codex/context", async (request) => {
     if (!request.query.sceneId) {
       throw new StorageError("Codex 上下文预览需要 sceneId", "INVALID_DATA");
@@ -491,6 +491,7 @@ export function registerCodexRoutes(
       request.query.pinnedIds
         ? request.query.pinnedIds.split(",").map((value) => value.trim()).filter(Boolean)
         : [],
+      request.query.blockId ?? null,
     );
   });
 

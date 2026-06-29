@@ -4,6 +4,7 @@ import {
   ContextBundleSchema,
   ContextPreviewInputSchema,
   type CloudPolicy,
+  type CodexEntryDocument,
   type ContextBundle,
   type ContextExclusion,
   type ContextItem,
@@ -157,6 +158,39 @@ function applyBudget(
 
 function sectionAccessForModel(profile: ModelProfile | null): "local" | "cloud" {
   return profile && isCloudRouted(profile) ? "cloud" : "local";
+}
+
+function detailAllowsContext(entry: CodexEntryDocument, key: string, label: string): boolean {
+  return entry.metadata.detailAiContext[key] !== false && entry.metadata.detailAiContext[label] !== false;
+}
+
+async function codexEntryContextContent(
+  repository: ProjectRepository,
+  seriesId: string,
+  entry: CodexEntryDocument,
+): Promise<string> {
+  const detailTypes = await repository.listCodexDetailTypes(seriesId, {
+    categoryId: entry.metadata.categoryId,
+  });
+  const handledDetailKeys = new Set<string>();
+  const detailLines: string[] = [];
+  for (const document of detailTypes) {
+    const detailType = document.detailType;
+    handledDetailKeys.add(detailType.id);
+    handledDetailKeys.add(detailType.name);
+    const value = entry.metadata.details[detailType.id] ?? entry.metadata.details[detailType.name] ?? "";
+    if (!value.trim() || !detailAllowsContext(entry, detailType.id, detailType.name)) continue;
+    detailLines.push(`${detailType.name}: ${value}`);
+  }
+  for (const [key, value] of Object.entries(entry.metadata.details)) {
+    if (handledDetailKeys.has(key) || !value.trim() || entry.metadata.detailAiContext[key] === false) continue;
+    detailLines.push(`${key}: ${value}`);
+  }
+  return [
+    `Name: ${entry.metadata.name}`,
+    entry.description.trim() ? `Confirmed setting:\n${entry.description}` : "",
+    detailLines.length ? `Details:\n${detailLines.join("\n")}` : "",
+  ].filter(Boolean).join("\n\n");
 }
 
 async function buildContextBundle(
@@ -336,31 +370,47 @@ async function buildContextBundle(
     .filter((id) => id.startsWith("codex:"))
     .map((id) => id.slice("codex:".length))
     .filter((id) => UUID_PATTERN.test(id));
-  const codexPreview = await repository.previewCodexContext(seriesId, currentScene.metadata.id, pinnedCodexIds);
+  const codexPreview = await repository.previewCodexContext(
+    seriesId,
+    currentScene.metadata.id,
+    pinnedCodexIds,
+    input.blockId,
+  );
   for (const entry of codexPreview.included) {
     const selected = manualIdMatches(manualIds, "codex", entry.metadata.id);
-    const includedDetails = Object.entries(entry.metadata.details)
-      .filter(([key]) => entry.metadata.detailAiContext[key] !== false)
-      .map(([key, value]) => `${key}：${value}`)
-      .join("\n");
-    const content = [
-      `名称：${entry.metadata.name}`,
-      entry.description ? `已确认设定：${entry.description}` : "",
-      includedDetails,
-    ].filter(Boolean).join("\n\n");
+    const effectiveEntry = await repository.getCodexEffectiveEntry(
+      seriesId,
+      entry.metadata.id,
+      currentScene.metadata.id,
+      input.blockId,
+    );
+    const projectedEntry = effectiveEntry.entry;
+    const content = await codexEntryContextContent(repository, seriesId, projectedEntry);
     items.push(contextItem({
       kind: "codex-entry",
       sourceType: "codex-entry",
-      sourceId: entry.metadata.id,
-      sourceRevision: entry.revision,
-      sourceLabel: entry.metadata.name,
-      title: `设定条目：${entry.metadata.name}`,
+      sourceId: projectedEntry.metadata.id,
+      sourceRevision: projectedEntry.revision,
+      sourceLabel: projectedEntry.metadata.name,
+      title: `Codex entry: ${projectedEntry.metadata.name}`,
       content,
       inclusion: selected ? "selected" : "derived",
-      inclusionReason: selected ? "作者主动选择的设定条目。" : "按模型可读范围和当前场景提及纳入。",
-      contextPolicy: entry.metadata.aiContextPolicy,
+      inclusionReason: selected
+        ? "The author selected this Codex entry."
+        : "Included by model-readable scope and current scene mentions.",
+      contextPolicy: projectedEntry.metadata.aiContextPolicy,
       manuallySelected: selected,
     }));
+    if (effectiveEntry.hiddenFutureFieldProgressionCount > 0) {
+      excluded.push(exclusion({
+        sourceType: "codex-progression",
+        sourceId: projectedEntry.metadata.id,
+        sourceLabel: projectedEntry.metadata.name,
+        title: `Future Codex fields: ${projectedEntry.metadata.name}`,
+        reason: "future-information",
+        note: `${effectiveEntry.hiddenFutureFieldProgressionCount} future field progression record(s) were hidden.`,
+      }));
+    }
 
     const viewerEntryId = UUID_PATTERN.test(currentScene.metadata.pov ?? "")
       ? currentScene.metadata.pov!
@@ -368,14 +418,14 @@ async function buildContextBundle(
     const effective = await repository.getCodexEffectiveState(
       seriesId,
       currentScene.metadata.id,
-      entry.metadata.id,
+      projectedEntry.metadata.id,
       viewerEntryId,
     );
     const effectiveLines = [
-      ...effective.worldFacts.map((document) => `世界事实：${document.progression.summary}`),
+      ...effective.worldFacts.map((document) => `World fact: ${document.progression.summary}`),
       ...effective.relationStates.flatMap((state) =>
         state.progressions.map((document) =>
-          `关系变化（${state.relation.relation.type}）：${document.progression.summary}`,
+          `Relation change (${state.relation.relation.type}): ${document.progression.summary}`,
         ),
       ),
     ];
@@ -383,13 +433,13 @@ async function buildContextBundle(
       items.push(contextItem({
         kind: "codex-effective-state",
         sourceType: "codex-entry",
-        sourceId: entry.metadata.id,
-        sourceRevision: entry.revision,
-        sourceLabel: entry.metadata.name,
-        title: `此刻有效：${entry.metadata.name}`,
+        sourceId: projectedEntry.metadata.id,
+        sourceRevision: projectedEntry.revision,
+        sourceLabel: projectedEntry.metadata.name,
+        title: `Effective state: ${projectedEntry.metadata.name}`,
         content: effectiveLines.join("\n"),
         inclusion: "derived",
-        inclusionReason: "只包含截至当前叙事场景已经生效的故事状态。",
+        inclusionReason: "Only story state effective at the current narrative scene is included.",
       }));
     }
     if (effective.characterKnowledge.length) {
@@ -397,33 +447,33 @@ async function buildContextBundle(
         kind: "character-knowledge",
         sourceType: "codex-knowledge",
         sourceId: viewerEntryId ?? null,
-        sourceLabel: "角色此刻知道的内容",
-        title: `角色所知：${entry.metadata.name}`,
+        sourceLabel: "Character knowledge at this position",
+        title: `Character knowledge: ${projectedEntry.metadata.name}`,
         content: effective.characterKnowledge.map((document) =>
-          `${document.knowledge.stance}：${document.knowledge.summary}`,
+          `${document.knowledge.stance}: ${document.knowledge.summary}`,
         ).join("\n"),
         inclusion: "derived",
-        inclusionReason: "只包含视角角色在当前场景已经知道、相信或误解的内容。",
+        inclusionReason: "Only what the viewpoint character already knows, believes, or misunderstands is included.",
       }));
     }
     if (effective.hiddenFutureProgressionCount > 0) {
       excluded.push(exclusion({
         sourceType: "codex-progression",
-        sourceId: entry.metadata.id,
-        sourceLabel: entry.metadata.name,
-        title: `后文故事状态：${entry.metadata.name}`,
+        sourceId: projectedEntry.metadata.id,
+        sourceLabel: projectedEntry.metadata.name,
+        title: `Future story state: ${projectedEntry.metadata.name}`,
         reason: "future-information",
-        note: `有 ${effective.hiddenFutureProgressionCount} 条后文故事状态未提供，避免泄露未来剧情。`,
+        note: `${effective.hiddenFutureProgressionCount} future story state record(s) were hidden.`,
       }));
     }
     if (effective.hiddenFutureKnowledgeCount > 0) {
       excluded.push(exclusion({
         sourceType: "codex-knowledge",
-        sourceId: entry.metadata.id,
-        sourceLabel: entry.metadata.name,
-        title: `后文角色所知：${entry.metadata.name}`,
+        sourceId: projectedEntry.metadata.id,
+        sourceLabel: projectedEntry.metadata.name,
+        title: `Future character knowledge: ${projectedEntry.metadata.name}`,
         reason: "future-information",
-        note: `有 ${effective.hiddenFutureKnowledgeCount} 条后文角色所知未提供，避免泄露未来信息。`,
+        note: `${effective.hiddenFutureKnowledgeCount} future character knowledge record(s) were hidden.`,
       }));
     }
   }

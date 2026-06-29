@@ -203,9 +203,15 @@ export function createCodexApi(client: ApiClient) {
         method: "POST",
       });
     },
-    previewContext(seriesId: string, sceneId: string, pinnedIds: string[] = []) {
+    previewContext(
+      seriesId: string,
+      sceneId: string,
+      pinnedIds: string[] = [],
+      options: { blockId?: string } = {},
+    ) {
       const params = new URLSearchParams({ sceneId });
       if (pinnedIds.length) params.set("pinnedIds", pinnedIds.join(","));
+      if (options.blockId) params.set("blockId", options.blockId);
       return client.requestJson<CodexContextPreview>(`/series/${seriesId}/codex/context?${params.toString()}`);
     },
   };

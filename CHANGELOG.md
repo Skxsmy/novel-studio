@@ -15,6 +15,7 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **NS-410 Progression Replan**: Replaced the field-only progression side path with unified JSON Progression authority under `codex/progressions/*.json`. Old `codex/progressions/*.yaml` is retired rather than preserved as a runtime compatibility target.
 - **NS-410 Slice 4**: Added unified JSON Progression storage and CRUD APIs for field, world, and relationship targets, including revision checks, reference validation, delete blocker diagnostics, and regression coverage for effective-state and character-knowledge separation.
 - **NS-410 Slice 5**: Added effective Codex entry projection by scene/block position, field folding for baseline/add/repeated-add/replace/empty-replace cases, hidden future counts without future body/summary/ID leakage, the effective-entry API route, and a web API wrapper. Storage/server/web focused checks pass.
+- **NS-410 Slice 6**: Routed Context Builder and Codex context preview through effective Codex field projection at scene/block position. Context preview now accepts `blockId`, projected Canon Description and reusable Details are sent to ContextBundle, per-detail AI switches and empty replace hiding still apply, and future field Progression content/summary/ID stays hidden.
 
 ### Project Foundation
 

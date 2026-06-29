@@ -7,10 +7,10 @@ This file is the short operational handoff. The older Chinese handoff was fully 
 ## Current Repository State
 
 - Branch: `codex/ns-410-json-authority`.
-- Latest relevant committed baseline after Slice 5: `NS-410 feat(codex): project effective field progression` on this branch.
+- Latest relevant committed baseline after Slice 6: `NS-410 feat(context): project codex fields in context` on this branch.
 - Current active task: `NS-410` Block Write Editor and Unified Codex Progression.
 - Current acceptance state: NS-410 is in progress; project recovery remains not visually/product accepted.
-- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and unified Progression change. Slice 5 is implemented on the NS-410 branch; continue with Slice 6 unless the user redirects.
+- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and unified Progression change. Slice 6 is implemented on the NS-410 branch; continue with Slice 7 unless the user redirects.
 
 ## Start Here
 
@@ -55,7 +55,7 @@ NS-410 changes the writing and Codex foundations:
 - Write needs ordinary blocks, embedded progression blocks, and a scene progression panel.
 - Codex needs baseline/history/effective-at-scene views for progressed fields.
 
-Implementation order is now the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Slice 1 passed for its scope on 2026-06-26; Slices 2, 3, 4, and 5 passed for their scopes on 2026-06-29. Do not skip from effective-entry projection directly to full Write/Codex UI.
+Implementation order is now the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Slice 1 passed for its scope on 2026-06-26; Slices 2, 3, 4, 5, and 6 passed for their scopes on 2026-06-29. Do not skip from ordinary Write block editing directly to embedded Progression/Codex history UI.
 
 ## Current Recovery Work
 
@@ -326,4 +326,4 @@ Current recovery order:
 
 ## Immediate Next Step
 
-Continue with Slice 6: Context Builder and preview projection. Each slice must leave the app buildable and record its exit checks before the next slice starts. Do not start Write block editor or provider expansion before Slice 6 is verified, and do not create parallel handoff files.
+Continue with Slice 7: Write block editor MVP for ordinary blocks. Each slice must leave the app buildable and record its exit checks before the next slice starts. Do not add embedded Progression blocks, the scene progression panel, or provider expansion in Slice 7, and do not create parallel handoff files.

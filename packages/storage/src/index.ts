@@ -3169,6 +3169,7 @@ export class ProjectRepository {
     seriesId: string,
     sceneId: string,
     pinnedIds: string[] = [],
+    blockId: string | null = null,
   ): Promise<CodexContextPreview> {
     const scene = await this.getScene(seriesId, sceneId);
     const entries = await this.listCodexEntries(seriesId, { includeArchived: true });
@@ -3199,7 +3200,14 @@ export class ProjectRepository {
         pinned: pinned.has(entry.metadata.id),
         archived: entry.metadata.archivedAt !== null,
       });
-      if (eligibility.eligible) included.push(entry);
+      if (eligibility.eligible) {
+        included.push((await this.getCodexEffectiveEntry(
+          seriesId,
+          entry.metadata.id,
+          sceneId,
+          blockId,
+        )).entry);
+      }
       else {
         excluded.push({
           entryId: entry.metadata.id,

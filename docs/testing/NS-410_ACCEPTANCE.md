@@ -22,13 +22,13 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | NS-410-A07 | passed | Slice 5 storage tests verify baseline-only effective entry projection for Canon Description and reusable Detail values. |
 | NS-410-A08 | passed | Slice 5 storage tests verify `add`, repeated `add`, `replace`, replace-then-add, and empty `replace` folding per field. |
 | NS-410-A09 | passed | Slice 5 storage and server tests verify same-scene block position changes effective Codex fields before/after write-block progressions. |
-| NS-410-A10 | passed | Slice 5 storage and effective-entry API tests verify future field progression body, summary, and IDs are absent from earlier responses, with only hidden counts returned. Slice 6 will apply the same invariant to Context Builder payloads. |
+| NS-410-A10 | passed | Slice 5 storage and effective-entry API tests verify future field progression body, summary, and IDs are absent from earlier responses, with only hidden counts returned. Slice 6 context route tests verify future field progression body, summary, and IDs are also absent from Context Bundle payloads. |
 | NS-410-A11 | passed | Slice 5 storage tests verify baseline edits update add chains before a replace boundary while projected values after a replace stay independent from earlier baseline changes. |
-| NS-410-A12 | pending | Context route tests planned: projected Codex fields and AI switches. |
+| NS-410-A12 | passed | Slice 6 `context-routes.test.ts` verifies Context Builder uses projected Codex description/details, respects per-detail AI switches, omits empty-replaced fields, and records hidden future field counts without content leakage. |
 | NS-410-A13 | passed | Slice 4 keeps character knowledge separate from unified JSON Progression, verifies knowledge can reference JSON progression IDs, and verifies new Progression files are `.json` with no `.yaml` authority file. Slice 5 regression tests keep effective-state and character-knowledge behavior passing while adding field projection. |
 | NS-410-A14 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
 | NS-410-A15 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
-| NS-410-A16 | partial | Slice 2 storage repository tests cover existing scene save, hierarchy, mention/index, and search-adjacent regressions while scene files are JSON authority. Context projection remains later. |
+| NS-410-A16 | partial | Slice 2 storage repository tests cover existing scene save, hierarchy, mention/index, and search-adjacent regressions while scene files are JSON authority. Slice 6 verifies Context Builder reads projected scene/Codex context at scene/block position. Write counts/search/mentions projection remains Slice 7. |
 | NS-410-A17 | passed | Slice 2 keeps existing scene `content` read/write API behavior compatible by converting `content` writes to JSON blocks and returning projected `content`; Slice 3 adds block document APIs without removing legacy `content` routes, with server and web compatibility checks. |
 
 ## Slice Exit Map
@@ -196,6 +196,35 @@ Commands:
 | `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx --reporter=verbose` | Passed with 46/46 tests; Vitest printed existing React `act(...)` warnings in one focus-mode test. |
 | `git diff --check` | Passed with line-ending warnings only. |
 | Runtime-code non-ASCII diff scan | Passed with no added non-ASCII runtime strings in `packages/storage/src/index.ts`, `apps/server/src/routes/codex.ts`, or `apps/web/src/api/codex.ts`. |
+
+### Slice 6: Context Builder And Preview Projection
+
+Status: passed for Slice 6 scope on 2026-06-29.
+
+Changes verified:
+
+- `ContextPreviewInput` accepts an optional `blockId` so context callers can request the current scene/block position.
+- Codex context preview and Context Builder now route included Codex entries through effective field projection at the requested scene/block.
+- ContextBundle Codex entry content now uses projected Canon Description and reusable Detail values instead of baseline-only entry text.
+- Per-detail AI switches still apply after projection.
+- Empty `replace` field progressions are omitted from ContextBundle content.
+- Hidden future field progression counts are recorded without exposing future body, summary, or progression ID.
+- The web Codex API client can pass `blockId` to context preview/effective-entry calls.
+- Runtime strings newly added or rewritten in the Slice 6 context path are English; the targeted non-ASCII diff scan found no added non-ASCII runtime strings in touched runtime files.
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `npm.cmd run build -w @novel-studio/contracts` | Passed. |
+| `npm.cmd run build -w @novel-studio/storage` | Passed. |
+| `npm.cmd run build -w @novel-studio/server` | Initial parallel run failed because server typecheck started before the updated storage declaration was available and saw the old `previewCodexContext` arity; rerun after storage build passed. |
+| `npm.cmd run build -w @novel-studio/web` | Passed with the existing Vite large-chunk warning. |
+| `npm.cmd run test -w @novel-studio/server -- context-routes.test.ts app.test.ts --reporter=verbose` | Passed with 11/11 tests. |
+| `npm.cmd run test -w @novel-studio/storage -- repository.test.ts smoke.test.ts --reporter=verbose` | Passed with 51/51 tests. |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx --reporter=verbose` | Passed with 46/46 tests; Vitest printed existing React `act(...)` warnings in one focus-mode test. |
+| `git diff --check` | Passed with line-ending warnings only. |
+| Runtime-code non-ASCII diff scan | Passed with no added non-ASCII runtime strings in `packages/contracts/src/context.ts`, `packages/storage/src/index.ts`, `apps/server/src/routes/context.ts`, `apps/server/src/routes/codex.ts`, or `apps/web/src/api/codex.ts`. |
 
 ## Invariant Checklist
 
