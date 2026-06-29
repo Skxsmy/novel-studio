@@ -14,7 +14,7 @@ Current decision:
 - The active work is not an `NS-409` continuation.
 - The current product is not accepted.
 - The previous “do not continue to NS-410” instruction is superseded by explicit user direction on 2026-06-26 for this JSON authority / block document / field progression task.
-- Implementation must not begin until the user confirms. Documentation/planning changes should not be committed yet because the user needs to push previous commits first.
+- Implementation is active on branch `codex/ns-410-json-authority`; the user has allowed commits on this branch while earlier project data remains disposable test data.
 - Do not treat old `NS-409A` through `NS-409F` assets as current guidance.
 - M2/M3 completion does not make their contracts untouchable. Hierarchy, Codex API, storage, and index behavior may be revised if the rebuilt frontend requires it.
 - Current source files:
@@ -130,7 +130,7 @@ Immediate task requirements:
   - ADR: `docs/adr/0012-scene-block-documents-and-codex-field-progression.md`.
   - Scope: JSON project authority, Scene block document authority, Markdown projection/export/import boundary, compatibility adapters for existing scene APIs, Codex field progression for Canon Description and Details, scene/block-position projection, Context Builder projection, Write embedded progression blocks, Codex baseline/history/effective UI.
   - Execution control: `docs/tasks/NS-410.md` now breaks implementation into controlled vertical slices 0-10; every slice must record exit evidence in `docs/testing/NS-410_ACCEPTANCE.md` before the next slice starts.
-  - Current slice state: Slice 1 passed for contracts and JSON file foundation; next is Slice 2 scene JSON authority with legacy scene API compatibility.
+  - Current slice state: Slice 1 passed for contracts and JSON file foundation; Slice 2 passed for scene JSON authority with legacy `content` API compatibility; next is Slice 3 scene document API and Markdown export.
   - Current status: project/spec/ADR records created; implementation in progress.
 
 M4 detailed planning remains in `docs/tasks/M4.md`. Throughout M4 and NS-410, AI must not directly modify prose, canon, summaries, character state, story progressions, field progressions, or character knowledge without explicit author action/proposal flow.

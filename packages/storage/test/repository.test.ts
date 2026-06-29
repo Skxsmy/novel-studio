@@ -37,7 +37,55 @@ describe("ProjectRepository", () => {
     const scene = series.scenes[0];
     expect(scene).toBeDefined();
     const scenePath = path.join(store.libraryRoot, `${"潮汐之城"}-${series.manifest.id.slice(0, 8)}`, scene!.relativePath);
-    expect(await readFile(scenePath, "utf8")).toContain("title: Opening Scene");
+    expect(scene!.relativePath.endsWith(".json")).toBe(true);
+    const sceneAuthority = JSON.parse(await readFile(scenePath, "utf8")) as Record<string, unknown>;
+    expect(sceneAuthority).toMatchObject({
+      id: scene!.metadata.id,
+      title: "Opening Scene",
+      document: { schemaVersion: 1 },
+    });
+  });
+
+  it("persists scene prose as JSON blocks while preserving the legacy content projection", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "BlockAuthority" });
+    const initial = series.scenes[0]!;
+
+    const updated = await store.updateScene(series.manifest.id, initial.metadata.id, {
+      baseRevision: initial.revision,
+      title: "Structured Scene",
+      content: "# Beat One\n\nA quiet line.\n\n> remembered words\n\n***\n\nSecond paragraph.",
+    });
+
+    expect(updated.content).toBe("# Beat One\n\nA quiet line.\n\n> remembered words\n\n***\n\nSecond paragraph.");
+    expect(updated.plainText).toBe("Beat One\n\nA quiet line.\n\nremembered words\n\nSecond paragraph.");
+    expect(updated.document.blocks.map((block) => block.kind)).toEqual([
+      "heading",
+      "paragraph",
+      "quote",
+      "sceneBreak",
+      "paragraph",
+    ]);
+
+    const scenePath = path.join(seriesRoot(store, "BlockAuthority", series.manifest.id), updated.relativePath);
+    const raw = await readFile(scenePath, "utf8");
+    const authority = JSON.parse(raw) as {
+      title: string;
+      document: { schemaVersion: number; blocks: Array<{ kind: string; text?: string }> };
+    };
+    expect(authority).toMatchObject({
+      title: "Structured Scene",
+      document: { schemaVersion: 1 },
+    });
+    expect(authority.document.blocks.map((block) => block.kind)).toEqual([
+      "heading",
+      "paragraph",
+      "quote",
+      "sceneBreak",
+      "paragraph",
+    ]);
+    expect(authority.document.blocks[0]).toMatchObject({ kind: "heading", text: "Beat One" });
+    expect(authority.document.blocks[1]).toMatchObject({ kind: "paragraph", text: "A quiet line." });
   });
 
   it("rejects stale revisions without overwriting the scene", async () => {
@@ -1268,7 +1316,7 @@ describe("ProjectRepository", () => {
       order: 1,
     });
     expect(moved.relativePath.replace(/\\/gu, "/")).toContain(
-      `/manuscript/${targetAct.id}/${targetChapter.id}/${scene.metadata.id}.md`,
+      `/manuscript/${targetAct.id}/${targetChapter.id}/${scene.metadata.id}.json`,
     );
     expect(await store.validateHierarchy(series.manifest.id)).toMatchObject({ valid: true });
   });

@@ -1,16 +1,16 @@
 # Handoff
 
-Updated: 2026-06-26
+Updated: 2026-06-29
 
 This file is the short operational handoff. The older Chinese handoff was fully read before this rewrite; its task history, verification facts, and warnings have been translated and reorganized here.
 
 ## Current Repository State
 
-- Branch: `codex/publish-novel-studio-20260624-9957a1f`.
-- Latest relevant committed baseline before the replan: `d7f1666 NS-409 docs: preserve historical logs in English`.
+- Branch: `codex/ns-410-json-authority`.
+- Latest relevant committed baseline before Slice 2: `83be563 NS-410 feat(storage): add JSON authority foundation`.
 - Current active task: `NS-410` Block Write Editor and Codex Field Progression.
 - Current acceptance state: NS-410 is in progress; project recovery remains not visually/product accepted.
-- Current planning decision: the prior “do not start NS-410” warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and field progression change. Implementation is paused until the user confirms; do not commit these documentation changes yet.
+- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and field progression change. Slice 2 is implemented on the NS-410 branch; continue with Slice 3 unless the user redirects.
 
 ## Start Here
 
@@ -54,7 +54,7 @@ NS-410 changes the writing and Codex foundations:
 - Write needs ordinary blocks, embedded progression blocks, and a scene progression panel.
 - Codex needs baseline/history/effective-at-scene views for progressed fields.
 
-Implementation order is now the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Slice 1 passed for its scope on 2026-06-26. Do not skip from JSON storage directly to full Write/Codex UI.
+Implementation order is now the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Slice 1 passed for its scope on 2026-06-26; Slice 2 passed for its scope on 2026-06-29. Do not skip from JSON storage directly to full Write/Codex UI.
 
 ## Current Recovery Work
 
@@ -325,4 +325,4 @@ Current recovery order:
 
 ## Immediate Next Step
 
-Continue with Slice 2: scene JSON authority with legacy scene API compatibility. Each slice must leave the app buildable and record its exit checks before the next slice starts. Do not start provider expansion, and do not create parallel handoff files.
+Continue with Slice 3: scene document API and Markdown export. Each slice must leave the app buildable and record its exit checks before the next slice starts. Do not start provider expansion, and do not create parallel handoff files.

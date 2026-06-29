@@ -13,10 +13,10 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 
 | ID | Status | Evidence |
 | --- | --- | --- |
-| NS-410-A01 | pending | Storage/migration test planned: current Markdown/YAML test data migrates or regenerates into JSON block documents; Markdown import preserves supported structure where kept. |
-| NS-410-A02 | partial | Slice 1 covered deterministic JSON serialization/revision and reload via `json-authority.test.ts`; scene block save/reload remains for Slice 2/3. |
-| NS-410-A03 | pending | Storage/server tests planned: Markdown export. |
-| NS-410-A04 | partial | Slice 1 covered malformed JSON, schema-version mismatch, duplicate block IDs, path escape, and atomic replacement cleanup via `json-authority.test.ts`; scene/progression reference diagnostics remain later. |
+| NS-410-A01 | partial | Slice 2 regenerates current scene test data as JSON block documents; legacy `.md` scene authority is intentionally not preserved because current project data is disposable test data. Full import/migration preview remains later. |
+| NS-410-A02 | partial | Slice 1 covered deterministic JSON serialization/revision and reload via `json-authority.test.ts`; Slice 2 covers scene JSON authority save/reload through `repository.test.ts`; document API remains Slice 3. |
+| NS-410-A03 | partial | Slice 2 projects block documents back to Markdown-compatible `SceneDocument.content`; explicit Markdown export endpoint remains Slice 3. |
+| NS-410-A04 | partial | Slice 1 covered malformed JSON, schema-version mismatch, duplicate block IDs, path escape, and atomic replacement cleanup via `json-authority.test.ts`; Slice 2 keeps scene conflict/revision behavior passing. Progression reference diagnostics remain later. |
 | NS-410-A05 | pending | Storage/server tests planned: field progression CRUD and validation. |
 | NS-410-A06 | pending | Storage/web tests planned: progression block deletion synchronization. |
 | NS-410-A07 | pending | Projection tests planned: baseline only. |
@@ -28,8 +28,8 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | NS-410-A13 | pending | Regression: existing progressions/knowledge tests must continue passing. |
 | NS-410-A14 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
 | NS-410-A15 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
-| NS-410-A16 | pending | Storage/context/search/mention regression tests planned. |
-| NS-410-A17 | partial | Slice 1 kept scene APIs untouched and `repository.test.ts` passed; explicit compatibility conversion remains for Slice 2. |
+| NS-410-A16 | partial | Slice 2 storage repository tests cover existing scene save, hierarchy, mention/index, and search-adjacent regressions while scene files are JSON authority. Context projection remains later. |
+| NS-410-A17 | partial | Slice 2 keeps existing scene `content` read/write API behavior compatible by converting `content` writes to JSON blocks and returning projected `content`; explicit document APIs remain Slice 3. |
 
 ## Slice Exit Map
 
@@ -86,6 +86,29 @@ Commands:
 | `npm.cmd run test -w @novel-studio/storage -- json-authority.test.ts` | Initial parallel run failed because it raced the contracts build and loaded stale contracts dist; rerun after contracts build passed with 5/5 tests. |
 | `npm.cmd run build -w @novel-studio/storage` | Passed. |
 | `npm.cmd run test -w @novel-studio/storage -- repository.test.ts` | Passed with 43/43 tests. |
+
+### Slice 2: Scene JSON Authority With Legacy Scene API Compatibility
+
+Status: passed for Slice 2 scope on 2026-06-29.
+
+Changes verified:
+
+- `SceneDocument` now includes `document` and `plainText` while retaining projected Markdown `content`.
+- New scene manuscript files are written as `.json` scene authority files containing `SceneBlockDocument`.
+- Existing scene create/get/update callers that use `content` still work; `content` writes convert Markdown-like text into blocks and return projected `content`.
+- Scene planning/order updates preserve the existing block document instead of rebuilding it from projected Markdown.
+- Scene file scanning and hierarchy validation expect `.json` scene authority files; legacy `.md` scene files are not treated as the authority format in this slice.
+- Scene-related storage errors touched by Slice 2 were converted to English so new diagnostics do not continue the old mixed/garbled Chinese strings.
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `npm.cmd run build -w @novel-studio/contracts` | Passed. |
+| `npm.cmd run build -w @novel-studio/storage` | Passed. |
+| `npm.cmd run test -w @novel-studio/storage -- repository.test.ts json-authority.test.ts --reporter=verbose` | Passed with 49/49 tests. |
+| `npm.cmd run build -w @novel-studio/server` | Passed. |
+| `npm.cmd run build -w @novel-studio/web` | Passed with the existing Vite large-chunk warning. |
 
 ## Invariant Checklist
 

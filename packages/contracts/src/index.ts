@@ -146,7 +146,7 @@ export const ReorderInputSchema = z
     if (new Set(orderedIds).size !== orderedIds.length) {
       context.addIssue({
         code: "custom",
-        message: "重排列表不能包含重复 ID",
+        message: "Reorder list cannot contain duplicate IDs",
         path: ["orderedIds"],
       });
     }
@@ -440,6 +440,8 @@ export type PlanningBoard = z.infer<typeof PlanningBoardSchema>;
 
 export const SceneDocumentSchema = z.object({
   metadata: SceneFrontmatterSchema,
+  document: SceneBlockDocumentSchema,
+  plainText: z.string(),
   content: z.string(),
   revision: z.string().regex(/^[a-f0-9]{64}$/),
   relativePath: z.string(),
@@ -499,7 +501,7 @@ export const CreateSceneInputSchema = z.object({
   if (provided > 0 && provided < 3) {
     context.addIssue({
       code: "custom",
-      message: "指定场景位置时必须同时提供 bookId、actId 和 chapterId",
+      message: "bookId, actId, and chapterId are all required when specifying a scene location",
       path: ["chapterId"],
     });
   }

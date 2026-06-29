@@ -62,6 +62,7 @@ import {
   ReorderInputSchema,
   RestoreSceneSectionInputSchema,
   type AgentRole,
+  SceneBlockDocumentSchema,
   SceneDocumentSchema,
   SceneFrontmatterSchema,
   SceneSectionDocumentSchema,
@@ -150,6 +151,8 @@ import {
   type PromptTemplate,
   type ReorderInput,
   type RestoreSceneSectionInput,
+  type SceneBlock,
+  type SceneBlockDocument,
   type SceneDocument,
   type SceneCodexMentions,
   type SceneFrontmatter,
@@ -211,12 +214,18 @@ import {
   savePromptPreset,
   savePromptTemplate,
 } from "./aiFiles.js";
+import {
+  jsonAuthorityRevision,
+  parseJsonAuthorityText,
+  serializeJsonAuthority,
+} from "./jsonAuthority.js";
 export * from "./jsonAuthority.js";
 
 export { StorageError } from "./errors.js";
 export { pathExists } from "./fileSystem.js";
 
 const FRONTMATTER_MARKER = "---";
+const SCENE_JSON_EXTENSION = ".json";
 const SERIES_FILE = "series.yaml";
 const BOOK_FILE = "book.yaml";
 const ACTS_DIR = "acts";
@@ -301,7 +310,7 @@ function assertExactPermutation(
     missingIds.length > 0 ||
     unknownIds.length > 0
   ) {
-    throw new StorageError(`${entityLabel}重排必须是现有 ID 的完整无重复排列`, "INVALID_DATA", {
+    throw new StorageError(`${entityLabel} reorder must contain each existing ID exactly once`, "INVALID_DATA", {
       missingIds,
       unknownIds,
       duplicateIds: [...new Set(duplicateIds)],
@@ -313,36 +322,159 @@ function serializeYaml(value: unknown): string {
   return YAML.stringify(value, { lineWidth: 0 });
 }
 
+const SceneJsonAuthoritySchema = SceneFrontmatterSchema.extend({
+  document: SceneBlockDocumentSchema,
+});
+
+type SceneJsonAuthority = SceneFrontmatter & { document: SceneBlockDocument };
+
+function normalizeMarkdownContent(content: string): string {
+  return content.replace(/\r\n/gu, "\n").replace(/^\n+/u, "");
+}
+
+function isSceneBreakMarkdown(segment: string): boolean {
+  const compact = segment.trim();
+  return (
+    /^(?:\*\s*){3,}$/u.test(compact) ||
+    /^(?:-\s*){3,}$/u.test(compact) ||
+    /^(?:_\s*){3,}$/u.test(compact)
+  );
+}
+
+function markdownSegmentToSceneBlock(segment: string): SceneBlock {
+  const normalized = segment.replace(/\r\n/gu, "\n");
+  const trimmed = normalized.trim();
+  const heading = /^(#{1,6})\s+(.+)$/u.exec(trimmed);
+  if (heading && !heading[2]!.includes("\n")) {
+    return {
+      id: randomUUID(),
+      kind: "heading",
+      level: heading[1]!.length,
+      text: heading[2]!,
+    };
+  }
+
+  const lines = normalized.split("\n");
+  if (lines.length > 0 && lines.every((line) => /^>\s?/u.test(line) || line.trim() === "")) {
+    return {
+      id: randomUUID(),
+      kind: "quote",
+      text: lines.map((line) => line.replace(/^>\s?/u, "")).join("\n").trim(),
+    };
+  }
+
+  if (isSceneBreakMarkdown(trimmed)) {
+    return {
+      id: randomUUID(),
+      kind: "sceneBreak",
+    };
+  }
+
+  return {
+    id: randomUUID(),
+    kind: "paragraph",
+    text: normalized.trim(),
+  };
+}
+
+function markdownToSceneBlockDocument(content: string): SceneBlockDocument {
+  const normalized = normalizeMarkdownContent(content).replace(/\n+$/u, "");
+  if (!normalized.trim()) {
+    return SceneBlockDocumentSchema.parse({ schemaVersion: 1, blocks: [] });
+  }
+  const blocks = normalized
+    .split(/\n\s*\n/u)
+    .filter((segment) => segment.trim().length > 0)
+    .map((segment) => markdownSegmentToSceneBlock(segment));
+  return SceneBlockDocumentSchema.parse({ schemaVersion: 1, blocks });
+}
+
+function sceneBlockToMarkdown(block: SceneBlock): string {
+  switch (block.kind) {
+    case "paragraph":
+      return block.text;
+    case "heading":
+      return `${"#".repeat(block.level)} ${block.text}`;
+    case "quote":
+      return block.text
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+    case "sceneBreak":
+      return "***";
+    case "codexProgression":
+      return "";
+  }
+}
+
+function sceneBlockDocumentToMarkdown(document: SceneBlockDocument): string {
+  return document.blocks
+    .map((block) => sceneBlockToMarkdown(block))
+    .filter((segment) => segment.trim().length > 0)
+    .join("\n\n");
+}
+
+function sceneBlockToPlainText(block: SceneBlock): string {
+  switch (block.kind) {
+    case "paragraph":
+    case "heading":
+    case "quote":
+      return block.text;
+    case "sceneBreak":
+    case "codexProgression":
+      return "";
+  }
+}
+
+function sceneBlockDocumentToPlainText(document: SceneBlockDocument): string {
+  return document.blocks
+    .map((block) => sceneBlockToPlainText(block))
+    .filter((segment) => segment.trim().length > 0)
+    .join("\n\n");
+}
+
+function serializeSceneDocument(metadata: SceneFrontmatter, document: SceneBlockDocument): string {
+  const authority = SceneJsonAuthoritySchema.parse({ ...metadata, document });
+  return serializeJsonAuthority(authority);
+}
+
+function sceneDocumentFromAuthority(
+  authority: SceneJsonAuthority,
+  revision: string,
+  relativePath: string,
+): SceneDocument {
+  const metadata = SceneFrontmatterSchema.parse(authority);
+  const document = SceneBlockDocumentSchema.parse(authority.document);
+  const content = sceneBlockDocumentToMarkdown(document);
+  const plainText = sceneBlockDocumentToPlainText(document);
+  return SceneDocumentSchema.parse({
+    metadata,
+    document,
+    plainText,
+    content,
+    revision,
+    relativePath: relativePath.replace(/\\/gu, "/"),
+    characterCount: countChineseCharacters(plainText),
+    paragraphCount: countParagraphs(plainText),
+  });
+}
+
+function parseSceneJsonText(value: string, relativePath: string): SceneDocument {
+  const normalized = value.replace(/\r\n/gu, "\n");
+  const authority = parseJsonAuthorityText(
+    normalized,
+    (input) => SceneJsonAuthoritySchema.parse(input),
+    "Scene JSON authority file",
+  );
+  return sceneDocumentFromAuthority(authority, jsonAuthorityRevision(normalized), relativePath);
+}
+
 function serializeScene(metadata: SceneFrontmatter, content: string): string {
-  const normalizedContent = content.replace(/\r\n/gu, "\n").replace(/^\n+/u, "");
-  return `${FRONTMATTER_MARKER}\n${serializeYaml(metadata)}${FRONTMATTER_MARKER}\n\n${normalizedContent}`;
+  return serializeSceneDocument(metadata, markdownToSceneBlockDocument(content));
 }
 
 function parseSceneText(value: string, relativePath: string): SceneDocument {
-  const normalized = value.replace(/\r\n/gu, "\n");
-  if (!normalized.startsWith(`${FRONTMATTER_MARKER}\n`)) {
-    throw new StorageError("场景文件缺少 YAML frontmatter", "INVALID_DATA", {
-      relativePath,
-    });
-  }
-  const end = normalized.indexOf(`\n${FRONTMATTER_MARKER}\n`, 4);
-  if (end < 0) {
-    throw new StorageError("场景文件 frontmatter 未闭合", "INVALID_DATA", {
-      relativePath,
-    });
-  }
-  const yamlText = normalized.slice(4, end);
-  const contentStart = end + 5;
-  const content = normalized.slice(contentStart).replace(/^\n/u, "");
-  const metadata = SceneFrontmatterSchema.parse(YAML.parse(yamlText));
-  return SceneDocumentSchema.parse({
-    metadata,
-    content,
-    revision: contentRevision(normalized),
-    relativePath: relativePath.replace(/\\/gu, "/"),
-    characterCount: countChineseCharacters(content),
-    paragraphCount: countParagraphs(content),
-  });
+  return parseSceneJsonText(value, relativePath);
 }
 
 function serializeSceneSection(metadata: SceneSectionMetadata, content: string): string {
@@ -353,11 +485,11 @@ function serializeSceneSection(metadata: SceneSectionMetadata, content: string):
 function parseSceneSectionText(value: string, relativePath: string): SceneSectionDocument {
   const normalized = value.replace(/\r\n/gu, "\n");
   if (!normalized.startsWith(`${FRONTMATTER_MARKER}\n`)) {
-    throw new StorageError("Section 文件缺少 YAML frontmatter", "INVALID_DATA", { relativePath });
+    throw new StorageError("Section file is missing YAML frontmatter", "INVALID_DATA", { relativePath });
   }
   const end = normalized.indexOf(`\n${FRONTMATTER_MARKER}\n`, 4);
   if (end < 0) {
-    throw new StorageError("Section 文件 frontmatter 未闭合", "INVALID_DATA", { relativePath });
+    throw new StorageError("Section frontmatter is not closed", "INVALID_DATA", { relativePath });
   }
   const metadata = SceneSectionMetadataSchema.parse(YAML.parse(normalized.slice(4, end)));
   const content = normalized.slice(end + 5).replace(/^\n/u, "");
@@ -598,7 +730,7 @@ function narrativeIndexForScene(
 ): number {
   const index = sceneIndexes.get(sceneId);
   if (!index) {
-    throw new StorageError("记录引用了未知场景", "INVALID_DATA", { sceneId });
+    throw new StorageError("Record references an unknown scene", "INVALID_DATA", { sceneId });
   }
   return index;
 }
@@ -876,7 +1008,7 @@ async function walkSceneFiles(directory: string): Promise<string[]> {
   for (const entry of entries) {
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) files.push(...(await walkSceneFiles(fullPath)));
-    else if (entry.isFile() && entry.name.endsWith(".md")) files.push(fullPath);
+    else if (entry.isFile() && entry.name.endsWith(SCENE_JSON_EXTENSION)) files.push(fullPath);
   }
   return files;
 }
@@ -1180,7 +1312,7 @@ export class ProjectRepository {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const hierarchy = await this.validateHierarchy(seriesId);
     if (!hierarchy.valid) {
-      throw new StorageError("作品层级不完整", "INVALID_DATA", { issues: hierarchy.issues });
+      throw new StorageError("Series hierarchy is incomplete", "INVALID_DATA", { issues: hierarchy.issues });
     }
     const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
       SeriesManifestSchema.parse(value),
@@ -1252,12 +1384,12 @@ export class ProjectRepository {
     const book = targetLocation
       ? series.books.find((item) => item.id === targetLocation.bookId)
       : series.books[0];
-    if (!book) throw new StorageError("作品没有可用单本", "INVALID_DATA");
+    if (!book) throw new StorageError("Series has no available book", "INVALID_DATA");
     const actId = targetLocation?.actId ?? book.actIds[0];
-    if (!actId) throw new StorageError("单本没有可用幕", "INVALID_DATA", { bookId: book.id });
+    if (!actId) throw new StorageError("Book has no available act", "INVALID_DATA", { bookId: book.id });
     const act = await this.readReferencedAct(path.join(series.root, "books", book.id), book, actId);
     const chapterId = targetLocation?.chapterId ?? act.chapterIds[0];
-    if (!chapterId) throw new StorageError("幕没有可用章", "INVALID_DATA", { actId });
+    if (!chapterId) throw new StorageError("Act has no available chapter", "INVALID_DATA", { actId });
     const bookRoot = path.join(series.root, "books", book.id);
     const chapter = await this.readReferencedChapter(bookRoot, act, chapterId);
     const now = new Date().toISOString();
@@ -1284,7 +1416,7 @@ export class ProjectRepository {
     });
     const filePath = assertInside(
       series.root,
-      path.join(series.root, "books", book.id, "manuscript", actId, chapterId, `${metadata.id}.md`),
+      path.join(series.root, "books", book.id, "manuscript", actId, chapterId, `${metadata.id}.json`),
     );
     const updatedChapter = ChapterManifestSchema.parse({
       ...chapter,
@@ -1311,7 +1443,7 @@ export class ProjectRepository {
     const currentText = await readFile(filePath, "utf8");
     const current = parseSceneText(currentText, path.relative(seriesRoot, filePath));
     if (current.revision !== input.baseRevision) {
-      throw new StorageError("场景已被其他修改更新", "CONFLICT", {
+      throw new StorageError("Scene has changed on disk", "CONFLICT", {
         currentRevision: current.revision,
         scene: current,
       });
@@ -1343,7 +1475,7 @@ export class ProjectRepository {
       path.relative(seriesRoot, filePath),
     );
     if (current.revision !== input.baseRevision) {
-      throw new StorageError("场景规划已被其他修改更新", "CONFLICT", {
+      throw new StorageError("Scene planning has changed on disk", "CONFLICT", {
         currentRevision: current.revision,
         scene: current,
       });
@@ -1354,7 +1486,7 @@ export class ProjectRepository {
       ...changes,
       updatedAt: new Date().toISOString(),
     });
-    await atomicWrite(filePath, serializeScene(metadata, current.content));
+    await atomicWrite(filePath, serializeSceneDocument(metadata, current.document));
     const updated = parseSceneText(
       await readFile(filePath, "utf8"),
       path.relative(seriesRoot, filePath),
@@ -1389,7 +1521,7 @@ export class ProjectRepository {
         document.metadata.id !== path.basename(entry.name, ".md") ||
         document.metadata.sceneId !== sceneId
       ) {
-        throw new StorageError("Section 文件名或场景归属不一致", "INVALID_DATA", {
+        throw new StorageError("Section file name or scene ownership is inconsistent", "INVALID_DATA", {
           sectionId: document.metadata.id,
           sceneId,
         });
@@ -1443,7 +1575,7 @@ export class ProjectRepository {
       });
     }
     if (current.metadata.archivedAt) {
-      throw new StorageError("已归档 Section 不能直接编辑", "INVALID_DATA", { sectionId });
+      throw new StorageError("Archived section cannot be edited directly", "INVALID_DATA", { sectionId });
     }
     const metadata = SceneSectionMetadataSchema.parse({
       ...current.metadata,
@@ -1577,7 +1709,7 @@ export class ProjectRepository {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const scene = await this.getScene(seriesId, sceneId);
     if (scene.revision !== input.baseRevision) {
-      throw new StorageError("场景已被其他修改更新", "CONFLICT", {
+      throw new StorageError("Scene has changed on disk", "CONFLICT", {
         currentRevision: scene.revision,
         scene,
       });
@@ -1586,7 +1718,7 @@ export class ProjectRepository {
       input.end > scene.content.length ||
       scene.content.slice(input.start, input.end) !== input.exactQuote
     ) {
-      throw new StorageError("锚点范围与当前正文引用不一致", "INVALID_DATA", {
+      throw new StorageError("Review anchor range no longer matches the current scene content", "INVALID_DATA", {
         start: input.start,
         end: input.end,
       });
@@ -2987,7 +3119,7 @@ export class ProjectRepository {
           const scenes = chapter.sceneIds.map((sceneId) => {
             const scene = scenesById.get(sceneId);
             if (!scene) {
-              throw new StorageError("规划查询缺少父清单引用的场景", "INVALID_DATA", { sceneId });
+              throw new StorageError("Planning board is missing a scene referenced by a parent manifest", "INVALID_DATA", { sceneId });
             }
             narrativeIndex++;
             const projected = PlanningSceneSchema.parse({
@@ -3023,7 +3155,7 @@ export class ProjectRepository {
       );
       const unknownSceneIds = document.event.sceneIds.filter((sceneId) => !knownSceneIds.has(sceneId));
       if (duplicateSceneIds.length || unknownSceneIds.length) {
-        throw new StorageError("故事事件包含无效场景引用", "INVALID_DATA", {
+        throw new StorageError("Story event contains invalid scene references", "INVALID_DATA", {
           eventId: document.event.id,
           duplicateSceneIds: [...new Set(duplicateSceneIds)],
           unknownSceneIds,
@@ -3113,7 +3245,7 @@ export class ProjectRepository {
     const series = await this.getSeries(seriesId);
     const { manifest } = await this.loadTimeline(seriesRoot, series.manifest.updatedAt);
     const storyIndex = manifest.eventIds.indexOf(eventId) + 1;
-    if (storyIndex === 0) throw new StorageError("故事事件不存在", "NOT_FOUND", { eventId });
+    if (storyIndex === 0) throw new StorageError("Story event does not exist", "NOT_FOUND", { eventId });
     const current = await this.readTimelineEventDocument(seriesRoot, eventId, storyIndex);
     if (current.revision !== input.baseRevision) {
       throw new StorageError("故事事件已被其他修改更新", "CONFLICT", {
@@ -3142,7 +3274,7 @@ export class ProjectRepository {
     const series = await this.getSeries(seriesId);
     const { manifest } = await this.loadTimeline(seriesRoot, series.manifest.updatedAt);
     const storyIndex = manifest.eventIds.indexOf(eventId) + 1;
-    if (storyIndex === 0) throw new StorageError("故事事件不存在", "NOT_FOUND", { eventId });
+    if (storyIndex === 0) throw new StorageError("Story event does not exist", "NOT_FOUND", { eventId });
     const current = await this.readTimelineEventDocument(seriesRoot, eventId, storyIndex);
     if (current.revision !== input.baseRevision) {
       throw new StorageError("故事事件已被其他修改更新", "CONFLICT", {
@@ -3193,7 +3325,7 @@ export class ProjectRepository {
         return this.readReferencedAct(path.join(seriesRoot, "books", book.id), book, actId);
       }
     }
-    throw new StorageError("幕不存在", "NOT_FOUND", { actId });
+    throw new StorageError("Act does not exist", "NOT_FOUND", { actId });
   }
 
   async updateBook(
@@ -3228,7 +3360,7 @@ export class ProjectRepository {
       book.actIds.map((actId) => this.readReferencedAct(bookRoot, book, actId)),
     );
     if (new Set(book.actIds).size !== book.actIds.length || acts.some((act, index) => act.order !== index + 1)) {
-      throw new StorageError("单本的幕引用或顺序无效", "INVALID_DATA", { bookId });
+      throw new StorageError("Book act references or order are invalid", "INVALID_DATA", { bookId });
     }
     return acts;
   }
@@ -3247,7 +3379,7 @@ export class ProjectRepository {
       new Set(act.chapterIds).size !== act.chapterIds.length ||
       chapters.some((chapter, index) => chapter.order !== index + 1)
     ) {
-      throw new StorageError("幕的章引用或顺序无效", "INVALID_DATA", { actId });
+      throw new StorageError("Act chapter references or order are invalid", "INVALID_DATA", { actId });
     }
     return chapters;
   }
@@ -3371,7 +3503,7 @@ export class ProjectRepository {
     await applyFileTransaction(seriesRoot, [
       ...prepared.map(({ filePath, document }) => ({
         targetPath: filePath,
-        content: serializeScene(document.metadata, document.content),
+        content: serializeSceneDocument(document.metadata, document.document),
       })),
       { targetPath: chapterPath(context.bookRoot, context.chapter.id), content: serializeYaml(updatedChapter) },
       { targetPath: context.scenePath, delete: true },
@@ -3473,7 +3605,7 @@ export class ProjectRepository {
     const source = await this.findChapterContextByScene(seriesRoot, sceneId);
     const target = await this.findChapterContext(seriesRoot, input.targetChapterId);
     if (source.book.id !== target.book.id) {
-      throw new StorageError("NS-301 不支持场景跨单本移动", "INVALID_DATA", {
+      throw new StorageError("Moving scenes across books is not supported", "INVALID_DATA", {
         sourceBookId: source.book.id,
         targetBookId: target.book.id,
       });
@@ -3491,7 +3623,7 @@ export class ProjectRepository {
     const now = new Date().toISOString();
     const sourceIds = source.chapter.sceneIds.filter((id) => id !== sceneId);
     if (sourceIds.length === source.chapter.sceneIds.length) {
-      throw new StorageError("源章没有引用待移动场景", "INVALID_DATA", { sceneId });
+      throw new StorageError("Source chapter does not reference the selected scene", "INVALID_DATA", { sceneId });
     }
     const targetIds = target.chapter.sceneIds.filter((id) => id !== sceneId);
     const position = Math.min(input.order ?? targetIds.length + 1, targetIds.length + 1) - 1;
@@ -3514,18 +3646,18 @@ export class ProjectRepository {
       "manuscript",
       target.act.id,
       target.chapter.id,
-      `${sceneId}.md`,
+      `${sceneId}.json`,
     );
     const mutations: FileMutation[] = [
       { targetPath: chapterPath(source.bookRoot, source.chapter.id), content: serializeYaml(updatedSourceChapter) },
       { targetPath: chapterPath(target.bookRoot, target.chapter.id), content: serializeYaml(updatedTargetChapter) },
       ...sourceScenes.map(({ filePath, document }) => ({
         targetPath: filePath,
-        content: serializeScene(document.metadata, document.content),
+        content: serializeSceneDocument(document.metadata, document.document),
       })),
       ...targetScenes.map(({ filePath, document }) => ({
         targetPath: document.metadata.id === sceneId ? destinationPath : filePath,
-        content: serializeScene(document.metadata, document.content),
+        content: serializeSceneDocument(document.metadata, document.document),
       })),
     ];
     if (path.resolve(source.scenePath) !== path.resolve(destinationPath)) {
@@ -3555,7 +3687,7 @@ export class ProjectRepository {
       BookManifestSchema.parse(value),
     );
 
-    assertExactPermutation(book.actIds, input.orderedIds, "幕");
+    assertExactPermutation(book.actIds, input.orderedIds, "Act");
 
     const now = new Date().toISOString();
     const acts: ActManifest[] = [];
@@ -3588,7 +3720,7 @@ export class ProjectRepository {
     const act = await this.getAct(seriesId, actId);
     const bookRoot = assertInside(seriesRoot, path.join(seriesRoot, "books", act.bookId));
 
-    assertExactPermutation(act.chapterIds, input.orderedIds, "章");
+    assertExactPermutation(act.chapterIds, input.orderedIds, "Chapter");
 
     const now = new Date().toISOString();
     const chapters: ChapterManifest[] = [];
@@ -3627,7 +3759,7 @@ export class ProjectRepository {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const context = await this.findChapterContext(seriesRoot, chapterId);
     const { chapter, bookRoot } = context;
-    assertExactPermutation(chapter.sceneIds, input.orderedIds, "场景");
+    assertExactPermutation(chapter.sceneIds, input.orderedIds, "Scene");
 
     const now = new Date().toISOString();
     const prepared = await this.prepareOrderedScenes(seriesRoot, context, input.orderedIds, now);
@@ -3640,7 +3772,7 @@ export class ProjectRepository {
     await applyFileTransaction(seriesRoot, [
       ...prepared.map(({ filePath, document }) => ({
         targetPath: filePath,
-        content: serializeScene(document.metadata, document.content),
+        content: serializeSceneDocument(document.metadata, document.document),
       })),
       { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(updatedChapter) },
     ]);
@@ -3675,7 +3807,7 @@ export class ProjectRepository {
     const knownBookIds = new Set(books.map((book) => book.id));
     for (const scene of scenes) {
       if (!knownBookIds.has(scene.metadata.bookId)) {
-        throw new StorageError("旧场景引用了不存在的单本，无法迁移", "INVALID_DATA", {
+        throw new StorageError("Legacy scene references a missing book and cannot be migrated", "INVALID_DATA", {
           sceneId: scene.metadata.id,
           bookId: scene.metadata.bookId,
           snapshotPath: path.relative(seriesRoot, snapshotDir),
@@ -3718,7 +3850,7 @@ export class ProjectRepository {
           schemaVersion: 1,
           id: actId,
           bookId: book.id,
-          title: existingAct?.title ?? `第${toChineseOrdinal(actIndex + 1)}幕`,
+          title: existingAct?.title ?? `Act ${actIndex + 1}`,
           order: actIndex + 1,
           chapterIds,
           createdAt: existingAct?.createdAt ?? now,
@@ -3743,7 +3875,7 @@ export class ProjectRepository {
             schemaVersion: 1,
             id: chapterId,
             actId,
-            title: existingChapter?.title ?? `第${toChineseOrdinal(chapterIndex + 1)}章`,
+            title: existingChapter?.title ?? `Chapter ${chapterIndex + 1}`,
             order: chapterIndex + 1,
             sceneIds,
             createdAt: existingChapter?.createdAt ?? now,
@@ -3820,7 +3952,7 @@ export class ProjectRepository {
     ) => issues.push({ code, message, entityId, relativePath });
     const addDuplicates = (ids: string[], ownerId: string, kind: string) => {
       for (const id of ids.filter((value, index) => ids.indexOf(value) !== index)) {
-        addIssue("DUPLICATE_REFERENCE", `${kind}包含重复引用`, id, ownerId);
+        addIssue("DUPLICATE_REFERENCE", `${kind} contains duplicate references`, id, ownerId);
       }
     };
 
@@ -3830,14 +3962,14 @@ export class ProjectRepository {
       try {
         const document = parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath));
         if (scenesById.has(document.metadata.id)) {
-          addIssue("DUPLICATE_ENTITY_ID", "多个场景文件使用同一 ID", document.metadata.id);
+          addIssue("DUPLICATE_ENTITY_ID", "Multiple scene files use the same ID", document.metadata.id);
         } else {
           scenesById.set(document.metadata.id, { document, filePath });
         }
       } catch (error) {
         addIssue(
           "INVALID_SCENE_FILE",
-          error instanceof Error ? error.message : "场景文件无效",
+          error instanceof Error ? error.message : "Scene file is invalid",
           undefined,
           path.relative(seriesRoot, filePath),
         );
@@ -3847,11 +3979,11 @@ export class ProjectRepository {
     for (const book of books) {
       const bookReferencedActIds = new Set<string>();
       const bookReferencedChapterIds = new Set<string>();
-      addDuplicates(book.actIds, book.id, "单本.actIds");
+      addDuplicates(book.actIds, book.id, "book.actIds");
       const bookRoot = path.join(seriesRoot, "books", book.id);
       for (let actIndex = 0; actIndex < book.actIds.length; actIndex++) {
         const actId = book.actIds[actIndex]!;
-        if (referencedActIds.has(actId)) addIssue("MULTIPLE_PARENTS", "幕被多个单本引用", actId);
+        if (referencedActIds.has(actId)) addIssue("MULTIPLE_PARENTS", "Act is referenced by multiple books", actId);
         referencedActIds.add(actId);
         bookReferencedActIds.add(actId);
         let act: ActManifest;
@@ -3859,16 +3991,16 @@ export class ProjectRepository {
           act = await readActManifest(bookRoot, actId);
           actCount++;
         } catch (error) {
-          addIssue("MISSING_ACT", "单本引用的幕清单不存在或无效", actId);
+          addIssue("MISSING_ACT", "Book references a missing or invalid act manifest", actId);
           continue;
         }
-        if (act.bookId !== book.id) addIssue("ANCESTRY_MISMATCH", "幕的 bookId 与父单本不一致", act.id);
-        if (act.order !== actIndex + 1) addIssue("ORDER_MISMATCH", "幕 order 与父清单位置不一致", act.id);
-        addDuplicates(act.chapterIds, act.id, "幕.chapterIds");
+        if (act.bookId !== book.id) addIssue("ANCESTRY_MISMATCH", "Act bookId does not match its parent book", act.id);
+        if (act.order !== actIndex + 1) addIssue("ORDER_MISMATCH", "Act order does not match its parent manifest position", act.id);
+        addDuplicates(act.chapterIds, act.id, "act.chapterIds");
 
         for (let chapterIndex = 0; chapterIndex < act.chapterIds.length; chapterIndex++) {
           const chapterId = act.chapterIds[chapterIndex]!;
-          if (referencedChapterIds.has(chapterId)) addIssue("MULTIPLE_PARENTS", "章被多个幕引用", chapterId);
+          if (referencedChapterIds.has(chapterId)) addIssue("MULTIPLE_PARENTS", "Chapter is referenced by multiple acts", chapterId);
           referencedChapterIds.add(chapterId);
           bookReferencedChapterIds.add(chapterId);
           let chapter: ChapterManifest;
@@ -3876,20 +4008,20 @@ export class ProjectRepository {
             chapter = await readChapterManifest(bookRoot, chapterId);
             chapterCount++;
           } catch (error) {
-            addIssue("MISSING_CHAPTER", "幕引用的章清单不存在或无效", chapterId);
+            addIssue("MISSING_CHAPTER", "Act references a missing or invalid chapter manifest", chapterId);
             continue;
           }
-          if (chapter.actId !== act.id) addIssue("ANCESTRY_MISMATCH", "章的 actId 与父幕不一致", chapter.id);
-          if (chapter.order !== chapterIndex + 1) addIssue("ORDER_MISMATCH", "章 order 与父清单位置不一致", chapter.id);
-          addDuplicates(chapter.sceneIds, chapter.id, "章.sceneIds");
+          if (chapter.actId !== act.id) addIssue("ANCESTRY_MISMATCH", "Chapter actId does not match its parent act", chapter.id);
+          if (chapter.order !== chapterIndex + 1) addIssue("ORDER_MISMATCH", "Chapter order does not match its parent manifest position", chapter.id);
+          addDuplicates(chapter.sceneIds, chapter.id, "chapter.sceneIds");
 
           for (let sceneIndex = 0; sceneIndex < chapter.sceneIds.length; sceneIndex++) {
             const sceneId = chapter.sceneIds[sceneIndex]!;
-            if (referencedSceneIds.has(sceneId)) addIssue("MULTIPLE_PARENTS", "场景被多个章引用", sceneId);
+            if (referencedSceneIds.has(sceneId)) addIssue("MULTIPLE_PARENTS", "Scene is referenced by multiple chapters", sceneId);
             referencedSceneIds.add(sceneId);
             const stored = scenesById.get(sceneId);
             if (!stored) {
-              addIssue("MISSING_SCENE", "章引用的场景文件不存在", sceneId);
+              addIssue("MISSING_SCENE", "Chapter references a missing scene file", sceneId);
               continue;
             }
             const { metadata } = stored.document;
@@ -3898,34 +4030,34 @@ export class ProjectRepository {
               metadata.actId !== act.id ||
               metadata.chapterId !== chapter.id
             ) {
-              addIssue("ANCESTRY_MISMATCH", "场景 frontmatter 与父层级不一致", sceneId);
+              addIssue("ANCESTRY_MISMATCH", "Scene metadata does not match its parent hierarchy", sceneId);
             }
             if (metadata.order !== sceneIndex + 1) {
-              addIssue("ORDER_MISMATCH", "场景 order 与父清单位置不一致", sceneId);
+              addIssue("ORDER_MISMATCH", "Scene order does not match its parent manifest position", sceneId);
             }
             const expectedPath = path.join(
               bookRoot,
               "manuscript",
               act.id,
               chapter.id,
-              `${sceneId}.md`,
+              `${sceneId}.json`,
             );
             if (path.resolve(stored.filePath) !== path.resolve(expectedPath)) {
-              addIssue("PATH_MISMATCH", "场景物理路径与层级不一致", sceneId, path.relative(seriesRoot, stored.filePath));
+              addIssue("PATH_MISMATCH", "Scene file path does not match its hierarchy", sceneId, path.relative(seriesRoot, stored.filePath));
             }
           }
         }
       }
 
       for (const actualId of await this.listManifestIds(path.join(bookRoot, ACTS_DIR))) {
-        if (!bookReferencedActIds.has(actualId)) addIssue("ORPHAN_ACT", "幕清单未被当前单本引用", actualId);
+        if (!bookReferencedActIds.has(actualId)) addIssue("ORPHAN_ACT", "Act manifest is not referenced by the current book", actualId);
       }
       for (const actualId of await this.listManifestIds(path.join(bookRoot, CHAPTERS_DIR))) {
-        if (!bookReferencedChapterIds.has(actualId)) addIssue("ORPHAN_CHAPTER", "章清单未被当前单本引用", actualId);
+        if (!bookReferencedChapterIds.has(actualId)) addIssue("ORPHAN_CHAPTER", "Chapter manifest is not referenced by the current book", actualId);
       }
     }
     for (const sceneId of scenesById.keys()) {
-      if (!referencedSceneIds.has(sceneId)) addIssue("ORPHAN_SCENE", "场景文件未被任何章引用", sceneId);
+      if (!referencedSceneIds.has(sceneId)) addIssue("ORPHAN_SCENE", "Scene file is not referenced by any chapter", sceneId);
     }
 
     return {
@@ -3946,12 +4078,12 @@ export class ProjectRepository {
     try {
       const act = await readActManifest(bookRoot, actId);
       if (act.bookId !== book.id) {
-        throw new StorageError("幕的父单本引用不一致", "INVALID_DATA", { actId, bookId: book.id });
+        throw new StorageError("Act parent book reference does not match", "INVALID_DATA", { actId, bookId: book.id });
       }
       return act;
     } catch (error) {
       if (error instanceof StorageError && error.code === "NOT_FOUND") {
-        throw new StorageError("单本引用的幕清单不存在", "INVALID_DATA", { actId, bookId: book.id });
+        throw new StorageError("Act parent book reference does not match", "INVALID_DATA", { actId, bookId: book.id });
       }
       throw error;
     }
@@ -3965,12 +4097,12 @@ export class ProjectRepository {
     try {
       const chapter = await readChapterManifest(bookRoot, chapterId);
       if (chapter.actId !== act.id) {
-        throw new StorageError("章的父幕引用不一致", "INVALID_DATA", { chapterId, actId: act.id });
+        throw new StorageError("Chapter parent act reference does not match", "INVALID_DATA", { chapterId, actId: act.id });
       }
       return chapter;
     } catch (error) {
       if (error instanceof StorageError && error.code === "NOT_FOUND") {
-        throw new StorageError("幕引用的章清单不存在", "INVALID_DATA", { chapterId, actId: act.id });
+        throw new StorageError("Chapter parent act reference does not match", "INVALID_DATA", { chapterId, actId: act.id });
       }
       throw error;
     }
@@ -3988,7 +4120,7 @@ export class ProjectRepository {
       filePath = await this.findScenePath(seriesRoot, sceneId);
     } catch (error) {
       if (error instanceof StorageError && error.code === "NOT_FOUND") {
-        throw new StorageError("章引用的场景文件不存在", "INVALID_DATA", { sceneId, chapterId: chapter.id });
+        throw new StorageError("Chapter references a missing scene file", "INVALID_DATA", { sceneId, chapterId: chapter.id });
       }
       throw error;
     }
@@ -3998,7 +4130,7 @@ export class ProjectRepository {
       scene.metadata.actId !== act.id ||
       scene.metadata.chapterId !== chapter.id
     ) {
-      throw new StorageError("场景 frontmatter 与父层级不一致", "INVALID_DATA", { sceneId });
+      throw new StorageError("Scene metadata does not match its parent hierarchy", "INVALID_DATA", { sceneId });
     }
     return scene;
   }
@@ -4037,7 +4169,7 @@ export class ProjectRepository {
         return { book, bookRoot, act, chapter };
       }
     }
-    throw new StorageError("章不存在或未被幕引用", "NOT_FOUND", { chapterId });
+    throw new StorageError("Chapter does not exist or is not referenced by an act", "NOT_FOUND", { chapterId });
   }
 
   private async findChapterContextByScene(seriesRoot: string, sceneId: string): Promise<SceneContext> {
@@ -4045,10 +4177,10 @@ export class ProjectRepository {
     const scene = parseSceneText(await readFile(scenePath, "utf8"), path.relative(seriesRoot, scenePath));
     const context = await this.findChapterContext(seriesRoot, scene.metadata.chapterId);
     if (!context.chapter.sceneIds.includes(sceneId)) {
-      throw new StorageError("场景未被其 frontmatter 指定的章引用", "INVALID_DATA", { sceneId });
+      throw new StorageError("Scene metadata does not match its manifest references", "INVALID_DATA", { sceneId });
     }
     if (scene.metadata.bookId !== context.book.id || scene.metadata.actId !== context.act.id) {
-      throw new StorageError("场景 frontmatter 的祖先引用不一致", "INVALID_DATA", { sceneId });
+      throw new StorageError("Scene metadata does not match its manifest references", "INVALID_DATA", { sceneId });
     }
     return { ...context, scene, scenePath };
   }
@@ -4070,7 +4202,7 @@ export class ProjectRepository {
         ? movedScene
         : parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath));
       if (current.metadata.id !== sceneId) {
-        throw new StorageError("场景文件 ID 与清单引用不一致", "INVALID_DATA", { sceneId });
+        throw new StorageError("Scene file ID does not match the manifest reference", "INVALID_DATA", { sceneId });
       }
       if (
         movedScene?.metadata.id !== sceneId &&
@@ -4078,7 +4210,7 @@ export class ProjectRepository {
           current.metadata.actId !== context.act.id ||
           current.metadata.chapterId !== context.chapter.id)
       ) {
-        throw new StorageError("待重排场景不属于目标章", "INVALID_DATA", { sceneId });
+        throw new StorageError("Scene to reorder does not belong to the target chapter", "INVALID_DATA", { sceneId });
       }
       const metadata = SceneFrontmatterSchema.parse({
         ...current.metadata,
@@ -4131,7 +4263,7 @@ export class ProjectRepository {
         events.push(await this.readTimelineEventDocument(seriesRoot, eventId, index + 1));
       } catch (error) {
         if (error instanceof StorageError && error.code === "NOT_FOUND") {
-          throw new StorageError("时间线引用的事件文件不存在", "INVALID_DATA", { eventId });
+          throw new StorageError("Timeline references a missing event file", "INVALID_DATA", { eventId });
         }
         throw error;
       }
@@ -4141,7 +4273,7 @@ export class ProjectRepository {
     );
     const orphanEventIds = actualEventIds.filter((eventId) => !manifest.eventIds.includes(eventId));
     if (orphanEventIds.length) {
-      throw new StorageError("存在未被时间线引用的故事事件文件", "INVALID_DATA", { orphanEventIds });
+      throw new StorageError("Unreferenced story event files exist", "INVALID_DATA", { orphanEventIds });
     }
     return { manifest, events };
   }
@@ -4157,7 +4289,7 @@ export class ProjectRepository {
       raw = await readFile(filePath, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new StorageError("故事事件不存在", "NOT_FOUND", { eventId });
+        throw new StorageError("Story event does not exist", "NOT_FOUND", { eventId });
       }
       throw error;
     }
@@ -4171,7 +4303,7 @@ export class ProjectRepository {
       });
     }
     if (event.id !== eventId) {
-      throw new StorageError("故事事件文件名与 ID 不一致", "INVALID_DATA", { eventId, actualId: event.id });
+      throw new StorageError("Story event file name and ID differ", "INVALID_DATA", { eventId, actualId: event.id });
     }
     return TimelineEventDocumentSchema.parse({
       event,
@@ -4185,7 +4317,7 @@ export class ProjectRepository {
     const duplicateSceneIds = sceneIds.filter((sceneId, index) => sceneIds.indexOf(sceneId) !== index);
     const unknownSceneIds = sceneIds.filter((sceneId) => !known.has(sceneId));
     if (duplicateSceneIds.length || unknownSceneIds.length) {
-      throw new StorageError("故事事件场景引用无效", "INVALID_DATA", {
+      throw new StorageError("Story event scene references are invalid", "INVALID_DATA", {
         duplicateSceneIds: [...new Set(duplicateSceneIds)],
         unknownSceneIds,
       });
@@ -4235,9 +4367,9 @@ export class ProjectRepository {
   private async findScenePath(seriesRoot: string, sceneId: string): Promise<string> {
     const files = await walkSceneFiles(path.join(seriesRoot, "books"));
     for (const filePath of files) {
-      if (path.basename(filePath, ".md") === sceneId) return filePath;
+      if (path.basename(filePath, path.extname(filePath)) === sceneId) return filePath;
     }
-    throw new StorageError("场景不存在", "NOT_FOUND", { sceneId });
+    throw new StorageError("Scene does not exist", "NOT_FOUND", { sceneId });
   }
 
   private async findSceneSection(
@@ -4269,7 +4401,7 @@ export class ProjectRepository {
         document.metadata.id !== sectionId ||
         document.metadata.sceneId !== sceneDirectory.name
       ) {
-        throw new StorageError("Section 文件名或场景归属不一致", "INVALID_DATA", {
+        throw new StorageError("Section file name or scene ownership is inconsistent", "INVALID_DATA", {
           sectionId,
         });
       }
@@ -4938,7 +5070,7 @@ export class ProjectRepository {
     if (!effectiveToSceneId) return;
     const toIndex = narrativeIndexForScene(sceneIndexes, effectiveToSceneId);
     if (toIndex <= fromIndex) {
-      throw new StorageError("生效结束场景必须晚于起始场景", "INVALID_DATA", {
+      throw new StorageError("Effective end scene must be later than start scene", "INVALID_DATA", {
         effectiveFromSceneId,
         effectiveToSceneId,
       });
@@ -4963,12 +5095,12 @@ export class ProjectRepository {
       if (item.sourceType === "scene") {
         const scene = scenesById.get(item.sourceId);
         if (!scene) {
-          throw new StorageError("证据引用未知场景", "INVALID_DATA", {
+          throw new StorageError("Evidence references an unknown scene", "INVALID_DATA", {
             sourceId: item.sourceId,
           });
         }
         if (item.quote && !scene.content.includes(item.quote)) {
-          throw new StorageError("证据引文未出现在对应场景正文中", "INVALID_DATA", {
+          throw new StorageError("Evidence quote does not appear in the referenced scene content", "INVALID_DATA", {
             sceneId: item.sourceId,
             quote: item.quote,
           });
