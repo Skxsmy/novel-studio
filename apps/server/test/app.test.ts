@@ -289,6 +289,125 @@ describe("local API", () => {
     await app.close();
   });
 
+  it("serves effective Codex entry projection by scene block position", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
+    roots.push(root);
+    const app = await buildApp({ libraryRoot: root });
+
+    const createSeries = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Effective Entry API" },
+    });
+    expect(createSeries.statusCode).toBe(201);
+    const series = createSeries.json();
+    const scene = series.scenes[0];
+    const updatedScene = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}`,
+      payload: {
+        baseRevision: scene.revision,
+        title: "Projected Scene",
+        content: "Before change.\n\nAfter change.",
+      },
+    });
+    expect(updatedScene.statusCode).toBe(200);
+    const [firstBlock, secondBlock] = updatedScene.json().document.blocks;
+
+    const entry = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: {
+        categoryId: "character",
+        name: "Mira",
+        description: "Baseline description.",
+      },
+    });
+    expect(entry.statusCode).toBe(201);
+
+    const firstAdd = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        kind: "field",
+        entryId: entry.json().metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "add",
+        body: "Visible at first block.",
+        summary: "First block summary.",
+        effectiveFromSceneId: updatedScene.json().metadata.id,
+        source: {
+          kind: "write-block",
+          sceneId: updatedScene.json().metadata.id,
+          blockId: firstBlock.id,
+        },
+        evidence: [],
+      },
+    });
+    expect(firstAdd.statusCode).toBe(201);
+    const secondReplace = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        kind: "field",
+        entryId: entry.json().metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "replace",
+        body: "Visible at second block.",
+        summary: "Second block summary.",
+        effectiveFromSceneId: updatedScene.json().metadata.id,
+        source: {
+          kind: "write-block",
+          sceneId: updatedScene.json().metadata.id,
+          blockId: secondBlock.id,
+        },
+        evidence: [],
+      },
+    });
+    expect(secondReplace.statusCode).toBe(201);
+
+    const firstEffective = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries/${entry.json().metadata.id}/effective?sceneId=${updatedScene.json().metadata.id}&blockId=${firstBlock.id}`,
+    });
+    expect(firstEffective.statusCode).toBe(200);
+    expect(firstEffective.json().entry.description).toBe("Visible at first block.\n\nBaseline description.");
+    expect(firstEffective.json().hiddenFutureFieldProgressionCount).toBe(1);
+    expect(firstEffective.json().fieldStates[0]).toMatchObject({
+      source: "progression",
+      lastProgressionId: firstAdd.json().progression.id,
+      hiddenFutureCount: 1,
+    });
+    const firstJson = JSON.stringify(firstEffective.json());
+    expect(firstJson).not.toContain(secondReplace.json().progression.id);
+    expect(firstJson).not.toContain(secondReplace.json().progression.body);
+    expect(firstJson).not.toContain(secondReplace.json().progression.summary);
+
+    const secondEffective = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries/${entry.json().metadata.id}/effective?sceneId=${updatedScene.json().metadata.id}&blockId=${secondBlock.id}`,
+    });
+    expect(secondEffective.statusCode).toBe(200);
+    expect(secondEffective.json().entry.description).toBe("Visible at second block.");
+    expect(secondEffective.json().hiddenFutureFieldProgressionCount).toBe(0);
+    expect(secondEffective.json().fieldStates[0]).toMatchObject({
+      source: "progression",
+      lastProgressionId: secondReplace.json().progression.id,
+      hiddenFutureCount: 0,
+    });
+
+    const missingScene = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries/${entry.json().metadata.id}/effective`,
+    });
+    expect(missingScene.statusCode).toBe(422);
+    await app.close();
+  });
+
   it("validates hierarchy and rejects incomplete reorder commands", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
     roots.push(root);

@@ -30,6 +30,7 @@ import {
   CodexDetailTypeDocumentSchema,
   CodexDetailTypeSchema,
   CodexEntryMetadataSchema,
+  CodexEffectiveEntrySchema,
   CodexEffectiveStateSchema,
   CodexKnowledgeDocumentSchema,
   CodexKnowledgeSchema,
@@ -108,8 +109,10 @@ import {
   type CodexCustomCategory,
   type CodexDetailType,
   type CodexDetailTypeDocument,
+  type CodexEffectiveEntry,
   type CodexEntryDocument,
   type CodexEntryMetadata,
+  type CodexFieldProgressionField,
   type CodexEffectiveState,
   type CodexKnowledge,
   type CodexKnowledgeDocument,
@@ -779,6 +782,35 @@ function compareProgressionsAtNarrativePosition(
       narrativeIndexForScene(sceneIndexes, right.progression.effectiveFromSceneId) ||
     left.progression.createdAt.localeCompare(right.progression.createdAt)
   );
+}
+
+interface NarrativeBlockPosition {
+  sceneIndex: number;
+  blockIndex: number;
+}
+
+const SCENE_START_BLOCK_INDEX = -1;
+const SCENE_END_BLOCK_INDEX = Number.MAX_SAFE_INTEGER;
+
+function codexFieldKey(field: CodexFieldProgressionField): string {
+  return field.kind === "description" ? "description" : `detail:${field.detailTypeId}`;
+}
+
+function descriptionField(): CodexFieldProgressionField {
+  return { kind: "description", detailTypeId: null };
+}
+
+function compareNarrativeBlockPositions(
+  left: NarrativeBlockPosition,
+  right: NarrativeBlockPosition,
+): number {
+  return left.sceneIndex - right.sceneIndex || left.blockIndex - right.blockIndex;
+}
+
+function prependProgressionBody(body: string, current: string): string {
+  if (!body) return current;
+  if (!current) return body;
+  return `${body}\n\n${current}`;
 }
 
 export function effectiveProgressionsForScene(
@@ -2174,6 +2206,167 @@ export class ProjectRepository {
   async getCodexEntry(seriesId: string, entryId: string): Promise<CodexEntryDocument> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     return (await this.findCodexEntry(seriesRoot, entryId)).document;
+  }
+
+  async getCodexEffectiveEntry(
+    seriesId: string,
+    entryId: string,
+    sceneId: string,
+    blockId: string | null = null,
+  ): Promise<CodexEffectiveEntry> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const entry = await this.getCodexEntry(seriesId, entryId);
+    if (entry.metadata.archivedAt) {
+      throw new StorageError("Archived entry cannot be used for effective entry queries", "INVALID_DATA", {
+        entryId,
+      });
+    }
+    const { sceneIndexes, scenesById } = await this.narrativeSceneIndexes(seriesId);
+    const targetScene = scenesById.get(sceneId);
+    if (!targetScene) {
+      throw new StorageError("Effective entry query references an unknown scene", "INVALID_DATA", {
+        sceneId,
+      });
+    }
+    const targetPosition = this.targetBlockPosition(sceneIndexes, targetScene, blockId);
+    const fieldProgressions = (await this.listCodexProgressionsFromRoot(seriesRoot))
+      .filter((document) => document.progression.archivedAt === null)
+      .filter((document) =>
+        document.progression.kind === "field" &&
+        document.progression.entryId === entryId,
+      );
+
+    const activeProgressions: CodexProgressionDocument[] = [];
+    const futureProgressions: CodexProgressionDocument[] = [];
+    for (const document of fieldProgressions) {
+      const progressionPosition = this.progressionBlockPosition(
+        sceneIndexes,
+        scenesById,
+        document.progression,
+      );
+      const startsAfterTarget = compareNarrativeBlockPositions(progressionPosition, targetPosition) > 0;
+      if (startsAfterTarget) {
+        futureProgressions.push(document);
+        continue;
+      }
+      if (
+        isActiveForNarrativePosition(
+          document.progression.effectiveFromSceneId,
+          document.progression.effectiveToSceneId,
+          targetPosition.sceneIndex,
+          sceneIndexes,
+        )
+      ) {
+        activeProgressions.push(document);
+      }
+    }
+
+    activeProgressions.sort((left, right) => {
+      const leftPosition = this.progressionBlockPosition(sceneIndexes, scenesById, left.progression);
+      const rightPosition = this.progressionBlockPosition(sceneIndexes, scenesById, right.progression);
+      return (
+        compareNarrativeBlockPositions(leftPosition, rightPosition) ||
+        left.progression.createdAt.localeCompare(right.progression.createdAt)
+      );
+    });
+
+    const detailTypes = await this.listCodexDetailTypes(seriesId, {
+      categoryId: entry.metadata.categoryId,
+    });
+    const detailTypesById = new Map(detailTypes.map((document) => [document.detailType.id, document.detailType]));
+    const fields = new Map<string, {
+      field: CodexFieldProgressionField;
+      value: string;
+      lastProgressionId: string | null;
+    }>();
+    fields.set("description", {
+      field: descriptionField(),
+      value: entry.description,
+      lastProgressionId: null,
+    });
+    for (const detailType of detailTypes) {
+      const value = entry.metadata.details[detailType.detailType.id] ??
+        entry.metadata.details[detailType.detailType.name];
+      if (value === undefined) continue;
+      const field: CodexFieldProgressionField = {
+        kind: "detail",
+        detailTypeId: detailType.detailType.id,
+      };
+      fields.set(codexFieldKey(field), {
+        field,
+        value,
+        lastProgressionId: null,
+      });
+    }
+
+    for (const document of activeProgressions) {
+      const field = document.progression.field;
+      if (!field) {
+        throw new StorageError("Field progression is missing its field target", "INVALID_DATA", {
+          progressionId: document.progression.id,
+        });
+      }
+      if (field.kind === "detail" && !detailTypesById.has(field.detailTypeId)) {
+        throw new StorageError("Field progression references an unknown detail type", "INVALID_DATA", {
+          progressionId: document.progression.id,
+          detailTypeId: field.detailTypeId,
+        });
+      }
+      const key = codexFieldKey(field);
+      const current = fields.get(key) ?? { field, value: "", lastProgressionId: null };
+      fields.set(key, {
+        field,
+        value: document.progression.operation === "replace"
+          ? document.progression.body
+          : prependProgressionBody(document.progression.body, current.value),
+        lastProgressionId: document.progression.id,
+      });
+    }
+
+    const hiddenFutureByField = new Map<string, number>();
+    for (const document of futureProgressions) {
+      const field = document.progression.field;
+      if (!field) continue;
+      const key = codexFieldKey(field);
+      hiddenFutureByField.set(key, (hiddenFutureByField.get(key) ?? 0) + 1);
+    }
+
+    const projectedDetails = { ...entry.metadata.details };
+    for (const state of fields.values()) {
+      if (state.field.kind === "detail") {
+        projectedDetails[state.field.detailTypeId] = state.value;
+      }
+    }
+    const descriptionState = fields.get("description")!;
+    const projectedEntry: CodexEntryDocument = CodexEntryDocumentSchema.parse({
+      ...entry,
+      description: descriptionState.value,
+      metadata: {
+        ...entry.metadata,
+        details: projectedDetails,
+      },
+    });
+
+    const fieldStates = [...fields.values()]
+      .sort((left, right) => {
+        if (left.field.kind !== right.field.kind) return left.field.kind === "description" ? -1 : 1;
+        if (left.field.kind === "description" || right.field.kind === "description") return 0;
+        return left.field.detailTypeId.localeCompare(right.field.detailTypeId);
+      })
+      .map((state) => ({
+        field: state.field,
+        source: state.lastProgressionId ? "progression" as const : "baseline" as const,
+        lastProgressionId: state.lastProgressionId,
+        hiddenFutureCount: hiddenFutureByField.get(codexFieldKey(state.field)) ?? 0,
+      }));
+
+    return CodexEffectiveEntrySchema.parse({
+      sceneId,
+      blockId,
+      entry: projectedEntry,
+      fieldStates,
+      hiddenFutureFieldProgressionCount: futureProgressions.length,
+    });
   }
 
   async createCodexEntry(
@@ -5154,6 +5347,59 @@ export class ProjectRepository {
     return { sceneIndexes, scenesById };
   }
 
+  private targetBlockPosition(
+    sceneIndexes: Map<string, number>,
+    scene: SceneDocument,
+    blockId: string | null,
+  ): NarrativeBlockPosition {
+    const sceneIndex = narrativeIndexForScene(sceneIndexes, scene.metadata.id);
+    if (!blockId) {
+      return { sceneIndex, blockIndex: SCENE_END_BLOCK_INDEX };
+    }
+    const blockIndex = scene.document.blocks.findIndex((block) => block.id === blockId);
+    if (blockIndex < 0) {
+      throw new StorageError("Effective entry query references an unknown scene block", "INVALID_DATA", {
+        sceneId: scene.metadata.id,
+        blockId,
+      });
+    }
+    return { sceneIndex, blockIndex };
+  }
+
+  private progressionBlockPosition(
+    sceneIndexes: Map<string, number>,
+    scenesById: Map<string, SceneDocument>,
+    progression: CodexProgression,
+  ): NarrativeBlockPosition {
+    const sceneIndex = narrativeIndexForScene(sceneIndexes, progression.effectiveFromSceneId);
+    if (progression.source.kind !== "write-block") {
+      return { sceneIndex, blockIndex: SCENE_START_BLOCK_INDEX };
+    }
+    if (progression.source.sceneId !== progression.effectiveFromSceneId) {
+      throw new StorageError("Write-block progression source must match its effective scene", "INVALID_DATA", {
+        progressionId: progression.id,
+        sourceSceneId: progression.source.sceneId,
+        effectiveFromSceneId: progression.effectiveFromSceneId,
+      });
+    }
+    const scene = scenesById.get(progression.source.sceneId);
+    if (!scene) {
+      throw new StorageError("Write-block progression source references an unknown scene", "INVALID_DATA", {
+        progressionId: progression.id,
+        sceneId: progression.source.sceneId,
+      });
+    }
+    const blockIndex = scene.document.blocks.findIndex((block) => block.id === progression.source.blockId);
+    if (blockIndex < 0) {
+      throw new StorageError("Write-block progression source references an unknown scene block", "INVALID_DATA", {
+        progressionId: progression.id,
+        sceneId: progression.source.sceneId,
+        blockId: progression.source.blockId,
+      });
+    }
+    return { sceneIndex, blockIndex };
+  }
+
   private assertEffectiveSceneRange(
     sceneIndexes: Map<string, number>,
     effectiveFromSceneId: string,
@@ -5229,6 +5475,13 @@ export class ProjectRepository {
       });
     }
     if (progression.source.kind === "write-block") {
+      if (progression.source.sceneId !== progression.effectiveFromSceneId) {
+        throw new StorageError("Write-block progression source must match its effective scene", "INVALID_DATA", {
+          progressionId: progression.id,
+          sourceSceneId: progression.source.sceneId,
+          effectiveFromSceneId: progression.effectiveFromSceneId,
+        });
+      }
       const scene = await this.getScene(seriesId, progression.source.sceneId!);
       const blockId = progression.source.blockId!;
       if (!scene.document.blocks.some((block) => block.id === blockId)) {

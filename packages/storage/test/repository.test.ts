@@ -1258,6 +1258,28 @@ describe("ProjectRepository", () => {
       evidence: [],
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
 
+    const otherScene = await store.createScene(series.manifest.id, {
+      title: "Source mismatch",
+      content: "A source block from the wrong scene.",
+    });
+    await expect(store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: character.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Wrong source scene.",
+      summary: "Wrong source scene.",
+      effectiveFromSceneId: scene.metadata.id,
+      source: {
+        kind: "write-block",
+        sceneId: otherScene.metadata.id,
+        blockId: otherScene.document.blocks[0]!.id,
+      },
+      evidence: [],
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
     const otherSeries = await store.createSeries({ title: "另一个系列" });
     const otherEntry = await store.createCodexEntry(otherSeries.manifest.id, {
       categoryId: "character",
@@ -1325,6 +1347,287 @@ describe("ProjectRepository", () => {
     })).toMatchObject({ deletedId: removable.progression.id, blockers: [] });
     await expect(store.getCodexProgression(series.manifest.id, removable.progression.id))
       .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+  });
+
+  it("projects effective Codex fields by scene block without leaking future field data", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "Effective Fields" });
+    const opening = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
+      baseRevision: series.scenes[0]!.revision,
+      title: "Opening",
+      content: "Before signal.\n\nMiddle signal.\n\nAfter signal.",
+    });
+    const future = await store.createScene(series.manifest.id, {
+      title: "Future",
+      content: "Future reveal.",
+    });
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Mira",
+      description: "Baseline description.",
+    });
+    const detailType = await store.createCodexDetailType(series.manifest.id, {
+      categoryId: "character",
+      name: "Status",
+    });
+    const entryWithDetail = await store.updateCodexEntry(series.manifest.id, entry.metadata.id, {
+      baseRevision: entry.revision,
+      details: { [detailType.detailType.id]: "Baseline status." },
+    });
+    const [firstBlock, secondBlock, thirdBlock] = opening.document.blocks;
+    expect(firstBlock).toBeDefined();
+    expect(secondBlock).toBeDefined();
+    expect(thirdBlock).toBeDefined();
+
+    const baselineOnly = await store.getCodexEffectiveEntry(
+      series.manifest.id,
+      entryWithDetail.metadata.id,
+      opening.metadata.id,
+      firstBlock!.id,
+    );
+    expect(baselineOnly.entry.description).toBe("Baseline description.");
+    expect(baselineOnly.entry.metadata.details[detailType.detailType.id]).toBe("Baseline status.");
+    expect(baselineOnly.hiddenFutureFieldProgressionCount).toBe(0);
+    expect(baselineOnly.fieldStates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: { kind: "description", detailTypeId: null },
+        source: "baseline",
+        lastProgressionId: null,
+        hiddenFutureCount: 0,
+      }),
+      expect.objectContaining({
+        field: { kind: "detail", detailTypeId: detailType.detailType.id },
+        source: "baseline",
+        lastProgressionId: null,
+        hiddenFutureCount: 0,
+      }),
+    ]));
+
+    const firstAdd = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entryWithDetail.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "First block addition.",
+      summary: "First block summary.",
+      effectiveFromSceneId: opening.metadata.id,
+      source: { kind: "write-block", sceneId: opening.metadata.id, blockId: firstBlock!.id },
+      evidence: [],
+    });
+    const secondAdd = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entryWithDetail.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Second block addition.",
+      summary: "Second block summary.",
+      effectiveFromSceneId: opening.metadata.id,
+      source: { kind: "write-block", sceneId: opening.metadata.id, blockId: secondBlock!.id },
+      evidence: [],
+    });
+    const thirdReplace = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entryWithDetail.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "replace",
+      body: "Third block replacement.",
+      summary: "Third block summary.",
+      effectiveFromSceneId: opening.metadata.id,
+      source: { kind: "write-block", sceneId: opening.metadata.id, blockId: thirdBlock!.id },
+      evidence: [],
+    });
+    const emptyDetail = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entryWithDetail.metadata.id,
+      relationId: null,
+      field: { kind: "detail", detailTypeId: detailType.detailType.id },
+      fieldKey: null,
+      operation: "replace",
+      body: "",
+      summary: "Clear status.",
+      effectiveFromSceneId: opening.metadata.id,
+      source: { kind: "write-block", sceneId: opening.metadata.id, blockId: thirdBlock!.id },
+      evidence: [],
+    });
+    const futureAdd = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entryWithDetail.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Future addition.",
+      summary: "Future summary.",
+      effectiveFromSceneId: future.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
+      evidence: [],
+    });
+
+    const atFirstBlock = await store.getCodexEffectiveEntry(
+      series.manifest.id,
+      entryWithDetail.metadata.id,
+      opening.metadata.id,
+      firstBlock!.id,
+    );
+    expect(atFirstBlock.entry.description).toBe("First block addition.\n\nBaseline description.");
+    expect(atFirstBlock.entry.metadata.details[detailType.detailType.id]).toBe("Baseline status.");
+    expect(atFirstBlock.hiddenFutureFieldProgressionCount).toBe(4);
+    const firstDescriptionState = atFirstBlock.fieldStates.find(
+      (state) => state.field.kind === "description",
+    );
+    expect(firstDescriptionState).toMatchObject({
+      source: "progression",
+      lastProgressionId: firstAdd.progression.id,
+      hiddenFutureCount: 3,
+    });
+    const firstProjection = JSON.stringify(atFirstBlock);
+    expect(firstProjection).not.toContain(secondAdd.progression.id);
+    expect(firstProjection).not.toContain(secondAdd.progression.body);
+    expect(firstProjection).not.toContain(secondAdd.progression.summary);
+    expect(firstProjection).not.toContain(thirdReplace.progression.id);
+    expect(firstProjection).not.toContain(thirdReplace.progression.body);
+    expect(firstProjection).not.toContain(futureAdd.progression.id);
+    expect(firstProjection).not.toContain(futureAdd.progression.body);
+    expect(firstProjection).not.toContain(futureAdd.progression.summary);
+
+    const atSecondBlock = await store.getCodexEffectiveEntry(
+      series.manifest.id,
+      entryWithDetail.metadata.id,
+      opening.metadata.id,
+      secondBlock!.id,
+    );
+    expect(atSecondBlock.entry.description)
+      .toBe("Second block addition.\n\nFirst block addition.\n\nBaseline description.");
+    expect(atSecondBlock.hiddenFutureFieldProgressionCount).toBe(3);
+
+    const atThirdBlock = await store.getCodexEffectiveEntry(
+      series.manifest.id,
+      entryWithDetail.metadata.id,
+      opening.metadata.id,
+      thirdBlock!.id,
+    );
+    expect(atThirdBlock.entry.description).toBe("Third block replacement.");
+    expect(atThirdBlock.entry.metadata.details[detailType.detailType.id]).toBe("");
+    expect(atThirdBlock.hiddenFutureFieldProgressionCount).toBe(1);
+    expect(atThirdBlock.fieldStates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: { kind: "description", detailTypeId: null },
+        source: "progression",
+        lastProgressionId: thirdReplace.progression.id,
+        hiddenFutureCount: 1,
+      }),
+      expect.objectContaining({
+        field: { kind: "detail", detailTypeId: detailType.detailType.id },
+        source: "progression",
+        lastProgressionId: emptyDetail.progression.id,
+        hiddenFutureCount: 0,
+      }),
+    ]));
+    const sceneEnd = await store.getCodexEffectiveEntry(
+      series.manifest.id,
+      entryWithDetail.metadata.id,
+      opening.metadata.id,
+    );
+    expect(sceneEnd.entry.description).toBe(atThirdBlock.entry.description);
+    expect(sceneEnd.entry.metadata.details[detailType.detailType.id]).toBe("");
+
+    await expect(store.getCodexEffectiveEntry(
+      series.manifest.id,
+      entryWithDetail.metadata.id,
+      opening.metadata.id,
+      "00000000-0000-4000-8000-00000000bad2",
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+  });
+
+  it("keeps baseline edits dynamic before replace boundaries only", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "Baseline Boundary" });
+    const first = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
+      baseRevision: series.scenes[0]!.revision,
+      title: "First",
+      content: "First scene.",
+    });
+    const second = await store.createScene(series.manifest.id, {
+      title: "Second",
+      content: "Second scene.",
+    });
+    const third = await store.createScene(series.manifest.id, {
+      title: "Third",
+      content: "Third scene.",
+    });
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Sol",
+      description: "Old baseline.",
+    });
+
+    await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entry.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Pre-replace addition.",
+      summary: "Pre-replace addition.",
+      effectiveFromSceneId: first.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
+      evidence: [],
+    });
+    await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entry.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "replace",
+      body: "Replacement state.",
+      summary: "Replacement state.",
+      effectiveFromSceneId: second.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
+      evidence: [],
+    });
+    await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entry.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Post-replace addition.",
+      summary: "Post-replace addition.",
+      effectiveFromSceneId: third.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
+      evidence: [],
+    });
+
+    expect((await store.getCodexEffectiveEntry(
+      series.manifest.id,
+      entry.metadata.id,
+      first.metadata.id,
+    )).entry.description).toBe("Pre-replace addition.\n\nOld baseline.");
+
+    const updatedEntry = await store.updateCodexEntry(series.manifest.id, entry.metadata.id, {
+      baseRevision: entry.revision,
+      description: "New baseline.",
+    });
+
+    expect((await store.getCodexEffectiveEntry(
+      series.manifest.id,
+      updatedEntry.metadata.id,
+      first.metadata.id,
+    )).entry.description).toBe("Pre-replace addition.\n\nNew baseline.");
+    expect((await store.getCodexEffectiveEntry(
+      series.manifest.id,
+      updatedEntry.metadata.id,
+      third.metadata.id,
+    )).entry.description).toBe("Post-replace addition.\n\nReplacement state.");
   });
 
   it("saves a 200,000-character Chinese scene without changing its text", async () => {

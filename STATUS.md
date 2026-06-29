@@ -26,7 +26,7 @@ This file is the current project-status authority. Earlier Chinese records were 
 ## Current Implementation Snapshot
 
 - Local-first React/Vite + Fastify application, bound to `127.0.0.1`.
-- Project JSON files are the target durable authority; Markdown/Word are boundary formats; SQLite/FTS5 remains a rebuildable derived index. Slice 4 now stores unified Codex Progression as JSON under `codex/progressions/` while retaining existing effective-state route behavior.
+- Project JSON files are the target durable authority; Markdown/Word are boundary formats; SQLite/FTS5 remains a rebuildable derived index. Slice 5 now projects effective Codex Canon Description and Detail fields by scene/block position from unified JSON Progression records while retaining existing effective-state route behavior.
 - Current frontend structure:
   - `apps/web/src/app`
   - `apps/web/src/api`
@@ -65,8 +65,8 @@ The task now uses controlled vertical slices in `docs/tasks/NS-410.md`:
 3. Slice 2 Scene JSON authority with legacy scene API compatibility. Passed for Slice 2 scope on 2026-06-29.
 4. Slice 3 Scene document API and Markdown export. Passed for Slice 3 scope on 2026-06-29.
 5. Slice 4 Unified Progression JSON storage and CRUD API. Passed for Slice 4 scope on 2026-06-29.
-6. Slice 5 Projection engine and effective entry API. Next implementation slice.
-7. Slice 6 Context Builder and preview projection.
+6. Slice 5 Projection engine and effective entry API. Passed for Slice 5 scope on 2026-06-29.
+7. Slice 6 Context Builder and preview projection. Next implementation slice.
 8. Slice 7 Write block editor MVP for ordinary blocks.
 9. Slice 8 Write embedded progression blocks and scene progression panel.
 10. Slice 9 Codex baseline/history/effective-at-scene UI.
@@ -269,6 +269,6 @@ Acceptance evidence files:
 
 ## Next Work
 
-Continue NS-410 with Slice 5 from `docs/tasks/NS-410.md`: projection engine and effective entry API. Slices 1-4 are verified and recorded in `docs/testing/NS-410_ACCEPTANCE.md`; do not skip Slice 5's projection, same-scene, future-isolation, and baseline-boundary exit checks.
+Continue NS-410 with Slice 6 from `docs/tasks/NS-410.md`: Context Builder and preview projection. Slices 1-5 are verified and recorded in `docs/testing/NS-410_ACCEPTANCE.md`; do not start Write block editor work before projected Codex fields, detail AI switches, empty-field hiding, and context future-isolation checks are passing.
 
 After NS-410, return to project recovery visual/product acceptance unless the user redirects again.

@@ -4,6 +4,7 @@ import type {
   CodexCategoryId,
   CodexContextPreview,
   CodexDetailTypeDocument,
+  CodexEffectiveEntry,
   CodexEntryDocument,
   CodexMention,
   CodexProgressionDocument,
@@ -91,6 +92,17 @@ export function createCodexApi(client: ApiClient) {
     },
     getEntry(seriesId: string, entryId: string) {
       return client.requestJson<CodexEntryDocument>(`/series/${seriesId}/codex/entries/${entryId}`);
+    },
+    getEffectiveEntry(
+      seriesId: string,
+      entryId: string,
+      options: { sceneId: string; blockId?: string },
+    ) {
+      const params = new URLSearchParams({ sceneId: options.sceneId });
+      if (options.blockId) params.set("blockId", options.blockId);
+      return client.requestJson<CodexEffectiveEntry>(
+        `/series/${seriesId}/codex/entries/${entryId}/effective?${params.toString()}`,
+      );
     },
     updateEntry(seriesId: string, entryId: string, input: UpdateCodexEntryInput) {
       return client.requestJson<CodexEntryDocument>(`/series/${seriesId}/codex/entries/${entryId}`, {
@@ -205,6 +217,7 @@ export type {
   CodexCategoryId,
   CodexContextPreview,
   CodexDetailTypeDocument,
+  CodexEffectiveEntry,
   CodexEntryDocument,
   CodexMention,
   CodexProgressionDocument,

@@ -13,6 +13,8 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **NS-410 Slice 2**: Scene manuscript files now persist as schema-versioned JSON block documents while existing scene APIs keep projected Markdown `content`. Legacy `content` writes convert to blocks, planning/order updates preserve existing block documents, scene files use `.json`, and storage/server/web builds plus focused storage tests pass.
 - **NS-410 Slice 3**: Added block-aware scene document get/update APIs, Markdown export from `SceneBlockDocument`, web API client methods for those routes, stale revision and duplicate block diagnostics, and regression coverage that keeps legacy scene `content` APIs working.
 - **NS-410 Progression Replan**: Replaced the field-only progression side path with unified JSON Progression authority under `codex/progressions/*.json`. Old `codex/progressions/*.yaml` is retired rather than preserved as a runtime compatibility target.
+- **NS-410 Slice 4**: Added unified JSON Progression storage and CRUD APIs for field, world, and relationship targets, including revision checks, reference validation, delete blocker diagnostics, and regression coverage for effective-state and character-knowledge separation.
+- **NS-410 Slice 5**: Added effective Codex entry projection by scene/block position, field folding for baseline/add/repeated-add/replace/empty-replace cases, hidden future counts without future body/summary/ID leakage, the effective-entry API route, and a web API wrapper. Storage/server/web focused checks pass.
 
 ### Project Foundation
 

@@ -19,13 +19,13 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | NS-410-A04 | partial | Slice 1 covered malformed JSON, schema-version mismatch, duplicate block IDs, path escape, and atomic replacement cleanup via `json-authority.test.ts`; Slice 2 keeps scene conflict/revision behavior passing; Slice 3 covers stale document revisions and duplicate block IDs through storage/server APIs; Slice 4 covers invalid Progression detail type, scene block, cross-series entry, evidence quote, stale revision, and delete blocker diagnostics. Damaged progression JSON diagnostics remain covered by the JSON authority helper shape but can be expanded later if needed. |
 | NS-410-A05 | passed | Slice 4 storage/server tests cover unified JSON Progression create/list/get/update/delete, field/world/relationship targets, reference validation, cross-series rejection, and revision conflicts. |
 | NS-410-A06 | partial | Slice 4 adds hard-delete blocker shape and storage coverage for character-knowledge blockers. Write block deletion synchronization remains Slice 8. |
-| NS-410-A07 | pending | Projection tests planned: baseline only. |
-| NS-410-A08 | pending | Projection tests planned: add/replace/empty replace folding. |
-| NS-410-A09 | pending | Projection/API tests planned: same-scene block position. |
-| NS-410-A10 | pending | Projection/API/context tests planned: future data isolation. |
-| NS-410-A11 | pending | Projection tests planned: baseline edit and replace boundary. |
+| NS-410-A07 | passed | Slice 5 storage tests verify baseline-only effective entry projection for Canon Description and reusable Detail values. |
+| NS-410-A08 | passed | Slice 5 storage tests verify `add`, repeated `add`, `replace`, replace-then-add, and empty `replace` folding per field. |
+| NS-410-A09 | passed | Slice 5 storage and server tests verify same-scene block position changes effective Codex fields before/after write-block progressions. |
+| NS-410-A10 | passed | Slice 5 storage and effective-entry API tests verify future field progression body, summary, and IDs are absent from earlier responses, with only hidden counts returned. Slice 6 will apply the same invariant to Context Builder payloads. |
+| NS-410-A11 | passed | Slice 5 storage tests verify baseline edits update add chains before a replace boundary while projected values after a replace stay independent from earlier baseline changes. |
 | NS-410-A12 | pending | Context route tests planned: projected Codex fields and AI switches. |
-| NS-410-A13 | passed | Slice 4 keeps character knowledge separate from unified JSON Progression, verifies knowledge can reference JSON progression IDs, and verifies new Progression files are `.json` with no `.yaml` authority file. |
+| NS-410-A13 | passed | Slice 4 keeps character knowledge separate from unified JSON Progression, verifies knowledge can reference JSON progression IDs, and verifies new Progression files are `.json` with no `.yaml` authority file. Slice 5 regression tests keep effective-state and character-knowledge behavior passing while adding field projection. |
 | NS-410-A14 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
 | NS-410-A15 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
 | NS-410-A16 | partial | Slice 2 storage repository tests cover existing scene save, hierarchy, mention/index, and search-adjacent regressions while scene files are JSON authority. Context projection remains later. |
@@ -165,6 +165,37 @@ Commands:
 | `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx --reporter=verbose` | Passed with 46/46 tests; Vitest printed existing React `act(...)` warnings in one focus-mode test. |
 | `git diff --check` | Passed with line-ending warnings only. |
 | Runtime-code non-ASCII diff scan | Passed with no added non-ASCII runtime strings in `packages/contracts/src/codex.ts`, `packages/storage/src/index.ts`, `apps/server/src/routes/codex.ts`, or `apps/web/src/api/codex.ts`. |
+
+### Slice 5: Projection Engine And Effective Entry API
+
+Status: passed for Slice 5 scope on 2026-06-29.
+
+Changes verified:
+
+- Added repository projection for effective Codex entry fields at a target scene and optional block position.
+- Field projection folds baseline Canon Description and reusable Details with unified JSON field Progression records.
+- Folding supports baseline-only, `add`, repeated `add`, `replace`, replace-then-add, and empty `replace`.
+- Same-scene write-block Progression is ordered by block position; current-block progressions are visible at that block, later blocks are hidden.
+- Future field Progression body, summary, and IDs are withheld from earlier effective-entry responses; only hidden counts are returned.
+- Baseline edits dynamically affect add chains before a replace boundary and do not affect projected state after a replace.
+- Added `GET /api/v1/series/:seriesId/codex/entries/:entryId/effective?sceneId=&blockId=`.
+- Added web API wrapper support for effective-entry queries.
+- Strengthened write-block Progression validation so `source.sceneId` must match `effectiveFromSceneId`.
+- Existing world/relationship effective-state and character-knowledge tests still pass from unified JSON Progression records.
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `npm.cmd run build -w @novel-studio/storage` | Passed. |
+| `npm.cmd run test -w @novel-studio/storage -- repository.test.ts json-authority.test.ts smoke.test.ts --reporter=verbose` | Passed with 56/56 tests. |
+| `npm.cmd run test -w @novel-studio/server -- app.test.ts context-routes.test.ts --reporter=verbose` | First parallel run failed in the new server test with a transient 500 while `@novel-studio/storage` was being built concurrently; a direct `tsx` inject reproduction returned 200, and rerunning the server command alone passed with 11/11 tests. |
+| `npm.cmd run build -w @novel-studio/contracts` | Passed. |
+| `npm.cmd run build -w @novel-studio/server` | Passed. |
+| `npm.cmd run build -w @novel-studio/web` | Passed with the existing Vite large-chunk warning. |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx --reporter=verbose` | Passed with 46/46 tests; Vitest printed existing React `act(...)` warnings in one focus-mode test. |
+| `git diff --check` | Passed with line-ending warnings only. |
+| Runtime-code non-ASCII diff scan | Passed with no added non-ASCII runtime strings in `packages/storage/src/index.ts`, `apps/server/src/routes/codex.ts`, or `apps/web/src/api/codex.ts`. |
 
 ## Invariant Checklist
 

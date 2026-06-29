@@ -157,6 +157,24 @@ export function registerCodexRoutes(
     },
   );
 
+  app.get<{
+    Params: { seriesId: string; entryId: string };
+    Querystring: { sceneId?: string; blockId?: string };
+  }>(
+    "/api/v1/series/:seriesId/codex/entries/:entryId/effective",
+    async (request) => {
+      if (!request.query.sceneId) {
+        throw new StorageError("sceneId is required for effective entry queries", "INVALID_DATA");
+      }
+      return repository.getCodexEffectiveEntry(
+        request.params.seriesId,
+        request.params.entryId,
+        request.query.sceneId,
+        request.query.blockId ?? null,
+      );
+    },
+  );
+
   app.get<{ Params: { seriesId: string; entryId: string } }>(
     "/api/v1/series/:seriesId/codex/entries/:entryId",
     async (request) =>
