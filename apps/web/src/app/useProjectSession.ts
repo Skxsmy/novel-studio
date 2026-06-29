@@ -44,6 +44,9 @@ export interface ProjectSessionState {
   createChapter: (actId?: string | null, input?: CreateChapterInput) => Promise<void>;
   createScene: (input?: CreateSceneInput) => Promise<void>;
   createSeries: (input: CreateSeriesInput) => Promise<boolean>;
+  deleteSeries: (seriesId: string, confirmTitle: string) => Promise<boolean>;
+  restoreSeries: (seriesId: string) => Promise<boolean>;
+  trashSeries: (seriesId: string) => Promise<boolean>;
   deleteAct: (actId: string) => Promise<void>;
   deleteVolume: (bookId: string) => Promise<void>;
   deleteChapter: (chapterId: string) => Promise<void>;
@@ -237,6 +240,66 @@ export function useProjectSession(): ProjectSessionState {
     },
     [refreshSeriesList, setStructureSelectionFromSeries],
   );
+
+  const closeActiveSeries = useCallback((seriesId: string) => {
+    if (activeSeries?.manifest.id !== seriesId) return;
+    setActiveSeries(null);
+    setSelectedSceneId(null);
+    setSelectedBookId(null);
+    setSelectedActId(null);
+    setSelectedChapterId(null);
+    setDraft(null);
+    setIsDirty(false);
+    setSaveStatus("idle");
+  }, [activeSeries?.manifest.id]);
+
+  const trashSeries = useCallback(async (seriesId: string) => {
+    setIsOpeningSeries(true);
+    setErrorMessage(null);
+    try {
+      await api.series.trashSeries(seriesId);
+      closeActiveSeries(seriesId);
+      await refreshSeriesList();
+      return true;
+    } catch (error) {
+      setErrorMessage(formatError(error, uiText.errors.moveProjectToTrashFailed));
+      return false;
+    } finally {
+      setIsOpeningSeries(false);
+    }
+  }, [closeActiveSeries, refreshSeriesList]);
+
+  const restoreSeries = useCallback(async (seriesId: string) => {
+    setIsOpeningSeries(true);
+    setErrorMessage(null);
+    try {
+      await api.series.restoreSeries(seriesId);
+      await refreshSeriesList();
+      return true;
+    } catch (error) {
+      setErrorMessage(formatError(error, uiText.errors.restoreProjectFailed));
+      return false;
+    } finally {
+      setIsOpeningSeries(false);
+    }
+  }, [refreshSeriesList]);
+
+  const deleteSeries = useCallback(async (seriesId: string, confirmTitle: string) => {
+    setIsOpeningSeries(true);
+    setErrorMessage(null);
+    try {
+      await api.series.deleteSeries(seriesId, { confirmTitle });
+      closeActiveSeries(seriesId);
+      setSeriesList((current) => current.filter((series) => series.id !== seriesId));
+      await refreshSeriesList();
+      return true;
+    } catch (error) {
+      setErrorMessage(formatError(error, uiText.errors.deleteProjectFailed));
+      return false;
+    } finally {
+      setIsOpeningSeries(false);
+    }
+  }, [closeActiveSeries, refreshSeriesList]);
 
   const reloadActiveSeries = useCallback(async (seriesId: string) => {
     const detail = await api.series.getSeries(seriesId);
@@ -689,6 +752,7 @@ export function useProjectSession(): ProjectSessionState {
     createChapter,
     createScene,
     createSeries,
+    deleteSeries,
     deleteAct,
     deleteVolume,
     deleteChapter,
@@ -703,6 +767,7 @@ export function useProjectSession(): ProjectSessionState {
     openSeries,
     refreshSeriesList,
     resetStructureSelection,
+    restoreSeries,
     saveDraft,
     saveStatus,
     selectVolume,
@@ -714,6 +779,7 @@ export function useProjectSession(): ProjectSessionState {
     selectedChapterId,
     selectedScene,
     seriesList,
+    trashSeries,
     updateAct,
     updateVolume,
     updateChapter,

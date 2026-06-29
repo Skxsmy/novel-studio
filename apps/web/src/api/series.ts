@@ -7,7 +7,11 @@ import type {
   CreateBookInput,
   CreateChapterInput,
   CreateSceneInput,
+  CreateSceneProgressionBlockInput,
+  CreateSceneProgressionBlockResult,
   CreateSeriesInput,
+  DeleteSeriesInput,
+  DeleteSeriesResult,
   DeleteSceneProgressionBlockInput,
   DeleteSceneProgressionBlockResult,
   MoveSceneInput,
@@ -17,6 +21,7 @@ import type {
   SceneDocument,
   SceneMarkdownExport,
   SeriesDetail,
+  SeriesManifest,
   SeriesSummary,
   UpdateActInput,
   UpdateBookInput,
@@ -40,6 +45,22 @@ export function createSeriesApi(client: ApiClient) {
       return client.requestJson<SeriesDetail>("/series", {
         body: input,
         method: "POST",
+      });
+    },
+    trashSeries(seriesId: string) {
+      return client.requestJson<SeriesManifest>(`/series/${seriesId}/trash`, {
+        method: "POST",
+      });
+    },
+    restoreSeries(seriesId: string) {
+      return client.requestJson<SeriesManifest>(`/series/${seriesId}/restore`, {
+        method: "POST",
+      });
+    },
+    deleteSeries(seriesId: string, input: DeleteSeriesInput) {
+      return client.requestJson<DeleteSeriesResult>(`/series/${seriesId}`, {
+        body: input,
+        method: "DELETE",
       });
     },
     createBook(seriesId: string, input: CreateBookInput) {
@@ -119,6 +140,19 @@ export function createSeriesApi(client: ApiClient) {
     exportSceneMarkdown(seriesId: string, sceneId: string) {
       return client.requestJson<SceneMarkdownExport>(`/series/${seriesId}/scenes/${sceneId}/export/markdown`);
     },
+    createSceneProgressionBlock(
+      seriesId: string,
+      sceneId: string,
+      input: CreateSceneProgressionBlockInput,
+    ) {
+      return client.requestJson<CreateSceneProgressionBlockResult>(
+        `/series/${seriesId}/scenes/${sceneId}/progression-blocks`,
+        {
+          body: input,
+          method: "POST",
+        },
+      );
+    },
     deleteSceneProgressionBlock(
       seriesId: string,
       sceneId: string,
@@ -167,7 +201,11 @@ export type {
   CreateBookInput,
   CreateChapterInput,
   CreateSceneInput,
+  CreateSceneProgressionBlockInput,
+  CreateSceneProgressionBlockResult,
   CreateSeriesInput,
+  DeleteSeriesInput,
+  DeleteSeriesResult,
   DeleteSceneProgressionBlockInput,
   DeleteSceneProgressionBlockResult,
   MoveSceneInput,
@@ -177,6 +215,7 @@ export type {
   SceneDocument,
   SceneMarkdownExport,
   SeriesDetail,
+  SeriesManifest,
   SeriesSummary,
   UpdateActInput,
   UpdateBookInput,

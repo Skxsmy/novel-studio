@@ -46,6 +46,35 @@ describe("ProjectRepository", () => {
     });
   });
 
+  it("moves a series to trash, restores it, and permanently deletes only with exact title confirmation", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "DeleteBoundary", description: "delete test" });
+    const root = seriesRoot(store, "DeleteBoundary", series.manifest.id);
+
+    const trashed = await store.trashSeries(series.manifest.id);
+    expect(trashed.archivedAt).not.toBeNull();
+    expect((await store.listSeries()).find((summary) => summary.id === series.manifest.id)?.archived).toBe(true);
+
+    const restored = await store.restoreSeries(series.manifest.id);
+    expect(restored.archivedAt).toBeNull();
+    expect((await store.listSeries()).find((summary) => summary.id === series.manifest.id)?.archived).toBe(false);
+
+    await expect(store.deleteSeries(series.manifest.id, { confirmTitle: "DeleteBoundary" }))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(readFile(path.join(root, "series.yaml"), "utf8")).resolves.toContain("DeleteBoundary");
+
+    await store.trashSeries(series.manifest.id);
+    await expect(store.deleteSeries(series.manifest.id, { confirmTitle: "Wrong" }))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(readFile(path.join(root, "series.yaml"), "utf8")).resolves.toContain("DeleteBoundary");
+
+    const deleted = await store.deleteSeries(series.manifest.id, { confirmTitle: "DeleteBoundary" });
+    expect(deleted.deletedId).toBe(series.manifest.id);
+    expect((await store.listSeries()).some((summary) => summary.id === series.manifest.id)).toBe(false);
+    await expect(store.getSeries(series.manifest.id)).rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+    await expect(readFile(path.join(root, "series.yaml"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("persists scene prose as JSON blocks while preserving the legacy content projection", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "BlockAuthority" });
@@ -370,66 +399,59 @@ describe("ProjectRepository", () => {
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
   });
 
-  it("deletes embedded progression blocks with their linked Progression records", async () => {
+  it("creates and deletes embedded progression blocks with their linked Progression records", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "ProgressionBlockDelete" });
     const scene = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
       baseRevision: series.scenes[0]!.revision,
       title: "Block delete scene",
-      content: "Before the change.\n\nChange slot.",
+      content: "Before the change.",
     });
-    const slotBlock = scene.document.blocks[1]!;
+    const anchorBlock = scene.document.blocks[0]!;
     const entry = await store.createCodexEntry(series.manifest.id, {
       categoryId: "character",
       name: "Keeper",
     });
-    const progression = await store.createCodexProgression(series.manifest.id, {
-      kind: "field",
-      entryId: entry.metadata.id,
-      relationId: null,
-      field: { kind: "description", detailTypeId: null },
-      fieldKey: null,
-      operation: "add",
-      body: "Knows the lock has changed.",
-      summary: "Lock knowledge changes.",
-      effectiveFromSceneId: scene.metadata.id,
-      source: { kind: "write-block", sceneId: scene.metadata.id, blockId: slotBlock.id },
-      evidence: [],
-    });
-    const embedded = await store.updateSceneBlockDocument(series.manifest.id, scene.metadata.id, {
+    const embedded = await store.createSceneProgressionBlock(series.manifest.id, scene.metadata.id, {
       baseRevision: scene.revision,
-      title: scene.metadata.title,
-      document: {
-        schemaVersion: 1,
-        blocks: [
-          scene.document.blocks[0]!,
-          {
-            id: slotBlock.id,
-            kind: "codexProgression",
-            progressionId: progression.progression.id,
-            createdAt: "2026-06-29T00:00:00.000Z",
-            updatedAt: "2026-06-29T00:00:00.000Z",
-          },
-        ],
+      afterBlockId: anchorBlock.id,
+      progression: {
+        kind: "field",
+        entryId: entry.metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "add",
+        body: "Knows the lock has changed.",
+        summary: "Lock knowledge changes.",
+        effectiveToSceneId: null,
+        evidence: [],
       },
     });
 
-    await expect(store.deleteCodexProgression(series.manifest.id, progression.progression.id, {
-      baseRevision: progression.revision,
+    expect(embedded.scene.document.blocks.map((block) => block.kind)).toEqual(["paragraph", "codexProgression"]);
+    expect(embedded.progression.progression.source).toMatchObject({
+      kind: "write-block",
+      sceneId: scene.metadata.id,
+      blockId: embedded.block.id,
+    });
+
+    await expect(store.deleteCodexProgression(series.manifest.id, embedded.progression.progression.id, {
+      baseRevision: embedded.progression.revision,
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
 
-    const deleted = await store.deleteSceneProgressionBlock(series.manifest.id, scene.metadata.id, slotBlock.id, {
-      baseRevision: embedded.revision,
-      progressionBaseRevision: progression.revision,
+    const deleted = await store.deleteSceneProgressionBlock(series.manifest.id, scene.metadata.id, embedded.block.id, {
+      baseRevision: embedded.scene.revision,
+      progressionBaseRevision: embedded.progression.revision,
     });
 
     expect(deleted).toMatchObject({
-      blockId: slotBlock.id,
-      deletedId: progression.progression.id,
+      blockId: embedded.block.id,
+      deletedId: embedded.progression.progression.id,
       blockers: [],
     });
     expect(deleted.scene?.document.blocks.map((block) => block.kind)).toEqual(["paragraph"]);
-    await expect(store.getCodexProgression(series.manifest.id, progression.progression.id))
+    await expect(store.getCodexProgression(series.manifest.id, embedded.progression.progression.id))
       .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
   });
 

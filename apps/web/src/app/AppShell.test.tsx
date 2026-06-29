@@ -41,6 +41,7 @@ const createdRelationId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const detailTypeId = "12121212-1212-4121-8121-121212121212";
 const secondDetailTypeId = "23232323-2323-4232-8232-232323232323";
 const progressionId = "34343434-3434-4434-8434-343434343434";
+const secondProgressionId = "45454545-4545-4454-8545-454545454545";
 const revision = "a".repeat(64);
 const updatedRevision = "b".repeat(64);
 const firstBlockId = "10101010-1010-4010-8010-101010101010";
@@ -553,15 +554,17 @@ function codexProgressionDocument(
     body: string;
     entryId: string;
     operation: "add" | "replace";
+    sceneId: string;
     summary: string;
   }> = {},
 ) {
+  const progressionSceneId = options.sceneId ?? sceneId;
   return {
     progression: {
       archivedAt: null as string | null,
       body: options.body ?? "Learns the lock changed.",
       createdAt: "2026-06-23T00:00:00.000Z",
-      effectiveFromSceneId: sceneId,
+      effectiveFromSceneId: progressionSceneId,
       effectiveToSceneId: null as string | null,
       entryId: options.entryId ?? codexEntryId,
       evidence: [],
@@ -574,7 +577,7 @@ function codexProgressionDocument(
       schemaVersion: 1 as const,
       source: {
         kind: "write-block" as const,
-        sceneId,
+        sceneId: progressionSceneId,
         blockId,
       },
       summary: options.summary ?? "Lock state changes.",
@@ -671,6 +674,49 @@ function mockFetch(options: {
         },
       ];
       return jsonResponse(detailOverride, 201);
+    }
+
+    if (url === `/api/v1/series/${seriesId}/trash` && method === "POST") {
+      seriesSummaries = seriesSummaries.map((series) => (
+        series.id === seriesId ? { ...series, archived: true, updatedAt: "2026-06-24T00:00:00.000Z" } : series
+      ));
+      if (detailOverride?.manifest.id === seriesId) {
+        detailOverride = {
+          ...detailOverride,
+          manifest: {
+            ...detailOverride.manifest,
+            archivedAt: "2026-06-24T00:00:00.000Z",
+            updatedAt: "2026-06-24T00:00:00.000Z",
+          },
+        };
+      }
+      return jsonResponse({ ...(detailOverride ?? seriesDetail()).manifest, archivedAt: "2026-06-24T00:00:00.000Z" });
+    }
+
+    if (url === `/api/v1/series/${seriesId}/restore` && method === "POST") {
+      seriesSummaries = seriesSummaries.map((series) => (
+        series.id === seriesId ? { ...series, archived: false, updatedAt: "2026-06-25T00:00:00.000Z" } : series
+      ));
+      if (detailOverride?.manifest.id === seriesId) {
+        detailOverride = {
+          ...detailOverride,
+          manifest: {
+            ...detailOverride.manifest,
+            archivedAt: null,
+            updatedAt: "2026-06-25T00:00:00.000Z",
+          },
+        };
+      }
+      return jsonResponse({ ...(detailOverride ?? seriesDetail()).manifest, archivedAt: null });
+    }
+
+    if (url === `/api/v1/series/${seriesId}` && method === "DELETE") {
+      const body = JSON.parse(String(init?.body));
+      const title = (detailOverride ?? seriesDetail()).manifest.title;
+      if (body.confirmTitle !== title) return jsonResponse({ message: "Project title confirmation does not match" }, 422);
+      seriesSummaries = seriesSummaries.filter((series) => series.id !== seriesId);
+      detailOverride = null;
+      return jsonResponse({ deletedId: seriesId });
     }
 
     if (url === `/api/v1/series/${seriesId}` && method === "GET") {
@@ -892,7 +938,8 @@ function mockFetch(options: {
       const entryId = effectiveEntryMatch[1];
       const parsedUrl = new URL(url, "http://localhost");
       const targetBlockId = parsedUrl.searchParams.get("blockId");
-      const scene = (detailOverride ?? seriesDetail()).scenes.find((candidate) => candidate.metadata.id === sceneId) ??
+      const targetSceneId = parsedUrl.searchParams.get("sceneId") ?? sceneId;
+      const scene = (detailOverride ?? seriesDetail()).scenes.find((candidate) => candidate.metadata.id === targetSceneId) ??
         sceneDocument();
       const targetIndex = targetBlockId
         ? scene.document.blocks.findIndex((block) => block.id === targetBlockId)
@@ -904,7 +951,7 @@ function mockFetch(options: {
       for (const progression of codexProgressions.filter((document) => (
         document.progression.entryId === entryId &&
         document.progression.source.kind === "write-block" &&
-        document.progression.source.sceneId === sceneId
+        document.progression.source.sceneId === targetSceneId
       ))) {
         const progressionBlockIndex = scene.document.blocks.findIndex((block) =>
           block.id === progression.progression.source.blockId,
@@ -922,7 +969,7 @@ function mockFetch(options: {
         entry: { ...entry, description },
         fieldStates: [],
         hiddenFutureFieldProgressionCount,
-        sceneId,
+        sceneId: targetSceneId,
       });
     }
 
@@ -1203,16 +1250,19 @@ function mockFetch(options: {
       ]);
     }
 
-    if (url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && method === "GET") {
-      const current = (detailOverride ?? seriesDetail()).scenes.find((scene) => scene.metadata.id === sceneId) ??
+    const sceneDocumentMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/scenes/([^/]+)/document$`));
+    if (sceneDocumentMatch && method === "GET") {
+      const requestedSceneId = sceneDocumentMatch[1]!;
+      const current = (detailOverride ?? seriesDetail()).scenes.find((scene) => scene.metadata.id === requestedSceneId) ??
         sceneDocument();
       return jsonResponse(current);
     }
 
-    if (url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && method === "PUT") {
+    if (sceneDocumentMatch && method === "PUT") {
+      const requestedSceneId = sceneDocumentMatch[1]!;
       const body = JSON.parse(String(init?.body));
       const current = detailOverride ?? seriesDetail();
-      const existing = current.scenes.find((scene) => scene.metadata.id === sceneId) ?? sceneDocument();
+      const existing = current.scenes.find((scene) => scene.metadata.id === requestedSceneId) ?? sceneDocument();
       const scene = sceneDocumentWithMetadata({
         ...existing.metadata,
         status: body.status ?? existing.metadata.status,
@@ -1227,11 +1277,78 @@ function mockFetch(options: {
       return jsonResponse(scene);
     }
 
-    const progressionBlockDeleteMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/scenes/${sceneId}/progression-blocks/([^/]+)$`));
-    if (progressionBlockDeleteMatch && method === "DELETE") {
-      const blockId = progressionBlockDeleteMatch[1];
+    const progressionBlockCreateMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/scenes/([^/]+)/progression-blocks$`));
+    if (progressionBlockCreateMatch && method === "POST") {
+      const requestedSceneId = progressionBlockCreateMatch[1]!;
+      const body = JSON.parse(String(init?.body));
       const current = detailOverride ?? seriesDetail();
-      const existing = current.scenes.find((scene) => scene.metadata.id === sceneId) ?? sceneDocument();
+      const existing = current.scenes.find((scene) => scene.metadata.id === requestedSceneId) ?? sceneDocument();
+      const blockId = existing.document.blocks.some((block) => block.id === secondBlockId)
+        ? thirdBlockId
+        : secondBlockId;
+      const block = {
+        createdAt: "2026-06-24T00:00:00.000Z",
+        id: blockId,
+        kind: "codexProgression" as const,
+        progressionId,
+        updatedAt: "2026-06-24T00:00:00.000Z",
+      };
+      const targetIndex = body.afterBlockId
+        ? existing.document.blocks.findIndex((candidate) => candidate.id === body.afterBlockId)
+        : -1;
+      const insertIndex = targetIndex >= 0 ? targetIndex + 1 : existing.document.blocks.length;
+      const scene = sceneDocumentWithMetadata(existing.metadata, "", updatedRevision, {
+        schemaVersion: 1,
+        blocks: [
+          ...existing.document.blocks.slice(0, insertIndex),
+          block,
+          ...existing.document.blocks.slice(insertIndex),
+        ],
+      });
+      const progression = {
+        ...codexProgressionDocument(blockId, progressionId, {
+          body: body.progression.body,
+          entryId: body.progression.entryId,
+          operation: body.progression.operation,
+          sceneId: requestedSceneId,
+          summary: body.progression.summary,
+        }),
+        progression: {
+          ...codexProgressionDocument(blockId, progressionId, { sceneId: requestedSceneId }).progression,
+          ...body.progression,
+          id: progressionId,
+          effectiveFromSceneId: requestedSceneId,
+          source: {
+            kind: "write-block" as const,
+            sceneId: requestedSceneId,
+            blockId,
+          },
+          createdAt: "2026-06-24T00:00:00.000Z",
+          updatedAt: "2026-06-24T00:00:00.000Z",
+          archivedAt: null as string | null,
+          schemaVersion: 1 as const,
+        },
+        revision: updatedRevision,
+      };
+      detailOverride = {
+        ...current,
+        scenes: current.scenes.map((candidate) => (
+          candidate.metadata.id === scene.metadata.id ? scene : candidate
+        )),
+      };
+      codexProgressions = [
+        ...codexProgressions.filter((document) => document.progression.id !== progression.progression.id),
+        progression,
+      ];
+      return jsonResponse({ block, progression, scene }, 201);
+    }
+
+    const progressionBlockDeleteMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/scenes/([^/]+)/progression-blocks/([^/]+)$`));
+    if (progressionBlockDeleteMatch && method === "DELETE") {
+      const requestedSceneId = progressionBlockDeleteMatch[1]!;
+      const blockId = progressionBlockDeleteMatch[2]!;
+      const current = detailOverride ?? seriesDetail();
+      const existing = current.scenes.find((scene) => scene.metadata.id === requestedSceneId) ?? sceneDocument();
       const block = existing.document.blocks.find((candidate) => candidate.id === blockId);
       if (!block || block.kind !== "codexProgression") return jsonResponse({ message: "Missing block" }, 422);
       const scene = sceneDocumentWithMetadata(existing.metadata, "", updatedRevision, {
@@ -1455,6 +1572,58 @@ describe("App shell", () => {
         }),
       );
     });
+  });
+
+  it("moves projects to trash, restores them, and permanently deletes only after exact title confirmation", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /Open Glass Harbor/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Move to Trash" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/trash`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByRole("button", { name: "Restore" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open Glass Harbor/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/restore`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByRole("button", { name: /Open Glass Harbor/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Move to Trash" }));
+    expect(await screen.findByRole("button", { name: "Delete permanently" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+
+    expect(screen.getByRole("dialog", { name: "Permanently delete project?" })).toBeTruthy();
+    const confirmInput = screen.getByLabelText("Type the project name to permanently delete it");
+    const permanentButtons = () => screen.getAllByRole("button", { name: "Delete permanently" });
+    expect(permanentButtons().at(-1)).toHaveProperty("disabled", true);
+    fireEvent.change(confirmInput, { target: { value: "Wrong Project" } });
+    expect(permanentButtons().at(-1)).toHaveProperty("disabled", true);
+    fireEvent.change(confirmInput, { target: { value: "Glass Harbor" } });
+    expect(permanentButtons().at(-1)).toHaveProperty("disabled", false);
+    fireEvent.click(permanentButtons().at(-1)!);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}`,
+        expect.objectContaining({
+          body: expect.stringContaining("\"confirmTitle\":\"Glass Harbor\""),
+          method: "DELETE",
+        }),
+      );
+    });
+    expect(await screen.findByText("No projects yet")).toBeTruthy();
+    expect(screen.getByText("Trash is empty.")).toBeTruthy();
   });
 
   it("opens a project into the write workspace", async () => {
@@ -2439,29 +2608,27 @@ describe("App shell", () => {
     expect(await screen.findByLabelText("Story change entry 2")).toBeTruthy();
     await waitFor(() => {
       const createCall = fetchMock.mock.calls.find(([url, init]) => (
-        url === `/api/v1/series/${seriesId}/codex/progressions` && init?.method === "POST"
+        url === `/api/v1/series/${seriesId}/scenes/${sceneId}/progression-blocks` && init?.method === "POST"
       ));
       expect(createCall).toBeTruthy();
       const body = JSON.parse(String(createCall![1]?.body));
       expect(body).toEqual(expect.objectContaining({
-        effectiveFromSceneId: sceneId,
-        entryId: codexEntryId,
-        kind: "field",
-        source: expect.objectContaining({ kind: "write-block", sceneId }),
+        afterBlockId: firstBlockId,
+        baseRevision: revision,
+        progression: expect.objectContaining({
+          entryId: codexEntryId,
+          kind: "field",
+        }),
       }));
+      expect(JSON.stringify(body)).not.toContain("effectiveFromSceneId");
+      expect(JSON.stringify(body)).not.toContain("\"source\"");
     });
-    await waitFor(() => {
-      const documentPutCalls = fetchMock.mock.calls.filter(([url, init]) => (
-        url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
-      ));
-      expect(documentPutCalls.length).toBeGreaterThanOrEqual(2);
-      const lastBody = JSON.parse(String(documentPutCalls.at(-1)![1]?.body));
-      expect(lastBody.document.blocks.map((block: { kind: string }) => block.kind)).toEqual([
-        "paragraph",
-        "codexProgression",
-      ]);
-      expect(JSON.stringify(lastBody)).not.toContain("scene-progression-block");
-    });
+    expect(fetchMock.mock.calls.some(([url, init]) => (
+      url === `/api/v1/series/${seriesId}/codex/progressions` && init?.method === "POST"
+    ))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url, init]) => (
+      url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
+    ))).toBe(false);
 
     fireEvent.change(screen.getByLabelText("Story change summary 2"), {
       target: { value: "Lock state changes." },
@@ -2496,18 +2663,109 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Expand" }));
     expect(screen.getByLabelText("Story change text 2")).toBeTruthy();
 
+    fireEvent.change(screen.getByLabelText("Scene block 1"), {
+      target: { value: "Opening line revised." },
+    });
     const panel = screen.getByLabelText("Scene story changes");
     fireEvent.click(within(panel).getByRole("button", { name: "Delete" }));
     await waitFor(() => {
-      const deleteCall = fetchMock.mock.calls.find(([url, init]) => (
+      const dirtySaveCallIndex = fetchMock.mock.calls.findIndex(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` &&
+        init?.method === "PUT" &&
+        JSON.parse(String(init.body)).document.blocks[0].text === "Opening line revised."
+      ));
+      const deleteCallIndex = fetchMock.mock.calls.findIndex(([url, init]) => (
         typeof url === "string" &&
         url.startsWith(`/api/v1/series/${seriesId}/scenes/${sceneId}/progression-blocks/`) &&
         init?.method === "DELETE"
       ));
-      expect(deleteCall).toBeTruthy();
+      expect(dirtySaveCallIndex).toBeGreaterThanOrEqual(0);
+      expect(deleteCallIndex).toBeGreaterThan(dirtySaveCallIndex);
     });
     expect(await screen.findByText("No story changes in this scene.")).toBeTruthy();
     expect(screen.queryByLabelText("Story change text 2")).toBeNull();
+    expect(screen.getByDisplayValue("Opening line revised.")).toBeTruthy();
+  });
+
+  it("previews the first write progression block from the previous scene effective state", async () => {
+    const previousSceneDocument: SceneBlockDocument = {
+      schemaVersion: 1,
+      blocks: [
+        { id: firstBlockId, kind: "paragraph", text: "Earlier scene." },
+        {
+          createdAt: "2026-06-24T00:00:00.000Z",
+          id: secondBlockId,
+          kind: "codexProgression",
+          progressionId,
+          updatedAt: "2026-06-24T00:00:00.000Z",
+        },
+      ],
+    };
+    const currentSceneDocument: SceneBlockDocument = {
+      schemaVersion: 1,
+      blocks: [{
+        createdAt: "2026-06-25T00:00:00.000Z",
+        id: thirdBlockId,
+        kind: "codexProgression",
+        progressionId: secondProgressionId,
+        updatedAt: "2026-06-25T00:00:00.000Z",
+      }],
+    };
+    const baseDetail = seriesDetail("", revision);
+    const previousScene = sceneDocumentWithMetadata(
+      { id: sceneId, order: 1, title: "Opening Scene" },
+      "",
+      revision,
+      previousSceneDocument,
+    );
+    const currentScene = sceneDocumentWithMetadata(
+      { id: secondSceneId, order: 2, title: "Second Scene" },
+      "",
+      revision,
+      currentSceneDocument,
+    );
+    const fetchMock = mockFetch({
+      initialCodexEntries: [
+        codexEntryDocument("Harbor Lock", "location", "Baseline lock state.", codexEntryId),
+      ],
+      initialCodexProgressions: [
+        codexProgressionDocument(secondBlockId, progressionId, {
+          body: "Previous scene truth.",
+          operation: "replace",
+          summary: "Previous change.",
+        }),
+        codexProgressionDocument(thirdBlockId, secondProgressionId, {
+          body: "Current scene truth.",
+          operation: "add",
+          sceneId: secondSceneId,
+          summary: "Current change.",
+        }),
+      ],
+      initialSeriesDetail: {
+        ...baseDetail,
+        chapters: baseDetail.chapters.map((chapter) => ({
+          ...chapter,
+          sceneIds: [sceneId, secondSceneId],
+        })),
+        scenes: [previousScene, currentScene],
+      },
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Second Scene/i }));
+
+    const preview = await screen.findByLabelText("Story change preview 1");
+    await waitFor(() => {
+      expect(within(preview).getByText("Previous scene truth.")).toBeTruthy();
+      expect(within(preview).getByText(/Current scene truth/)).toBeTruthy();
+      expect(fetchMock.mock.calls.some(([url, init]) => (
+        typeof url === "string" &&
+        url.includes(`/api/v1/series/${seriesId}/codex/entries/${codexEntryId}/effective`) &&
+        url.includes(`sceneId=${sceneId}`) &&
+        init?.method === "GET"
+      ))).toBe(true);
+    });
   });
 
   it("creates a model profile and saves project policy from settings", async () => {

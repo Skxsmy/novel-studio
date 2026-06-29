@@ -79,6 +79,67 @@ describe("local API", () => {
     await app.close();
   });
 
+  it("moves projects to trash, restores them, and permanently deletes with title confirmation", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
+    roots.push(root);
+    const app = await buildApp({ libraryRoot: root });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Project Delete API" },
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const series = createResponse.json();
+
+    const trashed = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/trash`,
+    });
+    expect(trashed.statusCode).toBe(200);
+    expect(trashed.json().archivedAt).not.toBeNull();
+
+    const restored = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/restore`,
+    });
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json().archivedAt).toBeNull();
+
+    const activeDeleteRejected = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}`,
+      payload: { confirmTitle: "Project Delete API" },
+    });
+    expect(activeDeleteRejected.statusCode).toBe(422);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/trash`,
+    });
+    const rejected = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}`,
+      payload: { confirmTitle: "Wrong" },
+    });
+    expect(rejected.statusCode).toBe(422);
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}`,
+      payload: { confirmTitle: "Project Delete API" },
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toEqual({ deletedId: series.manifest.id });
+
+    const missing = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}`,
+    });
+    expect(missing.statusCode).toBe(404);
+    await app.close();
+  });
+
   it("serves scene block document update and Markdown export APIs", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
     roots.push(root);
@@ -282,7 +343,6 @@ describe("local API", () => {
       },
     });
     expect(stagedDocument.statusCode).toBe(200);
-    const slotBlock = stagedDocument.json().document.blocks[1];
 
     const entry = await app.inject({
       method: "POST",
@@ -290,70 +350,55 @@ describe("local API", () => {
       payload: { categoryId: "character", name: "Keeper" },
     });
     expect(entry.statusCode).toBe(201);
-    const progression = await app.inject({
-      method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
-      payload: {
-        kind: "field",
-        entryId: entry.json().metadata.id,
-        relationId: null,
-        field: { kind: "description", detailTypeId: null },
-        fieldKey: null,
-        operation: "add",
-        body: "Changed at the slot.",
-        summary: "Slot change.",
-        effectiveFromSceneId: scene.metadata.id,
-        source: {
-          kind: "write-block",
-          sceneId: scene.metadata.id,
-          blockId: slotBlock.id,
-        },
-        evidence: [],
-      },
-    });
-    expect(progression.statusCode).toBe(201);
-
     const embedded = await app.inject({
-      method: "PUT",
-      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/document`,
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/progression-blocks`,
       payload: {
         baseRevision: stagedDocument.json().revision,
-        document: {
-          schemaVersion: 1,
-          blocks: [
-            stagedDocument.json().document.blocks[0],
-            {
-              id: slotBlock.id,
-              kind: "codexProgression",
-              progressionId: progression.json().progression.id,
-              createdAt: "2026-06-29T00:00:00.000Z",
-              updatedAt: "2026-06-29T00:00:00.000Z",
-            },
-          ],
+        afterBlockId: stagedDocument.json().document.blocks[0].id,
+        progression: {
+          kind: "field",
+          entryId: entry.json().metadata.id,
+          relationId: null,
+          field: { kind: "description", detailTypeId: null },
+          fieldKey: null,
+          operation: "add",
+          body: "Changed at the slot.",
+          summary: "Slot change.",
+          effectiveToSceneId: null,
+          evidence: [],
         },
       },
     });
-    expect(embedded.statusCode).toBe(200);
+    expect(embedded.statusCode).toBe(201);
+    expect(embedded.json().scene.document.blocks.map((block: { kind: string }) => block.kind)).toEqual([
+      "paragraph",
+      "codexProgression",
+      "paragraph",
+    ]);
 
     const deleted = await app.inject({
       method: "DELETE",
-      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/progression-blocks/${slotBlock.id}`,
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/progression-blocks/${embedded.json().block.id}`,
       payload: {
-        baseRevision: embedded.json().revision,
-        progressionBaseRevision: progression.json().revision,
+        baseRevision: embedded.json().scene.revision,
+        progressionBaseRevision: embedded.json().progression.revision,
       },
     });
     expect(deleted.statusCode).toBe(200);
     expect(deleted.json()).toMatchObject({
-      blockId: slotBlock.id,
-      deletedId: progression.json().progression.id,
+      blockId: embedded.json().block.id,
+      deletedId: embedded.json().progression.progression.id,
       blockers: [],
     });
-    expect(deleted.json().scene.document.blocks.map((block: { kind: string }) => block.kind)).toEqual(["paragraph"]);
+    expect(deleted.json().scene.document.blocks.map((block: { kind: string }) => block.kind)).toEqual([
+      "paragraph",
+      "paragraph",
+    ]);
 
     const missing = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/codex/progressions/${progression.json().progression.id}`,
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions/${embedded.json().progression.progression.id}`,
     });
     expect(missing.statusCode).toBe(404);
     await app.close();

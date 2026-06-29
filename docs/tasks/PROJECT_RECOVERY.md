@@ -30,7 +30,7 @@ Recovery Release A is the minimum product that can be accepted as a usable basel
 
 It includes:
 
-- Library: create/open a project from an empty library.
+- Library: create/open a project from an empty library, move a project to Trash, restore it, and permanently delete its directory only after exact project-name confirmation.
 - Write: create/select/rename/delete hierarchy items and write/save/reload scenes.
 - Codex: create/edit/save/reload/archive story-memory entries with details and research.
 - Codex integration: show real scene mentions/context where it matters for Write or Plan.
@@ -154,6 +154,7 @@ Purpose: recover the core author path before advanced work.
 Tasks:
 
 - Empty library must allow project creation from the UI.
+- Project lifecycle must expose Trash, Restore, and permanent directory deletion. Permanent deletion requires typing the exact project name in a confirmation dialog and must be enforced by the backend, not only by a disabled button.
 - New project must create a coherent first hierarchy and first editable scene.
 - Resolve hierarchy naming:
   - if `Volume -> Chapter -> Act -> Scene` is only UI language, document the mapping to storage;
@@ -164,7 +165,7 @@ Tasks:
 
 Acceptance:
 
-- From no data, a user can create a project, create/rename/delete hierarchy items, write a scene, save, reload, and continue.
+- From no data, a user can create a project, create/rename/delete hierarchy items, move the project to Trash, restore it, permanently delete it after exact project-name confirmation, write a scene, save, reload, and continue.
 - This flow is covered by tests.
 - User can visually inspect this slice before Codex work expands.
 

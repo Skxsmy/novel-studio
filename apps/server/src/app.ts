@@ -15,8 +15,10 @@ import {
   CreateChapterInputSchema,
   CreateReviewAnchorInputSchema,
   CreateSceneInputSchema,
+  CreateSceneProgressionBlockInputSchema,
   CreateSceneSectionInputSchema,
   CreateSeriesInputSchema,
+  DeleteSeriesInputSchema,
   CreateTimelineEventInputSchema,
   DeleteSceneProgressionBlockInputSchema,
   DeleteTimelineEventInputSchema,
@@ -150,6 +152,24 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   );
 
   app.post<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId/trash",
+    async (request) => repository.trashSeries(request.params.seriesId),
+  );
+
+  app.post<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId/restore",
+    async (request) => repository.restoreSeries(request.params.seriesId),
+  );
+
+  app.delete<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId",
+    async (request) => {
+      const input = DeleteSeriesInputSchema.parse(request.body);
+      return repository.deleteSeries(request.params.seriesId, input);
+    },
+  );
+
+  app.post<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/books",
     async (request, reply) => {
       const input = CreateBookInputSchema.parse(request.body);
@@ -210,6 +230,19 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         request.params.sceneId,
         input,
       );
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; sceneId: string } }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId/progression-blocks",
+    async (request, reply) => {
+      const input = CreateSceneProgressionBlockInputSchema.parse(request.body);
+      const result = await repository.createSceneProgressionBlock(
+        request.params.seriesId,
+        request.params.sceneId,
+        input,
+      );
+      return reply.status(201).send(result);
     },
   );
 

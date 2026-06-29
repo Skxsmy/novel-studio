@@ -30,12 +30,15 @@ Status: command-verified, not visually accepted.
 - Current evidence: `AppShell.test.tsx` also covers deleting selected Chapter, deleting selected Act, deleting selected Scene, and creating a Scene inside the selected Act.
 - Current evidence: `AppShell.test.tsx` covers entering and exiting Focus from Write, including automatic exit when switching away from Write.
 - Current evidence: `AppShell.test.tsx` covers explicit single-item Write structure selection, second-click deselection, no child/stale-scene active frame when selecting a parent, and disabled Scene creation when a selected Volume has no selected Act target.
+- Current evidence: `AppShell.test.tsx` covers moving a project to Trash, restoring it, opening the permanent-delete dialog, keeping permanent delete disabled until the exact project name is typed, and sending `confirmTitle` to `DELETE /series/:seriesId`.
+- Current evidence: `packages/storage/test/repository.test.ts` and `apps/server/test/app.test.ts` cover project Trash, Restore, rejection of permanent delete before Trash, wrong-title rejection, and physical project directory deletion after exact title confirmation.
 - Current evidence: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed with 23 tests after Slice C UI density test additions.
 - Current evidence: `npm.cmd run build -w @novel-studio/web` passed.
 - Current evidence: `npm.cmd run build` passed after one sandbox-blocked package-dist write attempt was rerun with elevated permissions.
 - Current evidence: `npm.cmd run test` passed after one sandbox-blocked package-dist write attempt was rerun with elevated permissions; the passing rerun reported server 16, web 23, AI 18, and storage 43 tests.
 - Current evidence: `git diff --check` passed with line-ending warnings only.
 - Empty library can create a project through the UI.
+- Library project lifecycle includes Trash, Restore, and permanent directory deletion after exact project-name confirmation.
 - New project creates coherent first hierarchy and first editable scene.
 - Hierarchy add, rename, delete with confirmation, collapse, scroll, and selection work.
 - Scene write/save/reload/conflict behavior works.

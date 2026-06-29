@@ -274,7 +274,7 @@ Audit findings verified and repaired:
 Audit findings intentionally not claimed as completed:
 
 - `proposal` storage and `model-call` Progression reference scanning are not implemented because current Proposal storage is still contract-only and ModelCallLog has no Progression reference field. The delete contract is not described as fully implemented for model-call blockers until those references exist.
-- Project archive/delete/restore is a project-lifecycle capability and remains assigned to Project Recovery or a later lifecycle task; NS-410 does not claim project deletion completeness.
+- Project archive/delete/restore is a project-lifecycle capability. The user explicitly pulled that lifecycle repair into the current branch after the Slice 8 review; evidence is recorded below and in `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`, but it is not counted as an NS-410 JSON-authority acceptance ID.
 - Broad whole-project YAML/Markdown removal is not complete. Current NS-410 authority completion covers scene manuscript JSON, unified Progression JSON, and character knowledge JSON. Remaining YAML/Markdown authority files are inventoried below; they are open NS-410 JSON-authority work for Slice 10 unless a later product/ADR decision explicitly narrows a path to an import/export/migration boundary.
 - Internal names such as `SceneFrontmatterSchema` and compatibility helpers are known cleanup debt; they are not runtime authority paths and should be renamed when the scene contract layer is next touched.
 
@@ -312,7 +312,7 @@ Logic closure boundary verified:
 
 - Authority source: scene `SceneBlockDocument` files and unified `codex/progressions/<id>.json` records.
 - Read paths: Write block document load, Codex entry/detail type/progression list reads, effective-entry before/after preview, and current-scene progression panel.
-- Write paths: scene document saves, Progression create/update saves, and dedicated scene progression-block delete command.
+- Write paths: scene document saves, dedicated scene progression-block create/delete commands, and Progression update saves.
 - Derived paths: plain text/count/mention projection still derives from blocks; progression preview uses effective-entry projection at the previous block and local draft folding.
 - User-visible entries: embedded Write progression block controls and the right-side current-scene progression panel.
 - Delete path: deleting from either embedded block or panel removes the block and linked Progression record together, or returns blocker reasons while leaving both records intact.
@@ -325,7 +325,7 @@ Changes verified:
 - Added server route `DELETE /api/v1/series/:seriesId/scenes/:sceneId/progression-blocks/:blockId`.
 - Added `sceneId` filtering to Progression list APIs so Write can load current-scene Progressions.
 - Write can create an embedded story-change block, edit its target entry/field/operation/summary/body, preview before/after state at same-scene block position, collapse/expand UI state without writing it to authority, save the linked Progression, and delete the block from either the editor or panel.
-- Slice 8 user-facing story-change copy is centralized in `uiText.writeProgression`; the JSX references those keys rather than hardcoding the new labels.
+- Slice 8 story-change-specific copy is centralized in `uiText.writeProgression`; shared action labels such as Delete use `uiText.actions`.
 - Saved scene document bodies contain `codexProgression` blocks and do not persist preview markup such as `progression-preview-grid`.
 
 Adversarial cases covered:
@@ -345,13 +345,75 @@ Commands:
 | `npm.cmd run test -w @novel-studio/server -- app.test.ts context-routes.test.ts --reporter=verbose` | Initial run failed the new route with stale storage dist (`deleteSceneProgressionBlock` unavailable); after rebuilding storage, rerun passed with 12/12 tests. |
 | `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx --reporter=verbose` | Initial runs exposed overly broad test queries for text appearing in both draft/preview/panel. After checking and fixing runtime TypeScript issues plus narrowing assertions to the intended regions, rerun passed with 47/47 tests; Vitest printed existing React `act(...)` warnings in the write selection and focus-mode tests. |
 | `npm.cmd run build` | First run failed on TypeScript issues in the new Write progression code and test mock typing; after fixing runtime type narrowing and scene block union typing, rerun passed with package builds, server build, and web production build. Vite still reports the existing large-chunk warning. |
-| `npm.cmd run test` | Passed with server 24/24, web 47/47, AI 20/20, and storage 66/66 tests. |
+| `npm.cmd run test` | Passed after the project lifecycle repair with server 25/25, web 49/49, AI 20/20, and storage 67/67 tests. |
 | `git diff --check` | Passed with line-ending warnings only. |
 
 Note:
 
 - Automated DOM/build/test validation is not user visual acceptance.
 - `model-call` Progression blocker scanning is still not claimed because ModelCallLog currently has no Progression reference field.
+
+### Slice 8 Review Repair: Atomic Block Commands, Dirty Draft Safety, And First-Block Preview
+
+Status: passed for repaired Slice 8 scope on 2026-06-29.
+
+Review findings addressed:
+
+- High: deleting a story-change block no longer drops unsaved scene prose. Write now saves a dirty `SceneBlockDocument` draft first, uses the saved revision for the delete command, and only then accepts the server-returned scene.
+- High: story-change insertion and deletion are no longer frontend/storage best-effort multi-file sequences. Storage exposes `createSceneProgressionBlock` and `deleteSceneProgressionBlock` scene-level commands that write the scene JSON and Progression JSON in one recoverable `applyFileTransaction`.
+- Medium: first-block story-change preview now reads effective entry state at the previous narrative scene instead of falling back to raw Codex baseline.
+- Low: the Slice 8 copy claim is narrowed to story-change-specific `uiText.writeProgression` keys, with shared actions such as Delete coming from `uiText.actions`.
+
+Logic closure boundary verified:
+
+- Authority source: scene `SceneBlockDocument` JSON and unified `codex/progressions/<id>.json`.
+- Read paths: scene document load, current-scene progression list, effective-entry preview at previous block or previous scene, and panel display.
+- Write paths: dirty draft scene save, scene-level progression-block create/delete, and linked Progression update.
+- Derived paths: scene plain text/count/mentions still derive from block projection; preview state is UI-only.
+- User-visible entries: embedded story-change block controls and Scene Brief panel delete.
+- Delete path: blocker responses leave scene and Progression unchanged; successful delete removes both in one transaction.
+- Migration/rollback path: create/delete use `applyFileTransaction`, so interrupted multi-file writes are recovered by the existing transaction journal recovery path.
+- Project/series delete is no longer absent on the branch. It remains outside the NS-410 JSON-authority acceptance IDs, but the user explicitly required the lifecycle repair in this pass; see the project lifecycle section below.
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `npm.cmd run build -w @novel-studio/contracts` | Passed. |
+| `npm.cmd run build -w @novel-studio/storage` | Passed. |
+| `npm.cmd run build -w @novel-studio/server` | Passed. |
+| `npm.cmd run build -w @novel-studio/web` | Initial run failed on test mock `sceneId` type narrowing; after fixing, rerun passed with the existing Vite large-chunk warning. |
+| `npm.cmd run test -w @novel-studio/storage -- repository.test.ts --reporter=verbose` | Passed with 55/55 tests. |
+| `npm.cmd run test -w @novel-studio/server -- app.test.ts --reporter=verbose` | Passed with 11/11 tests. |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx --reporter=verbose` | Passed with 40/40 tests; Vitest printed existing React `act(...)` warnings in unrelated write-selection/focus-mode cases. |
+
+### Project Lifecycle Repair: Trash, Restore, And Permanent Directory Delete
+
+Status: passed for project-lifecycle scope on 2026-06-29. This was added by explicit user request after the Slice 8 review findings and is recorded as Project Recovery lifecycle evidence, not as a new NS-410 acceptance ID.
+
+Logic closure boundary verified:
+
+- Authority source: each project directory and its `series.yaml` manifest.
+- Read paths: Library project list includes archived state and splits active projects from Trash in the UI.
+- Write paths: `POST /api/v1/series/:seriesId/trash` sets `archivedAt`; `POST /api/v1/series/:seriesId/restore` clears `archivedAt`; `DELETE /api/v1/series/:seriesId` deletes the series directory.
+- User-visible entries: Library active project cards expose `Move to Trash`; Trash cards expose `Restore` and `Delete permanently`.
+- Delete path: permanent delete opens a dialog requiring the exact project name, sends `confirmTitle`, and the backend/storage layer rejects both active/non-Trash projects and title mismatches before file deletion.
+- Safety boundary: storage constrains permanent delete to a discovered project root directly under the configured library root. Trash/restore use manifest writes; permanent delete is an intentional physical directory removal and has no rollback beyond external backups.
+- Tests: storage, server, and web tests cover trash/restore, active-delete rejection before Trash, wrong-title rejection, disabled UI before exact title entry, successful permanent delete, and disappearance of project files/list entries.
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `npm.cmd run build -w @novel-studio/contracts` | Passed. |
+| `npm.cmd run build -w @novel-studio/storage` | Passed. |
+| `npm.cmd run build -w @novel-studio/server` | Passed after rebuilding storage first so the server loaded the new storage dist. |
+| `npm.cmd run build -w @novel-studio/web` | Passed with the existing Vite large-chunk warning. |
+| `npm.cmd run test -w @novel-studio/storage -- repository.test.ts --reporter=verbose` | Passed with 56/56 tests. |
+| `npm.cmd run test -w @novel-studio/server -- app.test.ts --reporter=verbose` | Passed with 12/12 tests. |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx --reporter=verbose` | Passed with 41/41 tests; Vitest printed existing React `act(...)` warnings in unrelated write-selection/focus-mode cases. |
+| `npm.cmd run build` | Passed with the existing Vite large-chunk warning. |
+| `npm.cmd run test` | Passed with server 25/25, web 49/49, AI 20/20, and storage 67/67 tests. |
 
 ## Invariant Checklist
 

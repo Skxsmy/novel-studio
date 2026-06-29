@@ -25,7 +25,6 @@ import type {
 import { api } from "../../api";
 import {
   createBlock,
-  createCodexProgressionBlock,
   createParagraphBlock,
   sceneBlockDocumentStats,
   sceneBlockToPlainText,
@@ -439,6 +438,15 @@ export function WriteWorkspace({
     return fallback;
   }
 
+  async function saveDirtyDraftForProgressionCommand() {
+    if (!draft || !isDirty) return null;
+    return onCommitDocument(draft.document, {
+      baseRevision: draft.revision,
+      status: draft.status,
+      title: draft.title,
+    });
+  }
+
   async function insertProgressionBlockAfter(blockId: string | null) {
     if (!draft || !selectedScene || progressionBusyId) return;
     const entry = codexEntries.find((candidate) => !candidate.metadata.archivedAt);
@@ -447,86 +455,41 @@ export function WriteWorkspace({
       return;
     }
 
-    const placeholder = createParagraphBlock();
-    const currentBlocks = draft.document.blocks;
-    const targetIndex = blockId ? currentBlocks.findIndex((block) => block.id === blockId) : -1;
-    const insertIndex = targetIndex >= 0 ? targetIndex + 1 : currentBlocks.length;
-    const stagedDocument: SceneBlockDocument = {
-      schemaVersion: 1,
-      blocks: [
-        ...currentBlocks.slice(0, insertIndex),
-        placeholder,
-        ...currentBlocks.slice(insertIndex),
-      ],
-    };
-    let stagedScene: SceneBlockDocumentResponse | null = null;
-    let createdProgression: CodexProgressionDocument | null = null;
-
-    setProgressionBusyId(placeholder.id);
+    setProgressionBusyId(blockId ?? "new-progression-block");
     setProgressionError(null);
     try {
-      stagedScene = await onCommitDocument(stagedDocument);
-      createdProgression = await api.codex.createProgression(series.manifest.id, {
-        kind: "field",
-        entryId: entry.metadata.id,
-        relationId: null,
-        field: { kind: "description", detailTypeId: null },
-        fieldKey: null,
-        operation: "add",
-        body: "",
-        summary: "",
-        effectiveFromSceneId: selectedScene.metadata.id,
-        source: {
-          kind: "write-block",
-          sceneId: selectedScene.metadata.id,
-          blockId: placeholder.id,
+      const savedScene = await saveDirtyDraftForProgressionCommand();
+      const result = await api.series.createSceneProgressionBlock(series.manifest.id, draft.sceneId, {
+        baseRevision: savedScene?.revision ?? draft.revision,
+        afterBlockId: blockId,
+        progression: {
+          kind: "field",
+          entryId: entry.metadata.id,
+          relationId: null,
+          field: { kind: "description", detailTypeId: null },
+          fieldKey: null,
+          operation: "add",
+          body: "",
+          summary: "",
+          effectiveToSceneId: null,
+          evidence: [],
         },
-        evidence: [],
       });
-      const finalDocument: SceneBlockDocument = {
-        schemaVersion: 1,
-        blocks: stagedScene.document.blocks.map((block) => (
-          block.id === placeholder.id
-            ? createCodexProgressionBlock(createdProgression!.progression.id, placeholder.id)
-            : block
-        )),
-      };
-      await onCommitDocument(finalDocument, {
-        baseRevision: stagedScene.revision,
-        status: stagedScene.metadata.status,
-        title: stagedScene.metadata.title,
-      });
-      setSceneProgressions((current) => [...current, createdProgression!]);
+      onAcceptSavedSceneDocument(result.scene);
+      setSceneProgressions((current) => [
+        ...current.filter((document) => document.progression.id !== result.progression.progression.id),
+        result.progression,
+      ]);
       setProgressionDrafts((current) => ({
         ...current,
-        [createdProgression!.progression.id]: progressionDraftFromDocument(createdProgression!),
+        [result.progression.progression.id]: progressionDraftFromDocument(result.progression),
       }));
       setCollapsedProgressionBlocks((current) => {
         const next = new Set(current);
-        next.delete(placeholder.id);
+        next.delete(result.block.id);
         return next;
       });
     } catch (error) {
-      if (createdProgression) {
-        try {
-          await api.codex.deleteProgression(series.manifest.id, createdProgression.progression.id, {
-            baseRevision: createdProgression.revision,
-          });
-        } catch {
-          // The visible failure remains the insert failure; cleanup is best effort.
-        }
-      }
-      if (stagedScene) {
-        try {
-          await onCommitDocument(draft.document, {
-            baseRevision: stagedScene.revision,
-            status: draft.status,
-            title: draft.title,
-          });
-        } catch {
-          // The visible failure remains the insert failure; rollback is best effort.
-        }
-      }
       setProgressionError(progressionErrorMessage(error, progressionText.errors.addFailed));
     } finally {
       setProgressionBusyId(null);
@@ -575,8 +538,9 @@ export function WriteWorkspace({
     setProgressionBusyId(block.id);
     setProgressionError(null);
     try {
+      const savedScene = await saveDirtyDraftForProgressionCommand();
       const result = await api.series.deleteSceneProgressionBlock(series.manifest.id, draft.sceneId, block.id, {
-        baseRevision: draft.revision,
+        baseRevision: savedScene?.revision ?? draft.revision,
         progressionBaseRevision: progression.revision,
       });
       if (result.blockers.length > 0) {
@@ -671,6 +635,8 @@ export function WriteWorkspace({
     }
     let isActive = true;
     const blocks = draft.document.blocks;
+    const selectedSceneIndex = series.scenes.findIndex((scene) => scene.metadata.id === selectedScene.metadata.id);
+    const previousScene = selectedSceneIndex > 0 ? series.scenes[selectedSceneIndex - 1] : null;
 
     for (const block of blocks) {
       if (block.kind !== "codexProgression") continue;
@@ -703,6 +669,13 @@ export function WriteWorkspace({
             before: fieldValueFromEffective(effective, resolvedDraft.fieldSelection),
             hiddenFutureCount: effective.hiddenFutureFieldProgressionCount,
           }))
+        : previousScene
+          ? api.codex.getEffectiveEntry(series.manifest.id, resolvedDraft.entryId, {
+              sceneId: previousScene.metadata.id,
+            }).then((effective) => ({
+              before: fieldValueFromEffective(effective, resolvedDraft.fieldSelection),
+              hiddenFutureCount: effective.hiddenFutureFieldProgressionCount,
+            }))
         : Promise.resolve({
             before: fieldValueFromEntry(entry, resolvedDraft.fieldSelection),
             hiddenFutureCount: 0,
@@ -738,7 +711,7 @@ export function WriteWorkspace({
     return () => {
       isActive = false;
     };
-  }, [codexEntries, draft, progressionDrafts, progressionsById, selectedScene, series.manifest.id]);
+  }, [codexEntries, draft, progressionDrafts, progressionsById, selectedScene, series.manifest.id, series.scenes]);
 
   function canCreateStructure(type: ProductStructureType) {
     if (type === "volume") return true;
@@ -1019,7 +992,7 @@ export function WriteWorkspace({
               }}
               type="button"
             >
-              Delete
+              {uiText.actions.delete}
             </button>
           </div>
         </div>
@@ -1471,7 +1444,7 @@ export function WriteWorkspace({
                               onClick={() => void deleteProgressionBlock(block)}
                               type="button"
                             >
-                              Delete
+                              {uiText.actions.delete}
                             </button>
                           </div>
                         </article>

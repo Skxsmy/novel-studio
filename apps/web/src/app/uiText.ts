@@ -12,8 +12,18 @@ export const uiText = {
     scene: "Scene",
   },
   library: {
+    deleteNameLabel: "Type the project name to permanently delete it",
+    deletePermanently: "Delete permanently",
+    deleteProjectCopy: (title: string) => `This permanently deletes "${title}" from disk. This cannot be undone.`,
+    deleteProjectTitle: "Permanently delete project?",
     firstVolume: "First volume",
+    moveToTrash: "Move to Trash",
+    open: "Open",
+    opening: "Opening",
     projectLibrary: "Project Library",
+    restore: "Restore",
+    trash: "Trash",
+    trashEmpty: "Trash is empty.",
     volumes: "volumes",
   },
   structure: {
@@ -38,6 +48,9 @@ export const uiText = {
     deleteChapterFailed: "Failed to delete chapter",
     deleteActFailed: "Failed to delete act",
     deleteSceneFailed: "Failed to delete scene",
+    deleteProjectFailed: "Failed to permanently delete project",
+    moveProjectToTrashFailed: "Failed to move project to trash",
+    restoreProjectFailed: "Failed to restore project",
   },
   writeProgression: {
     title: "Story change",

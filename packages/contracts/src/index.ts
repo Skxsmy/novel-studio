@@ -4,7 +4,13 @@ import {
   DefaultProjectTitles,
   DefaultStructureTitles,
 } from "./defaults.js";
-import { DeleteCodexProgressionBlockerSchema } from "./codex.js";
+import {
+  CodexFieldProgressionFieldSchema,
+  CodexProgressionDocumentSchema,
+  CodexProgressionOperationSchema,
+  DeleteCodexProgressionBlockerSchema,
+  EvidenceSchema,
+} from "./codex.js";
 
 export * from "./common.js";
 export * from "./ai.js";
@@ -491,6 +497,16 @@ export const CreateSeriesInputSchema = z.object({
 });
 export type CreateSeriesInput = z.input<typeof CreateSeriesInputSchema>;
 
+export const DeleteSeriesInputSchema = z.object({
+  confirmTitle: z.string().min(1).max(160),
+});
+export type DeleteSeriesInput = z.infer<typeof DeleteSeriesInputSchema>;
+
+export const DeleteSeriesResultSchema = z.object({
+  deletedId: z.string().uuid(),
+});
+export type DeleteSeriesResult = z.infer<typeof DeleteSeriesResultSchema>;
+
 export const CreateSceneInputSchema = z.object({
   title: z.string().trim().min(1).max(160).default(DefaultStructureTitles.scene),
   content: z.string().default(""),
@@ -535,6 +551,84 @@ export const SceneMarkdownExportSchema = z.object({
   markdown: z.string(),
 });
 export type SceneMarkdownExport = z.infer<typeof SceneMarkdownExportSchema>;
+
+export const CreateSceneProgressionBlockProgressionInputSchema = z
+  .object({
+    kind: z.enum(["field", "world", "relationship"]),
+    entryId: z.string().uuid().nullable().default(null),
+    relationId: z.string().uuid().nullable().default(null),
+    field: CodexFieldProgressionFieldSchema.nullable().default(null),
+    fieldKey: z.string().trim().min(1).max(120).nullable().default(null),
+    operation: CodexProgressionOperationSchema,
+    body: z.string().max(16000).default(""),
+    summary: z.string().trim().max(16000).default(""),
+    effectiveToSceneId: z.string().uuid().nullable().default(null),
+    evidence: z.array(EvidenceSchema).default([]),
+  })
+  .superRefine((input, context) => {
+    if (input.kind === "field") {
+      if (!input.entryId) {
+        context.addIssue({ code: "custom", message: "Field progression requires entryId", path: ["entryId"] });
+      }
+      if (!input.field) {
+        context.addIssue({ code: "custom", message: "Field progression requires field", path: ["field"] });
+      }
+      if (input.relationId) {
+        context.addIssue({ code: "custom", message: "Field progression cannot target relationId", path: ["relationId"] });
+      }
+    }
+    if (input.kind === "world") {
+      if (!input.entryId) {
+        context.addIssue({ code: "custom", message: "World progression requires entryId", path: ["entryId"] });
+      }
+      if (!input.fieldKey) {
+        context.addIssue({ code: "custom", message: "World progression requires fieldKey", path: ["fieldKey"] });
+      }
+      if (input.relationId) {
+        context.addIssue({ code: "custom", message: "World progression cannot target relationId", path: ["relationId"] });
+      }
+      if (!input.summary.trim()) {
+        context.addIssue({ code: "custom", message: "World progression requires summary", path: ["summary"] });
+      }
+      if (input.evidence.length === 0) {
+        context.addIssue({ code: "custom", message: "World progression requires evidence", path: ["evidence"] });
+      }
+    }
+    if (input.kind === "relationship") {
+      if (!input.relationId) {
+        context.addIssue({ code: "custom", message: "Relationship progression requires relationId", path: ["relationId"] });
+      }
+      if (!input.fieldKey) {
+        context.addIssue({ code: "custom", message: "Relationship progression requires fieldKey", path: ["fieldKey"] });
+      }
+      if (input.entryId) {
+        context.addIssue({ code: "custom", message: "Relationship progression cannot target entryId", path: ["entryId"] });
+      }
+      if (!input.summary.trim()) {
+        context.addIssue({ code: "custom", message: "Relationship progression requires summary", path: ["summary"] });
+      }
+      if (input.evidence.length === 0) {
+        context.addIssue({ code: "custom", message: "Relationship progression requires evidence", path: ["evidence"] });
+      }
+    }
+  });
+export type CreateSceneProgressionBlockProgressionInput = z.infer<
+  typeof CreateSceneProgressionBlockProgressionInputSchema
+>;
+
+export const CreateSceneProgressionBlockInputSchema = z.object({
+  baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  afterBlockId: SceneBlockIdSchema.nullable().default(null),
+  progression: CreateSceneProgressionBlockProgressionInputSchema,
+});
+export type CreateSceneProgressionBlockInput = z.infer<typeof CreateSceneProgressionBlockInputSchema>;
+
+export const CreateSceneProgressionBlockResultSchema = z.object({
+  block: CodexProgressionSceneBlockSchema,
+  progression: CodexProgressionDocumentSchema,
+  scene: SceneBlockDocumentResponseSchema,
+});
+export type CreateSceneProgressionBlockResult = z.infer<typeof CreateSceneProgressionBlockResultSchema>;
 
 export const DeleteSceneProgressionBlockInputSchema = z.object({
   baseRevision: z.string().regex(/^[a-f0-9]{64}$/),

@@ -1704,6 +1704,41 @@ button.model-row.is-active {
   display: block;
 }
 
+.project-card {
+  display: flex;
+  min-height: 132px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.project-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.project-card.is-trashed {
+  border-style: dashed;
+  background: #f8faf7;
+}
+
+.library-trash-panel {
+  margin-top: 14px;
+}
+
+.project-delete-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
 .large-note h2 {
   margin: 0 0 8px;
   font-size: 20px;

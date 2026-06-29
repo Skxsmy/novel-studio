@@ -26,6 +26,8 @@ import {
   DeleteCodexEntryResultSchema,
   DeleteCodexDetailTypeResultSchema,
   DeleteCodexProgressionResultSchema,
+  DeleteSeriesInputSchema,
+  DeleteSeriesResultSchema,
   DeleteSceneProgressionBlockInputSchema,
   DeleteSceneProgressionBlockResultSchema,
   CodexEntryDocumentSchema,
@@ -39,6 +41,7 @@ import {
   CodexMentionSchema,
   CodexProgressionDocumentSchema,
   CodexProgressionSchema,
+  CodexProgressionSceneBlockSchema,
   CodexRelationDocumentSchema,
   CodexRelationSchema,
   CodexResearchDocumentSchema,
@@ -51,6 +54,8 @@ import {
   CreateCodexKnowledgeInputSchema,
   CreateCodexProgressionInputSchema,
   CreateCodexRelationInputSchema,
+  CreateSceneProgressionBlockInputSchema,
+  CreateSceneProgressionBlockResultSchema,
   CreateActInputSchema,
   CreateChapterInputSchema,
   CreateReviewAnchorInputSchema,
@@ -133,6 +138,8 @@ import {
   type CreateCodexKnowledgeInput,
   type CreateCodexProgressionInput,
   type CreateCodexRelationInput,
+  type CreateSceneProgressionBlockInput,
+  type CreateSceneProgressionBlockResult,
   type CreateActInput,
   type CreateChapterInput,
   type DeleteCodexCategoryResult,
@@ -140,6 +147,8 @@ import {
   type DeleteCodexEntryResult,
   type DeleteCodexDetailTypeResult,
   type DeleteCodexProgressionResult,
+  type DeleteSeriesInput,
+  type DeleteSeriesResult,
   type DeleteSceneProgressionBlockInput,
   type DeleteSceneProgressionBlockResult,
   type CreateReviewAnchorInput,
@@ -1431,6 +1440,65 @@ export class ProjectRepository {
     return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
+  async trashSeries(seriesId: string): Promise<SeriesManifest> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+      SeriesManifestSchema.parse(value),
+    );
+    if (manifest.archivedAt) return manifest;
+    const now = new Date().toISOString();
+    const archived = SeriesManifestSchema.parse({
+      ...manifest,
+      archivedAt: now,
+      updatedAt: now,
+    });
+    await atomicWrite(path.join(seriesRoot, SERIES_FILE), serializeYaml(archived));
+    return archived;
+  }
+
+  async restoreSeries(seriesId: string): Promise<SeriesManifest> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+      SeriesManifestSchema.parse(value),
+    );
+    if (!manifest.archivedAt) return manifest;
+    const restored = SeriesManifestSchema.parse({
+      ...manifest,
+      archivedAt: null,
+      updatedAt: new Date().toISOString(),
+    });
+    await atomicWrite(path.join(seriesRoot, SERIES_FILE), serializeYaml(restored));
+    return restored;
+  }
+
+  async deleteSeries(seriesId: string, rawInput: DeleteSeriesInput): Promise<DeleteSeriesResult> {
+    const input = DeleteSeriesInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+      SeriesManifestSchema.parse(value),
+    );
+    if (!manifest.archivedAt) {
+      throw new StorageError("Project must be in Trash before permanent deletion", "INVALID_DATA", {
+        seriesId,
+      });
+    }
+    if (input.confirmTitle !== manifest.title) {
+      throw new StorageError("Project title confirmation does not match", "INVALID_DATA", {
+        seriesId,
+      });
+    }
+    const resolvedRoot = path.resolve(seriesRoot);
+    if (resolvedRoot === this.libraryRoot || path.dirname(resolvedRoot) !== this.libraryRoot) {
+      throw new StorageError("Series root is outside the library delete boundary", "PATH_ESCAPE", {
+        seriesId,
+        seriesRoot,
+        libraryRoot: this.libraryRoot,
+      });
+    }
+    await rm(resolvedRoot, { force: true, recursive: true });
+    return DeleteSeriesResultSchema.parse({ deletedId: seriesId });
+  }
+
   async getSeries(seriesId: string): Promise<SeriesDetail> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const hierarchy = await this.validateHierarchy(seriesId);
@@ -1533,6 +1601,128 @@ export class ProjectRepository {
     return SceneBlockDocumentResponseSchema.parse(updated);
   }
 
+  async createSceneProgressionBlock(
+    seriesId: string,
+    sceneId: string,
+    rawInput: CreateSceneProgressionBlockInput,
+  ): Promise<CreateSceneProgressionBlockResult> {
+    const input = CreateSceneProgressionBlockInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const filePath = await this.findScenePath(seriesRoot, sceneId);
+    const scene = parseSceneText(
+      await readFile(filePath, "utf8"),
+      path.relative(seriesRoot, filePath),
+    );
+    if (scene.revision !== input.baseRevision) {
+      throw new StorageError("Scene block document has changed on disk", "CONFLICT", {
+        currentRevision: scene.revision,
+        scene,
+      });
+    }
+
+    const currentBlocks = scene.document.blocks;
+    const targetIndex = input.afterBlockId
+      ? currentBlocks.findIndex((block) => block.id === input.afterBlockId)
+      : -1;
+    if (input.afterBlockId && targetIndex < 0) {
+      throw new StorageError("Insert target scene block does not exist", "INVALID_DATA", {
+        sceneId,
+        blockId: input.afterBlockId,
+      });
+    }
+
+    const now = new Date().toISOString();
+    const blockId = randomUUID();
+    const progression = CodexProgressionSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      kind: input.progression.kind,
+      entryId: input.progression.entryId ?? null,
+      relationId: input.progression.relationId ?? null,
+      field: input.progression.field ?? null,
+      fieldKey: input.progression.fieldKey ?? null,
+      operation: input.progression.operation,
+      body: input.progression.body ?? "",
+      summary: input.progression.summary,
+      effectiveFromSceneId: sceneId,
+      effectiveToSceneId: input.progression.effectiveToSceneId ?? null,
+      source: {
+        kind: "write-block",
+        sceneId,
+        blockId,
+      },
+      evidence: input.progression.evidence,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    });
+    const block = CodexProgressionSceneBlockSchema.parse({
+      id: blockId,
+      kind: "codexProgression",
+      progressionId: progression.id,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const insertIndex = targetIndex >= 0 ? targetIndex + 1 : currentBlocks.length;
+    const nextDocument = SceneBlockDocumentSchema.parse({
+      schemaVersion: 1,
+      blocks: [
+        ...currentBlocks.slice(0, insertIndex),
+        block,
+        ...currentBlocks.slice(insertIndex),
+      ],
+    });
+    const metadata = SceneFrontmatterSchema.parse({
+      ...scene.metadata,
+      updatedAt: now,
+    });
+
+    await this.assertCodexProgressionReferences(seriesId, seriesRoot, progression, {
+      knownWriteBlock: { sceneId, blockId },
+    });
+    await this.assertSceneProgressionBlockReferences(seriesRoot, sceneId, nextDocument, {
+      knownProgression: progression,
+    });
+
+    const sceneRaw = serializeSceneDocument(metadata, nextDocument);
+    const progressionRaw = serializeJsonAuthority(progression);
+    const expectedSceneRevision = jsonAuthorityRevision(sceneRaw);
+    const expectedProgressionRevision = jsonAuthorityRevision(progressionRaw);
+    const progressionPath = codexProgressionPath(seriesRoot, progression.id);
+    if (await pathExists(progressionPath)) {
+      throw new StorageError("Generated progression ID already exists", "INVALID_DATA", {
+        progressionId: progression.id,
+      });
+    }
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: filePath, content: sceneRaw },
+      { targetPath: progressionPath, content: progressionRaw },
+    ]);
+
+    const updatedScene = await this.getScene(seriesId, sceneId);
+    const writtenProgression = await this.readCodexProgression(seriesRoot, progression.id);
+    if (
+      updatedScene.revision !== expectedSceneRevision ||
+      writtenProgression.revision !== expectedProgressionRevision
+    ) {
+      throw new StorageError("Scene progression block transaction verification failed", "INVALID_DATA", {
+        sceneId,
+        blockId,
+        progressionId: progression.id,
+        expectedSceneRevision,
+        actualSceneRevision: updatedScene.revision,
+        expectedProgressionRevision,
+        actualProgressionRevision: writtenProgression.revision,
+      });
+    }
+    await this.indexScene(seriesRoot, updatedScene);
+    return CreateSceneProgressionBlockResultSchema.parse({
+      block,
+      progression: writtenProgression,
+      scene: updatedScene,
+    });
+  }
+
   async deleteSceneProgressionBlock(
     seriesId: string,
     sceneId: string,
@@ -1540,7 +1730,12 @@ export class ProjectRepository {
     rawInput: DeleteSceneProgressionBlockInput,
   ): Promise<DeleteSceneProgressionBlockResult> {
     const input = DeleteSceneProgressionBlockInputSchema.parse(rawInput);
-    const scene = await this.getScene(seriesId, sceneId);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const filePath = await this.findScenePath(seriesRoot, sceneId);
+    const scene = parseSceneText(
+      await readFile(filePath, "utf8"),
+      path.relative(seriesRoot, filePath),
+    );
     if (scene.revision !== input.baseRevision) {
       throw new StorageError("Scene block document has changed on disk", "CONFLICT", {
         currentRevision: scene.revision,
@@ -1592,36 +1787,48 @@ export class ProjectRepository {
       schemaVersion: 1,
       blocks: scene.document.blocks.filter((candidate) => candidate.id !== blockId),
     };
-    const updatedScene = await this.updateSceneBlockDocument(seriesId, sceneId, {
-      baseRevision: scene.revision,
-      title: scene.metadata.title,
-      status: scene.metadata.status,
-      document: nextDocument,
-    });
+    await this.assertSceneProgressionBlockReferences(seriesRoot, sceneId, nextDocument);
 
+    const metadata = SceneFrontmatterSchema.parse({
+      ...scene.metadata,
+      updatedAt: new Date().toISOString(),
+    });
+    const sceneRaw = serializeSceneDocument(metadata, nextDocument);
+    const expectedSceneRevision = jsonAuthorityRevision(sceneRaw);
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: filePath, content: sceneRaw },
+      { targetPath: codexProgressionPath(seriesRoot, block.progressionId), delete: true },
+    ]);
+
+    const updatedScene = await this.getScene(seriesId, sceneId);
     try {
-      await this.deleteCodexProgression(seriesId, block.progressionId, {
-        baseRevision: input.progressionBaseRevision,
-      });
+      await this.readCodexProgression(seriesRoot, block.progressionId);
     } catch (error) {
-      try {
-        await this.updateSceneBlockDocument(seriesId, sceneId, {
-          baseRevision: updatedScene.revision,
-          title: scene.metadata.title,
-          status: scene.metadata.status,
-          document: scene.document,
+      if (error instanceof StorageError && error.code === "NOT_FOUND") {
+        if (updatedScene.revision !== expectedSceneRevision) {
+          throw new StorageError("Scene progression block transaction verification failed", "INVALID_DATA", {
+            sceneId,
+            blockId,
+            progressionId: block.progressionId,
+            expectedSceneRevision,
+            actualSceneRevision: updatedScene.revision,
+          });
+        }
+        await this.indexScene(seriesRoot, updatedScene);
+        return DeleteSceneProgressionBlockResultSchema.parse({
+          blockId,
+          deletedId: block.progressionId,
+          blockers: [],
+          scene: updatedScene,
         });
-      } catch {
-        // The original deletion error is more useful to callers than a best-effort rollback failure.
       }
       throw error;
     }
 
-    return DeleteSceneProgressionBlockResultSchema.parse({
+    throw new StorageError("Scene progression block transaction verification failed", "INVALID_DATA", {
+      sceneId,
       blockId,
-      deletedId: block.progressionId,
-      blockers: [],
-      scene: updatedScene,
+      progressionId: block.progressionId,
     });
   }
 
@@ -5666,6 +5873,7 @@ export class ProjectRepository {
     seriesRoot: string,
     sceneId: string,
     document: SceneBlockDocument,
+    options: { knownProgression?: CodexProgression } = {},
   ): Promise<void> {
     const seenProgressionIds = new Set<string>();
     for (const block of document.blocks) {
@@ -5681,7 +5889,12 @@ export class ProjectRepository {
 
       let progressionDocument: CodexProgressionDocument;
       try {
-        progressionDocument = await this.readCodexProgression(seriesRoot, block.progressionId);
+        progressionDocument = options.knownProgression?.id === block.progressionId
+          ? CodexProgressionDocumentSchema.parse({
+              progression: options.knownProgression,
+              revision: jsonAuthorityRevision(serializeJsonAuthority(options.knownProgression)),
+            })
+          : await this.readCodexProgression(seriesRoot, block.progressionId);
       } catch (error) {
         if (error instanceof StorageError && error.code === "NOT_FOUND") {
           throw new StorageError("Scene progression block references a missing progression", "INVALID_DATA", {
@@ -5730,6 +5943,7 @@ export class ProjectRepository {
     seriesId: string,
     seriesRoot: string,
     progression: CodexProgression,
+    options: { knownWriteBlock?: { sceneId: string; blockId: string } } = {},
   ): Promise<void> {
     const { sceneIndexes } = await this.narrativeSceneIndexes(seriesId);
     this.assertEffectiveSceneRange(
@@ -5752,7 +5966,9 @@ export class ProjectRepository {
       }
       const scene = await this.getScene(seriesId, progression.source.sceneId!);
       const blockId = progression.source.blockId!;
-      if (!scene.document.blocks.some((block) => block.id === blockId)) {
+      const isKnownWriteBlock = options.knownWriteBlock?.sceneId === progression.source.sceneId &&
+        options.knownWriteBlock.blockId === blockId;
+      if (!isKnownWriteBlock && !scene.document.blocks.some((block) => block.id === blockId)) {
         throw new StorageError("Progression source references an unknown scene block", "INVALID_DATA", {
           sceneId: progression.source.sceneId,
           blockId,

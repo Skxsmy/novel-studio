@@ -94,6 +94,7 @@ export function App() {
               setIsFocusMode(false);
             }
           }}
+          onDeleteSeries={session.deleteSeries}
           onOpenSeries={async (seriesId) => {
             const opened = await session.openSeries(seriesId);
             if (opened) {
@@ -103,6 +104,8 @@ export function App() {
             }
           }}
           onRefresh={session.refreshSeriesList}
+          onRestoreSeries={session.restoreSeries}
+          onTrashSeries={session.trashSeries}
           seriesList={session.seriesList}
         />
       );
