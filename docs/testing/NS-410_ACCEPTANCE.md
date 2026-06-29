@@ -22,12 +22,12 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | NS-410-A07 | passed | Slice 5 storage tests verify baseline-only effective entry projection for Canon Description and reusable Detail values. |
 | NS-410-A08 | passed | Slice 5 storage tests verify `add`, repeated `add`, `replace`, replace-then-add, and empty `replace` folding per field. |
 | NS-410-A09 | passed | Slice 5 storage and server tests verify same-scene block position changes effective Codex fields before/after write-block progressions. The audit repair extends same-scene block-position isolation to world and relationship Progression effective state. |
-| NS-410-A10 | passed | Slice 5 storage and effective-entry API tests verify future field progression body, summary, and IDs are absent from earlier responses, with only hidden counts returned. Slice 6 context route tests verify future field progression body, summary, and IDs are also absent from Context Bundle payloads. The audit repair adds same-scene later-block future isolation for world/relationship state and current-scene body block slicing. |
+| NS-410-A10 | passed | Slice 5 storage and effective-entry API tests verify future field progression body, summary, and IDs are absent from earlier responses, with only hidden counts returned. Slice 6 context route tests verify future field progression body, summary, and IDs are also absent from Context Bundle payloads. The audit repair adds same-scene later-block future isolation for world/relationship state and current-scene body block slicing. Slice 9 web tests verify the Codex effective-at-scene card hides later-scene field Progression content while showing only hidden-future counts for the selected earlier scene. |
 | NS-410-A11 | passed | Slice 5 storage tests verify baseline edits update add chains before a replace boundary while projected values after a replace stay independent from earlier baseline changes. |
 | NS-410-A12 | passed | Slice 6 `context-routes.test.ts` verifies Context Builder uses projected Codex description/details, respects per-detail AI switches, omits empty-replaced fields, and records hidden future field counts without content leakage. The audit repair adds block-aware current-scene manuscript context, world/relationship effective-state block isolation, and ContextItem `sourceRefs` for projected Progression sources. |
-| NS-410-A13 | passed | Slice 4 keeps character knowledge separate from unified JSON Progression, verifies knowledge can reference JSON progression IDs, and verifies new Progression files are `.json` with no `.yaml` authority file. The audit repair moves character knowledge authority to `codex/knowledge/<id>.json` and verifies no new knowledge `.yaml` file is written. |
+| NS-410-A13 | passed | Slice 4 keeps character knowledge separate from unified JSON Progression, verifies knowledge can reference JSON progression IDs, and verifies new Progression files are `.json` with no `.yaml` authority file. The audit repair moves character knowledge authority to `codex/knowledge/<id>.json` and verifies no new knowledge `.yaml` file is written. Slice 9 consumes only unified Progression APIs and effective-entry projection; it does not introduce knowledge/progression merging or an old YAML progression UI. |
 | NS-410-A14 | passed | Slice 7 web tests verify ordinary paragraph/heading/scene-break block editing and saving through a native Write block editor, with no saved UI-only markup and no old single-document text editor path for Write scene content. Slice 8 adds embedded progression block create/edit/collapse/delete behavior and verifies saved scene documents contain `codexProgression` data only, not UI-only preview markup. User visual acceptance remains separate. |
-| NS-410-A15 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
+| NS-410-A15 | passed for automated Slice 9 scope | Web tests cover Codex baseline versus effective state, field-grouped Progression history, and earlier-scene future isolation. User visual acceptance remains separate and is not claimed by this automated result. |
 | NS-410-A16 | passed | Slice 2 storage repository tests cover existing scene save, hierarchy, mention/index, and search-adjacent regressions while scene files are JSON authority. Slice 6 verifies Context Builder reads projected scene/Codex context at scene/block position. Slice 7 verifies Write-local counts and Codex mention marks derive from `SceneBlockDocument` projection. The audit repair switches storage search, FTS indexing, Codex mention indexing, previous-scene summaries, and current-scene Context Builder body projection to plain text derived from blocks. |
 | NS-410-A17 | passed | Slice 2 keeps existing scene `content` read/write API behavior compatible by converting `content` writes to JSON blocks and returning projected `content`; Slice 3 adds block document APIs without removing legacy `content` routes, with server and web compatibility checks. Slice 7 keeps legacy route mocks/regressions available while moving the Write scene-content path to the document endpoint. |
 
@@ -414,6 +414,39 @@ Commands:
 | `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx --reporter=verbose` | Passed with 41/41 tests; Vitest printed existing React `act(...)` warnings in unrelated write-selection/focus-mode cases. |
 | `npm.cmd run build` | Passed with the existing Vite large-chunk warning. |
 | `npm.cmd run test` | Passed with server 25/25, web 49/49, AI 20/20, and storage 67/67 tests. |
+
+### Slice 9: Codex Baseline, History, And Effective-at-Scene UI
+
+Status: passed for automated Slice 9 scope on 2026-06-29. User visual acceptance remains separate.
+
+Logic closure boundary verified:
+
+- Authority source: baseline `CodexEntryDocument` fields and unified `codex/progressions/<id>.json` field Progression records.
+- Read paths: Codex entry list/detail type data, `GET /codex/progressions?kind=field&entryId=...`, and `GET /codex/entries/:entryId/effective?sceneId=...`.
+- Write paths: no new authority write path was added in Slice 9; Codex baseline edits still use the existing entry save path, and Write-sourced Progression edits remain in the Write story-change block workflow.
+- Derived paths: effective-at-scene fields come only from the existing effective-entry projection; the Codex UI does not calculate future-effective state from raw history.
+- User-visible entry: Codex detail `Progressions` tab with an initial-state card, effective-at-scene card, scene selector, hidden-future count messaging, and field-grouped Progression history.
+- Future isolation: the effective card for an earlier scene hides later-scene field Progression body while showing only a hidden-future count. Full history remains labelled as history and does not claim future records are current state.
+- Engineering fields: Progression IDs, revisions, base revisions, and source hashes are not rendered in the author-facing Progressions tab.
+- Out of scope for this slice: Codex-page editing of Codex-page-sourced Progressions, Knowledge UI, Proposal UI, direct AI writes, and broad remaining YAML/Markdown authority migration.
+
+Changes verified:
+
+- Added a Codex `Progressions` tab and centralized new tab/copy strings in `apps/web/src/features/codex/codexViewModel.ts`.
+- The tab loads selected-entry field Progressions and selected-scene effective entry data from existing API wrappers.
+- Baseline values are read from the saved Codex entry; effective values are read from the projected effective entry.
+- Progression history is grouped by field and sorted by narrative scene/block order where the source block exists.
+- The AppShell test mock now supports `entryId` filtering on Progression list calls and scene-order-aware effective-entry folding, so the new test covers a real future-scene branch instead of a no-op path.
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` | Initial run failed because hidden Progressions tab content duplicated existing scene text queries and the new future-hidden message appeared in both summary and field state. After rendering Progressions tab content only when active and narrowing the assertion, rerun passed with 42/42 tests. |
+| `npm.cmd run build -w @novel-studio/web` | Passed with the existing Vite large-chunk warning. |
+| `npm.cmd run build` | Passed with the existing Vite large-chunk warning. |
+| `npm.cmd run test` | Passed with server 25/25, web 50/50, AI 20/20, and storage 67/67 tests. |
+| `git diff --check` | Passed with line-ending warnings only. |
 
 ## Invariant Checklist
 

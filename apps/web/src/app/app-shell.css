@@ -2178,6 +2178,110 @@ details.disclosure summary::-webkit-details-marker { display: none; }
   min-height: 300px;
 }
 
+.codex-progressions-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.codex-progressions-head,
+.progression-history-card-head,
+.progression-history-group-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.codex-progressions-head h4,
+.codex-progression-history h5,
+.progression-state-card h5 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 820;
+}
+
+.codex-progressions-head p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.progression-scene-field {
+  min-width: min(260px, 100%);
+}
+
+.progression-future-note {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(185, 132, 24, 0.34);
+  background: #fff8e7;
+}
+
+.codex-progressions-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.progression-state-card,
+.codex-progression-history,
+.progression-history-group,
+.progression-history-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 12px;
+}
+
+.progression-field-state {
+  display: grid;
+  gap: 5px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(126, 137, 130, 0.22);
+}
+
+.progression-field-state:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.progression-field-state > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.progression-field-state span,
+.progression-history-group-head strong {
+  color: #5f6964;
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.progression-field-state p,
+.progression-history-card p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.48;
+  white-space: pre-wrap;
+}
+
+.progression-field-state small {
+  color: #8a5a00;
+  font-size: 12px;
+}
+
+.progression-history-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .checkbox-row {
   display: flex;
   gap: 8px;
@@ -2959,6 +3063,10 @@ details.disclosure summary::-webkit-details-marker { display: none; }
 
   .codex-grid.detail-open,
   .review-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .codex-progressions-compare {
     grid-template-columns: minmax(0, 1fr);
   }
 

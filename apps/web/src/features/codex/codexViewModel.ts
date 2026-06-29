@@ -5,7 +5,7 @@ import {
   type CodexEntryDocument,
 } from "@novel-studio/contracts";
 
-export type CodexTab = "details" | "research" | "relations" | "mentions" | "tracking";
+export type CodexTab = "details" | "research" | "relations" | "progressions" | "mentions" | "tracking";
 export type CategoryFilter = "all" | CodexCategoryId;
 
 export const codexText = {
@@ -55,6 +55,7 @@ export const codexText = {
     detailTypeCreateForm: "Create detail type",
     detailTypeManager: "Manage detail types",
     detailTypeManagerCategory: "Detail type manager category",
+    progressionScene: "Effective story state scene",
     researchNotes: "Codex research notes",
     newCategoryName: "New category name",
     newDetailTypeCategory: "New detail type category",
@@ -130,6 +131,7 @@ export const codexText = {
     updateDetailTypeFailed: "Failed to update detail type",
     loadFailed: "Failed to load codex entries",
     loadConnectionsFailed: "Failed to load Codex connections",
+    loadProgressionsFailed: "Failed to load story state",
     nameRequired: "Name is required.",
     reloadFailed: "Failed to reload codex entry",
     renameCategoryFailed: "Failed to rename category",
@@ -160,6 +162,32 @@ export const codexText = {
     manuscript: "Manuscript",
     openScene: "Open",
     title: "Mentions",
+  },
+  progressions: {
+    baselineTitle: "Initial state",
+    changes: (count: number) => `${count} ${count === 1 ? "change" : "changes"}`,
+    emptyHistory: "No story-state changes for this entry yet.",
+    emptyScene: "No scene is available for effective story state.",
+    emptyValue: "No value",
+    effectiveTitle: "Effective here",
+    fieldDescription: "Canon description",
+    fieldDetail: (label: string) => `Detail: ${label}`,
+    fieldFallback: "Detail",
+    hiddenFuture: (count: number) => `${count} future ${count === 1 ? "change is" : "changes are"} hidden here.`,
+    historyTitle: "History",
+    latest: "Latest change",
+    loading: "Loading story state.",
+    openScene: "Open scene",
+    operationAdd: "Add",
+    operationReplace: "Replace",
+    sceneLabel: "Effective at scene",
+    sourceCodexPage: "Codex page",
+    sourceProposal: "Proposal",
+    sourceWriteBlock: "Write block",
+    sourceUnknown: "Source",
+    stateBaseline: "Baseline",
+    stateProgression: "Progression",
+    title: "Progressions",
   },
   relations: {
     archived: "Archived",
@@ -217,6 +245,7 @@ export const codexTabs: Array<{ id: CodexTab; label: string }> = [
   { id: "details", label: "Details" },
   { id: "research", label: "Research" },
   { id: "relations", label: "Relations" },
+  { id: "progressions", label: "Progressions" },
   { id: "mentions", label: "Mentions" },
   { id: "tracking", label: "Tracking" },
 ];

@@ -21,6 +21,7 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **NS-410 Slice 8**: Added embedded Write story-change blocks and the current-scene progression panel. Write can create/update linked field Progression records, preview before/after effective Codex values at same-scene block position, collapse UI state without persisting it to authority, and delete a block plus linked Progression together through a dedicated scene progression-block route that reports blocker reasons without partial mutation. Story-change-specific UI copy is centralized in `uiText.writeProgression`, and shared actions use `uiText.actions`.
 - **NS-410 Slice 8 Review Repair**: Closed review findings in the story-change block flow. Insert/delete now use scene-level transaction-backed commands that write scene JSON and Progression JSON together; deleting a story-change block first saves dirty scene drafts so prose edits are not overwritten; first-block previews read the previous narrative scene effective state; and web/storage/server tests cover the repaired paths.
 - **Project Lifecycle Delete Repair**: Added Library Trash, Restore, and permanent project-directory deletion. Permanent delete requires typing the exact project name in a confirmation dialog and is enforced by the server/storage layer before files are removed.
+- **NS-410 Slice 9**: Added the Codex Progressions tab for baseline versus selected-scene effective field state, hidden-future count messaging, scene selection, and field-grouped Progression history. The UI consumes existing unified Progression/effective-entry APIs, centralizes new Codex copy in `codexViewModel`, and does not render Progression IDs or revisions in the author workflow.
 
 ### Project Foundation
 
@@ -94,9 +95,9 @@ This changelog retains the historical milestone record from the earlier Chinese 
 
 ### Current Validation Snapshot
 
-- Focused NS-410 Slice 8 repair validation passed: contracts/storage/server/web builds, storage `repository.test.ts` 55/55, server `app.test.ts` 11/11, and web `AppShell.test.tsx` 40/40. The project lifecycle follow-up added focused storage `repository.test.ts` 56/56, server `app.test.ts` 12/12, and web `AppShell.test.tsx` 41/41 coverage. The web build still reports the existing Vite large-chunk warning, and the web test run still prints existing React `act(...)` warnings in unrelated cases.
+- Focused NS-410 Slice 9 validation passed: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed 42/42 after fixing the initial hidden-tab test query issue, and `npm.cmd run build -w @novel-studio/web` passed with the existing Vite large-chunk warning. Earlier Slice 8/project lifecycle focused validations remain recorded in `docs/testing/NS-410_ACCEPTANCE.md`.
 - `npm.cmd run build`: passed in the latest validation, with the existing Vite large-chunk warning.
-- `npm.cmd run test`: passed in the latest validation; server 25, web 49, AI 20, and storage 67 tests.
+- `npm.cmd run test`: passed in the latest validation; server 25, web 50, AI 20, and storage 67 tests.
 - Focused Codex Details checks also passed: storage `repository.test.ts` 43 tests, server `app.test.ts context-routes.test.ts` 8 tests, and web `AppShell.test.tsx EditorSurface.test.tsx` 44 tests.
 - Focused Codex layout / preview bounds checks passed: `EditorSurface.test.tsx` 8 tests, `AppShell.test.tsx` 38 tests, and web typecheck.
 - `git diff --check` passed with line-ending warnings only.

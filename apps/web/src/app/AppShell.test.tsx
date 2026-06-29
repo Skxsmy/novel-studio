@@ -939,27 +939,35 @@ function mockFetch(options: {
       const parsedUrl = new URL(url, "http://localhost");
       const targetBlockId = parsedUrl.searchParams.get("blockId");
       const targetSceneId = parsedUrl.searchParams.get("sceneId") ?? sceneId;
-      const scene = (detailOverride ?? seriesDetail()).scenes.find((candidate) => candidate.metadata.id === targetSceneId) ??
-        sceneDocument();
+      const detail = detailOverride ?? seriesDetail();
+      const scene = detail.scenes.find((candidate) => candidate.metadata.id === targetSceneId) ?? sceneDocument();
+      const targetSceneIndex = detail.scenes.findIndex((candidate) => candidate.metadata.id === targetSceneId);
       const targetIndex = targetBlockId
         ? scene.document.blocks.findIndex((block) => block.id === targetBlockId)
-        : scene.document.blocks.length - 1;
+        : Number.MAX_SAFE_INTEGER;
       const entry = codexEntries.find((candidate) => candidate.metadata.id === entryId) ??
         codexEntryDocument("Harbor Lock", "location", "Baseline lock state.", entryId);
       let description = entry.description;
+      let lastProgressionId: string | null = null;
       let hiddenFutureFieldProgressionCount = 0;
       for (const progression of codexProgressions.filter((document) => (
         document.progression.entryId === entryId &&
-        document.progression.source.kind === "write-block" &&
-        document.progression.source.sceneId === targetSceneId
+        document.progression.kind === "field"
       ))) {
-        const progressionBlockIndex = scene.document.blocks.findIndex((block) =>
-          block.id === progression.progression.source.blockId,
+        const progressionSceneIndex = detail.scenes.findIndex((candidate) =>
+          candidate.metadata.id === progression.progression.effectiveFromSceneId,
         );
-        if (progressionBlockIndex >= 0 && progressionBlockIndex <= targetIndex) {
+        const progressionScene = detail.scenes[progressionSceneIndex];
+        const progressionBlockIndex = progression.progression.source.kind === "write-block" && progressionScene
+          ? progressionScene.document.blocks.findIndex((block) => block.id === progression.progression.source.blockId)
+          : -1;
+        const isFuture = progressionSceneIndex > targetSceneIndex ||
+          (progressionSceneIndex === targetSceneIndex && progressionBlockIndex > targetIndex);
+        if (!isFuture) {
           description = progression.progression.operation === "replace"
             ? progression.progression.body
             : `${progression.progression.body}\n\n${description}`.trim();
+          lastProgressionId = progression.progression.id;
         } else {
           hiddenFutureFieldProgressionCount += 1;
         }
@@ -967,7 +975,12 @@ function mockFetch(options: {
       return jsonResponse({
         blockId: targetBlockId,
         entry: { ...entry, description },
-        fieldStates: [],
+        fieldStates: [{
+          field: { kind: "description", detailTypeId: null },
+          hiddenFutureCount: hiddenFutureFieldProgressionCount,
+          lastProgressionId,
+          source: lastProgressionId ? "progression" : "baseline",
+        }],
         hiddenFutureFieldProgressionCount,
         sceneId: targetSceneId,
       });
@@ -975,10 +988,12 @@ function mockFetch(options: {
 
     if (url.startsWith(`/api/v1/series/${seriesId}/codex/progressions`) && method === "GET") {
       const parsedUrl = new URL(url, "http://localhost");
+      const entryIdFilter = parsedUrl.searchParams.get("entryId");
       const sceneIdFilter = parsedUrl.searchParams.get("sceneId");
       const kindFilter = parsedUrl.searchParams.get("kind");
       return jsonResponse(codexProgressions.filter((document) => {
         if (kindFilter && document.progression.kind !== kindFilter) return false;
+        if (entryIdFilter && document.progression.entryId !== entryIdFilter) return false;
         if (sceneIdFilter && document.progression.effectiveFromSceneId !== sceneIdFilter) return false;
         return true;
       }));
@@ -2035,6 +2050,116 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Bellgate" }));
     expect(screen.getByLabelText("Harbor Lock canon description")).toBeTruthy();
     expect(screen.getAllByText("A storm-pressure mechanism below the west quay.").length).toBeGreaterThan(0);
+  });
+
+  it("shows codex baseline effective state and grouped progression history without future leakage", async () => {
+    const previousSceneDocument: SceneBlockDocument = {
+      schemaVersion: 1,
+      blocks: [
+        { id: firstBlockId, kind: "paragraph", text: "Earlier scene." },
+        {
+          createdAt: "2026-06-24T00:00:00.000Z",
+          id: secondBlockId,
+          kind: "codexProgression",
+          progressionId,
+          updatedAt: "2026-06-24T00:00:00.000Z",
+        },
+      ],
+    };
+    const futureSceneDocument: SceneBlockDocument = {
+      schemaVersion: 1,
+      blocks: [{
+        createdAt: "2026-06-25T00:00:00.000Z",
+        id: thirdBlockId,
+        kind: "codexProgression",
+        progressionId: secondProgressionId,
+        updatedAt: "2026-06-25T00:00:00.000Z",
+      }],
+    };
+    const baseDetail = seriesDetail("", revision);
+    const previousScene = sceneDocumentWithMetadata(
+      { id: sceneId, order: 1, title: "Opening Scene" },
+      "",
+      revision,
+      previousSceneDocument,
+    );
+    const futureScene = sceneDocumentWithMetadata(
+      { id: secondSceneId, order: 2, title: "Second Scene" },
+      "",
+      revision,
+      futureSceneDocument,
+    );
+    const fetchMock = mockFetch({
+      initialCodexEntries: [
+        codexEntryDocument("Harbor Lock", "location", "Baseline lock state.", codexEntryId),
+      ],
+      initialCodexProgressions: [
+        codexProgressionDocument(secondBlockId, progressionId, {
+          body: "Previous scene truth.",
+          operation: "replace",
+          summary: "Previous change.",
+        }),
+        codexProgressionDocument(thirdBlockId, secondProgressionId, {
+          body: "Future bell secret.",
+          operation: "add",
+          sceneId: secondSceneId,
+          summary: "Future change.",
+        }),
+      ],
+      initialSeriesDetail: {
+        ...baseDetail,
+        chapters: baseDetail.chapters.map((chapter) => ({
+          ...chapter,
+          sceneIds: [sceneId, secondSceneId],
+        })),
+        scenes: [previousScene, futureScene],
+      },
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    const harborRow = (await screen.findByText("Harbor Lock")).closest("button");
+    expect(harborRow).toBeTruthy();
+    fireEvent.click(harborRow!);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Progressions" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/progressions?kind=field&entryId=${codexEntryId}`,
+        expect.objectContaining({ method: "GET" }),
+      );
+      expect(fetchMock.mock.calls.some(([url, init]) => (
+        typeof url === "string" &&
+        url.includes(`/api/v1/series/${seriesId}/codex/entries/${codexEntryId}/effective`) &&
+        url.includes(`sceneId=${sceneId}`) &&
+        init?.method === "GET"
+      ))).toBe(true);
+    });
+
+    const baselineCard = screen.getByText("Initial state").closest(".progression-state-card");
+    const effectiveCard = screen.getByText("Effective here").closest(".progression-state-card");
+    expect(baselineCard).toBeTruthy();
+    expect(effectiveCard).toBeTruthy();
+    expect(within(baselineCard as HTMLElement).getByText("Baseline lock state.")).toBeTruthy();
+    expect(within(effectiveCard as HTMLElement).getByText("Previous scene truth.")).toBeTruthy();
+    expect(within(effectiveCard as HTMLElement).queryByText(/Future bell secret/)).toBeNull();
+    expect(screen.getAllByText("Canon description").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1 future change is hidden here.").length).toBeGreaterThan(0);
+    expect(screen.getByText("History")).toBeTruthy();
+    expect(screen.getByText("Previous change.")).toBeTruthy();
+    expect(screen.getByText("Future change.")).toBeTruthy();
+    expect(screen.queryByText(progressionId)).toBeNull();
+    expect(screen.queryByText(secondProgressionId)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Effective story state scene"), {
+      target: { value: secondSceneId },
+    });
+    await waitFor(() => {
+      const nextEffectiveCard = screen.getByText("Effective here").closest(".progression-state-card");
+      expect(nextEffectiveCard).toBeTruthy();
+      expect(within(nextEffectiveCard as HTMLElement).getByText(/Future bell secret/)).toBeTruthy();
+    });
   });
 
   it("marks codex canon description mentions inline and toggles the preview from the same mark", async () => {

@@ -5,8 +5,11 @@ import {
   type CodexCategoryDocument,
   type CodexCategoryId,
   type CodexDetailTypeDocument,
+  type CodexEffectiveEntry,
   type CodexEntryDocument,
+  type CodexFieldProgressionField,
   type CodexMention,
+  type CodexProgressionDocument,
   type CodexMentionRules,
   type CodexRelationDocument,
   type CreateCodexRelationInput,
@@ -300,6 +303,39 @@ function findCodexContentMentions(entry: CodexEntryDocument, entries: CodexEntry
   return mentions;
 }
 
+function codexFieldKey(field: CodexFieldProgressionField) {
+  return field.kind === "description" ? "description" : `detail:${field.detailTypeId}`;
+}
+
+function codexFieldLabel(field: CodexFieldProgressionField, detailTypes: CodexDetailTypeDocument[]) {
+  if (field.kind === "description") return codexText.progressions.fieldDescription;
+  const detailType = detailTypes.find((document) => document.detailType.id === field.detailTypeId)?.detailType;
+  return codexText.progressions.fieldDetail(detailType?.name ?? codexText.progressions.fieldFallback);
+}
+
+function codexFieldValue(
+  entry: CodexEntryDocument,
+  field: CodexFieldProgressionField,
+  detailTypes: CodexDetailTypeDocument[],
+) {
+  if (field.kind === "description") return entry.description;
+  const detailType = detailTypes.find((document) => document.detailType.id === field.detailTypeId)?.detailType;
+  return entry.metadata.details[field.detailTypeId] ?? (detailType ? entry.metadata.details[detailType.name] : undefined) ?? "";
+}
+
+function progressionSourceLabel(document: CodexProgressionDocument) {
+  if (document.progression.source.kind === "write-block") return codexText.progressions.sourceWriteBlock;
+  if (document.progression.source.kind === "codex-page") return codexText.progressions.sourceCodexPage;
+  if (document.progression.source.kind === "proposal") return codexText.progressions.sourceProposal;
+  return codexText.progressions.sourceUnknown;
+}
+
+function progressionOperationLabel(document: CodexProgressionDocument) {
+  return document.progression.operation === "replace"
+    ? codexText.progressions.operationReplace
+    : codexText.progressions.operationAdd;
+}
+
 export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
   const [activeTab, setActiveTab] = useState<CodexTab>("details");
@@ -310,8 +346,10 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [detailTypes, setDetailTypes] = useState<CodexDetailTypeDocument[]>([]);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [entryMentions, setEntryMentions] = useState<CodexMention[]>([]);
+  const [entryProgressions, setEntryProgressions] = useState<CodexProgressionDocument[]>([]);
   const [entryRelations, setEntryRelations] = useState<CodexRelationDocument[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [effectiveEntry, setEffectiveEntry] = useState<CodexEffectiveEntry | null>(null);
   const [isCategoryAddOpen, setIsCategoryAddOpen] = useState(false);
   const [isCategoryDeleteOpen, setIsCategoryDeleteOpen] = useState(false);
   const [isDeleteEntryOpen, setIsDeleteEntryOpen] = useState(false);
@@ -324,6 +362,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [isCreatingRelation, setIsCreatingRelation] = useState(false);
   const [isDetailFocus, setIsDetailFocus] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isProgressionsLoading, setIsProgressionsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [detailTypeManagerCategoryId, setDetailTypeManagerCategoryId] = useState<CodexCategoryId>(DefaultCodexEntryValues.categoryId);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -331,6 +370,8 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [newDetailTypeName, setNewDetailTypeName] = useState("");
   const [newDetailTypeNsfw, setNewDetailTypeNsfw] = useState(false);
   const [previewEntry, setPreviewEntry] = useState<CodexEntryDocument | null>(null);
+  const [progressionError, setProgressionError] = useState<string | null>(null);
+  const [progressionSceneId, setProgressionSceneId] = useState(() => series.scenes[0]?.metadata.id ?? "");
   const [query, setQuery] = useState("");
   const [renamingCategory, setRenamingCategory] = useState<{ id: string; name: string; baseRevision: string } | null>(null);
   const [detailTypeDeleteId, setDetailTypeDeleteId] = useState<string | null>(null);
@@ -350,7 +391,12 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     setActiveMentionSource("manuscript");
     setConnectionError(null);
     setEntryMentions([]);
+    setEntryProgressions([]);
     setEntryRelations([]);
+    setEffectiveEntry(null);
+    setProgressionError(null);
+    setIsProgressionsLoading(false);
+    setProgressionSceneId(series.scenes[0]?.metadata.id ?? "");
     setPreviewEntry(null);
     setRelationDeleteId(null);
     setRelationDraft(relationDraftFor(null, []));
@@ -409,6 +455,10 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const selectedEntry = selectedEntryId ? entries.find((entry) => entry.metadata.id === selectedEntryId) ?? null : null;
   const entryNameById = useMemo(() => new Map(entries.map((entry) => [entry.metadata.id, entry.metadata.name])), [entries]);
   const sceneById = useMemo(() => new Map(series.scenes.map((scene) => [scene.metadata.id, scene])), [series.scenes]);
+  const sceneIndexById = useMemo(
+    () => new Map(series.scenes.map((scene, index) => [scene.metadata.id, index])),
+    [series.scenes],
+  );
   const codexContentMentions = useMemo(
     () => (selectedEntry ? findCodexContentMentions(selectedEntry, entries) : []),
     [entries, selectedEntry],
@@ -438,6 +488,79 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     [detailTypes, detailTypeManagerCategoryId],
   );
   const sceneMentionCount = entryMentions.length;
+  const selectedEntryRevision = selectedEntry?.revision ?? null;
+  const selectedEntryDetailTypes = useMemo(
+    () => detailTypes.filter((document) => document.detailType.categoryId === selectedEntry?.metadata.categoryId),
+    [detailTypes, selectedEntry?.metadata.categoryId],
+  );
+  const progressionFields = useMemo(() => {
+    const fields = new Map<string, CodexFieldProgressionField>();
+    fields.set("description", { kind: "description", detailTypeId: null });
+    const addField = (field: CodexFieldProgressionField | null | undefined) => {
+      if (!field) return;
+      fields.set(codexFieldKey(field), field);
+    };
+    for (const state of effectiveEntry?.fieldStates ?? []) addField(state.field);
+    for (const document of entryProgressions) addField(document.progression.field);
+    if (selectedEntry) {
+      for (const detailType of selectedEntryDetailTypes) {
+        const value = selectedEntry.metadata.details[detailType.detailType.id] ??
+          selectedEntry.metadata.details[detailType.detailType.name];
+        if (value !== undefined) {
+          addField({ kind: "detail", detailTypeId: detailType.detailType.id });
+        }
+      }
+    }
+    return [...fields.values()];
+  }, [effectiveEntry?.fieldStates, entryProgressions, selectedEntry, selectedEntryDetailTypes]);
+  const effectiveFieldStateByKey = useMemo(
+    () => new Map((effectiveEntry?.fieldStates ?? []).map((state) => [codexFieldKey(state.field), state])),
+    [effectiveEntry?.fieldStates],
+  );
+  const progressionHistoryGroups = useMemo(() => {
+    const sortedProgressions = [...entryProgressions]
+      .filter((document) => document.progression.kind === "field" && document.progression.field)
+      .sort((left, right) => {
+        const leftSceneIndex = sceneIndexById.get(left.progression.effectiveFromSceneId) ?? Number.MAX_SAFE_INTEGER;
+        const rightSceneIndex = sceneIndexById.get(right.progression.effectiveFromSceneId) ?? Number.MAX_SAFE_INTEGER;
+        if (leftSceneIndex !== rightSceneIndex) return leftSceneIndex - rightSceneIndex;
+        const leftScene = sceneById.get(left.progression.effectiveFromSceneId);
+        const rightScene = sceneById.get(right.progression.effectiveFromSceneId);
+        const leftBlockIndex = left.progression.source.kind === "write-block" && leftScene
+          ? leftScene.document.blocks.findIndex((block) => block.id === left.progression.source.blockId)
+          : -1;
+        const rightBlockIndex = right.progression.source.kind === "write-block" && rightScene
+          ? rightScene.document.blocks.findIndex((block) => block.id === right.progression.source.blockId)
+          : -1;
+        if (leftBlockIndex !== rightBlockIndex) return leftBlockIndex - rightBlockIndex;
+        return left.progression.createdAt.localeCompare(right.progression.createdAt);
+      });
+    const groups = new Map<string, {
+      field: CodexFieldProgressionField;
+      items: CodexProgressionDocument[];
+      label: string;
+    }>();
+    for (const document of sortedProgressions) {
+      const field = document.progression.field;
+      if (!field) continue;
+      const key = codexFieldKey(field);
+      const group = groups.get(key) ?? {
+        field,
+        items: [],
+        label: codexFieldLabel(field, detailTypes),
+      };
+      group.items.push(document);
+      groups.set(key, group);
+    }
+    return [...groups.values()];
+  }, [detailTypes, entryProgressions, sceneById, sceneIndexById]);
+
+  useEffect(() => {
+    setProgressionSceneId((current) => {
+      if (current && series.scenes.some((scene) => scene.metadata.id === current)) return current;
+      return series.scenes[0]?.metadata.id ?? "";
+    });
+  }, [series.scenes]);
 
   useEffect(() => {
     if (!selectedEntryId) {
@@ -475,6 +598,53 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       isActive = false;
     };
   }, [series.manifest.id, selectedEntryId]);
+
+  useEffect(() => {
+    if (!selectedEntryId) {
+      setEntryProgressions([]);
+      setEffectiveEntry(null);
+      setProgressionError(null);
+      setIsProgressionsLoading(false);
+      return;
+    }
+    const targetSceneId = progressionSceneId || series.scenes[0]?.metadata.id;
+    if (!targetSceneId) {
+      setEntryProgressions([]);
+      setEffectiveEntry(null);
+      setProgressionError(null);
+      setIsProgressionsLoading(false);
+      return;
+    }
+    let isActive = true;
+    setProgressionError(null);
+    setIsProgressionsLoading(true);
+    Promise.all([
+      api.codex.listProgressions(series.manifest.id, {
+        entryId: selectedEntryId,
+        kind: "field",
+      }),
+      api.codex.getEffectiveEntry(series.manifest.id, selectedEntryId, {
+        sceneId: targetSceneId,
+      }),
+    ])
+      .then(([progressions, effective]) => {
+        if (!isActive) return;
+        setEntryProgressions(progressions);
+        setEffectiveEntry(effective);
+      })
+      .catch((error: unknown) => {
+        if (!isActive) return;
+        setProgressionError(formatCodexError(error, codexText.errors.loadProgressionsFailed));
+        setEntryProgressions([]);
+        setEffectiveEntry(null);
+      })
+      .finally(() => {
+        if (isActive) setIsProgressionsLoading(false);
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [progressionSceneId, selectedEntryId, selectedEntryRevision, series.manifest.id, series.scenes]);
 
   useEffect(() => {
     setRelationDraft((current) => {
@@ -1488,6 +1658,139 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                   )}
                 </div>
               </div>
+            </div>
+            <div className={`codex-tab-panel${activeTab === "progressions" ? " is-active" : ""}`} role="tabpanel">
+              {activeTab === "progressions" ? (
+              <section className="codex-progressions-panel">
+                <div className="codex-progressions-head">
+                  <div>
+                    <h4>{codexText.progressions.title}</h4>
+                    <p>{codexText.progressions.changes(entryProgressions.length)}</p>
+                  </div>
+                  {series.scenes.length > 0 ? (
+                    <label className="field progression-scene-field">
+                      <span>{codexText.progressions.sceneLabel}</span>
+                      <select
+                        aria-label={codexText.aria.progressionScene}
+                        className="select"
+                        onChange={(event) => setProgressionSceneId(event.target.value)}
+                        value={progressionSceneId}
+                      >
+                        {series.scenes.map((scene) => (
+                          <option key={scene.metadata.id} value={scene.metadata.id}>
+                            {scene.metadata.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                </div>
+                {progressionError ? <p className="alert">{progressionError}</p> : null}
+                {!series.scenes.length ? (
+                  <div className="detail-empty compact-empty">{codexText.progressions.emptyScene}</div>
+                ) : isProgressionsLoading ? (
+                  <div className="detail-empty compact-empty">{codexText.progressions.loading}</div>
+                ) : (
+                  <>
+                    {effectiveEntry && effectiveEntry.hiddenFutureFieldProgressionCount > 0 ? (
+                      <p className="mini-note progression-future-note">
+                        {codexText.progressions.hiddenFuture(effectiveEntry.hiddenFutureFieldProgressionCount)}
+                      </p>
+                    ) : null}
+                    <div className="codex-progressions-compare">
+                      <section className="progression-state-card">
+                        <h5>{codexText.progressions.baselineTitle}</h5>
+                        {progressionFields.map((field) => {
+                          const value = selectedEntry
+                            ? codexFieldValue(selectedEntry, field, selectedEntryDetailTypes)
+                            : "";
+                          return (
+                            <div className="progression-field-state" key={`baseline-${codexFieldKey(field)}`}>
+                              <span>{codexFieldLabel(field, selectedEntryDetailTypes)}</span>
+                              <p>{value.trim() ? value : codexText.progressions.emptyValue}</p>
+                            </div>
+                          );
+                        })}
+                      </section>
+                      <section className="progression-state-card">
+                        <h5>{codexText.progressions.effectiveTitle}</h5>
+                        {progressionFields.map((field) => {
+                          const key = codexFieldKey(field);
+                          const state = effectiveFieldStateByKey.get(key);
+                          const value = effectiveEntry
+                            ? codexFieldValue(effectiveEntry.entry, field, selectedEntryDetailTypes)
+                            : selectedEntry
+                              ? codexFieldValue(selectedEntry, field, selectedEntryDetailTypes)
+                              : "";
+                          return (
+                            <div className="progression-field-state" key={`effective-${key}`}>
+                              <div>
+                                <span>{codexFieldLabel(field, selectedEntryDetailTypes)}</span>
+                                <span className="pill">
+                                  {state?.source === "progression"
+                                    ? codexText.progressions.stateProgression
+                                    : codexText.progressions.stateBaseline}
+                                </span>
+                              </div>
+                              <p>{value.trim() ? value : codexText.progressions.emptyValue}</p>
+                              {state && state.hiddenFutureCount > 0 ? (
+                                <small>{codexText.progressions.hiddenFuture(state.hiddenFutureCount)}</small>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </section>
+                    </div>
+                    <section className="codex-progression-history">
+                      <div className="detail-section-head">
+                        <h5>{codexText.progressions.historyTitle}</h5>
+                      </div>
+                      {progressionHistoryGroups.length ? (
+                        progressionHistoryGroups.map((group) => (
+                          <div className="progression-history-group" key={codexFieldKey(group.field)}>
+                            <div className="progression-history-group-head">
+                              <strong>{group.label}</strong>
+                              <span className="pill">{codexText.progressions.changes(group.items.length)}</span>
+                            </div>
+                            {group.items.map((document) => {
+                              const sourceSceneId = document.progression.source.sceneId ?? document.progression.effectiveFromSceneId;
+                              const sourceScene = sceneById.get(sourceSceneId);
+                              const sourceTitle = sourceScene?.metadata.title ?? sceneById.get(document.progression.effectiveFromSceneId)?.metadata.title;
+                              return (
+                                <article className="progression-history-card" key={document.progression.id}>
+                                  <div className="progression-history-card-head">
+                                    <div>
+                                      <strong>{document.progression.summary || group.label}</strong>
+                                      <div className="row-meta progression-history-meta">
+                                        <span>{progressionOperationLabel(document)}</span>
+                                        <span>{progressionSourceLabel(document)}</span>
+                                        {sourceTitle ? <span>{sourceTitle}</span> : null}
+                                      </div>
+                                    </div>
+                                    {onOpenScene && sourceScene ? (
+                                      <button
+                                        className="btn compact"
+                                        onClick={() => onOpenScene(sourceScene.metadata.id)}
+                                        type="button"
+                                      >
+                                        {codexText.progressions.openScene}
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                  <p>{document.progression.body.trim() ? document.progression.body : codexText.progressions.emptyValue}</p>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="detail-empty compact-empty">{codexText.progressions.emptyHistory}</div>
+                      )}
+                    </section>
+                  </>
+                )}
+              </section>
+              ) : null}
             </div>
             <div className={`codex-tab-panel${activeTab === "research" ? " is-active" : ""}`} role="tabpanel">
               <label className="field codex-research-field">
