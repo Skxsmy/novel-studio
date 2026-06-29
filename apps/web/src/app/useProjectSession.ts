@@ -5,6 +5,8 @@ import type {
   CreateChapterInput,
   CreateSceneInput,
   CreateSeriesInput,
+  SceneBlockDocument,
+  SceneBlockDocumentResponse,
   SceneDocument,
   SceneStatus,
   SeriesDetail,
@@ -12,11 +14,14 @@ import type {
   UpdateActInput,
   UpdateBookInput,
   UpdateChapterInput,
-  UpdateSceneInput,
 } from "@novel-studio/contracts";
 import { DefaultStructureTitles as structureDefaults } from "@novel-studio/contracts";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "../api";
+import {
+  ensureEditableSceneBlockDocument,
+  sceneBlockDocumentStats,
+} from "./sceneBlocks";
 import { uiText } from "./uiText";
 
 export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "failed" | "conflict";
@@ -25,6 +30,7 @@ export interface SceneDraft {
   sceneId: string;
   title: string;
   content: string;
+  document: SceneBlockDocument;
   revision: string;
   status: SceneStatus;
   characterCount: number;
@@ -67,19 +73,37 @@ export interface ProjectSessionState {
   updateVolume: (bookId: string, input: UpdateBookInput) => Promise<void>;
   updateChapter: (chapterId: string, input: UpdateChapterInput) => Promise<void>;
   updateCloudPolicy: (cloudPolicy: CloudPolicy) => Promise<void>;
-  updateDraftContent: (content: string) => void;
+  updateDraftDocument: (document: SceneBlockDocument) => void;
   updateDraftTitle: (title: string) => void;
 }
 
-function toDraft(scene: SceneDocument): SceneDraft {
+function toSceneDocument(response: SceneBlockDocumentResponse): SceneDocument {
+  return response;
+}
+
+function sceneWithEditableDocument(scene: SceneDocument): SceneDocument {
+  const document = ensureEditableSceneBlockDocument(scene.document);
+  if (document === scene.document) return scene;
+  const stats = sceneBlockDocumentStats(document);
+  return {
+    ...scene,
+    ...stats,
+    document,
+  };
+}
+
+function toDraft(scene: SceneDocument | SceneBlockDocumentResponse): SceneDraft {
+  const document = ensureEditableSceneBlockDocument(scene.document);
+  const stats = sceneBlockDocumentStats(document);
   return {
     sceneId: scene.metadata.id,
     title: scene.metadata.title,
-    content: scene.content,
+    content: stats.content,
+    document,
     revision: scene.revision,
     status: scene.metadata.status,
-    characterCount: scene.characterCount,
-    paragraphCount: scene.paragraphCount,
+    characterCount: stats.characterCount,
+    paragraphCount: stats.paragraphCount,
   };
 }
 
@@ -161,12 +185,16 @@ export function useProjectSession(): ProjectSessionState {
     try {
       const detail = await api.series.getSeries(seriesId);
       const firstScene = detail.scenes[0] ?? null;
-      setActiveSeries(detail);
-      setSelectedSceneId(firstScene?.metadata.id ?? null);
-      setStructureSelectionFromSeries(detail, firstScene);
-      setDraft(firstScene ? toDraft(firstScene) : null);
+      const blockScene = firstScene
+        ? toSceneDocument(await api.series.getSceneDocument(seriesId, firstScene.metadata.id))
+        : null;
+      const nextDetail = blockScene ? replaceScene(detail, sceneWithEditableDocument(blockScene)) : detail;
+      setActiveSeries(nextDetail);
+      setSelectedSceneId(blockScene?.metadata.id ?? null);
+      setStructureSelectionFromSeries(nextDetail, blockScene);
+      setDraft(blockScene ? toDraft(blockScene) : null);
       setIsDirty(false);
-      setSaveStatus(firstScene ? "saved" : "idle");
+      setSaveStatus(blockScene ? "saved" : "idle");
       return true;
     } catch (error) {
       setErrorMessage(formatError(error, "Failed to open project"));
@@ -183,12 +211,16 @@ export function useProjectSession(): ProjectSessionState {
       try {
         const detail = await api.series.createSeries(input);
         const firstScene = detail.scenes[0] ?? null;
-        setActiveSeries(detail);
-        setSelectedSceneId(firstScene?.metadata.id ?? null);
-        setStructureSelectionFromSeries(detail, firstScene);
-        setDraft(firstScene ? toDraft(firstScene) : null);
+        const blockScene = firstScene
+          ? toSceneDocument(await api.series.getSceneDocument(detail.manifest.id, firstScene.metadata.id))
+          : null;
+        const nextDetail = blockScene ? replaceScene(detail, sceneWithEditableDocument(blockScene)) : detail;
+        setActiveSeries(nextDetail);
+        setSelectedSceneId(blockScene?.metadata.id ?? null);
+        setStructureSelectionFromSeries(nextDetail, blockScene);
+        setDraft(blockScene ? toDraft(blockScene) : null);
         setIsDirty(false);
-        setSaveStatus(firstScene ? "saved" : "idle");
+        setSaveStatus(blockScene ? "saved" : "idle");
         await refreshSeriesList();
         return true;
       } catch (error) {
@@ -212,7 +244,7 @@ export function useProjectSession(): ProjectSessionState {
       setActiveSeries(detail);
       setSelectedSceneId(scene?.metadata.id ?? null);
       setStructureSelectionFromSeries(detail, scene);
-      setDraft(scene ? toDraft(scene) : null);
+      setDraft(scene ? toDraft(sceneWithEditableDocument(scene)) : null);
       setIsDirty(false);
       setSaveStatus(scene ? "saved" : "idle");
     },
@@ -322,7 +354,7 @@ export function useProjectSession(): ProjectSessionState {
         setSelectedBookId(storedScene.metadata.bookId);
         setSelectedActId(storedScene.metadata.actId);
         setSelectedChapterId(storedScene.metadata.chapterId);
-        setDraft(toDraft(storedScene));
+        setDraft(toDraft(sceneWithEditableDocument(storedScene)));
         setIsDirty(false);
         setSaveStatus("saved");
       } catch (error) {
@@ -371,17 +403,31 @@ export function useProjectSession(): ProjectSessionState {
 
   const selectScene = useCallback(
     (sceneId: string) => {
-      const scene = activeSeries?.scenes.find((candidate) => candidate.metadata.id === sceneId) ?? null;
+      if (!activeSeries) return;
+      const scene = activeSeries.scenes.find((candidate) => candidate.metadata.id === sceneId) ?? null;
       if (!scene) return;
+      const seriesId = activeSeries.manifest.id;
 
       setSelectedSceneId(sceneId);
       setSelectedBookId(scene.metadata.bookId);
       setSelectedActId(scene.metadata.actId);
       setSelectedChapterId(scene.metadata.chapterId);
-      setDraft(toDraft(scene));
+      setDraft(toDraft(sceneWithEditableDocument(scene)));
       setIsDirty(false);
       setSaveStatus("saved");
       setErrorMessage(null);
+      void api.series.getSceneDocument(seriesId, sceneId)
+        .then((response) => {
+          const updated = sceneWithEditableDocument(toSceneDocument(response));
+          setActiveSeries((current) => (current ? replaceScene(current, updated) : current));
+          setDraft(toDraft(updated));
+          setIsDirty(false);
+          setSaveStatus("saved");
+        })
+        .catch((error) => {
+          setSaveStatus("failed");
+          setErrorMessage(formatError(error, "Failed to load scene blocks"));
+        });
     },
     [activeSeries],
   );
@@ -564,8 +610,14 @@ export function useProjectSession(): ProjectSessionState {
     setSaveStatus("dirty");
   }, []);
 
-  const updateDraftContent = useCallback((content: string) => {
-    setDraft((current) => (current ? { ...current, content } : current));
+  const updateDraftDocument = useCallback((document: SceneBlockDocument) => {
+    const editable = ensureEditableSceneBlockDocument(document);
+    const stats = sceneBlockDocumentStats(editable);
+    setDraft((current) => (current ? {
+      ...current,
+      ...stats,
+      document: editable,
+    } : current));
     setIsDirty(true);
     setSaveStatus("dirty");
   }, []);
@@ -576,9 +628,9 @@ export function useProjectSession(): ProjectSessionState {
     }
 
     const title = draft.title.trim() || "Untitled Scene";
-    const input: UpdateSceneInput = {
+    const input = {
       baseRevision: draft.revision,
-      content: draft.content,
+      document: draft.document,
       status: draft.status,
       title,
     };
@@ -587,8 +639,8 @@ export function useProjectSession(): ProjectSessionState {
     setErrorMessage(null);
 
     try {
-      const updated = await api.series.updateScene(activeSeries.manifest.id, draft.sceneId, input);
-      setActiveSeries((current) => (current ? replaceScene(current, updated) : current));
+      const updated = toSceneDocument(await api.series.updateSceneDocument(activeSeries.manifest.id, draft.sceneId, input));
+      setActiveSeries((current) => (current ? replaceScene(current, sceneWithEditableDocument(updated)) : current));
       setSelectedSceneId(updated.metadata.id);
       setSelectedBookId(updated.metadata.bookId);
       setSelectedActId(updated.metadata.actId);
@@ -638,7 +690,7 @@ export function useProjectSession(): ProjectSessionState {
     updateVolume,
     updateChapter,
     updateCloudPolicy,
-    updateDraftContent,
+    updateDraftDocument,
     updateDraftTitle,
   };
 }

@@ -26,10 +26,10 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | NS-410-A11 | passed | Slice 5 storage tests verify baseline edits update add chains before a replace boundary while projected values after a replace stay independent from earlier baseline changes. |
 | NS-410-A12 | passed | Slice 6 `context-routes.test.ts` verifies Context Builder uses projected Codex description/details, respects per-detail AI switches, omits empty-replaced fields, and records hidden future field counts without content leakage. |
 | NS-410-A13 | passed | Slice 4 keeps character knowledge separate from unified JSON Progression, verifies knowledge can reference JSON progression IDs, and verifies new Progression files are `.json` with no `.yaml` authority file. Slice 5 regression tests keep effective-state and character-knowledge behavior passing while adding field projection. |
-| NS-410-A14 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
+| NS-410-A14 | partial | Slice 7 web tests verify ordinary paragraph/heading/scene-break block editing and saving through a native Write block editor, with no saved UI-only markup and no old single-document text editor path for Write scene content. Embedded progression blocks remain Slice 8; user visual acceptance remains separate. |
 | NS-410-A15 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
-| NS-410-A16 | partial | Slice 2 storage repository tests cover existing scene save, hierarchy, mention/index, and search-adjacent regressions while scene files are JSON authority. Slice 6 verifies Context Builder reads projected scene/Codex context at scene/block position. Write counts/search/mentions projection remains Slice 7. |
-| NS-410-A17 | passed | Slice 2 keeps existing scene `content` read/write API behavior compatible by converting `content` writes to JSON blocks and returning projected `content`; Slice 3 adds block document APIs without removing legacy `content` routes, with server and web compatibility checks. |
+| NS-410-A16 | partial | Slice 2 storage repository tests cover existing scene save, hierarchy, mention/index, and search-adjacent regressions while scene files are JSON authority. Slice 6 verifies Context Builder reads projected scene/Codex context at scene/block position. Slice 7 verifies Write-local counts and Codex mention marks derive from `SceneBlockDocument` projection. Broader search UI coverage remains for later regression. |
+| NS-410-A17 | passed | Slice 2 keeps existing scene `content` read/write API behavior compatible by converting `content` writes to JSON blocks and returning projected `content`; Slice 3 adds block document APIs without removing legacy `content` routes, with server and web compatibility checks. Slice 7 keeps legacy route mocks/regressions available while moving the Write scene-content path to the document endpoint. |
 
 ## Slice Exit Map
 
@@ -44,7 +44,7 @@ Each slice must update this section with actual command output before the next s
 | Slice 4 Unified Progression CRUD | Unified Progression JSON CRUD, validation, cross-series rejection, effective-state compatibility, and delete blocker shape pass. | A05, A06 partial, A13 |
 | Slice 5 Projection Engine | Baseline/add/replace/empty replace/same-scene/future isolation/baseline edit projection tests and effective-entry API tests pass. | A07, A08, A09, A10, A11, A13 |
 | Slice 6 Context Builder Projection | Context route tests prove projected Codex fields, detail AI switches, hidden empty fields, and future isolation. | A10, A12, A13, A16 |
-| Slice 7 Write Ordinary Block MVP | Write loads/saves ordinary blocks; projection powers counts/search/mentions; no UI-only markup saved. | A14 partial, A16, A17 regression |
+| Slice 7 Write Ordinary Block MVP | Write loads/saves ordinary blocks through a native block editor, not the old single-document text editor path; projection powers counts/search/mentions; no UI-only markup saved. | A14 partial, A16, A17 regression |
 | Slice 8 Write Progression Blocks | Embedded progression block and panel create/edit/delete synchronize with field progression records. | A05, A06, A09, A14 |
 | Slice 9 Codex Effective UI | Codex baseline/history/effective-at-scene UI is tested without future leakage or fake data. | A10, A13, A15 |
 | Slice 10 Final Regression | Required commands pass; docs/status/handoff/changelog contain actual results; user visual acceptance remains separate. | A01-A17 |
@@ -225,6 +225,32 @@ Commands:
 | `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx --reporter=verbose` | Passed with 46/46 tests; Vitest printed existing React `act(...)` warnings in one focus-mode test. |
 | `git diff --check` | Passed with line-ending warnings only. |
 | Runtime-code non-ASCII diff scan | Passed with no added non-ASCII runtime strings in `packages/contracts/src/context.ts`, `packages/storage/src/index.ts`, `apps/server/src/routes/context.ts`, `apps/server/src/routes/codex.ts`, or `apps/web/src/api/codex.ts`. |
+
+### Slice 7: Write Block Editor MVP For Ordinary Blocks
+
+Status: passed for Slice 7 scope on 2026-06-29.
+
+Changes verified:
+
+- Write now loads the active scene through `GET /api/v1/series/:seriesId/scenes/:sceneId/document`.
+- Write saves scene body changes through `PUT /api/v1/series/:seriesId/scenes/:sceneId/document` with the current `baseRevision`.
+- Write scene content is rendered as native `SceneBlockDocument` blocks for paragraph, heading, quote, and scene break content.
+- Write scene content no longer uses the old single-document CodeMirror/`EditorSurface` path. Codex editing surfaces can still use `EditorSurface`; this slice changes the Write scene-content path only.
+- Counts and inline Codex mention marks are derived from block projection helpers, and ordinary block saves do not include editor UI text or markup.
+- Legacy scene `content` compatibility remains available for older callers and tests.
+- Runtime strings newly added or rewritten in the Slice 7 Write path are English; the targeted non-ASCII diff scan found no added non-ASCII runtime strings in touched runtime files.
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `npm.cmd run build -w @novel-studio/contracts` | Passed. |
+| `npm.cmd run build -w @novel-studio/web` | Passed with the existing Vite large-chunk warning. |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx --reporter=verbose` | Passed with 46/46 tests; Vitest printed existing React `act(...)` warnings in the write selection and focus-mode tests. |
+| `npm.cmd run test -w @novel-studio/server -- app.test.ts --reporter=verbose` | Passed with 10/10 tests. |
+| `rg -n "EditorSurface|CodeMirror|cm-" apps/web/src/features/write apps/web/src/app/useProjectSession.ts apps/web/src/app/sceneBlocks.ts` | Passed by returning no matches for the Write scene-content path. |
+| `git diff --check` | Passed with line-ending warnings only. |
+| Runtime-code non-ASCII diff scan | Passed with no added non-ASCII runtime strings in `apps/web/src/app/useProjectSession.ts`, `apps/web/src/features/write/WriteWorkspace.tsx`, `apps/web/src/app/sceneBlocks.ts`, `apps/web/src/app/app-shell.css`, `apps/web/src/app/App.tsx`, or `apps/web/src/app/AppShell.test.tsx`. |
 
 ## Invariant Checklist
 

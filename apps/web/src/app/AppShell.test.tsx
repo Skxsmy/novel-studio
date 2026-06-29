@@ -41,6 +41,54 @@ const detailTypeId = "12121212-1212-4121-8121-121212121212";
 const secondDetailTypeId = "23232323-2323-4232-8232-232323232323";
 const revision = "a".repeat(64);
 const updatedRevision = "b".repeat(64);
+const firstBlockId = "10101010-1010-4010-8010-101010101010";
+const secondBlockId = "20202020-2020-4020-8020-202020202020";
+const thirdBlockId = "30303030-3030-4030-8030-303030303030";
+const blockIds = [firstBlockId, secondBlockId, thirdBlockId];
+
+function testBlockId(index: number) {
+  return blockIds[index] ?? `40404040-4040-4040-8040-${String(index).padStart(12, "0").slice(0, 12)}`;
+}
+
+function blockText(block: { kind: string; text?: string }) {
+  return block.kind === "paragraph" || block.kind === "heading" || block.kind === "quote" ? block.text ?? "" : "";
+}
+
+function blockToMarkdown(block: { kind: string; level?: number; text?: string }) {
+  if (block.kind === "heading") return `${"#".repeat(block.level ?? 2)} ${block.text ?? ""}`;
+  if (block.kind === "quote") return (block.text ?? "").split("\n").map((line) => `> ${line}`).join("\n");
+  if (block.kind === "sceneBreak") return "***";
+  if (block.kind === "paragraph") return block.text ?? "";
+  return "";
+}
+
+function documentStats(document: { blocks: Array<{ kind: string; level?: number; text?: string }> }) {
+  const plainText = document.blocks.map(blockText).filter((segment) => segment.trim().length > 0).join("\n\n");
+  const content = document.blocks.map(blockToMarkdown).filter((segment) => segment.trim().length > 0).join("\n\n");
+  return {
+    characterCount: Array.from(plainText.replace(/\s/g, "")).length,
+    content,
+    paragraphCount: plainText.trim() ? plainText.trim().split(/\n\s*\n/u).length : 0,
+    plainText,
+  };
+}
+
+function sceneBlockDocument(content = "") {
+  if (!content.trim()) {
+    return {
+      schemaVersion: 1,
+      blocks: [{ id: firstBlockId, kind: "paragraph", text: "" }],
+    };
+  }
+  return {
+    schemaVersion: 1,
+    blocks: content.split(/\n\s*\n/u).map((segment, index) => ({
+      id: testBlockId(index),
+      kind: "paragraph",
+      text: segment,
+    })),
+  };
+}
 
 function findEditorView(label: string) {
   const editorElement = screen.getByLabelText(label);
@@ -93,10 +141,12 @@ function seriesSummary() {
   };
 }
 
-function sceneDocument(content = "", nextRevision = revision) {
+function sceneDocument(content = "", nextRevision = revision, document = sceneBlockDocument(content)) {
+  const stats = documentStats(document);
   return {
-    characterCount: content.length,
-    content,
+    characterCount: stats.characterCount,
+    content: stats.content,
+    document,
     metadata: {
       actId,
       beats: [],
@@ -124,8 +174,9 @@ function sceneDocument(content = "", nextRevision = revision) {
       title: "Opening Scene",
       updatedAt: "2026-06-23T00:00:00.000Z",
     },
-    paragraphCount: content ? 1 : 0,
-    relativePath: "books/book/manuscript/act/chapter/001-opening-scene.md",
+    paragraphCount: stats.paragraphCount,
+    plainText: stats.plainText,
+    relativePath: "books/book/manuscript/act/chapter/001-opening-scene.json",
     revision: nextRevision,
   };
 }
@@ -134,8 +185,9 @@ function sceneDocumentWithMetadata(
   metadata: Partial<ReturnType<typeof sceneDocument>["metadata"]>,
   content = "",
   nextRevision = revision,
+  document = sceneBlockDocument(content),
 ) {
-  const scene = sceneDocument(content, nextRevision);
+  const scene = sceneDocument(content, nextRevision, document);
   return {
     ...scene,
     metadata: {
@@ -1010,6 +1062,30 @@ function mockFetch(options: {
       ]);
     }
 
+    if (url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && method === "GET") {
+      const current = (detailOverride ?? seriesDetail()).scenes.find((scene) => scene.metadata.id === sceneId) ??
+        sceneDocument();
+      return jsonResponse(current);
+    }
+
+    if (url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && method === "PUT") {
+      const body = JSON.parse(String(init?.body));
+      const current = detailOverride ?? seriesDetail();
+      const existing = current.scenes.find((scene) => scene.metadata.id === sceneId) ?? sceneDocument();
+      const scene = sceneDocumentWithMetadata({
+        ...existing.metadata,
+        status: body.status ?? existing.metadata.status,
+        title: body.title ?? existing.metadata.title,
+      }, "", updatedRevision, body.document);
+      detailOverride = {
+        ...current,
+        scenes: current.scenes.map((candidate) => (
+          candidate.metadata.id === scene.metadata.id ? scene : candidate
+        )),
+      };
+      return jsonResponse(scene);
+    }
+
     if (url === `/api/v1/series/${seriesId}/scenes/${sceneId}` && method === "PUT") {
       const body = JSON.parse(String(init?.body));
       return jsonResponse(sceneDocument(body.content, updatedRevision));
@@ -1262,10 +1338,11 @@ describe("App shell", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
     const editor = await screen.findByLabelText("Scene content");
+    expect(EditorView.findFromDOM(editor)).toBeNull();
     await waitFor(() => {
-      expect(editor.querySelector(".cm-codex-mention")).toBeTruthy();
+      expect(editor.querySelector(".block-codex-mention")).toBeTruthy();
     });
-    const mark = editor.querySelector(".cm-codex-mention");
+    const mark = editor.querySelector(".block-codex-mention");
     if (!mark) throw new Error("Missing Bellgate mark");
 
     expect(screen.queryByText(/codex marks/i)).toBeNull();
@@ -2108,63 +2185,67 @@ describe("App shell", () => {
     expect(screen.queryByRole("button", { name: "Exit Focus" })).toBeNull();
   });
 
-  it("saves a changed scene through the API", async () => {
+  it("saves a changed scene through the scene document API", async () => {
     const fetchMock = mockFetch();
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
-    await screen.findByLabelText("Scene content");
-    setEditorValue("Scene content", "New paragraph");
+    const block = await screen.findByLabelText("Scene block 1");
+    fireEvent.change(block, { target: { value: "New paragraph" } });
     fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
       const putCall = fetchMock.mock.calls.find(([url, init]) => (
-        url === `/api/v1/series/${seriesId}/scenes/${sceneId}` && init?.method === "PUT"
+        url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
       ));
       expect(putCall).toBeTruthy();
-      expect(JSON.parse(String(putCall![1]?.body)).content).toBe("New paragraph");
+      const body = JSON.parse(String(putCall![1]?.body));
+      expect(body.content).toBeUndefined();
+      expect(body.document.blocks[0]).toMatchObject({ kind: "paragraph", text: "New paragraph" });
     });
     await waitFor(() => {
       expect(screen.getAllByText("Saved").length).toBeGreaterThan(0);
     });
   });
 
-  it("preserves blank lines inserted with Enter in the write editor", async () => {
+  it("saves ordinary heading and scene break blocks without UI-only markup", async () => {
     const fetchMock = mockFetch();
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
-    await screen.findByLabelText("Scene content");
-    insertEditorText("Scene content", "\n");
-    insertEditorText("Scene content", "\n");
+    const editor = await screen.findByLabelText("Scene content");
+    fireEvent.change(await screen.findByLabelText("Block 1 type"), { target: { value: "heading" } });
+    fireEvent.change(screen.getByLabelText("Scene block 1"), { target: { value: "A Hard Turn" } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Add block after 1" }));
+    fireEvent.change(await screen.findByLabelText("Block 2 type"), { target: { value: "sceneBreak" } });
     fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
       const putCall = fetchMock.mock.calls.find(([url, init]) => (
-        url === `/api/v1/series/${seriesId}/scenes/${sceneId}` && init?.method === "PUT"
+        url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
       ));
       expect(putCall).toBeTruthy();
-      expect(JSON.parse(String(putCall![1]?.body)).content).toBe("\n\n");
+      const body = JSON.parse(String(putCall![1]?.body));
+      expect(body.document.blocks.map((block: { kind: string }) => block.kind)).toEqual(["heading", "sceneBreak"]);
+      expect(JSON.stringify(body)).not.toContain("scene-block");
+      expect(JSON.stringify(body)).not.toContain("activeBlockMention");
     });
   });
 
-  it("preserves leading spaces in write editor lines", async () => {
+  it("preserves leading spaces inside ordinary write blocks", async () => {
     const fetchMock = mockFetch();
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
-    await screen.findByLabelText("Scene content");
-    insertEditorText("Scene content", " ");
-    insertEditorText("Scene content", "\n");
-    insertEditorText("Scene content", " ");
+    fireEvent.change(await screen.findByLabelText("Scene block 1"), { target: { value: " \n " } });
     fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
       const putCall = fetchMock.mock.calls.find(([url, init]) => (
-        url === `/api/v1/series/${seriesId}/scenes/${sceneId}` && init?.method === "PUT"
+        url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
       ));
       expect(putCall).toBeTruthy();
-      expect(JSON.parse(String(putCall![1]?.body)).content).toBe(" \n ");
+      expect(JSON.parse(String(putCall![1]?.body)).document.blocks[0].text).toBe(" \n ");
     });
   });
 

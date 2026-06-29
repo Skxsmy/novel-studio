@@ -140,7 +140,7 @@ export function App() {
           onUpdateAct={session.updateAct}
           onUpdateVolume={session.updateVolume}
           onUpdateChapter={session.updateChapter}
-          onUpdateContent={session.updateDraftContent}
+          onUpdateDocument={session.updateDraftDocument}
           onUpdateTitle={session.updateDraftTitle}
           saveStatus={session.saveStatus}
           selectedVolumeId={session.selectedVolumeId}

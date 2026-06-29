@@ -8,6 +8,8 @@ import type {
   CreateBookInput,
   CreateChapterInput,
   CreateSceneInput,
+  SceneBlock,
+  SceneBlockDocument,
   SceneDocument,
   SeriesDetail,
   UpdateActInput,
@@ -15,9 +17,15 @@ import type {
   UpdateChapterInput,
 } from "@novel-studio/contracts";
 import { api } from "../../api";
+import {
+  createBlock,
+  createParagraphBlock,
+  sceneBlockDocumentStats,
+  sceneBlockToPlainText,
+} from "../../app/sceneBlocks";
 import { uiText } from "../../app/uiText";
 import type { SaveStatus, SceneDraft } from "../../app/useProjectSession";
-import { EditorSurface, type EditorSurfaceStatus } from "../editor";
+import { findInlineCodexMentions } from "../codex/inlineMentions";
 
 export interface WriteWorkspaceProps {
   draft: SceneDraft | null;
@@ -43,7 +51,7 @@ export interface WriteWorkspaceProps {
   onUpdateAct: (actId: string, input: UpdateActInput) => Promise<void>;
   onUpdateVolume: (bookId: string, input: UpdateBookInput) => Promise<void>;
   onUpdateChapter: (chapterId: string, input: UpdateChapterInput) => Promise<void>;
-  onUpdateContent: (content: string) => void;
+  onUpdateDocument: (document: SceneBlockDocument) => void;
   onUpdateTitle: (title: string) => void;
   saveStatus: SaveStatus;
   selectedVolumeId: string | null;
@@ -92,12 +100,62 @@ function toggleSetValue(values: Set<string>, value: string) {
 type ProductStructureType = "volume" | "chapter" | "act" | "scene";
 type RenamingStructure = { type: "volume" | "chapter" | "act"; id: string; title: string };
 type SelectedStructure = { type: ProductStructureType; id: string };
+type EditableBlockKind = "paragraph" | "heading" | "quote" | "sceneBreak";
+type ActiveBlockMention = { blockId: string; entryId: string };
 const structureCreateLabels: Record<ProductStructureType, string> = {
   volume: uiText.hierarchy.volume,
   chapter: uiText.hierarchy.chapter,
   act: uiText.hierarchy.act,
   scene: uiText.hierarchy.scene,
 };
+
+const blockKindLabels: Record<EditableBlockKind, string> = {
+  heading: "Heading",
+  paragraph: "Paragraph",
+  quote: "Quote",
+  sceneBreak: "Break",
+};
+
+function editableTextForBlock(block: SceneBlock): string {
+  return sceneBlockToPlainText(block);
+}
+
+function blockWithText(block: SceneBlock, text: string): SceneBlock {
+  if (block.kind === "paragraph" || block.kind === "heading" || block.kind === "quote") {
+    return { ...block, text };
+  }
+  return block;
+}
+
+function convertBlockKind(block: SceneBlock, kind: EditableBlockKind): SceneBlock {
+  const text = editableTextForBlock(block);
+  if (kind === "heading") {
+    return {
+      id: block.id,
+      kind,
+      level: block.kind === "heading" ? block.level : 2,
+      text,
+    };
+  }
+  if (kind === "quote") {
+    return {
+      id: block.id,
+      kind,
+      text,
+    };
+  }
+  if (kind === "sceneBreak") {
+    return {
+      id: block.id,
+      kind,
+    };
+  }
+  return {
+    id: block.id,
+    kind: "paragraph",
+    text,
+  };
+}
 
 export function WriteWorkspace({
   draft,
@@ -123,7 +181,7 @@ export function WriteWorkspace({
   onUpdateAct,
   onUpdateVolume,
   onUpdateChapter,
-  onUpdateContent,
+  onUpdateDocument,
   onUpdateTitle,
   saveStatus,
   selectedVolumeId,
@@ -140,7 +198,7 @@ export function WriteWorkspace({
   const [collapsedActs, setCollapsedActs] = useState<Set<string>>(() => new Set());
   const [collapsedChapters, setCollapsedChapters] = useState<Set<string>>(() => new Set());
   const [codexEntries, setCodexEntries] = useState<CodexEntryDocument[]>([]);
-  const [sceneEditorStatus, setSceneEditorStatus] = useState<EditorSurfaceStatus | null>(null);
+  const [activeBlockMention, setActiveBlockMention] = useState<ActiveBlockMention | null>(null);
   const [isBriefVisible, setIsBriefVisible] = useState(true);
   const [isCodexLoading, setIsCodexLoading] = useState(false);
   const actsByBook = new Map<string, ActManifest[]>();
@@ -214,11 +272,9 @@ export function WriteWorkspace({
     ? series.chapters.find((chapter) => chapter.id === selectedStructure.id)
     : null;
   const selectedStructureScene = structureScene;
-  const sceneEditorCharacterCount = sceneEditorStatus?.characterCount ?? draft?.characterCount ?? 0;
-  const sceneEditorWordCount = sceneEditorStatus?.wordCount ?? (draft ? Math.max(1, Math.round(draft.characterCount / 5)) : 0);
-  const sceneSelectionCount = sceneEditorStatus
-    ? Math.abs(sceneEditorStatus.selectionTo - sceneEditorStatus.selectionFrom)
-    : 0;
+  const sceneStats = draft ? sceneBlockDocumentStats(draft.document) : null;
+  const sceneEditorCharacterCount = sceneStats?.characterCount ?? draft?.characterCount ?? 0;
+  const sceneEditorWordCount = sceneStats ? Math.max(sceneStats.characterCount ? 1 : 0, Math.round(sceneStats.characterCount / 5)) : 0;
   const deleteTarget = selectedVolume
     ? { type: "volume" as const, id: selectedVolume.id, title: selectedVolume.title, label: uiText.hierarchy.volume }
     : selectedProductChapter
@@ -228,6 +284,54 @@ export function WriteWorkspace({
         : selectedStructureScene
           ? { type: "scene" as const, id: selectedStructureScene.metadata.id, title: selectedStructureScene.metadata.title, label: uiText.hierarchy.scene }
         : null;
+
+  function updateSceneDocumentBlocks(blocks: SceneBlock[]) {
+    if (!draft) return;
+    onUpdateDocument({
+      schemaVersion: 1,
+      blocks: blocks.length > 0 ? blocks : [createParagraphBlock()],
+    });
+  }
+
+  function updateBlockText(blockId: string, text: string) {
+    if (!draft) return;
+    updateSceneDocumentBlocks(draft.document.blocks.map((block) =>
+      block.id === blockId ? blockWithText(block, text) : block,
+    ));
+  }
+
+  function updateBlockKind(blockId: string, kind: EditableBlockKind) {
+    if (!draft) return;
+    updateSceneDocumentBlocks(draft.document.blocks.map((block) =>
+      block.id === blockId ? convertBlockKind(block, kind) : block,
+    ));
+  }
+
+  function updateHeadingLevel(blockId: string, level: number) {
+    if (!draft) return;
+    updateSceneDocumentBlocks(draft.document.blocks.map((block) =>
+      block.id === blockId && block.kind === "heading"
+        ? { ...block, level }
+        : block,
+    ));
+  }
+
+  function insertBlockAfter(blockId: string, kind: EditableBlockKind = "paragraph") {
+    if (!draft) return;
+    const nextBlock = createBlock(kind);
+    const nextBlocks: SceneBlock[] = [];
+    for (const block of draft.document.blocks) {
+      nextBlocks.push(block);
+      if (block.id === blockId) nextBlocks.push(nextBlock);
+    }
+    updateSceneDocumentBlocks(nextBlocks.length === draft.document.blocks.length ? [...draft.document.blocks, nextBlock] : nextBlocks);
+  }
+
+  function deleteBlock(blockId: string) {
+    if (!draft) return;
+    updateSceneDocumentBlocks(draft.document.blocks.filter((block) => block.id !== blockId));
+    setActiveBlockMention((current) => (current?.blockId === blockId ? null : current));
+  }
 
   useEffect(() => {
     if (!selectedScene) {
@@ -255,6 +359,10 @@ export function WriteWorkspace({
       isActive = false;
     };
   }, [series.manifest.id, selectedScene?.metadata.id]);
+
+  useEffect(() => {
+    setActiveBlockMention(null);
+  }, [draft?.sceneId]);
 
   function canCreateStructure(type: ProductStructureType) {
     if (type === "volume") return true;
@@ -311,6 +419,123 @@ export function WriteWorkspace({
 
   function cancelRename() {
     setRenamingStructure(null);
+  }
+
+  function renderSceneBlock(block: SceneBlock, index: number) {
+    const blockNumber = index + 1;
+    const blockText = editableTextForBlock(block);
+    const mentions = findInlineCodexMentions(blockText, codexEntries);
+    const activeEntry = activeBlockMention?.blockId === block.id
+      ? codexEntries.find((entry) => entry.metadata.id === activeBlockMention.entryId) ?? null
+      : null;
+    const editableKind: EditableBlockKind = block.kind === "heading" ||
+      block.kind === "quote" ||
+      block.kind === "sceneBreak"
+      ? block.kind
+      : "paragraph";
+
+    return (
+      <article className={`scene-block scene-block-${block.kind}`} data-block-id={block.id} key={block.id}>
+        <div className="scene-block-toolbar">
+          <span className="scene-block-index">{blockNumber}</span>
+          <select
+            aria-label={`Block ${blockNumber} type`}
+            className="input compact scene-block-kind"
+            disabled={block.kind === "codexProgression"}
+            onChange={(event) => updateBlockKind(block.id, event.target.value as EditableBlockKind)}
+            value={editableKind}
+          >
+            {(["paragraph", "heading", "quote", "sceneBreak"] as EditableBlockKind[]).map((kind) => (
+              <option key={kind} value={kind}>{blockKindLabels[kind]}</option>
+            ))}
+          </select>
+          {block.kind === "heading" ? (
+            <select
+              aria-label={`Block ${blockNumber} heading level`}
+              className="input compact scene-block-level"
+              onChange={(event) => updateHeadingLevel(block.id, Number(event.target.value))}
+              value={block.level}
+            >
+              {[1, 2, 3, 4, 5, 6].map((level) => (
+                <option key={level} value={level}>{`H${level}`}</option>
+              ))}
+            </select>
+          ) : null}
+          <div className="scene-block-actions">
+            <button
+              aria-label={`Add block after ${blockNumber}`}
+              className="btn compact"
+              onClick={() => insertBlockAfter(block.id)}
+              type="button"
+            >
+              Add
+            </button>
+            <button
+              aria-label={`Delete block ${blockNumber}`}
+              className="btn compact"
+              onClick={() => deleteBlock(block.id)}
+              type="button"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+
+        {block.kind === "paragraph" || block.kind === "quote" ? (
+          <textarea
+            aria-label={`Scene block ${blockNumber}`}
+            className="input scene-block-textarea"
+            onChange={(event) => updateBlockText(block.id, event.target.value)}
+            placeholder="Continue the scene..."
+            value={block.text}
+          />
+        ) : block.kind === "heading" ? (
+          <input
+            aria-label={`Scene block ${blockNumber}`}
+            className="input scene-block-heading-input"
+            onChange={(event) => updateBlockText(block.id, event.target.value)}
+            placeholder="Heading"
+            value={block.text}
+          />
+        ) : block.kind === "sceneBreak" ? (
+          <div aria-label={`Scene block ${blockNumber}`} className="scene-break-block">
+            <span />
+            <strong>Scene break</strong>
+            <span />
+          </div>
+        ) : (
+          <div aria-label={`Scene block ${blockNumber}`} className="scene-progression-placeholder">
+            Progression block
+          </div>
+        )}
+
+        {mentions.length ? (
+          <div className="scene-block-mentions" aria-label={`Block ${blockNumber} Codex mentions`}>
+            {mentions.map((mention) => (
+              <button
+                className="block-codex-mention"
+                key={`${mention.entryId}-${mention.start}-${mention.end}`}
+                onClick={() => setActiveBlockMention((current) =>
+                  current?.blockId === block.id && current.entryId === mention.entryId
+                    ? null
+                    : { blockId: block.id, entryId: mention.entryId },
+                )}
+                type="button"
+              >
+                {mention.matchedText}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {activeEntry ? (
+          <div className="scene-content-preview" aria-label={`${activeEntry.metadata.name} canon description`}>
+            <div className="preview-title">{activeEntry.metadata.name}</div>
+            <p>{activeEntry.description || "No description"}</p>
+          </div>
+        ) : null}
+      </article>
+    );
   }
 
   return (
@@ -594,8 +819,7 @@ export function WriteWorkspace({
               <span className={saveClass(saveStatus)}>{saveText(saveStatus)}</span>
               <span className="pill">{selectedScene?.metadata.pov ? `${selectedScene.metadata.pov} POV` : "No POV"}</span>
               <span className="pill">{draft ? `${sceneEditorCharacterCount} chars / ${sceneEditorWordCount} words` : "No scene"}</span>
-              {sceneEditorStatus ? <span className="pill">{`Ln ${sceneEditorStatus.line}, Col ${sceneEditorStatus.column}`}</span> : null}
-              {sceneSelectionCount > 0 ? <span className="pill">{`${sceneSelectionCount} selected`}</span> : null}
+              {draft ? <span className="pill">{`${draft.document.blocks.length} blocks`}</span> : null}
               <button
                 aria-pressed={isFocusMode}
                 className={`btn write-focus-action${isFocusMode ? " primary" : ""}`}
@@ -621,17 +845,8 @@ export function WriteWorkspace({
                   onChange={(event) => onUpdateTitle(event.target.value)}
                   value={draft.title}
                 />
-                <div className="inline-mention-shell scene-copy-editor-shell">
-                  <EditorSurface
-                    ariaLabel="Scene content"
-                    className="scene-copy-editor"
-                    codexEntries={codexEntries}
-                    emptyPreviewText="No description"
-                    onChange={onUpdateContent}
-                    onStateChange={setSceneEditorStatus}
-                    placeholder="Continue the scene..."
-                    value={draft.content}
-                  />
+                <div aria-label="Scene content" className="scene-block-editor">
+                  {draft.document.blocks.map((block, index) => renderSceneBlock(block, index))}
                 </div>
               </>
             ) : (
@@ -644,7 +859,7 @@ export function WriteWorkspace({
 
           <footer className="save-bar">
             <span>{saveText(saveStatus)}</span>
-            {sceneEditorStatus ? <span className="save-bar-meta">{`Line ${sceneEditorStatus.line} of ${sceneEditorStatus.lineCount}`}</span> : null}
+            {draft ? <span className="save-bar-meta">{`${draft.paragraphCount} paragraphs`}</span> : null}
             <button className="btn primary" disabled={!isDirty || saveStatus === "saving"} onClick={() => void onSaveDraft()} type="button">
               Save now
             </button>
