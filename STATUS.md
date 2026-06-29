@@ -26,7 +26,7 @@ This file is the current project-status authority. Earlier Chinese records were 
 ## Current Implementation Snapshot
 
 - Local-first React/Vite + Fastify application, bound to `127.0.0.1`.
-- Project JSON files are the target durable authority; Markdown/Word are boundary formats; SQLite/FTS5 remains a rebuildable derived index. Slice 2 now persists scene manuscript authority as JSON block documents while retaining projected `content` for existing scene APIs.
+- Project JSON files are the target durable authority; Markdown/Word are boundary formats; SQLite/FTS5 remains a rebuildable derived index. Slice 3 now exposes block-aware scene document APIs and Markdown export while retaining projected `content` for existing scene APIs.
 - Current frontend structure:
   - `apps/web/src/app`
   - `apps/web/src/api`
@@ -62,8 +62,8 @@ The task now uses controlled vertical slices in `docs/tasks/NS-410.md`:
 1. Slice 0 Planning Lock.
 2. Slice 1 Contracts and JSON file foundation. Passed for Slice 1 scope on 2026-06-26.
 3. Slice 2 Scene JSON authority with legacy scene API compatibility. Passed for Slice 2 scope on 2026-06-29.
-4. Slice 3 Scene document API and Markdown export. Next implementation slice.
-5. Slice 4 Field progression JSON storage and CRUD API.
+4. Slice 3 Scene document API and Markdown export. Passed for Slice 3 scope on 2026-06-29.
+5. Slice 4 Field progression JSON storage and CRUD API. Next implementation slice.
 6. Slice 5 Projection engine and effective entry API.
 7. Slice 6 Context Builder and preview projection.
 8. Slice 7 Write block editor MVP for ordinary blocks.
@@ -268,6 +268,6 @@ Acceptance evidence files:
 
 ## Next Work
 
-Continue NS-410 with Slice 3 from `docs/tasks/NS-410.md`: scene document API and Markdown export. Slice 1 and Slice 2 are verified and recorded in `docs/testing/NS-410_ACCEPTANCE.md`; do not skip Slice 3's document/export exit checks.
+Continue NS-410 with Slice 4 from `docs/tasks/NS-410.md`: field progression JSON storage and CRUD API. Slices 1-3 are verified and recorded in `docs/testing/NS-410_ACCEPTANCE.md`; do not skip Slice 4's CRUD and validation exit checks.
 
 After NS-410, return to project recovery visual/product acceptance unless the user redirects again.

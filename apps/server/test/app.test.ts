@@ -79,6 +79,120 @@ describe("local API", () => {
     await app.close();
   });
 
+  it("serves scene block document update and Markdown export APIs", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
+    roots.push(root);
+    const app = await buildApp({ libraryRoot: root });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Document API" },
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const series = createResponse.json();
+    const scene = series.scenes[0];
+    const createdAt = "2026-06-29T00:00:00.000Z";
+
+    const initialDocument = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/document`,
+    });
+    expect(initialDocument.statusCode).toBe(200);
+    expect(initialDocument.json()).toMatchObject({
+      revision: scene.revision,
+      document: { schemaVersion: 1, blocks: [] },
+    });
+
+    const updateDocument = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/document`,
+      payload: {
+        baseRevision: scene.revision,
+        title: "Block API",
+        document: {
+          schemaVersion: 1,
+          blocks: [
+            {
+              id: "00000000-0000-4000-8000-000000001101",
+              kind: "heading",
+              level: 3,
+              text: "Signal",
+            },
+            {
+              id: "00000000-0000-4000-8000-000000001102",
+              kind: "paragraph",
+              text: "Scene text from the document endpoint.",
+            },
+            {
+              id: "00000000-0000-4000-8000-000000001103",
+              kind: "codexProgression",
+              progressionId: "00000000-0000-4000-8000-000000001203",
+              createdAt,
+              updatedAt: createdAt,
+            },
+          ],
+        },
+      },
+    });
+    expect(updateDocument.statusCode).toBe(200);
+    expect(updateDocument.json()).toMatchObject({
+      metadata: { title: "Block API" },
+      content: "### Signal\n\nScene text from the document endpoint.",
+      plainText: "Signal\n\nScene text from the document endpoint.",
+    });
+    expect(updateDocument.json().revision).not.toBe(scene.revision);
+
+    const exportResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/export/markdown`,
+    });
+    expect(exportResponse.statusCode).toBe(200);
+    expect(exportResponse.json()).toEqual({
+      sceneId: scene.metadata.id,
+      revision: updateDocument.json().revision,
+      markdown: "### Signal\n\nScene text from the document endpoint.",
+    });
+    expect(exportResponse.json().markdown).not.toContain("codexProgression");
+    expect(exportResponse.json().markdown).not.toContain("00000000-0000-4000-8000-000000001203");
+
+    const staleResponse = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/document`,
+      payload: {
+        baseRevision: scene.revision,
+        document: { schemaVersion: 1, blocks: [] },
+      },
+    });
+    expect(staleResponse.statusCode).toBe(409);
+
+    const duplicateBlockResponse = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/document`,
+      payload: {
+        baseRevision: updateDocument.json().revision,
+        document: {
+          schemaVersion: 1,
+          blocks: [
+            {
+              id: "00000000-0000-4000-8000-000000001301",
+              kind: "paragraph",
+              text: "First duplicate.",
+            },
+            {
+              id: "00000000-0000-4000-8000-000000001301",
+              kind: "paragraph",
+              text: "Second duplicate.",
+            },
+          ],
+        },
+      },
+    });
+    expect(duplicateBlockResponse.statusCode).toBe(400);
+
+    await app.close();
+  });
+
   it("validates hierarchy and rejects incomplete reorder commands", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
     roots.push(root);

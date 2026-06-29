@@ -11,6 +11,7 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **NS-410 Slice Control**: Replaced the linear implementation order with a controlled vertical slice plan covering planning lock, contracts, JSON scene authority, document APIs, field progression CRUD, projection, Context Builder, Write blocks, Write progression UI, Codex effective UI, and final regression. Each slice has exit checks and acceptance mapping.
 - **NS-410 Slice 1**: Added scene block document and Codex field progression contracts plus deterministic JSON authority storage helpers with focused tests for revision stability, malformed JSON, schema mismatch, duplicate block IDs, path containment, and atomic-write cleanup. Existing repository scene tests still pass.
 - **NS-410 Slice 2**: Scene manuscript files now persist as schema-versioned JSON block documents while existing scene APIs keep projected Markdown `content`. Legacy `content` writes convert to blocks, planning/order updates preserve existing block documents, scene files use `.json`, and storage/server/web builds plus focused storage tests pass.
+- **NS-410 Slice 3**: Added block-aware scene document get/update APIs, Markdown export from `SceneBlockDocument`, web API client methods for those routes, stale revision and duplicate block diagnostics, and regression coverage that keeps legacy scene `content` APIs working.
 
 ### Project Foundation
 

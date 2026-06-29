@@ -14,9 +14,9 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | ID | Status | Evidence |
 | --- | --- | --- |
 | NS-410-A01 | partial | Slice 2 regenerates current scene test data as JSON block documents; legacy `.md` scene authority is intentionally not preserved because current project data is disposable test data. Full import/migration preview remains later. |
-| NS-410-A02 | partial | Slice 1 covered deterministic JSON serialization/revision and reload via `json-authority.test.ts`; Slice 2 covers scene JSON authority save/reload through `repository.test.ts`; document API remains Slice 3. |
-| NS-410-A03 | partial | Slice 2 projects block documents back to Markdown-compatible `SceneDocument.content`; explicit Markdown export endpoint remains Slice 3. |
-| NS-410-A04 | partial | Slice 1 covered malformed JSON, schema-version mismatch, duplicate block IDs, path escape, and atomic replacement cleanup via `json-authority.test.ts`; Slice 2 keeps scene conflict/revision behavior passing. Progression reference diagnostics remain later. |
+| NS-410-A02 | passed | Slice 1 covered deterministic JSON serialization/revision and reload via `json-authority.test.ts`; Slice 2 covers scene JSON authority save/reload through `repository.test.ts`; Slice 3 covers block document get/update/reload through storage and server tests. |
+| NS-410-A03 | passed | Slice 2 projects block documents back to Markdown-compatible `SceneDocument.content`; Slice 3 adds explicit Markdown export and verifies component/private progression blocks are omitted from exported manuscript text. |
+| NS-410-A04 | partial | Slice 1 covered malformed JSON, schema-version mismatch, duplicate block IDs, path escape, and atomic replacement cleanup via `json-authority.test.ts`; Slice 2 keeps scene conflict/revision behavior passing; Slice 3 covers stale document revisions and duplicate block IDs through storage/server APIs. Progression reference diagnostics remain later. |
 | NS-410-A05 | pending | Storage/server tests planned: field progression CRUD and validation. |
 | NS-410-A06 | pending | Storage/web tests planned: progression block deletion synchronization. |
 | NS-410-A07 | pending | Projection tests planned: baseline only. |
@@ -29,7 +29,7 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | NS-410-A14 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
 | NS-410-A15 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
 | NS-410-A16 | partial | Slice 2 storage repository tests cover existing scene save, hierarchy, mention/index, and search-adjacent regressions while scene files are JSON authority. Context projection remains later. |
-| NS-410-A17 | partial | Slice 2 keeps existing scene `content` read/write API behavior compatible by converting `content` writes to JSON blocks and returning projected `content`; explicit document APIs remain Slice 3. |
+| NS-410-A17 | passed | Slice 2 keeps existing scene `content` read/write API behavior compatible by converting `content` writes to JSON blocks and returning projected `content`; Slice 3 adds block document APIs without removing legacy `content` routes, with server and web compatibility checks. |
 
 ## Slice Exit Map
 
@@ -109,6 +109,33 @@ Commands:
 | `npm.cmd run test -w @novel-studio/storage -- repository.test.ts json-authority.test.ts --reporter=verbose` | Passed with 49/49 tests. |
 | `npm.cmd run build -w @novel-studio/server` | Passed. |
 | `npm.cmd run build -w @novel-studio/web` | Passed with the existing Vite large-chunk warning. |
+
+### Slice 3: Scene Document API And Markdown Export
+
+Status: passed for Slice 3 scope on 2026-06-29.
+
+Changes verified:
+
+- Added repository methods for block-aware scene document get/update and Markdown export.
+- Added `GET /api/v1/series/:seriesId/scenes/:sceneId/document`.
+- Added `PUT /api/v1/series/:seriesId/scenes/:sceneId/document` with `baseRevision` conflict protection.
+- Added `GET /api/v1/series/:seriesId/scenes/:sceneId/export/markdown`.
+- Added web API client methods for the new document/export routes without switching current Write callers off the legacy `content` route.
+- Markdown export is projected from `SceneBlockDocument` and omits `codexProgression` component state and progression IDs from ordinary manuscript text.
+- Server user-visible fallback error strings touched by this slice were converted to English.
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `npm.cmd run build -w @novel-studio/contracts` | Passed. |
+| `npm.cmd run build -w @novel-studio/storage` | Passed. |
+| `npm.cmd run test -w @novel-studio/storage -- repository.test.ts json-authority.test.ts --reporter=verbose` | Passed with 50/50 tests. |
+| `npm.cmd run build -w @novel-studio/server` | Passed. |
+| `npm.cmd run test -w @novel-studio/server -- app.test.ts --reporter=verbose` | Passed with 8/8 tests. |
+| `npm.cmd run build -w @novel-studio/web` | Passed with the existing Vite large-chunk warning. |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx --reporter=verbose` | Passed with 46/46 tests; Vitest printed existing React `act(...)` warnings in one focus-mode test. |
+| `git diff --check` | Passed with line-ending warnings only. |
 
 ## Invariant Checklist
 

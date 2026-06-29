@@ -62,9 +62,11 @@ import {
   ReorderInputSchema,
   RestoreSceneSectionInputSchema,
   type AgentRole,
+  SceneBlockDocumentResponseSchema,
   SceneBlockDocumentSchema,
   SceneDocumentSchema,
   SceneFrontmatterSchema,
+  SceneMarkdownExportSchema,
   SceneSectionDocumentSchema,
   SceneSectionMetadataSchema,
   SceneCodexMentionsSchema,
@@ -84,6 +86,7 @@ import {
   UpdateActInputSchema,
   UpdateBookInputSchema,
   UpdateChapterInputSchema,
+  UpdateSceneBlockDocumentInputSchema,
   UpdateScenePlanningInputSchema,
   UpdateSceneInputSchema,
   UpdateSceneSectionInputSchema,
@@ -153,9 +156,11 @@ import {
   type RestoreSceneSectionInput,
   type SceneBlock,
   type SceneBlockDocument,
+  type SceneBlockDocumentResponse,
   type SceneDocument,
   type SceneCodexMentions,
   type SceneFrontmatter,
+  type SceneMarkdownExport,
   type SceneSectionAiPolicy,
   type SceneSectionDocument,
   type SceneSectionMetadata,
@@ -179,6 +184,7 @@ import {
   type UpdateCodexProgressionInput,
   type UpdateCodexRelationInput,
   type UpdateChapterInput,
+  type UpdateSceneBlockDocumentInput,
   type UpdateScenePlanningInput,
   type UpdateSceneInput,
   type UpdateSceneSectionInput,
@@ -1368,6 +1374,54 @@ export class ProjectRepository {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const filePath = await this.findScenePath(seriesRoot, sceneId);
     return parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath));
+  }
+
+  async getSceneBlockDocument(
+    seriesId: string,
+    sceneId: string,
+  ): Promise<SceneBlockDocumentResponse> {
+    return SceneBlockDocumentResponseSchema.parse(await this.getScene(seriesId, sceneId));
+  }
+
+  async updateSceneBlockDocument(
+    seriesId: string,
+    sceneId: string,
+    rawInput: UpdateSceneBlockDocumentInput,
+  ): Promise<SceneBlockDocumentResponse> {
+    const input = UpdateSceneBlockDocumentInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const filePath = await this.findScenePath(seriesRoot, sceneId);
+    const current = parseSceneText(
+      await readFile(filePath, "utf8"),
+      path.relative(seriesRoot, filePath),
+    );
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("Scene block document has changed on disk", "CONFLICT", {
+        currentRevision: current.revision,
+        scene: current,
+      });
+    }
+    const metadata = SceneFrontmatterSchema.parse({
+      ...current.metadata,
+      title: input.title ?? current.metadata.title,
+      status: input.status ?? current.metadata.status,
+      goal: input.goal ?? current.metadata.goal,
+      summary: input.summary ?? current.metadata.summary,
+      updatedAt: new Date().toISOString(),
+    });
+    await atomicWrite(filePath, serializeSceneDocument(metadata, input.document));
+    const updated = await this.getScene(seriesId, sceneId);
+    await this.indexScene(seriesRoot, updated);
+    return SceneBlockDocumentResponseSchema.parse(updated);
+  }
+
+  async exportSceneMarkdown(seriesId: string, sceneId: string): Promise<SceneMarkdownExport> {
+    const scene = await this.getScene(seriesId, sceneId);
+    return SceneMarkdownExportSchema.parse({
+      sceneId: scene.metadata.id,
+      revision: scene.revision,
+      markdown: scene.content,
+    });
   }
 
   async createScene(

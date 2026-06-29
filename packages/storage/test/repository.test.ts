@@ -88,6 +88,100 @@ describe("ProjectRepository", () => {
     expect(authority.document.blocks[1]).toMatchObject({ kind: "paragraph", text: "A quiet line." });
   });
 
+  it("updates scene block documents and exports readable Markdown without component state", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "DocumentApi" });
+    const initial = series.scenes[0]!;
+    const createdAt = "2026-06-29T00:00:00.000Z";
+
+    const updated = await store.updateSceneBlockDocument(series.manifest.id, initial.metadata.id, {
+      baseRevision: initial.revision,
+      title: "Block Document",
+      document: {
+        schemaVersion: 1,
+        blocks: [
+          {
+            id: "00000000-0000-4000-8000-000000000101",
+            kind: "heading",
+            level: 2,
+            text: "Opening Signal",
+          },
+          {
+            id: "00000000-0000-4000-8000-000000000102",
+            kind: "paragraph",
+            text: "Visible manuscript text.",
+          },
+          {
+            id: "00000000-0000-4000-8000-000000000103",
+            kind: "codexProgression",
+            progressionId: "00000000-0000-4000-8000-000000000203",
+            createdAt,
+            updatedAt: createdAt,
+          },
+          {
+            id: "00000000-0000-4000-8000-000000000104",
+            kind: "quote",
+            text: "Quoted memory.",
+          },
+        ],
+      },
+    });
+
+    expect(updated.revision).not.toBe(initial.revision);
+    expect(updated.metadata.title).toBe("Block Document");
+    expect(updated.content).toBe("## Opening Signal\n\nVisible manuscript text.\n\n> Quoted memory.");
+    expect(updated.plainText).toBe("Opening Signal\n\nVisible manuscript text.\n\nQuoted memory.");
+    expect(updated.document.blocks.map((block) => block.kind)).toEqual([
+      "heading",
+      "paragraph",
+      "codexProgression",
+      "quote",
+    ]);
+
+    const reloaded = await store.getSceneBlockDocument(series.manifest.id, initial.metadata.id);
+    expect(reloaded.document).toEqual(updated.document);
+    expect(reloaded.revision).toBe(updated.revision);
+
+    const exported = await store.exportSceneMarkdown(series.manifest.id, initial.metadata.id);
+    expect(exported).toEqual({
+      sceneId: initial.metadata.id,
+      revision: updated.revision,
+      markdown: "## Opening Signal\n\nVisible manuscript text.\n\n> Quoted memory.",
+    });
+    expect(exported.markdown).not.toContain("codexProgression");
+    expect(exported.markdown).not.toContain("00000000-0000-4000-8000-000000000203");
+
+    await expect(
+      store.updateSceneBlockDocument(series.manifest.id, initial.metadata.id, {
+        baseRevision: initial.revision,
+        document: { schemaVersion: 1, blocks: [] },
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    await expect(
+      store.updateSceneBlockDocument(series.manifest.id, initial.metadata.id, {
+        baseRevision: updated.revision,
+        document: {
+          schemaVersion: 1,
+          blocks: [
+            {
+              id: "00000000-0000-4000-8000-000000000301",
+              kind: "paragraph",
+              text: "First duplicate.",
+            },
+            {
+              id: "00000000-0000-4000-8000-000000000301",
+              kind: "paragraph",
+              text: "Second duplicate.",
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow();
+
+    expect((await store.getScene(series.manifest.id, initial.metadata.id)).revision).toBe(updated.revision);
+  });
+
   it("rejects stale revisions without overwriting the scene", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "失落邮局" });

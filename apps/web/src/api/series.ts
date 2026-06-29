@@ -11,12 +11,15 @@ import type {
   MoveSceneInput,
   PlanningBoard,
   ReorderInput,
+  SceneBlockDocumentResponse,
   SceneDocument,
+  SceneMarkdownExport,
   SeriesDetail,
   SeriesSummary,
   UpdateActInput,
   UpdateBookInput,
   UpdateChapterInput,
+  UpdateSceneBlockDocumentInput,
   UpdateSceneInput,
 } from "@novel-studio/contracts";
 
@@ -102,6 +105,18 @@ export function createSeriesApi(client: ApiClient) {
     getScene(seriesId: string, sceneId: string) {
       return client.requestJson<SceneDocument>(`/series/${seriesId}/scenes/${sceneId}`);
     },
+    getSceneDocument(seriesId: string, sceneId: string) {
+      return client.requestJson<SceneBlockDocumentResponse>(`/series/${seriesId}/scenes/${sceneId}/document`);
+    },
+    updateSceneDocument(seriesId: string, sceneId: string, input: UpdateSceneBlockDocumentInput) {
+      return client.requestJson<SceneBlockDocumentResponse>(`/series/${seriesId}/scenes/${sceneId}/document`, {
+        body: input,
+        method: "PUT",
+      });
+    },
+    exportSceneMarkdown(seriesId: string, sceneId: string) {
+      return client.requestJson<SceneMarkdownExport>(`/series/${seriesId}/scenes/${sceneId}/export/markdown`);
+    },
     updateScene(seriesId: string, sceneId: string, input: UpdateSceneInput) {
       return client.requestJson<SceneDocument>(`/series/${seriesId}/scenes/${sceneId}`, {
         body: input,
@@ -140,11 +155,14 @@ export type {
   MoveSceneInput,
   PlanningBoard,
   ReorderInput,
+  SceneBlockDocumentResponse,
   SceneDocument,
+  SceneMarkdownExport,
   SeriesDetail,
   SeriesSummary,
   UpdateActInput,
   UpdateBookInput,
   UpdateChapterInput,
+  UpdateSceneBlockDocumentInput,
   UpdateSceneInput,
 };

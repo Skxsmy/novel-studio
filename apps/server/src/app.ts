@@ -26,6 +26,7 @@ import {
   UpdateActInputSchema,
   UpdateBookInputSchema,
   UpdateChapterInputSchema,
+  UpdateSceneBlockDocumentInputSchema,
   UpdateScenePlanningInputSchema,
   UpdateSceneInputSchema,
   UpdateSceneSectionInputSchema,
@@ -101,7 +102,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     if (error instanceof Error && error.name === "ZodError") {
       void reply.status(400).send({
         code: "VALIDATION_ERROR",
-        message: "请求数据无效",
+        message: "Request payload is invalid",
         details: error,
       });
       return;
@@ -110,12 +111,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     if (typeof statusCode === "number" && statusCode >= 400 && statusCode < 500) {
       void reply.status(statusCode).send({
         code: statusCode === 415 ? "UNSUPPORTED_MEDIA_TYPE" : "BAD_REQUEST",
-        message: error instanceof Error ? error.message : "请求无法处理",
+        message: error instanceof Error ? error.message : "Request cannot be processed",
       });
       return;
     }
     app.log.error(error);
-    void reply.status(500).send({ code: "INTERNAL_ERROR", message: "服务器内部错误" });
+    void reply.status(500).send({ code: "INTERNAL_ERROR", message: "Internal server error" });
   });
 
   app.get("/api/v1/health", async () => ({
@@ -191,6 +192,29 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.get<{ Params: { seriesId: string; sceneId: string } }>(
     "/api/v1/series/:seriesId/scenes/:sceneId",
     async (request) => repository.getScene(request.params.seriesId, request.params.sceneId),
+  );
+
+  app.get<{ Params: { seriesId: string; sceneId: string } }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId/document",
+    async (request) =>
+      repository.getSceneBlockDocument(request.params.seriesId, request.params.sceneId),
+  );
+
+  app.put<{ Params: { seriesId: string; sceneId: string } }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId/document",
+    async (request) => {
+      const input = UpdateSceneBlockDocumentInputSchema.parse(request.body);
+      return repository.updateSceneBlockDocument(
+        request.params.seriesId,
+        request.params.sceneId,
+        input,
+      );
+    },
+  );
+
+  app.get<{ Params: { seriesId: string; sceneId: string } }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId/export/markdown",
+    async (request) => repository.exportSceneMarkdown(request.params.seriesId, request.params.sceneId),
   );
 
   app.put<{ Params: { seriesId: string; sceneId: string } }>(
@@ -477,7 +501,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await app.register(fastifyStatic, { root: options.webRoot });
       app.setNotFoundHandler((request, reply) => {
         if (request.url.startsWith("/api/")) {
-          void reply.status(404).send({ code: "NOT_FOUND", message: "API 不存在" });
+          void reply.status(404).send({ code: "NOT_FOUND", message: "API route does not exist" });
           return;
         }
         void reply.sendFile("index.html");

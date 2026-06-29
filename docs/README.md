@@ -35,4 +35,4 @@ Only read older milestone documents when the current task depends on that area.
 
 ## Current Warning
 
-The current product is not visually accepted. By explicit user direction on 2026-06-26, the active planning line is `NS-410` JSON Authority, Block Write Editor, and Codex Field Progression. Project recovery is paused but still not accepted; automated NS-410 checks must not be reported as user visual acceptance. Implementation is paused until the user confirms; do not commit the documentation changes yet.
+The current product is not visually accepted. By explicit user direction on 2026-06-26, the active planning line is `NS-410` JSON Authority, Block Write Editor, and Codex Field Progression. Project recovery is paused but still not accepted; automated NS-410 checks must not be reported as user visual acceptance. NS-410 implementation is active on `codex/ns-410-json-authority`; continue only through the controlled slice plan in `docs/tasks/NS-410.md`.
