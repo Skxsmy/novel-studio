@@ -40,7 +40,7 @@
 
 完成标准：至少一个本地和一个云端适配器通过同一契约；调用前预览上下文和权限；调用后可审计模型、Prompt 版本与用量；local-only 阻断测试通过。
 
-## NS-410 Block Write Editor 与 Codex Field Progression
+## NS-410 Block Write Editor 与 Unified Codex Progression
 
 执行规格：`docs/tasks/NS-410.md`。验收记录：`docs/testing/NS-410_ACCEPTANCE.md`。架构决策：`docs/adr/0012-scene-block-documents-and-codex-field-progression.md`。
 
@@ -51,7 +51,7 @@
 - `FR-AI-01`、`FR-AI-04` 中与 Context Bundle 时间隔离相关的部分
 - `IMPORT_EXPORT_VERSIONING_SPEC.md` 中 Markdown 导出与数据迁移边界
 
-完成标准：Scene 正文以 JSON `SceneBlockDocument` 为内部权威格式；现有测试 Markdown/YAML 数据可迁移或重新生成到 JSON 权威结构；block document 可保存、重载并导出 Markdown；现有前端正在使用的场景 API 在过渡期保持兼容；Codex Canon Description 与 Detail 可按 scene/block 位置投影；Context Builder、悬浮预览和有效状态 API 不泄露后文 field progression；旧世界事实 progression 和角色知识继续独立工作。
+完成标准：Scene 正文以 JSON `SceneBlockDocument` 为内部权威格式；现有测试 Markdown/YAML 数据可迁移或重新生成到 JSON 权威结构；block document 可保存、重载并导出 Markdown；现有前端正在使用的场景 API 在过渡期保持兼容；旧 `codex/progressions/*.yaml` 退役并由统一 `codex/progressions/*.json` Progression 权威系统替代；Codex Canon Description、Detail、世界事实和关系变化可按 scene/block 位置投影；Context Builder、悬浮预览和有效状态 API 不泄露后文 progression；角色知识继续作为独立 JSON 权威系统工作并可引用 JSON progression。
 
 验收 ID：
 
@@ -59,7 +59,7 @@
 - `NS-410-A02` block document 保存、重载和 revision。
 - `NS-410-A03` block-to-Markdown 导出。
 - `NS-410-A04` 损坏输入、重复 ID、缺失引用和过期版本诊断。
-- `NS-410-A05` field progression CRUD 与引用校验。
+- `NS-410-A05` 统一 JSON progression CRUD 与引用校验。
 - `NS-410-A06` progression block 删除与记录同步删除。
 - `NS-410-A07` baseline-only 投影。
 - `NS-410-A08` add/replace/empty replace 字段折叠。
@@ -67,7 +67,7 @@
 - `NS-410-A10` 后文 field progression 不泄露正文、摘要或 ID。
 - `NS-410-A11` baseline 修改与 replace 边界。
 - `NS-410-A12` Context Builder 使用 projected Codex 字段。
-- `NS-410-A13` 旧 Progression/Knowledge 回归。
+- `NS-410-A13` 角色知识与统一 JSON progression 分离，且旧 YAML progression 不再进入运行时权威路径。
 - `NS-410-A14` Write 普通 block 与 progression block 编辑。
 - `NS-410-A15` Codex baseline/history/effective-at-scene UI。
 - `NS-410-A16` 搜索、提及、字数统计和上下文使用 plain text projection。

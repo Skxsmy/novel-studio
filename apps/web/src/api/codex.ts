@@ -6,20 +6,24 @@ import type {
   CodexDetailTypeDocument,
   CodexEntryDocument,
   CodexMention,
+  CodexProgressionDocument,
   CodexRelationDocument,
   CreateCodexCategoryInput,
   CreateCodexDetailTypeInput,
   CreateCodexEntryInput,
+  CreateCodexProgressionInput,
   CreateCodexRelationInput,
   ArchiveCodexDocumentInput,
   DeleteCodexCategoryResult,
   DeleteCodexDocumentInput,
   DeleteCodexDetailTypeResult,
   DeleteCodexEntryResult,
+  DeleteCodexProgressionResult,
   SceneCodexMentions,
   UpdateCodexCategoryInput,
   UpdateCodexDetailTypeInput,
   UpdateCodexEntryInput,
+  UpdateCodexProgressionInput,
 } from "@novel-studio/contracts";
 
 export function createCodexApi(client: ApiClient) {
@@ -137,6 +141,56 @@ export function createCodexApi(client: ApiClient) {
         method: "POST",
       });
     },
+    listProgressions(
+      seriesId: string,
+      options: {
+        kind?: "field" | "world" | "relationship";
+        entryId?: string;
+        relationId?: string;
+        includeArchived?: boolean;
+      } = {},
+    ) {
+      const params = new URLSearchParams();
+      if (options.kind) params.set("kind", options.kind);
+      if (options.entryId) params.set("entryId", options.entryId);
+      if (options.relationId) params.set("relationId", options.relationId);
+      if (options.includeArchived) params.set("includeArchived", "true");
+      const query = params.size ? `?${params.toString()}` : "";
+      return client.requestJson<CodexProgressionDocument[]>(`/series/${seriesId}/codex/progressions${query}`);
+    },
+    createProgression(seriesId: string, input: CreateCodexProgressionInput) {
+      return client.requestJson<CodexProgressionDocument>(`/series/${seriesId}/codex/progressions`, {
+        body: input,
+        method: "POST",
+      });
+    },
+    getProgression(seriesId: string, progressionId: string) {
+      return client.requestJson<CodexProgressionDocument>(`/series/${seriesId}/codex/progressions/${progressionId}`);
+    },
+    updateProgression(seriesId: string, progressionId: string, input: UpdateCodexProgressionInput) {
+      return client.requestJson<CodexProgressionDocument>(`/series/${seriesId}/codex/progressions/${progressionId}`, {
+        body: input,
+        method: "PUT",
+      });
+    },
+    deleteProgression(seriesId: string, progressionId: string, input: DeleteCodexDocumentInput) {
+      return client.requestJson<DeleteCodexProgressionResult>(`/series/${seriesId}/codex/progressions/${progressionId}`, {
+        body: input,
+        method: "DELETE",
+      });
+    },
+    archiveProgression(seriesId: string, progressionId: string, input: ArchiveCodexDocumentInput) {
+      return client.requestJson<CodexProgressionDocument>(`/series/${seriesId}/codex/progressions/${progressionId}/archive`, {
+        body: input,
+        method: "POST",
+      });
+    },
+    restoreProgression(seriesId: string, progressionId: string, input: ArchiveCodexDocumentInput) {
+      return client.requestJson<CodexProgressionDocument>(`/series/${seriesId}/codex/progressions/${progressionId}/restore`, {
+        body: input,
+        method: "POST",
+      });
+    },
     previewContext(seriesId: string, sceneId: string, pinnedIds: string[] = []) {
       const params = new URLSearchParams({ sceneId });
       if (pinnedIds.length) params.set("pinnedIds", pinnedIds.join(","));
@@ -153,17 +207,21 @@ export type {
   CodexDetailTypeDocument,
   CodexEntryDocument,
   CodexMention,
+  CodexProgressionDocument,
   CodexRelationDocument,
   CreateCodexCategoryInput,
   CreateCodexDetailTypeInput,
   CreateCodexEntryInput,
+  CreateCodexProgressionInput,
   CreateCodexRelationInput,
   DeleteCodexCategoryResult,
   DeleteCodexDocumentInput,
   DeleteCodexDetailTypeResult,
   DeleteCodexEntryResult,
+  DeleteCodexProgressionResult,
   SceneCodexMentions,
   UpdateCodexCategoryInput,
   UpdateCodexDetailTypeInput,
   UpdateCodexEntryInput,
+  UpdateCodexProgressionInput,
 };

@@ -173,10 +173,10 @@ export const CodexFieldProgressionFieldSchema = z.discriminatedUnion("kind", [
 ]);
 export type CodexFieldProgressionField = z.infer<typeof CodexFieldProgressionFieldSchema>;
 
-export const CodexFieldProgressionOperationSchema = z.enum(["add", "replace"]);
-export type CodexFieldProgressionOperation = z.infer<typeof CodexFieldProgressionOperationSchema>;
+export const CodexProgressionOperationSchema = z.enum(["add", "replace"]);
+export type CodexProgressionOperation = z.infer<typeof CodexProgressionOperationSchema>;
 
-export const CodexFieldProgressionSourceSchema = z
+export const CodexProgressionSourceSchema = z
   .object({
     kind: z.enum(["write-block", "codex-page", "proposal"]),
     sceneId: z.string().uuid().nullable().default(null),
@@ -199,56 +199,12 @@ export const CodexFieldProgressionSourceSchema = z
       });
     }
   });
-export type CodexFieldProgressionSource = z.infer<typeof CodexFieldProgressionSourceSchema>;
+export type CodexProgressionSource = z.infer<typeof CodexProgressionSourceSchema>;
 
-export const CodexFieldProgressionSchema = z.object({
-  schemaVersion: z.literal(1),
-  id: z.string().uuid(),
-  entryId: z.string().uuid(),
-  field: CodexFieldProgressionFieldSchema,
-  operation: CodexFieldProgressionOperationSchema,
-  body: z.string().max(16000).default(""),
-  summary: z.string().trim().max(1000).default(""),
-  effectiveFromSceneId: z.string().uuid(),
-  source: CodexFieldProgressionSourceSchema,
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-  archivedAt: z.string().datetime().nullable().default(null),
-});
-export type CodexFieldProgression = z.infer<typeof CodexFieldProgressionSchema>;
-
-export const CodexFieldProgressionDocumentSchema = z.object({
-  progression: CodexFieldProgressionSchema,
-  revision: z.string().regex(/^[a-f0-9]{64}$/),
-});
-export type CodexFieldProgressionDocument = z.infer<typeof CodexFieldProgressionDocumentSchema>;
-
-export const CreateCodexFieldProgressionInputSchema = CodexFieldProgressionSchema.pick({
-  entryId: true,
-  field: true,
-  operation: true,
-  body: true,
-  summary: true,
-  effectiveFromSceneId: true,
-  source: true,
-}).partial({
-  summary: true,
-});
-export type CreateCodexFieldProgressionInput = z.input<typeof CreateCodexFieldProgressionInputSchema>;
-
-export const UpdateCodexFieldProgressionInputSchema = CreateCodexFieldProgressionInputSchema.partial()
-  .extend({ baseRevision: z.string().regex(/^[a-f0-9]{64}$/) })
-  .superRefine((input, context) => {
-    if (Object.keys(input).every((key) => key === "baseRevision")) {
-      context.addIssue({ code: "custom", message: "At least one field progression field is required" });
-    }
-  });
-export type UpdateCodexFieldProgressionInput = z.infer<typeof UpdateCodexFieldProgressionInputSchema>;
-
-export const DeleteCodexFieldProgressionResultSchema = z.object({
-  deletedId: z.string().uuid(),
-});
-export type DeleteCodexFieldProgressionResult = z.infer<typeof DeleteCodexFieldProgressionResultSchema>;
+export const CodexFieldProgressionOperationSchema = CodexProgressionOperationSchema;
+export type CodexFieldProgressionOperation = CodexProgressionOperation;
+export const CodexFieldProgressionSourceSchema = CodexProgressionSourceSchema;
+export type CodexFieldProgressionSource = CodexProgressionSource;
 
 export const CodexEffectiveFieldStateSchema = z.object({
   field: CodexFieldProgressionFieldSchema,
@@ -386,55 +342,72 @@ export const EvidenceSchema = z.object({
 });
 export type Evidence = z.infer<typeof EvidenceSchema>;
 
-export const CodexProgressionTargetKindSchema = z.enum(["entry", "relation"]);
-export type CodexProgressionTargetKind = z.infer<typeof CodexProgressionTargetKindSchema>;
-
-export const CodexProgressionTargetSchema = z
-  .object({
-    kind: CodexProgressionTargetKindSchema,
-    entryId: z.string().uuid().nullable().default(null),
-    relationId: z.string().uuid().nullable().default(null),
-  })
-  .superRefine((target, context) => {
-    if (target.kind === "entry" && !target.entryId) {
-      context.addIssue({
-        code: "custom",
-        message: "Entry progression requires entryId",
-        path: ["entryId"],
-      });
-    }
-    if (target.kind === "relation" && !target.relationId) {
-      context.addIssue({
-        code: "custom",
-        message: "Relation progression requires relationId",
-        path: ["relationId"],
-      });
-    }
-  });
-export type CodexProgressionTarget = z.infer<typeof CodexProgressionTargetSchema>;
-
-export const CodexProgressionChangeKindSchema = z.enum([
-  "addition",
-  "replacement",
-]);
-export type CodexProgressionChangeKind = z.infer<typeof CodexProgressionChangeKindSchema>;
-
 export const CodexProgressionSchema = z
   .object({
     schemaVersion: z.literal(1),
     id: z.string().uuid(),
-    target: CodexProgressionTargetSchema,
-    fieldKey: z.string().trim().min(1).max(120).default("description"),
-    changeKind: CodexProgressionChangeKindSchema,
-    summary: z.string().trim().min(1).max(16000),
+    kind: z.enum(["field", "world", "relationship"]),
+    entryId: z.string().uuid().nullable().default(null),
+    relationId: z.string().uuid().nullable().default(null),
+    field: CodexFieldProgressionFieldSchema.nullable().default(null),
+    fieldKey: z.string().trim().min(1).max(120).nullable().default(null),
+    operation: CodexProgressionOperationSchema,
+    body: z.string().max(16000).default(""),
+    summary: z.string().trim().max(16000).default(""),
     effectiveFromSceneId: z.string().uuid(),
     effectiveToSceneId: z.string().uuid().nullable().default(null),
-    evidence: z.array(EvidenceSchema).min(1),
+    source: CodexProgressionSourceSchema,
+    evidence: z.array(EvidenceSchema).default([]),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     archivedAt: z.string().datetime().nullable().default(null),
   })
   .superRefine((progression, context) => {
+    if (progression.kind === "field") {
+      if (!progression.entryId) {
+        context.addIssue({ code: "custom", message: "Field progression requires entryId", path: ["entryId"] });
+      }
+      if (!progression.field) {
+        context.addIssue({ code: "custom", message: "Field progression requires field", path: ["field"] });
+      }
+      if (progression.relationId) {
+        context.addIssue({ code: "custom", message: "Field progression cannot target relationId", path: ["relationId"] });
+      }
+    }
+    if (progression.kind === "world") {
+      if (!progression.entryId) {
+        context.addIssue({ code: "custom", message: "World progression requires entryId", path: ["entryId"] });
+      }
+      if (!progression.fieldKey) {
+        context.addIssue({ code: "custom", message: "World progression requires fieldKey", path: ["fieldKey"] });
+      }
+      if (progression.relationId) {
+        context.addIssue({ code: "custom", message: "World progression cannot target relationId", path: ["relationId"] });
+      }
+      if (!progression.summary.trim()) {
+        context.addIssue({ code: "custom", message: "World progression requires summary", path: ["summary"] });
+      }
+      if (progression.evidence.length === 0) {
+        context.addIssue({ code: "custom", message: "World progression requires evidence", path: ["evidence"] });
+      }
+    }
+    if (progression.kind === "relationship") {
+      if (!progression.relationId) {
+        context.addIssue({ code: "custom", message: "Relationship progression requires relationId", path: ["relationId"] });
+      }
+      if (!progression.fieldKey) {
+        context.addIssue({ code: "custom", message: "Relationship progression requires fieldKey", path: ["fieldKey"] });
+      }
+      if (progression.entryId) {
+        context.addIssue({ code: "custom", message: "Relationship progression cannot target entryId", path: ["entryId"] });
+      }
+      if (!progression.summary.trim()) {
+        context.addIssue({ code: "custom", message: "Relationship progression requires summary", path: ["summary"] });
+      }
+      if (progression.evidence.length === 0) {
+        context.addIssue({ code: "custom", message: "Relationship progression requires evidence", path: ["evidence"] });
+      }
+    }
     if (progression.effectiveToSceneId === progression.effectiveFromSceneId) {
       context.addIssue({
         code: "custom",
@@ -452,25 +425,107 @@ export const CodexProgressionDocumentSchema = z.object({
 export type CodexProgressionDocument = z.infer<typeof CodexProgressionDocumentSchema>;
 
 export const CreateCodexProgressionInputSchema = z.object({
-  target: CodexProgressionTargetSchema,
-  fieldKey: z.string().trim().min(1).max(120).default("description"),
-  changeKind: CodexProgressionChangeKindSchema,
-  summary: z.string().trim().min(1).max(16000),
+  kind: z.enum(["field", "world", "relationship"]),
+  entryId: z.string().uuid().nullable().default(null),
+  relationId: z.string().uuid().nullable().default(null),
+  field: CodexFieldProgressionFieldSchema.nullable().default(null),
+  fieldKey: z.string().trim().min(1).max(120).nullable().default(null),
+  operation: CodexProgressionOperationSchema,
+  body: z.string().max(16000).default(""),
+  summary: z.string().trim().max(16000).default(""),
   effectiveFromSceneId: z.string().uuid(),
   effectiveToSceneId: z.string().uuid().nullable().default(null),
-  evidence: z.array(EvidenceSchema).min(1),
+  source: CodexProgressionSourceSchema,
+  evidence: z.array(EvidenceSchema).default([]),
+}).superRefine((input, context) => {
+  if (input.kind === "field") {
+    if (!input.entryId) {
+      context.addIssue({ code: "custom", message: "Field progression requires entryId", path: ["entryId"] });
+    }
+    if (!input.field) {
+      context.addIssue({ code: "custom", message: "Field progression requires field", path: ["field"] });
+    }
+    if (input.relationId) {
+      context.addIssue({ code: "custom", message: "Field progression cannot target relationId", path: ["relationId"] });
+    }
+  }
+  if (input.kind === "world") {
+    if (!input.entryId) {
+      context.addIssue({ code: "custom", message: "World progression requires entryId", path: ["entryId"] });
+    }
+    if (!input.fieldKey) {
+      context.addIssue({ code: "custom", message: "World progression requires fieldKey", path: ["fieldKey"] });
+    }
+    if (input.relationId) {
+      context.addIssue({ code: "custom", message: "World progression cannot target relationId", path: ["relationId"] });
+    }
+    if (!input.summary.trim()) {
+      context.addIssue({ code: "custom", message: "World progression requires summary", path: ["summary"] });
+    }
+    if (input.evidence.length === 0) {
+      context.addIssue({ code: "custom", message: "World progression requires evidence", path: ["evidence"] });
+    }
+  }
+  if (input.kind === "relationship") {
+    if (!input.relationId) {
+      context.addIssue({ code: "custom", message: "Relationship progression requires relationId", path: ["relationId"] });
+    }
+    if (!input.fieldKey) {
+      context.addIssue({ code: "custom", message: "Relationship progression requires fieldKey", path: ["fieldKey"] });
+    }
+    if (input.entryId) {
+      context.addIssue({ code: "custom", message: "Relationship progression cannot target entryId", path: ["entryId"] });
+    }
+    if (!input.summary.trim()) {
+      context.addIssue({ code: "custom", message: "Relationship progression requires summary", path: ["summary"] });
+    }
+    if (input.evidence.length === 0) {
+      context.addIssue({ code: "custom", message: "Relationship progression requires evidence", path: ["evidence"] });
+    }
+  }
+  if (input.effectiveToSceneId === input.effectiveFromSceneId) {
+    context.addIssue({
+      code: "custom",
+      message: "effectiveToSceneId cannot equal effectiveFromSceneId",
+      path: ["effectiveToSceneId"],
+    });
+  }
 });
 export type CreateCodexProgressionInput = z.input<typeof CreateCodexProgressionInputSchema>;
 
-export const UpdateCodexProgressionInputSchema =
-  CreateCodexProgressionInputSchema.partial()
-    .extend({ baseRevision: z.string().regex(/^[a-f0-9]{64}$/) })
-    .superRefine((input, context) => {
-      if (Object.keys(input).every((key) => key === "baseRevision")) {
-        context.addIssue({ code: "custom", message: "At least one progression field is required" });
-      }
-    });
+export const UpdateCodexProgressionInputSchema = z.object({
+  baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  kind: z.enum(["field", "world", "relationship"]).optional(),
+  entryId: z.string().uuid().nullable().optional(),
+  relationId: z.string().uuid().nullable().optional(),
+  field: CodexFieldProgressionFieldSchema.nullable().optional(),
+  fieldKey: z.string().trim().min(1).max(120).nullable().optional(),
+  operation: CodexProgressionOperationSchema.optional(),
+  body: z.string().max(16000).optional(),
+  summary: z.string().trim().max(16000).optional(),
+  effectiveFromSceneId: z.string().uuid().optional(),
+  effectiveToSceneId: z.string().uuid().nullable().optional(),
+  source: CodexProgressionSourceSchema.optional(),
+  evidence: z.array(EvidenceSchema).optional(),
+}).superRefine((input, context) => {
+  if (Object.keys(input).every((key) => key === "baseRevision")) {
+    context.addIssue({ code: "custom", message: "At least one progression field is required" });
+  }
+});
 export type UpdateCodexProgressionInput = z.infer<typeof UpdateCodexProgressionInputSchema>;
+
+export const DeleteCodexProgressionBlockerSchema = z.object({
+  kind: z.enum(["write-block", "proposal", "model-call", "character-knowledge"]),
+  id: z.string(),
+  reason: z.string(),
+});
+export type DeleteCodexProgressionBlocker = z.infer<typeof DeleteCodexProgressionBlockerSchema>;
+
+export const DeleteCodexProgressionResultSchema = z.object({
+  deletedId: z.string().uuid(),
+  blockers: z.array(DeleteCodexProgressionBlockerSchema).default([]),
+});
+export type DeleteCodexProgressionResult = z.infer<typeof DeleteCodexProgressionResultSchema>;
 
 export const CodexKnowledgeStanceSchema = z.enum([
   "knows",

@@ -6,7 +6,7 @@ This file is the current project-status authority. Earlier Chinese records were 
 
 ## Read First
 
-- Current active line: `NS-410` Block Write Editor and Codex Field Progression, started by explicit user direction on 2026-06-26.
+- Current active line: `NS-410` Block Write Editor and Unified Codex Progression, started by explicit user direction on 2026-06-26.
 - Current decision: the previous recovery warning not to start `NS-410` is superseded for this task. The project is still not visually/product accepted, so NS-410 command verification must not be reported as user visual acceptance.
 - Do not mechanically follow the old milestone order or old `NS-409` assets. M2/M3 foundations may be revised for this block-document and field-progression change.
 - Project recovery remains not accepted, but is no longer the active implementation line while NS-410 is in progress.
@@ -26,7 +26,7 @@ This file is the current project-status authority. Earlier Chinese records were 
 ## Current Implementation Snapshot
 
 - Local-first React/Vite + Fastify application, bound to `127.0.0.1`.
-- Project JSON files are the target durable authority; Markdown/Word are boundary formats; SQLite/FTS5 remains a rebuildable derived index. Slice 3 now exposes block-aware scene document APIs and Markdown export while retaining projected `content` for existing scene APIs.
+- Project JSON files are the target durable authority; Markdown/Word are boundary formats; SQLite/FTS5 remains a rebuildable derived index. Slice 4 now stores unified Codex Progression as JSON under `codex/progressions/` while retaining existing effective-state route behavior.
 - Current frontend structure:
   - `apps/web/src/app`
   - `apps/web/src/api`
@@ -37,7 +37,7 @@ This file is the current project-status authority. Earlier Chinese records were 
 - `packages/storage` still has an oversized `src/index.ts`; domain behavior should keep moving out instead of growing it.
 - `packages/ai` contains the provider registry, mock provider, OpenAI-compatible path, DeepSeek/OpenAI/OpenRouter/Ollama paths, the Anthropic Messages API path, the Google Gemini GenerateContent API path, credential abstractions, and error classification.
 
-## Active Work: NS-410 Block Write Editor and Codex Field Progression
+## Active Work: NS-410 Block Write Editor and Unified Codex Progression
 
 The active line is now NS-410 by explicit user direction. Project recovery remains not accepted and must not be described as complete.
 
@@ -48,8 +48,9 @@ NS-410 product decisions now recorded:
 - Markdown remains a projection/export/import compatibility format and mirror.
 - Existing frontend-used scene APIs should remain compatible during transition: reads can keep returning projected `content`, and legacy `content` writes should convert to JSON block documents instead of forcing an immediate frontend-wide rewrite.
 - Word and full Markdown re-import are later workflows, not part of this implementation.
-- Codex field progression is a new field-content system under `codex/field-progressions/`, separate from old world-fact `codex/progressions/`.
+- Codex Progression is one unified JSON system under `codex/progressions/`; old `codex/progressions/*.yaml` is retired and must not be used as a runtime authority path.
 - Canon Description and reusable Detail values can vary by scene and block position.
+- World facts and relationship changes also move onto the same JSON Progression system instead of the old YAML progression shape.
 - Same-scene block order is part of visibility; future progression body, summary, and IDs must not leak backward.
 - Empty `replace` clears and hides a field.
 - Context Builder must use projected Codex fields at the current scene/block position.
@@ -63,8 +64,8 @@ The task now uses controlled vertical slices in `docs/tasks/NS-410.md`:
 2. Slice 1 Contracts and JSON file foundation. Passed for Slice 1 scope on 2026-06-26.
 3. Slice 2 Scene JSON authority with legacy scene API compatibility. Passed for Slice 2 scope on 2026-06-29.
 4. Slice 3 Scene document API and Markdown export. Passed for Slice 3 scope on 2026-06-29.
-5. Slice 4 Field progression JSON storage and CRUD API. Next implementation slice.
-6. Slice 5 Projection engine and effective entry API.
+5. Slice 4 Unified Progression JSON storage and CRUD API. Passed for Slice 4 scope on 2026-06-29.
+6. Slice 5 Projection engine and effective entry API. Next implementation slice.
 7. Slice 6 Context Builder and preview projection.
 8. Slice 7 Write block editor MVP for ordinary blocks.
 9. Slice 8 Write embedded progression blocks and scene progression panel.
@@ -268,6 +269,6 @@ Acceptance evidence files:
 
 ## Next Work
 
-Continue NS-410 with Slice 4 from `docs/tasks/NS-410.md`: field progression JSON storage and CRUD API. Slices 1-3 are verified and recorded in `docs/testing/NS-410_ACCEPTANCE.md`; do not skip Slice 4's CRUD and validation exit checks.
+Continue NS-410 with Slice 5 from `docs/tasks/NS-410.md`: projection engine and effective entry API. Slices 1-4 are verified and recorded in `docs/testing/NS-410_ACCEPTANCE.md`; do not skip Slice 5's projection, same-scene, future-isolation, and baseline-boundary exit checks.
 
 After NS-410, return to project recovery visual/product acceptance unless the user redirects again.

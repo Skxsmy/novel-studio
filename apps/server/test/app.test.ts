@@ -193,6 +193,102 @@ describe("local API", () => {
     await app.close();
   });
 
+  it("serves unified Progression JSON CRUD APIs", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
+    roots.push(root);
+    const app = await buildApp({ libraryRoot: root });
+
+    const createSeries = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "统一进展 API" },
+    });
+    const series = createSeries.json();
+    const scene = series.scenes[0];
+    const entry = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: { categoryId: "character", name: "林岚" },
+    });
+    const detailType = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: { categoryId: "character", name: "状态" },
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        kind: "field",
+        entryId: entry.json().metadata.id,
+        relationId: null,
+        field: { kind: "detail", detailTypeId: detailType.json().detailType.id },
+        fieldKey: null,
+        operation: "add",
+        body: "袖口带着潮水味。",
+        summary: "林岚留下潮水痕迹。",
+        effectiveFromSceneId: scene.metadata.id,
+        source: { kind: "codex-page", sceneId: null, blockId: null },
+        evidence: [],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().progression).toMatchObject({
+      kind: "field",
+      operation: "add",
+      body: "袖口带着潮水味。",
+    });
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions?kind=field&entryId=${entry.json().metadata.id}`,
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toHaveLength(1);
+
+    const updated = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions/${created.json().progression.id}`,
+      payload: {
+        baseRevision: created.json().revision,
+        operation: "replace",
+        body: "",
+        summary: "清空状态。",
+      },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().progression.operation).toBe("replace");
+
+    const stale = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions/${created.json().progression.id}`,
+      payload: {
+        baseRevision: created.json().revision,
+        summary: "过期更新。",
+      },
+    });
+    expect(stale.statusCode).toBe(409);
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions/${created.json().progression.id}`,
+      payload: { baseRevision: updated.json().revision },
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toMatchObject({
+      deletedId: created.json().progression.id,
+      blockers: [],
+    });
+
+    const missing = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions/${created.json().progression.id}`,
+    });
+    expect(missing.statusCode).toBe(404);
+    await app.close();
+  });
+
   it("validates hierarchy and rejects incomplete reorder commands", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
     roots.push(root);
@@ -610,15 +706,15 @@ describe("local API", () => {
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
       payload: {
-        target: {
-          kind: "relation",
-          entryId: null,
-          relationId: relation.json().relation.id,
-        },
+        kind: "relationship",
+        entryId: null,
+        relationId: relation.json().relation.id,
         fieldKey: "关系状态",
-        changeKind: "replacement",
+        operation: "replace",
+        body: "林岚暂时不再信任周野。",
         summary: "林岚暂时不再信任周野。",
         effectiveFromSceneId: secondScene.json().metadata.id,
+        source: { kind: "codex-page", sceneId: null, blockId: null },
         evidence: [{
           sourceType: "scene",
           sourceId: secondScene.json().metadata.id,

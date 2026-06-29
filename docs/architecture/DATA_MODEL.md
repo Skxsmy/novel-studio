@@ -118,15 +118,18 @@ SQLite 保存可重建的场景定位、正文搜索、Codex 搜索、名称候�
 
 关系位于 `codex/relations/<relationId>.json`。有向关系只表达 `sourceEntryId → targetEntryId`；无向关系从两端查询同一文件，不复制第二条边。提及索引只表示名称或别名在场景正文中出现，不改变 Scene 显式关联或任何 Canon。
 
-## Codex Field Progression
+## Codex Progression
 
-字段级变化位于 `codex/field-progressions/<progressionId>.json`。它只作用于 Codex 条目的 Canon Description 或可复用 Detail 类型，不表达世界事实或关系变化。
+Progression 位于 `codex/progressions/<progressionId>.json`。这是 NS-410 起唯一的 Progression 权威路径，替代旧 `codex/progressions/<progressionId>.yaml`，并同时表达 Codex 字段变化、世界事实变化和关系变化。旧 YAML progression 文件是退役测试/历史格式，不作为运行时读取或新功能兼容目标。
 
 ```json
 {
   "schemaVersion": 1,
   "id": "00000000-0000-0000-0000-000000000000",
+  "kind": "field",
   "entryId": "00000000-0000-0000-0000-000000000000",
+  "relationId": null,
+  "fieldKey": null,
   "field": {
     "kind": "description",
     "detailTypeId": null
@@ -146,15 +149,13 @@ SQLite 保存可重建的场景定位、正文搜索、Codex 搜索、名称候�
 }
 ```
 
-`add` 保存本次新增内容，不复制旧字段快照；`replace` 保存替换后的完整字段内容；空 `replace` 表示清空并在上下文与悬浮预览中隐藏。Projection 按叙事场景和同场景 block 顺序折叠字段，并只向早期位置返回隐藏后文数量。
+`kind: field` 使用 `field` 指向 Canon Description 或稳定 Detail Type ID；`kind: world` 使用 `entryId` 与 `fieldKey` 表达条目的世界事实状态；`kind: relationship` 使用 `relationId` 与 `fieldKey` 表达关系状态。`add` 保存本次新增内容，不复制旧字段快照；`replace` 保存替换后的完整状态；字段目标的空 `replace` 表示清空并在上下文与悬浮预览中隐藏。Projection 按叙事场景和同场景 block 顺序折叠字段，并只向早期位置返回隐藏后文数量。
 
-## 进展记录与角色所知
-
-世界事实和关系变化位于 `codex/progressions/<progressionId>.json`。记录指向设定条目或关系、拥有 `addition/replacement` 变更类型、作者可读的 `fieldKey`、生效起止场景、摘要和证据。Replacement 只影响按场景查询投影，不删除旧记录。
+## 角色所知
 
 角色知道、相信或误解的内容位于 `codex/knowledge/<knowledgeId>.json`。知道者必须是人物条目；记录可指向一个涉及条目、一个关系或二者之一，并带有 `knows/believes/misunderstands` 立场、生效起止场景和证据。
 
-有效状态查询以叙事顺序为准。早期场景不会返回未来记录正文、ID 或证据；只允许返回隐藏数量，用于提醒作者后面还有变化。
+有效状态查询以叙事顺序为准。早期场景不会返回未来 Progression 或角色知识的正文、ID 或证据；只允许返回隐藏数量，用于提醒作者后面还有变化。
 
 ## M4 AI 基础设施文件
 

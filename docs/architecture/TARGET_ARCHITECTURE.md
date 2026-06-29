@@ -59,7 +59,7 @@ packages/
 ### 权威文件
 
 - 系列、书、幕、章清单：JSON。
-- 场景、Codex、Snippet、Style、Prompt 和 Research Note：JSON。NS-410 起，场景正文的内部权威是 `SceneBlockDocument`，Markdown/Word 只是导入、导出、镜像和迁移边界格式。
+- 场景、Codex、Progression、角色知识、Snippet、Style、Prompt 和 Research Note：JSON。NS-410 起，场景正文的内部权威是 `SceneBlockDocument`，Markdown/Word 只是导入、导出、镜像和迁移边界格式；旧 `codex/progressions/*.yaml` 退役。
 - Workshop：按对话保存 Markdown/JSONL，并有可读索引。
 - Proposal、Evidence、调用审计和版本元数据：`.studio` 下可导出的结构化文件。
 - JSON authority 是 Project/File Service 的内部职责；API 层应在可行处继续提供当前前端所需的兼容投影，例如场景 `content`。
@@ -84,7 +84,7 @@ Archive is not a data-retention substitute for deletion. Every archive-capable d
 3. 读取场景和 Codex，生成 revision。
 4. 对比索引中的文件哈希，只更新变化实体。
 5. 计算叙事顺序投影、同场景 block 顺序投影和故事时间投影。
-6. 按场景/block 计算有效 Codex field progression，并按场景计算世界事实 Progression、角色知识和活跃情节线。
+6. 按场景/block 计算有效统一 Codex Progression，并按场景计算角色知识和活跃情节线。
 
 投影错误不得改写源文件。严重引用损坏时进入只读诊断模式。
 

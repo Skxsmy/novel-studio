@@ -294,10 +294,10 @@ Sections 使用独立文件和权限元数据，不混入正文后再靠隐藏�
 - 可钉到编辑器旁边或加入 Workshop 上下文。
 - Snippet 默认不是 Canon，也不自动提供给 AI。
 
-### FR-WRITE-08 Codex Field Progression Blocks
+### FR-WRITE-08 Codex Progression Blocks
 
-- 写作正文可插入 Codex 字段变化 block，用来记录某个场景位置起生效的 Canon Description 或 Detail 变化。
-- 变化 block 必须引用独立的 field progression 记录；删除正文 block 时同步删除该记录，若历史引用阻止硬删，界面必须说明阻止原因。
+- 写作正文可插入 Codex Progression block，用来记录某个场景位置起生效的 Canon Description、Detail、世界事实或关系变化。
+- 变化 block 必须引用统一 JSON Progression 记录；删除正文 block 时同步删除该记录，若历史引用阻止硬删，界面必须说明阻止原因。
 - Progression block 可折叠、展开、编辑和删除；专注模式中默认以不打断写作的折叠状态存在。
 - 右侧管理面板可按当前场景 block 顺序列出变化，点击后定位到正文 block，并与正文 block 编辑保持同步。
 - 这些 block 不得污染普通 Markdown 导出正文；导出时可作为可选注释或附录处理。
@@ -346,14 +346,13 @@ Sections 使用独立文件和权限元数据，不混入正文后再靠隐藏�
 
 ### FR-CODEX-06 Progression
 
-- Addition：从指定场景起增加事实。
-- Replacement：从指定场景起替换此前状态。
-- 可绑定某个 Detail 或整体描述。
+- Progression 是统一 JSON 权威系统，保存于 `codex/progressions/<progressionId>.json`。旧 `codex/progressions/<progressionId>.yaml` 格式退役，不能再作为运行时权威或新功能约束。
+- v1 只支持 `add` 与 `replace`。`add` 表示从指定场景或 block 位置起增加内容；`replace` 表示从指定场景或 block 位置起替换此前状态。
+- Progression target 可以是 Canon Description、稳定 detail type ID、世界事实条目或关系。
 - 默认沿叙事顺序生效；故事时间用于矛盾检测，不自动改写叙事知识状态。
-- Codex field progression 独立于上述世界事实/关系 Progression。它专门作用于 Canon Description 和按稳定 detail type ID 识别的 Detail 值。
-- Field progression 只支持 `add` 与 `replace`；空 `replace` 表示清空并在悬浮预览、Context Builder 和 AI 上下文中隐藏该字段。
-- 同一 Scene 内 field progression 还必须按 block 顺序生效；查询某个 block 位置时，只能看到当前位置之前或当前位置自身已经生效的字段变化。
-- 后文 field progression 不能向早期场景、早期 block、悬浮预览或 AI 上下文泄露正文、摘要或内部 ID；最多返回隐藏数量。
+- 对 Canon Description 和 Detail 的 target，空 `replace` 表示清空并在悬浮预览、Context Builder 和 AI 上下文中隐藏该字段。
+- 同一 Scene 内，来自 Write block 的 Progression 必须按 block 顺序生效；查询某个 block 位置时，只能看到当前位置之前或当前位置自身已经生效的变化。
+- 后文 Progression 不能向早期场景、早期 block、悬浮预览或 AI 上下文泄露正文、摘要或内部 ID；最多返回隐藏数量。
 - Codex 主页面编辑的是整部小说的初始/基准状态。按 Scene 查看时必须明确区分“初始设定”和“此刻有效”。
 
 ### FR-CODEX-07 世界真相与角色知识

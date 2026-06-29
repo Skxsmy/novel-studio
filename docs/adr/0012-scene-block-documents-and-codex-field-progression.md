@@ -1,4 +1,4 @@
-# ADR-0012: JSON authority, scene block documents, and Codex field progression
+# ADR-0012: JSON authority, scene block documents, and unified Codex progression
 
 Status: Accepted; NS-410 implementation active on the controlled slice plan
 
@@ -10,7 +10,7 @@ The current development data is test data and has no product value. It may be mi
 
 ADR-0001, ADR-0004, ADR-0007, ADR-0010, and ADR-0011 remain useful historical records, but their Markdown/YAML persistence rules are superseded by this ADR wherever they conflict with JSON authority. Their rule that editor-private runtime state must not become the only saved copy still applies.
 
-Codex already has `codex/progressions/` for world facts and relationship state summaries. Those records are not the same as field content changes to Canon description or reusable detail values. Reusing them would make summaries masquerade as Canon field text and blur product semantics.
+Codex previously had `codex/progressions/*.yaml` for world facts and relationship state summaries. That YAML model is retired by NS-410. The replacement is not a second field-only side table; it is one schema-versioned JSON Progression system that can target Canon description, reusable detail values, world facts, and relationship changes without pretending old summaries are field text.
 
 ## Decision
 
@@ -22,13 +22,13 @@ Codex already has `codex/progressions/` for world facts and relationship state s
 6. Current Markdown/YAML fixtures may be migrated to JSON or regenerated. NS-410 does not need to preserve valueless test data through complex compatibility layers.
 7. Existing HTTP/API contracts used by the current frontend remain compatible where feasible. Storage authority changes should sit behind repository methods and route adapters.
 8. `SceneDocument.content` remains available as projected Markdown during the transition; legacy content writes may be accepted and converted to JSON block documents.
-9. Codex entries, detail types, relationships, old world-fact progressions, character knowledge, prompts, sections, review anchors, AI call logs, and proposals move toward JSON authority files as part of the NS-410 storage boundary.
-10. Codex field progression is stored separately under `codex/field-progressions/<progressionId>.json`.
-11. Field progression supports only `add` and `replace` in v1. Empty `replace` is the deletion/hidden-field mechanism.
-12. A field progression references `entryId` and either Canon description or a stable reusable detail type ID.
-13. Embedded Write progression blocks reference field progression records by ID. Deleting the block deletes the linked field progression when no reference blocker exists.
-14. Projection evaluates narrative scene order plus same-scene block order and returns projected entry fields plus field-state metadata and hidden future count.
-15. Old world fact progression and character knowledge remain separate and continue to feed context as independent items.
+9. Codex entries, detail types, relationships, Progression, character knowledge, prompts, sections, review anchors, AI call logs, and proposals move toward JSON authority files as part of the NS-410 storage boundary.
+10. Unified Progression is stored under `codex/progressions/<progressionId>.json`; old `codex/progressions/<progressionId>.yaml` files are not a runtime compatibility target.
+11. Progression supports only `add` and `replace` in v1. Empty `replace` is the deletion/hidden-field mechanism for field targets.
+12. A field target references `entryId` and either Canon description or a stable reusable detail type ID. World targets reference an entry and an author-readable state key. Relationship targets reference a relation and an author-readable state key.
+13. Embedded Write progression blocks reference unified Progression records by ID. Deleting the block deletes the linked Progression when no reference blocker exists.
+14. Projection evaluates narrative scene order plus same-scene block order and returns projected entry fields, world/relationship state, field-state metadata, and hidden future count.
+15. Character knowledge remains a separate JSON authority system and may reference unified JSON Progression IDs. It does not preserve the old YAML progression path.
 
 ## Consequences
 
@@ -53,15 +53,15 @@ Codex already has `codex/progressions/` for world facts and relationship state s
 ## Rollback
 
 - A rollback exporter can project block documents to Markdown and ignore embedded progression blocks or place them in comments/appendix text.
-- JSON field progression files must be preserved when rolling back to a version that does not understand them.
-- SQLite may be deleted and rebuilt; it is not the authority for block documents or field progression.
+- JSON Progression files must be preserved when rolling back to a version that does not understand them.
+- SQLite may be deleted and rebuilt; it is not the authority for block documents or Progression.
 - If a rollback targets pre-NS-410 code, use exported Markdown/Word plus JSON backups rather than pretending old Markdown/YAML files are still the source of truth.
 
 ## Validation
 
-- Storage tests cover JSON authority save/reload, Markdown import/migration where supported, Markdown export, damaged JSON diagnostics, duplicate block IDs, stale revisions, field progression reference validation, same-scene projection, future isolation, baseline/update folding, and empty replace.
+- Storage tests cover JSON authority save/reload, Markdown import/migration where supported, Markdown export, damaged JSON diagnostics, duplicate block IDs, stale revisions, unified Progression reference validation, same-scene projection, future isolation, baseline/update folding, and empty replace.
 - Migration tests must use fixtures that truly enter a legacy or damaged state; no no-op migration proves success.
-- API tests cover new document/export/effective-entry/field-progression routes.
+- API tests cover new document/export/effective-entry/Progression routes.
 - API regression tests cover retained scene read/write compatibility for current frontend callers.
 - Context tests cover projected Codex fields and hidden future exclusion.
 - Web tests cover ordinary block editing and embedded progression synchronization where feasible; visual acceptance remains user-owned.

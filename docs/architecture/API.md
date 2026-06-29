@@ -103,10 +103,8 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 - `POST /series/:seriesId/codex/relations/:relationId/restore`
 - `GET /series/:seriesId/codex/context?sceneId=&pinnedIds=`
 - `GET /series/:seriesId/codex/entries/:entryId/effective?sceneId=&blockId=`
-- `GET|POST /series/:seriesId/codex/field-progressions`
-- `GET|PUT|DELETE /series/:seriesId/codex/field-progressions/:fieldProgressionId`
 - `GET|POST /series/:seriesId/codex/progressions`
-- `GET|PUT /series/:seriesId/codex/progressions/:progressionId`
+- `GET|PUT|DELETE /series/:seriesId/codex/progressions/:progressionId`
 - `POST /series/:seriesId/codex/progressions/:progressionId/archive`
 - `POST /series/:seriesId/codex/progressions/:progressionId/restore`
 - `GET|POST /series/:seriesId/codex/knowledge`
@@ -117,9 +115,9 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 
 条目更新分别检查条目 `baseRevision` 和 Research `baseResearchRevision`；只修改其中一类时只要求对应 revision。内置类别不能更新或归档。Codex 条目请求和响应不再包含 `tags`；详情正文通过 `details` 对象保存，键名来自同类别的可复用详情类型。`detailAiContext` 通过同一键名保存条目级详情发送开关，`false` 的详情不得进入 M4 ContextBundle。详情类型创建会拒绝同类别重名；更新要求 `baseRevision`，当前只允许切换 NSFW 标记；删除要求 `baseRevision`，且当同类别任何条目仍使用该详情类型名称时返回 `422 INVALID_DATA`。自动提及与上下文预览是派生查询，不写回正文、Scene 关联或 Canon。`never` 条目即使出现在 `pinnedIds` 中也必须排除。
 
-Field progression 是 Canon Description / Detail 字段级变化，存放于 `codex/field-progressions/`，不同于 `codex/progressions/` 的世界事实/关系摘要。创建和更新必须校验 entry、detail type、scene、block 和 source 引用。`DELETE` 仅在没有历史引用阻止时硬删。按 entry 的 effective API 可带 `sceneId` 与 `blockId`，返回 projected entry、fieldStates 和 hidden future count，不返回未来记录正文、摘要或 ID。
+Progression 是统一 JSON 权威系统，存放于 `codex/progressions/`。它可以 target Canon Description、Detail、世界事实或关系状态；旧 `codex/progressions/*.yaml` 格式退役，不作为运行时兼容目标。创建和更新必须校验 entry、relation、detail type、scene、block、source 和 evidence 引用。`DELETE` 仅在没有历史引用阻止时硬删。按 entry 的 effective API 可带 `sceneId` 与 `blockId`，返回 projected entry、fieldStates 和 hidden future count，不返回未来记录正文、摘要或 ID。
 
-进展记录和角色所知均为权威 JSON 文件，更新、归档和恢复要求自身 `baseRevision`。有效状态查询只按当前叙事位置返回已生效记录；未来记录只返回数量，不返回摘要、证据或 ID。
+Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复要求自身 `baseRevision`。有效状态查询只按当前叙事位置返回已生效记录；未来记录只返回数量，不返回摘要、证据或 ID。
 
 ## M4 AI 基础设施
 

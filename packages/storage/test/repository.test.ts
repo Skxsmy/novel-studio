@@ -891,11 +891,15 @@ describe("ProjectRepository", () => {
     });
 
     const holding = await store.createCodexProgression(series.manifest.id, {
-      target: { kind: "entry", entryId: lin.metadata.id, relationId: null },
+      kind: "world",
+      entryId: lin.metadata.id,
+      relationId: null,
       fieldKey: "持有物",
-      changeKind: "addition",
+      operation: "add",
+      body: "林岚持有旧钥匙。",
       summary: "林岚持有旧钥匙。",
       effectiveFromSceneId: opening.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
       evidence: [{
         sourceType: "scene",
         sourceId: opening.metadata.id,
@@ -904,11 +908,15 @@ describe("ProjectRepository", () => {
       }],
     });
     const lostKey = await store.createCodexProgression(series.manifest.id, {
-      target: { kind: "entry", entryId: lin.metadata.id, relationId: null },
+      kind: "world",
+      entryId: lin.metadata.id,
+      relationId: null,
       fieldKey: "持有物",
-      changeKind: "replacement",
+      operation: "replace",
+      body: "林岚失去旧钥匙。",
       summary: "林岚失去旧钥匙。",
       effectiveFromSceneId: lost.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
       evidence: [{
         sourceType: "scene",
         sourceId: lost.metadata.id,
@@ -917,11 +925,15 @@ describe("ProjectRepository", () => {
       }],
     });
     const trace = await store.createCodexProgression(series.manifest.id, {
-      target: { kind: "entry", entryId: lin.metadata.id, relationId: null },
+      kind: "world",
+      entryId: lin.metadata.id,
+      relationId: null,
       fieldKey: "持有物",
-      changeKind: "addition",
+      operation: "add",
+      body: "林岚身上留下潮水痕迹。",
       summary: "林岚身上留下潮水痕迹。",
       effectiveFromSceneId: marked.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
       evidence: [{
         sourceType: "scene",
         sourceId: marked.metadata.id,
@@ -1001,11 +1013,15 @@ describe("ProjectRepository", () => {
       description: "林岚起初选择信任周野。",
     });
     const changed = await store.createCodexProgression(series.manifest.id, {
-      target: { kind: "relation", entryId: null, relationId: relation.relation.id },
+      kind: "relationship",
+      entryId: null,
+      relationId: relation.relation.id,
       fieldKey: "关系状态",
-      changeKind: "replacement",
+      operation: "replace",
+      body: "林岚暂时不再信任周野。",
       summary: "林岚暂时不再信任周野。",
       effectiveFromSceneId: second.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
       evidence: [{
         sourceType: "scene",
         sourceId: second.metadata.id,
@@ -1081,10 +1097,15 @@ describe("ProjectRepository", () => {
     });
 
     await expect(store.createCodexProgression(series.manifest.id, {
-      target: { kind: "entry", entryId: lin.metadata.id, relationId: null },
-      changeKind: "addition",
+      kind: "world",
+      entryId: lin.metadata.id,
+      relationId: null,
+      fieldKey: "位置",
+      operation: "add",
+      body: "这条证据引文不存在。",
       summary: "这条证据引文不存在。",
       effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
       evidence: [{
         sourceType: "scene",
         sourceId: scene.metadata.id,
@@ -1108,11 +1129,15 @@ describe("ProjectRepository", () => {
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
 
     const progression = await store.createCodexProgression(series.manifest.id, {
-      target: { kind: "entry", entryId: lin.metadata.id, relationId: null },
+      kind: "world",
+      entryId: lin.metadata.id,
+      relationId: null,
       fieldKey: "位置",
-      changeKind: "addition",
+      operation: "add",
+      body: "林岚停在门口。",
       summary: "林岚停在门口。",
       effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
       evidence: [{
         sourceType: "scene",
         sourceId: scene.metadata.id,
@@ -1141,6 +1166,165 @@ describe("ProjectRepository", () => {
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
     expect((await store.getCodexProgression(series.manifest.id, progression.progression.id))
       .progression.summary).toBe(updated.progression.summary);
+  });
+
+  it("stores unified field Progressions as JSON and validates sources before delete", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "统一进展" });
+    const scene = await store.createScene(series.manifest.id, {
+      title: "潮水痕迹",
+      content: "林岚的袖口带着潮水味。",
+    });
+    const blockId = scene.document.blocks[0]!.id;
+    const character = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "林岚",
+    });
+    const detailType = await store.createCodexDetailType(series.manifest.id, {
+      categoryId: "character",
+      name: "状态",
+    });
+    const locationDetail = await store.createCodexDetailType(series.manifest.id, {
+      categoryId: "location",
+      name: "地貌",
+    });
+
+    const progression = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: character.metadata.id,
+      relationId: null,
+      field: { kind: "detail", detailTypeId: detailType.detailType.id },
+      fieldKey: null,
+      operation: "add",
+      body: "袖口带着潮水味。",
+      summary: "林岚留下潮水痕迹。",
+      effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "write-block", sceneId: scene.metadata.id, blockId },
+      evidence: [],
+    });
+
+    const root = seriesRoot(store, "统一进展", series.manifest.id);
+    const jsonPath = path.join(root, "codex", "progressions", `${progression.progression.id}.json`);
+    const yamlPath = path.join(root, "codex", "progressions", `${progression.progression.id}.yaml`);
+    expect(JSON.parse(await readFile(jsonPath, "utf8"))).toMatchObject({
+      id: progression.progression.id,
+      kind: "field",
+      operation: "add",
+    });
+    await expect(readFile(yamlPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+
+    expect(await store.listCodexProgressions(series.manifest.id, {
+      kind: "field",
+      entryId: character.metadata.id,
+    })).toHaveLength(1);
+
+    const updated = await store.updateCodexProgression(series.manifest.id, progression.progression.id, {
+      baseRevision: progression.revision,
+      operation: "replace",
+      body: "林岚的袖口已经干透。",
+      summary: "林岚的潮水痕迹消失。",
+    });
+    expect(updated.progression.operation).toBe("replace");
+
+    await expect(store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: character.metadata.id,
+      relationId: null,
+      field: { kind: "detail", detailTypeId: locationDetail.detailType.id },
+      fieldKey: null,
+      operation: "add",
+      body: "错误详情类型。",
+      summary: "错误详情类型。",
+      effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
+      evidence: [],
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    await expect(store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: character.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "错误 block。",
+      summary: "错误 block。",
+      effectiveFromSceneId: scene.metadata.id,
+      source: {
+        kind: "write-block",
+        sceneId: scene.metadata.id,
+        blockId: "00000000-0000-4000-8000-00000000bad1",
+      },
+      evidence: [],
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    const otherSeries = await store.createSeries({ title: "另一个系列" });
+    const otherEntry = await store.createCodexEntry(otherSeries.manifest.id, {
+      categoryId: "character",
+      name: "周野",
+    });
+    await expect(store.createCodexProgression(series.manifest.id, {
+      kind: "world",
+      entryId: otherEntry.metadata.id,
+      relationId: null,
+      field: null,
+      fieldKey: "状态",
+      operation: "add",
+      body: "跨系列引用。",
+      summary: "跨系列引用。",
+      effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
+      evidence: [{
+        sourceType: "scene",
+        sourceId: scene.metadata.id,
+        quote: "",
+        note: "跨系列 entry 必须拒绝。",
+      }],
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+
+    const knowledge = await store.createCodexKnowledge(series.manifest.id, {
+      characterEntryId: character.metadata.id,
+      subjectEntryId: character.metadata.id,
+      stance: "knows",
+      summary: "林岚知道自己留下痕迹。",
+      truthProgressionId: updated.progression.id,
+      effectiveFromSceneId: scene.metadata.id,
+      evidence: [{
+        sourceType: "codex-entry",
+        sourceId: character.metadata.id,
+        note: "知识引用统一 JSON Progression。",
+      }],
+    });
+    await expect(store.deleteCodexProgression(series.manifest.id, updated.progression.id, {
+      baseRevision: updated.revision,
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      details: {
+        blockers: [{
+          kind: "character-knowledge",
+          id: knowledge.knowledge.id,
+        }],
+      },
+    });
+
+    const removable = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: character.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "replace",
+      body: "",
+      summary: "清空描述。",
+      effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
+      evidence: [],
+    });
+    expect(await store.deleteCodexProgression(series.manifest.id, removable.progression.id, {
+      baseRevision: removable.revision,
+    })).toMatchObject({ deletedId: removable.progression.id, blockers: [] });
+    await expect(store.getCodexProgression(series.manifest.id, removable.progression.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
   });
 
   it("saves a 200,000-character Chinese scene without changing its text", async () => {

@@ -7,10 +7,10 @@ This file is the short operational handoff. The older Chinese handoff was fully 
 ## Current Repository State
 
 - Branch: `codex/ns-410-json-authority`.
-- Latest relevant committed baseline before Slice 3: `08a69ac NS-410 feat(storage): persist scenes as JSON block documents`.
-- Current active task: `NS-410` Block Write Editor and Codex Field Progression.
+- Latest relevant committed baseline after Slice 4: `NS-410 feat(codex): unify progression json authority` on this branch.
+- Current active task: `NS-410` Block Write Editor and Unified Codex Progression.
 - Current acceptance state: NS-410 is in progress; project recovery remains not visually/product accepted.
-- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and field progression change. Slice 3 is implemented on the NS-410 branch; continue with Slice 4 unless the user redirects.
+- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and unified Progression change. Slice 4 is implemented on the NS-410 branch; continue with Slice 5 unless the user redirects.
 
 ## Start Here
 
@@ -48,13 +48,14 @@ NS-410 changes the writing and Codex foundations:
 - Project authority moves from Markdown/YAML files to schema-versioned JSON files; current test data can be migrated or regenerated.
 - Scene body authority becomes JSON `SceneBlockDocument`; Markdown remains a projection/export/import boundary format.
 - Current frontend-used scene APIs should remain compatible during transition: reads keep projected `content`, and legacy `content` writes convert to JSON block documents.
-- Codex field progression is stored under `codex/field-progressions/` as JSON and remains separate from old world fact progressions and character knowledge.
+- Codex Progression is stored under `codex/progressions/` as unified JSON authority; old `codex/progressions/*.yaml` is retired and must not be used as the runtime path.
+- Field, world-fact, and relationship progression are target kinds in the new unified system; character knowledge remains separate.
 - Effective Codex entry reads must support scene/block position and hide future field progression content.
 - Context Builder must use projected Canon Description and Details.
 - Write needs ordinary blocks, embedded progression blocks, and a scene progression panel.
 - Codex needs baseline/history/effective-at-scene views for progressed fields.
 
-Implementation order is now the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Slice 1 passed for its scope on 2026-06-26; Slices 2 and 3 passed for their scopes on 2026-06-29. Do not skip from JSON storage directly to full Write/Codex UI.
+Implementation order is now the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Slice 1 passed for its scope on 2026-06-26; Slices 2, 3, and 4 passed for their scopes on 2026-06-29. Do not skip from JSON storage directly to full Write/Codex UI.
 
 ## Current Recovery Work
 
@@ -325,4 +326,4 @@ Current recovery order:
 
 ## Immediate Next Step
 
-Continue with Slice 4: field progression JSON storage and CRUD API. Each slice must leave the app buildable and record its exit checks before the next slice starts. Do not start provider expansion, and do not create parallel handoff files.
+Continue with Slice 5: projection engine and effective entry API. Each slice must leave the app buildable and record its exit checks before the next slice starts. Do not start provider expansion, and do not create parallel handoff files.

@@ -106,15 +106,15 @@ describe("M4 context preview API", () => {
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
       payload: {
-        target: {
-          kind: "entry",
-          entryId: bell.json().metadata.id,
-          relationId: null,
-        },
+        kind: "world",
+        entryId: bell.json().metadata.id,
+        relationId: null,
         fieldKey: "真相",
-        changeKind: "addition",
+        operation: "add",
+        body: "林岚在后文得知旧钟声来自密室。",
         summary: "林岚在后文得知旧钟声来自密室。",
         effectiveFromSceneId: secondScene.json().metadata.id,
+        source: { kind: "codex-page", sceneId: null, blockId: null },
         evidence: [{
           sourceType: "scene",
           sourceId: secondScene.json().metadata.id,

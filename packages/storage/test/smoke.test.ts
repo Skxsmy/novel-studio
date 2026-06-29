@@ -49,8 +49,10 @@ describe("M3 to M4 smoke coverage", () => {
 
     const seriesRoot = await getSeriesRoot(store, series.manifest.id);
     const sceneFile = await readFile(path.join(seriesRoot, saved.relativePath), "utf8");
-    expect(sceneFile).toContain("title: 雨夜码头");
-    expect(sceneFile).toContain(content);
+    const sceneJson = JSON.parse(sceneFile);
+    expect(sceneJson.title).toBe("雨夜码头");
+    expect(sceneJson.document.blocks.map((block: { text?: string }) => block.text).join("\n\n"))
+      .toBe(content);
 
     const restarted = new ProjectRepository(root);
     expect((await restarted.getScene(series.manifest.id, scene.metadata.id)).content)
@@ -189,15 +191,15 @@ describe("M3 to M4 smoke coverage", () => {
     expect(pinnedContext.included.map((entry) => entry.metadata.id)).not.toContain(zhou.metadata.id);
 
     await store.createCodexProgression(series.manifest.id, {
-      target: {
-        kind: "entry",
-        entryId: zhou.metadata.id,
-        relationId: null,
-      },
+      kind: "world",
+      entryId: zhou.metadata.id,
+      relationId: null,
       fieldKey: "身体状态",
-      changeKind: "replacement",
+      operation: "replace",
+      body: "周野此时已带伤。",
       summary: "周野此时已带伤。",
       effectiveFromSceneId: secondScene.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
       evidence: [{
         sourceType: "scene",
         sourceId: secondScene.metadata.id,

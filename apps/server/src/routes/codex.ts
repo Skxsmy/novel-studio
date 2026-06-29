@@ -288,12 +288,14 @@ export function registerCodexRoutes(
   app.get<{
     Params: { seriesId: string };
     Querystring: {
+      kind?: "field" | "world" | "relationship";
       entryId?: string;
       relationId?: string;
       includeArchived?: string;
     };
   }>("/api/v1/series/:seriesId/codex/progressions", async (request) =>
     repository.listCodexProgressions(request.params.seriesId, {
+      ...(request.query.kind ? { kind: request.query.kind } : {}),
       ...(request.query.entryId ? { entryId: request.query.entryId } : {}),
       ...(request.query.relationId ? { relationId: request.query.relationId } : {}),
       includeArchived: request.query.includeArchived === "true",
@@ -324,6 +326,18 @@ export function registerCodexRoutes(
     async (request) => {
       const input = UpdateCodexProgressionInputSchema.parse(request.body);
       return repository.updateCodexProgression(
+        request.params.seriesId,
+        request.params.progressionId,
+        input,
+      );
+    },
+  );
+
+  app.delete<{ Params: { seriesId: string; progressionId: string } }>(
+    "/api/v1/series/:seriesId/codex/progressions/:progressionId",
+    async (request) => {
+      const input = DeleteCodexDocumentInputSchema.parse(request.body);
+      return repository.deleteCodexProgression(
         request.params.seriesId,
         request.params.progressionId,
         input,

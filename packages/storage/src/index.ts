@@ -25,6 +25,7 @@ import {
   DeleteCodexDocumentInputSchema,
   DeleteCodexEntryResultSchema,
   DeleteCodexDetailTypeResultSchema,
+  DeleteCodexProgressionResultSchema,
   CodexEntryDocumentSchema,
   CodexDetailTypeDocumentSchema,
   CodexDetailTypeSchema,
@@ -133,6 +134,7 @@ import {
   type DeleteCodexDocumentInput,
   type DeleteCodexEntryResult,
   type DeleteCodexDetailTypeResult,
+  type DeleteCodexProgressionResult,
   type CreateReviewAnchorInput,
   type CreateSceneInput,
   type CreateSceneSectionInput,
@@ -223,7 +225,9 @@ import {
 import {
   jsonAuthorityRevision,
   parseJsonAuthorityText,
+  readJsonAuthorityFile,
   serializeJsonAuthority,
+  writeJsonAuthorityFile,
 } from "./jsonAuthority.js";
 export * from "./jsonAuthority.js";
 
@@ -753,11 +757,16 @@ function isActiveForNarrativePosition(
 }
 
 function progressionGroupKey(progression: CodexProgression): string {
-  const targetId =
-    progression.target.kind === "entry"
-      ? progression.target.entryId
-      : progression.target.relationId;
-  return `${progression.target.kind}:${targetId}:${progression.fieldKey}`;
+  if (progression.kind === "field") {
+    const fieldKey = progression.field?.kind === "detail"
+      ? `detail:${progression.field.detailTypeId}`
+      : "description";
+    return `field:${progression.entryId}:${fieldKey}`;
+  }
+  if (progression.kind === "world") {
+    return `world:${progression.entryId}:${progression.fieldKey}`;
+  }
+  return `relationship:${progression.relationId}:${progression.fieldKey}`;
 }
 
 function compareProgressionsAtNarrativePosition(
@@ -799,7 +808,7 @@ export function effectiveProgressionsForScene(
   const effective: CodexProgressionDocument[] = [];
   for (const documents of byGroup.values()) {
     const latestReplacement = [...documents]
-      .filter((document) => document.progression.changeKind === "replacement")
+      .filter((document) => document.progression.operation === "replace")
       .sort((left, right) =>
         compareProgressionsAtNarrativePosition(sceneIndexes, right, left),
       )[0];
@@ -813,7 +822,7 @@ export function effectiveProgressionsForScene(
       latestReplacement.progression.effectiveFromSceneId,
     );
     for (const document of documents) {
-      if (document.progression.changeKind !== "addition") continue;
+      if (document.progression.operation !== "add") continue;
       const documentIndex = narrativeIndexForScene(
         sceneIndexes,
         document.progression.effectiveFromSceneId,
@@ -979,7 +988,7 @@ function codexRelationPath(seriesRoot: string, relationId: string): string {
 }
 
 function codexProgressionPath(seriesRoot: string, progressionId: string): string {
-  return path.join(seriesRoot, CODEX_DIR, CODEX_PROGRESSIONS_DIR, `${progressionId}.yaml`);
+  return path.join(seriesRoot, CODEX_DIR, CODEX_PROGRESSIONS_DIR, `${progressionId}.json`);
 }
 
 function codexKnowledgePath(seriesRoot: string, knowledgeId: string): string {
@@ -2523,6 +2532,7 @@ export class ProjectRepository {
   async listCodexProgressions(
     seriesId: string,
     options: {
+      kind?: CodexProgression["kind"];
       entryId?: string;
       relationId?: string;
       includeArchived?: boolean;
@@ -2532,15 +2542,12 @@ export class ProjectRepository {
     const progressions = await this.listCodexProgressionsFromRoot(seriesRoot);
     return progressions
       .filter((document) => options.includeArchived || document.progression.archivedAt === null)
+      .filter((document) => !options.kind || document.progression.kind === options.kind)
       .filter((document) =>
-        !options.entryId ||
-        (document.progression.target.kind === "entry" &&
-          document.progression.target.entryId === options.entryId),
+        !options.entryId || document.progression.entryId === options.entryId,
       )
       .filter((document) =>
-        !options.relationId ||
-        (document.progression.target.kind === "relation" &&
-          document.progression.target.relationId === options.relationId),
+        !options.relationId || document.progression.relationId === options.relationId,
       )
       .sort((left, right) =>
         left.progression.createdAt.localeCompare(right.progression.createdAt),
@@ -2565,23 +2572,32 @@ export class ProjectRepository {
     const progression = CodexProgressionSchema.parse({
       schemaVersion: 1,
       id: randomUUID(),
-      target: input.target,
-      fieldKey: input.fieldKey ?? "description",
-      changeKind: input.changeKind,
+      kind: input.kind,
+      entryId: input.entryId ?? null,
+      relationId: input.relationId ?? null,
+      field: input.field ?? null,
+      fieldKey: input.fieldKey ?? null,
+      operation: input.operation,
+      body: input.body ?? "",
       summary: input.summary,
       effectiveFromSceneId: input.effectiveFromSceneId,
       effectiveToSceneId: input.effectiveToSceneId ?? null,
+      source: input.source,
       evidence: input.evidence,
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
     });
     await this.assertCodexProgressionReferences(seriesId, seriesRoot, progression);
-    const raw = serializeYaml(progression);
-    await atomicWrite(codexProgressionPath(seriesRoot, progression.id), raw);
-    return CodexProgressionDocumentSchema.parse({
+    const written = await writeJsonAuthorityFile(
+      seriesRoot,
+      codexProgressionPath(seriesRoot, progression.id),
       progression,
-      revision: contentRevision(raw),
+      (value) => CodexProgressionSchema.parse(value),
+    );
+    return CodexProgressionDocumentSchema.parse({
+      progression: written.data,
+      revision: written.revision,
     });
   }
 
@@ -2594,12 +2610,12 @@ export class ProjectRepository {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const current = await this.readCodexProgression(seriesRoot, progressionId);
     if (current.revision !== input.baseRevision) {
-      throw new StorageError("进展记录已被其他修改更新", "CONFLICT", {
+      throw new StorageError("Progression was modified by another operation", "CONFLICT", {
         currentRevision: current.revision,
       });
     }
     if (current.progression.archivedAt) {
-      throw new StorageError("已归档进展记录不能直接编辑", "INVALID_DATA", {
+      throw new StorageError("Archived progression cannot be edited", "INVALID_DATA", {
         progressionId,
       });
     }
@@ -2610,12 +2626,40 @@ export class ProjectRepository {
       updatedAt: new Date().toISOString(),
     });
     await this.assertCodexProgressionReferences(seriesId, seriesRoot, progression);
-    const raw = serializeYaml(progression);
-    await atomicWrite(codexProgressionPath(seriesRoot, progression.id), raw);
-    return CodexProgressionDocumentSchema.parse({
+    const written = await writeJsonAuthorityFile(
+      seriesRoot,
+      codexProgressionPath(seriesRoot, progression.id),
       progression,
-      revision: contentRevision(raw),
+      (value) => CodexProgressionSchema.parse(value),
+    );
+    return CodexProgressionDocumentSchema.parse({
+      progression: written.data,
+      revision: written.revision,
     });
+  }
+
+  async deleteCodexProgression(
+    seriesId: string,
+    progressionId: string,
+    rawInput: DeleteCodexDocumentInput,
+  ): Promise<DeleteCodexProgressionResult> {
+    const input = DeleteCodexDocumentInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.readCodexProgression(seriesRoot, progressionId);
+    if (current.revision !== input.baseRevision) {
+      throw new StorageError("Progression was modified by another operation", "CONFLICT", {
+        currentRevision: current.revision,
+      });
+    }
+    const blockers = await this.progressionDeleteBlockers(seriesId, progressionId);
+    if (blockers.length > 0) {
+      throw new StorageError("Progression has blocking references", "INVALID_DATA", {
+        progressionId,
+        blockers,
+      });
+    }
+    await rm(codexProgressionPath(seriesRoot, progressionId), { force: true });
+    return DeleteCodexProgressionResultSchema.parse({ deletedId: progressionId, blockers: [] });
   }
 
   async archiveCodexProgression(
@@ -2761,7 +2805,7 @@ export class ProjectRepository {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const entry = await this.getCodexEntry(seriesId, entryId);
     if (entry.metadata.archivedAt) {
-      throw new StorageError("已归档条目不能作为有效状态查询目标", "INVALID_DATA", {
+      throw new StorageError("Archived entry cannot be used for effective state queries", "INVALID_DATA", {
         entryId,
       });
     }
@@ -2776,14 +2820,14 @@ export class ProjectRepository {
       .filter((document) => document.progression.archivedAt === null);
     const directProgressions = allProgressions.filter(
       (document) =>
-        document.progression.target.kind === "entry" &&
-        document.progression.target.entryId === entryId,
+        document.progression.kind === "world" &&
+        document.progression.entryId === entryId,
     );
     const relationProgressions = allProgressions.filter(
       (document) =>
-        document.progression.target.kind === "relation" &&
-        Boolean(document.progression.target.relationId) &&
-        relationIds.has(document.progression.target.relationId!),
+        document.progression.kind === "relationship" &&
+        Boolean(document.progression.relationId) &&
+        relationIds.has(document.progression.relationId!),
     );
     const relevantProgressions = [...directProgressions, ...relationProgressions];
     const worldFacts = effectiveProgressionsForScene(
@@ -2796,7 +2840,7 @@ export class ProjectRepository {
         progressions: effectiveProgressionsForScene(
           relationProgressions.filter(
             (document) =>
-              document.progression.target.relationId === relation.relation.id,
+              document.progression.relationId === relation.relation.id,
           ),
           narrativeIndex,
           sceneIndexes,
@@ -2813,7 +2857,7 @@ export class ProjectRepository {
     if (viewerEntryId) {
       const viewer = await this.getCodexEntry(seriesId, viewerEntryId);
       if (viewer.metadata.categoryId !== "character" || viewer.metadata.archivedAt) {
-        throw new StorageError("角色所知查询的观察者必须是未归档人物", "INVALID_DATA", {
+        throw new StorageError("Character knowledge viewer must be an active character entry", "INVALID_DATA", {
           viewerEntryId,
         });
       }
@@ -4860,7 +4904,7 @@ export class ProjectRepository {
     const progressions = await this.listCodexProgressionsFromRoot(seriesRoot);
     const progressionIds = progressions
       .filter((document) =>
-        document.progression.target.entryId === entryId ||
+        document.progression.entryId === entryId ||
         document.progression.evidence.some(
           (evidence) => evidence.sourceType === "codex-entry" && evidence.sourceId === entryId,
         ),
@@ -4974,34 +5018,29 @@ export class ProjectRepository {
     seriesRoot: string,
     progressionId: string,
   ): Promise<CodexProgressionDocument> {
-    const filePath = assertInside(seriesRoot, codexProgressionPath(seriesRoot, progressionId));
-    let raw: string;
+    let document;
     try {
-      raw = await readFile(filePath, "utf8");
+      document = await readJsonAuthorityFile(
+        seriesRoot,
+        codexProgressionPath(seriesRoot, progressionId),
+        (value) => CodexProgressionSchema.parse(value),
+        "Codex progression",
+      );
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new StorageError("进展记录不存在", "NOT_FOUND", { progressionId });
+      if (error instanceof StorageError && error.code === "NOT_FOUND") {
+        throw new StorageError("Progression does not exist", "NOT_FOUND", { progressionId });
       }
       throw error;
     }
-    let progression: CodexProgression;
-    try {
-      progression = CodexProgressionSchema.parse(YAML.parse(raw));
-    } catch (error) {
-      throw new StorageError("进展记录 YAML 无效", "INVALID_DATA", {
+    if (document.data.id !== progressionId) {
+      throw new StorageError("Progression file name does not match ID", "INVALID_DATA", {
         progressionId,
-        cause: error instanceof Error ? error.message : String(error),
-      });
-    }
-    if (progression.id !== progressionId) {
-      throw new StorageError("进展记录文件名与 ID 不一致", "INVALID_DATA", {
-        progressionId,
-        actualId: progression.id,
+        actualId: document.data.id,
       });
     }
     return CodexProgressionDocumentSchema.parse({
-      progression,
-      revision: contentRevision(raw),
+      progression: document.data,
+      revision: document.revision,
     });
   }
 
@@ -5019,13 +5058,13 @@ export class ProjectRepository {
     const documents: CodexProgressionDocument[] = [];
     const seen = new Set<string>();
     for (const file of files) {
-      if (!file.isFile() || !file.name.endsWith(".yaml")) continue;
+      if (!file.isFile() || !file.name.endsWith(".json")) continue;
       const document = await this.readCodexProgression(
         seriesRoot,
-        path.basename(file.name, ".yaml"),
+        path.basename(file.name, ".json"),
       );
       if (seen.has(document.progression.id)) {
-        throw new StorageError("多个进展记录文件使用同一 ID", "INVALID_DATA", {
+        throw new StorageError("Multiple progression files use the same ID", "INVALID_DATA", {
           progressionId: document.progression.id,
         });
       }
@@ -5161,12 +5200,12 @@ export class ProjectRepository {
         }
       } else if (item.sourceType === "codex-entry") {
         if (!entryIds.has(item.sourceId)) {
-          throw new StorageError("证据引用未知设定条目", "INVALID_DATA", {
+          throw new StorageError("Evidence references an unknown Codex entry", "INVALID_DATA", {
             sourceId: item.sourceId,
           });
         }
       } else if (!relationIds.has(item.sourceId)) {
-        throw new StorageError("证据引用未知关系", "INVALID_DATA", {
+        throw new StorageError("Evidence references an unknown relation", "INVALID_DATA", {
           sourceId: item.sourceId,
         });
       }
@@ -5184,19 +5223,43 @@ export class ProjectRepository {
       progression.effectiveFromSceneId,
       progression.effectiveToSceneId,
     );
-    if (progression.target.kind === "entry") {
-      const entryId = progression.target.entryId!;
+    if (progression.source.sceneId && !sceneIndexes.has(progression.source.sceneId)) {
+      throw new StorageError("Progression source references an unknown scene", "INVALID_DATA", {
+        sceneId: progression.source.sceneId,
+      });
+    }
+    if (progression.source.kind === "write-block") {
+      const scene = await this.getScene(seriesId, progression.source.sceneId!);
+      const blockId = progression.source.blockId!;
+      if (!scene.document.blocks.some((block) => block.id === blockId)) {
+        throw new StorageError("Progression source references an unknown scene block", "INVALID_DATA", {
+          sceneId: progression.source.sceneId,
+          blockId,
+        });
+      }
+    }
+    if (progression.kind === "field" || progression.kind === "world") {
+      const entryId = progression.entryId!;
       const entry = await this.getCodexEntry(seriesId, entryId);
       if (entry.metadata.archivedAt) {
-        throw new StorageError("进展记录不能指向已归档条目", "INVALID_DATA", {
+        throw new StorageError("Progression cannot target an archived entry", "INVALID_DATA", {
           entryId,
         });
       }
+      if (progression.kind === "field" && progression.field?.kind === "detail") {
+        const detailType = await this.readCodexDetailType(seriesRoot, progression.field.detailTypeId);
+        if (detailType.detailType.categoryId !== entry.metadata.categoryId) {
+          throw new StorageError("Progression detail type does not belong to the entry category", "INVALID_DATA", {
+            entryId,
+            detailTypeId: detailType.detailType.id,
+          });
+        }
+      }
     } else {
-      const relationId = progression.target.relationId!;
+      const relationId = progression.relationId!;
       const relation = await this.readCodexRelation(seriesRoot, relationId);
       if (relation.relation.archivedAt) {
-        throw new StorageError("进展记录不能指向已归档关系", "INVALID_DATA", {
+        throw new StorageError("Progression cannot target an archived relation", "INVALID_DATA", {
           relationId,
         });
       }
@@ -5243,6 +5306,37 @@ export class ProjectRepository {
     await this.assertEvidenceReferences(seriesId, seriesRoot, knowledge.evidence);
   }
 
+  private async progressionDeleteBlockers(
+    seriesId: string,
+    progressionId: string,
+  ): Promise<Array<{ kind: "write-block" | "proposal" | "model-call" | "character-knowledge"; id: string; reason: string }>> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const blockers: Array<{ kind: "write-block" | "proposal" | "model-call" | "character-knowledge"; id: string; reason: string }> = [];
+    const knowledge = await this.listCodexKnowledgeFromRoot(seriesRoot);
+    for (const document of knowledge) {
+      if (document.knowledge.truthProgressionId === progressionId) {
+        blockers.push({
+          kind: "character-knowledge",
+          id: document.knowledge.id,
+          reason: "Character knowledge references this progression",
+        });
+      }
+    }
+    const series = await this.getSeries(seriesId);
+    for (const scene of series.scenes) {
+      for (const block of scene.document.blocks) {
+        if (block.kind === "codexProgression" && block.progressionId === progressionId) {
+          blockers.push({
+            kind: "write-block",
+            id: block.id,
+            reason: "A scene progression block references this progression",
+          });
+        }
+      }
+    }
+    return blockers;
+  }
+
   private async setCodexProgressionArchived(
     seriesId: string,
     progressionId: string,
@@ -5253,7 +5347,7 @@ export class ProjectRepository {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const current = await this.readCodexProgression(seriesRoot, progressionId);
     if (current.revision !== input.baseRevision) {
-      throw new StorageError("进展记录已被其他修改更新", "CONFLICT", {
+      throw new StorageError("Progression was modified by another operation", "CONFLICT", {
         currentRevision: current.revision,
       });
     }
@@ -5263,11 +5357,15 @@ export class ProjectRepository {
       updatedAt: new Date().toISOString(),
       archivedAt: archived ? new Date().toISOString() : null,
     });
-    const raw = serializeYaml(progression);
-    await atomicWrite(codexProgressionPath(seriesRoot, progression.id), raw);
-    return CodexProgressionDocumentSchema.parse({
+    const written = await writeJsonAuthorityFile(
+      seriesRoot,
+      codexProgressionPath(seriesRoot, progression.id),
       progression,
-      revision: contentRevision(raw),
+      (value) => CodexProgressionSchema.parse(value),
+    );
+    return CodexProgressionDocumentSchema.parse({
+      progression: written.data,
+      revision: written.revision,
     });
   }
 
