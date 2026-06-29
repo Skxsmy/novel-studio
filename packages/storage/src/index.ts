@@ -26,6 +26,8 @@ import {
   DeleteCodexEntryResultSchema,
   DeleteCodexDetailTypeResultSchema,
   DeleteCodexProgressionResultSchema,
+  DeleteSceneProgressionBlockInputSchema,
+  DeleteSceneProgressionBlockResultSchema,
   CodexEntryDocumentSchema,
   CodexDetailTypeDocumentSchema,
   CodexDetailTypeSchema,
@@ -138,6 +140,8 @@ import {
   type DeleteCodexEntryResult,
   type DeleteCodexDetailTypeResult,
   type DeleteCodexProgressionResult,
+  type DeleteSceneProgressionBlockInput,
+  type DeleteSceneProgressionBlockResult,
   type CreateReviewAnchorInput,
   type CreateSceneInput,
   type CreateSceneSectionInput,
@@ -1529,6 +1533,98 @@ export class ProjectRepository {
     return SceneBlockDocumentResponseSchema.parse(updated);
   }
 
+  async deleteSceneProgressionBlock(
+    seriesId: string,
+    sceneId: string,
+    blockId: string,
+    rawInput: DeleteSceneProgressionBlockInput,
+  ): Promise<DeleteSceneProgressionBlockResult> {
+    const input = DeleteSceneProgressionBlockInputSchema.parse(rawInput);
+    const scene = await this.getScene(seriesId, sceneId);
+    if (scene.revision !== input.baseRevision) {
+      throw new StorageError("Scene block document has changed on disk", "CONFLICT", {
+        currentRevision: scene.revision,
+        scene,
+      });
+    }
+
+    const block = scene.document.blocks.find((candidate) => candidate.id === blockId);
+    if (!block || block.kind !== "codexProgression") {
+      throw new StorageError("Scene block is not a progression block", "INVALID_DATA", {
+        sceneId,
+        blockId,
+      });
+    }
+
+    const progressionDocument = await this.getCodexProgression(seriesId, block.progressionId);
+    if (progressionDocument.revision !== input.progressionBaseRevision) {
+      throw new StorageError("Progression was modified by another operation", "CONFLICT", {
+        currentRevision: progressionDocument.revision,
+      });
+    }
+    const progression = progressionDocument.progression;
+    if (
+      progression.source.kind !== "write-block" ||
+      progression.effectiveFromSceneId !== sceneId ||
+      progression.source.sceneId !== sceneId ||
+      progression.source.blockId !== blockId
+    ) {
+      throw new StorageError("Progression source does not match the scene block", "INVALID_DATA", {
+        sceneId,
+        blockId,
+        progressionId: block.progressionId,
+      });
+    }
+
+    const blockers = await this.progressionDeleteBlockers(seriesId, block.progressionId, {
+      ignoredWriteBlock: { sceneId, blockId },
+    });
+    if (blockers.length > 0) {
+      return DeleteSceneProgressionBlockResultSchema.parse({
+        blockId,
+        deletedId: null,
+        blockers,
+        scene: null,
+      });
+    }
+
+    const nextDocument: SceneBlockDocument = {
+      schemaVersion: 1,
+      blocks: scene.document.blocks.filter((candidate) => candidate.id !== blockId),
+    };
+    const updatedScene = await this.updateSceneBlockDocument(seriesId, sceneId, {
+      baseRevision: scene.revision,
+      title: scene.metadata.title,
+      status: scene.metadata.status,
+      document: nextDocument,
+    });
+
+    try {
+      await this.deleteCodexProgression(seriesId, block.progressionId, {
+        baseRevision: input.progressionBaseRevision,
+      });
+    } catch (error) {
+      try {
+        await this.updateSceneBlockDocument(seriesId, sceneId, {
+          baseRevision: updatedScene.revision,
+          title: scene.metadata.title,
+          status: scene.metadata.status,
+          document: scene.document,
+        });
+      } catch {
+        // The original deletion error is more useful to callers than a best-effort rollback failure.
+      }
+      throw error;
+    }
+
+    return DeleteSceneProgressionBlockResultSchema.parse({
+      blockId,
+      deletedId: block.progressionId,
+      blockers: [],
+      scene: updatedScene,
+    });
+  }
+
   async exportSceneMarkdown(seriesId: string, sceneId: string): Promise<SceneMarkdownExport> {
     const scene = await this.getScene(seriesId, sceneId);
     return SceneMarkdownExportSchema.parse({
@@ -2798,6 +2894,7 @@ export class ProjectRepository {
       kind?: CodexProgression["kind"];
       entryId?: string;
       relationId?: string;
+      sceneId?: string;
       includeArchived?: boolean;
     } = {},
   ): Promise<CodexProgressionDocument[]> {
@@ -2811,6 +2908,11 @@ export class ProjectRepository {
       )
       .filter((document) =>
         !options.relationId || document.progression.relationId === options.relationId,
+      )
+      .filter((document) =>
+        !options.sceneId ||
+        document.progression.effectiveFromSceneId === options.sceneId ||
+        document.progression.source.sceneId === options.sceneId,
       )
       .sort((left, right) =>
         left.progression.createdAt.localeCompare(right.progression.createdAt),
@@ -5728,6 +5830,7 @@ export class ProjectRepository {
   private async progressionDeleteBlockers(
     seriesId: string,
     progressionId: string,
+    options: { ignoredWriteBlock?: { sceneId: string; blockId: string } } = {},
   ): Promise<Array<{ kind: "write-block" | "proposal" | "model-call" | "character-knowledge"; id: string; reason: string }>> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const blockers: Array<{ kind: "write-block" | "proposal" | "model-call" | "character-knowledge"; id: string; reason: string }> = [];
@@ -5753,6 +5856,13 @@ export class ProjectRepository {
     for (const scene of series.scenes) {
       for (const block of scene.document.blocks) {
         if (block.kind === "codexProgression" && block.progressionId === progressionId) {
+          if (
+            options.ignoredWriteBlock &&
+            options.ignoredWriteBlock.sceneId === scene.metadata.id &&
+            options.ignoredWriteBlock.blockId === block.id
+          ) {
+            continue;
+          }
           blockers.push({
             kind: "write-block",
             id: block.id,

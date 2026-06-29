@@ -244,6 +244,121 @@ describe("local API", () => {
     await app.close();
   });
 
+  it("deletes write progression blocks through the scene API", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
+    roots.push(root);
+    const app = await buildApp({ libraryRoot: root });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Progression Block Delete API" },
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const series = createResponse.json();
+    const scene = series.scenes[0];
+
+    const stagedDocument = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/document`,
+      payload: {
+        baseRevision: scene.revision,
+        title: "Progression scene",
+        document: {
+          schemaVersion: 1,
+          blocks: [
+            {
+              id: "00000000-0000-4000-8000-000000001501",
+              kind: "paragraph",
+              text: "Before change.",
+            },
+            {
+              id: "00000000-0000-4000-8000-000000001502",
+              kind: "paragraph",
+              text: "",
+            },
+          ],
+        },
+      },
+    });
+    expect(stagedDocument.statusCode).toBe(200);
+    const slotBlock = stagedDocument.json().document.blocks[1];
+
+    const entry = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: { categoryId: "character", name: "Keeper" },
+    });
+    expect(entry.statusCode).toBe(201);
+    const progression = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        kind: "field",
+        entryId: entry.json().metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "add",
+        body: "Changed at the slot.",
+        summary: "Slot change.",
+        effectiveFromSceneId: scene.metadata.id,
+        source: {
+          kind: "write-block",
+          sceneId: scene.metadata.id,
+          blockId: slotBlock.id,
+        },
+        evidence: [],
+      },
+    });
+    expect(progression.statusCode).toBe(201);
+
+    const embedded = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/document`,
+      payload: {
+        baseRevision: stagedDocument.json().revision,
+        document: {
+          schemaVersion: 1,
+          blocks: [
+            stagedDocument.json().document.blocks[0],
+            {
+              id: slotBlock.id,
+              kind: "codexProgression",
+              progressionId: progression.json().progression.id,
+              createdAt: "2026-06-29T00:00:00.000Z",
+              updatedAt: "2026-06-29T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    });
+    expect(embedded.statusCode).toBe(200);
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/progression-blocks/${slotBlock.id}`,
+      payload: {
+        baseRevision: embedded.json().revision,
+        progressionBaseRevision: progression.json().revision,
+      },
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toMatchObject({
+      blockId: slotBlock.id,
+      deletedId: progression.json().progression.id,
+      blockers: [],
+    });
+    expect(deleted.json().scene.document.blocks.map((block: { kind: string }) => block.kind)).toEqual(["paragraph"]);
+
+    const missing = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions/${progression.json().progression.id}`,
+    });
+    expect(missing.statusCode).toBe(404);
+    await app.close();
+  });
+
   it("serves unified Progression JSON CRUD APIs", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
     roots.push(root);

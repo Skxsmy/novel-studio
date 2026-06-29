@@ -159,6 +159,7 @@ export function createCodexApi(client: ApiClient) {
         kind?: "field" | "world" | "relationship";
         entryId?: string;
         relationId?: string;
+        sceneId?: string;
         includeArchived?: boolean;
       } = {},
     ) {
@@ -166,6 +167,7 @@ export function createCodexApi(client: ApiClient) {
       if (options.kind) params.set("kind", options.kind);
       if (options.entryId) params.set("entryId", options.entryId);
       if (options.relationId) params.set("relationId", options.relationId);
+      if (options.sceneId) params.set("sceneId", options.sceneId);
       if (options.includeArchived) params.set("includeArchived", "true");
       const query = params.size ? `?${params.toString()}` : "";
       return client.requestJson<CodexProgressionDocument[]>(`/series/${seriesId}/codex/progressions${query}`);

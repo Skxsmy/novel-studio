@@ -370,6 +370,146 @@ describe("ProjectRepository", () => {
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
   });
 
+  it("deletes embedded progression blocks with their linked Progression records", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "ProgressionBlockDelete" });
+    const scene = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
+      baseRevision: series.scenes[0]!.revision,
+      title: "Block delete scene",
+      content: "Before the change.\n\nChange slot.",
+    });
+    const slotBlock = scene.document.blocks[1]!;
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Keeper",
+    });
+    const progression = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entry.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Knows the lock has changed.",
+      summary: "Lock knowledge changes.",
+      effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "write-block", sceneId: scene.metadata.id, blockId: slotBlock.id },
+      evidence: [],
+    });
+    const embedded = await store.updateSceneBlockDocument(series.manifest.id, scene.metadata.id, {
+      baseRevision: scene.revision,
+      title: scene.metadata.title,
+      document: {
+        schemaVersion: 1,
+        blocks: [
+          scene.document.blocks[0]!,
+          {
+            id: slotBlock.id,
+            kind: "codexProgression",
+            progressionId: progression.progression.id,
+            createdAt: "2026-06-29T00:00:00.000Z",
+            updatedAt: "2026-06-29T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    await expect(store.deleteCodexProgression(series.manifest.id, progression.progression.id, {
+      baseRevision: progression.revision,
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    const deleted = await store.deleteSceneProgressionBlock(series.manifest.id, scene.metadata.id, slotBlock.id, {
+      baseRevision: embedded.revision,
+      progressionBaseRevision: progression.revision,
+    });
+
+    expect(deleted).toMatchObject({
+      blockId: slotBlock.id,
+      deletedId: progression.progression.id,
+      blockers: [],
+    });
+    expect(deleted.scene?.document.blocks.map((block) => block.kind)).toEqual(["paragraph"]);
+    await expect(store.getCodexProgression(series.manifest.id, progression.progression.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+  });
+
+  it("keeps embedded progression blocks when linked Progression records have blockers", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "ProgressionBlockDeleteBlocked" });
+    const scene = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
+      baseRevision: series.scenes[0]!.revision,
+      title: "Blocked delete scene",
+      content: "Before the change.\n\nChange slot.",
+    });
+    const slotBlock = scene.document.blocks[1]!;
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Keeper",
+    });
+    const progression = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entry.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Knows the lock has changed.",
+      summary: "Lock knowledge changes.",
+      effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "write-block", sceneId: scene.metadata.id, blockId: slotBlock.id },
+      evidence: [],
+    });
+    const embedded = await store.updateSceneBlockDocument(series.manifest.id, scene.metadata.id, {
+      baseRevision: scene.revision,
+      title: scene.metadata.title,
+      document: {
+        schemaVersion: 1,
+        blocks: [
+          scene.document.blocks[0]!,
+          {
+            id: slotBlock.id,
+            kind: "codexProgression",
+            progressionId: progression.progression.id,
+            createdAt: "2026-06-29T00:00:00.000Z",
+            updatedAt: "2026-06-29T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+    await store.createCodexKnowledge(series.manifest.id, {
+      characterEntryId: entry.metadata.id,
+      subjectEntryId: entry.metadata.id,
+      relationId: null,
+      stance: "knows",
+      summary: "Keeper knows about the lock.",
+      truthProgressionId: progression.progression.id,
+      effectiveFromSceneId: scene.metadata.id,
+      evidence: [{
+        note: "Observed in scene text.",
+        sourceType: "scene",
+        sourceId: scene.metadata.id,
+        quote: "Before the change.",
+      }],
+    });
+
+    const blocked = await store.deleteSceneProgressionBlock(series.manifest.id, scene.metadata.id, slotBlock.id, {
+      baseRevision: embedded.revision,
+      progressionBaseRevision: progression.revision,
+    });
+
+    expect(blocked.deletedId).toBeNull();
+    expect(blocked.scene).toBeNull();
+    expect(blocked.blockers).toEqual([
+      expect.objectContaining({ kind: "character-knowledge" }),
+    ]);
+    expect((await store.getScene(series.manifest.id, scene.metadata.id)).document.blocks[1]).toMatchObject({
+      kind: "codexProgression",
+      progressionId: progression.progression.id,
+    });
+    expect((await store.getCodexProgression(series.manifest.id, progression.progression.id)).progression.id)
+      .toBe(progression.progression.id);
+  });
+
   it("rejects stale revisions without overwriting the scene", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "失落邮局" });

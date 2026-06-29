@@ -4,6 +4,7 @@ import {
   DefaultProjectTitles,
   DefaultStructureTitles,
 } from "./defaults.js";
+import { DeleteCodexProgressionBlockerSchema } from "./codex.js";
 
 export * from "./common.js";
 export * from "./ai.js";
@@ -534,6 +535,20 @@ export const SceneMarkdownExportSchema = z.object({
   markdown: z.string(),
 });
 export type SceneMarkdownExport = z.infer<typeof SceneMarkdownExportSchema>;
+
+export const DeleteSceneProgressionBlockInputSchema = z.object({
+  baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  progressionBaseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type DeleteSceneProgressionBlockInput = z.infer<typeof DeleteSceneProgressionBlockInputSchema>;
+
+export const DeleteSceneProgressionBlockResultSchema = z.object({
+  blockId: SceneBlockIdSchema,
+  deletedId: z.string().uuid().nullable(),
+  blockers: z.array(DeleteCodexProgressionBlockerSchema).default([]),
+  scene: SceneBlockDocumentResponseSchema.nullable(),
+});
+export type DeleteSceneProgressionBlockResult = z.infer<typeof DeleteSceneProgressionBlockResultSchema>;
 
 export const SceneSectionKindSchema = z.enum([
   "author-note",

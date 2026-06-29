@@ -18,6 +18,7 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **NS-410 Slice 6**: Routed Context Builder and Codex context preview through effective Codex field projection at scene/block position. Context preview now accepts `blockId`, projected Canon Description and reusable Details are sent to ContextBundle, per-detail AI switches and empty replace hiding still apply, and future field Progression content/summary/ID stays hidden.
 - **NS-410 Slice 7**: Replaced the Write scene-content CodeMirror/`EditorSurface` path with a native `SceneBlockDocument` editor for ordinary paragraph, heading, quote, and scene break blocks. Write now loads/saves through the scene document endpoint, derives counts and block-local Codex mention marks from block projection helpers, keeps legacy `content` route compatibility for older callers, and saves no UI-only block editor markup.
 - **NS-410 Slice 7A Audit Repair**: Closed Slice 1-7 audit gaps before progression UI work. Scene documents now reject invalid embedded Progression block references; world/relationship effective state and Context Builder respect same-scene block position; character knowledge moved to JSON authority; search, mentions, and scene context use plain text block projection; JSON authority writes verify readback checksums; malformed transaction journals are quarantined; projected context items record source refs; and acceptance docs now inventory remaining YAML/Markdown authority paths as open NS-410 Slice 10 migration work instead of claiming whole-project migration.
+- **NS-410 Slice 8**: Added embedded Write story-change blocks and the current-scene progression panel. Write can create/update linked field Progression records, preview before/after effective Codex values at same-scene block position, collapse UI state without persisting it to authority, and delete a block plus linked Progression together through a dedicated scene progression-block route that reports blocker reasons without partial mutation. Story-change UI copy is centralized in `uiText.writeProgression`.
 
 ### Project Foundation
 
@@ -91,8 +92,8 @@ This changelog retains the historical milestone record from the earlier Chinese 
 
 ### Current Validation Snapshot
 
-- `npm.cmd run build`: passed in the latest Codex layout / preview bounds validation, with the existing Vite large-chunk warning.
-- `npm.cmd run test`: passed in the latest Codex layout / preview bounds validation; server 20, web 46, AI 20, and storage 48 tests.
+- `npm.cmd run build`: passed in the latest NS-410 Slice 8 validation, with the existing Vite large-chunk warning.
+- `npm.cmd run test`: passed in the latest NS-410 Slice 8 validation; server 24, web 47, AI 20, and storage 66 tests.
 - Focused Codex Details checks also passed: storage `repository.test.ts` 43 tests, server `app.test.ts context-routes.test.ts` 8 tests, and web `AppShell.test.tsx EditorSurface.test.tsx` 44 tests.
 - Focused Codex layout / preview bounds checks passed: `EditorSurface.test.tsx` 8 tests, `AppShell.test.tsx` 38 tests, and web typecheck.
 - `git diff --check` passed with line-ending warnings only.

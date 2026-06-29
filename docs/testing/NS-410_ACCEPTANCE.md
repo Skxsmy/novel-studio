@@ -18,7 +18,7 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | NS-410-A03 | passed | Slice 2 projects block documents back to Markdown-compatible `SceneDocument.content`; Slice 3 adds explicit Markdown export and verifies component/private progression blocks are omitted from exported manuscript text. |
 | NS-410-A04 | passed | Slice 1 covered malformed JSON, schema-version mismatch, duplicate block IDs, path escape, atomic replacement cleanup, and post-write checksum/readback verification via `json-authority.test.ts`; Slice 2 keeps scene conflict/revision behavior passing; Slice 3 covers stale document revisions and duplicate block IDs through storage/server APIs; Slice 4 covers invalid Progression detail type, scene block, cross-series entry, evidence quote, stale revision, and delete blocker diagnostics; the audit repair adds missing/archived/wrong-scene/wrong-block/duplicate embedded Progression block rejection plus malformed transaction journal quarantine. |
 | NS-410-A05 | passed | Slice 4 storage/server tests cover unified JSON Progression create/list/get/update/delete, field/world/relationship targets, reference validation, cross-series rejection, and revision conflicts. The audit repair adds proposal-sourced hard-delete blocking through `sourceId`; model-call blocker scanning is not claimed because current ModelCallLog records have no Progression reference field. |
-| NS-410-A06 | partial | Storage now blocks hard deletion when a Progression is referenced by character knowledge, by an embedded write block, or by proposal provenance. Write block deletion synchronization remains Slice 8, and model-call reference scanning remains a future contract because ModelCallLog has no Progression reference field yet. |
+| NS-410-A06 | passed | Storage blocks hard deletion when a Progression is referenced by character knowledge, by an embedded write block, or by proposal provenance. Slice 8 adds a dedicated scene progression-block deletion command/API that removes the embedded `codexProgression` block and linked Progression together, or returns blocker reasons without deleting either record. Model-call reference scanning remains a future contract because ModelCallLog has no Progression reference field yet. |
 | NS-410-A07 | passed | Slice 5 storage tests verify baseline-only effective entry projection for Canon Description and reusable Detail values. |
 | NS-410-A08 | passed | Slice 5 storage tests verify `add`, repeated `add`, `replace`, replace-then-add, and empty `replace` folding per field. |
 | NS-410-A09 | passed | Slice 5 storage and server tests verify same-scene block position changes effective Codex fields before/after write-block progressions. The audit repair extends same-scene block-position isolation to world and relationship Progression effective state. |
@@ -26,7 +26,7 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | NS-410-A11 | passed | Slice 5 storage tests verify baseline edits update add chains before a replace boundary while projected values after a replace stay independent from earlier baseline changes. |
 | NS-410-A12 | passed | Slice 6 `context-routes.test.ts` verifies Context Builder uses projected Codex description/details, respects per-detail AI switches, omits empty-replaced fields, and records hidden future field counts without content leakage. The audit repair adds block-aware current-scene manuscript context, world/relationship effective-state block isolation, and ContextItem `sourceRefs` for projected Progression sources. |
 | NS-410-A13 | passed | Slice 4 keeps character knowledge separate from unified JSON Progression, verifies knowledge can reference JSON progression IDs, and verifies new Progression files are `.json` with no `.yaml` authority file. The audit repair moves character knowledge authority to `codex/knowledge/<id>.json` and verifies no new knowledge `.yaml` file is written. |
-| NS-410-A14 | partial | Slice 7 web tests verify ordinary paragraph/heading/scene-break block editing and saving through a native Write block editor, with no saved UI-only markup and no old single-document text editor path for Write scene content. Embedded progression blocks remain Slice 8; user visual acceptance remains separate. |
+| NS-410-A14 | passed | Slice 7 web tests verify ordinary paragraph/heading/scene-break block editing and saving through a native Write block editor, with no saved UI-only markup and no old single-document text editor path for Write scene content. Slice 8 adds embedded progression block create/edit/collapse/delete behavior and verifies saved scene documents contain `codexProgression` data only, not UI-only preview markup. User visual acceptance remains separate. |
 | NS-410-A15 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
 | NS-410-A16 | passed | Slice 2 storage repository tests cover existing scene save, hierarchy, mention/index, and search-adjacent regressions while scene files are JSON authority. Slice 6 verifies Context Builder reads projected scene/Codex context at scene/block position. Slice 7 verifies Write-local counts and Codex mention marks derive from `SceneBlockDocument` projection. The audit repair switches storage search, FTS indexing, Codex mention indexing, previous-scene summaries, and current-scene Context Builder body projection to plain text derived from blocks. |
 | NS-410-A17 | passed | Slice 2 keeps existing scene `content` read/write API behavior compatible by converting `content` writes to JSON blocks and returning projected `content`; Slice 3 adds block document APIs without removing legacy `content` routes, with server and web compatibility checks. Slice 7 keeps legacy route mocks/regressions available while moving the Write scene-content path to the document endpoint. |
@@ -303,6 +303,55 @@ Commands:
 | `git diff --check` | Passed with line-ending warnings only. |
 | Runtime-code non-ASCII diff scan | Passed with no added non-ASCII or mojibake runtime-code lines in touched contracts/storage/server files. |
 | Current-authority Markdown/YAML wording search | Passed for current product/task/status docs; remaining hits are superseded historical ADR/implementation-history records, not current authority. |
+
+### Slice 8: Write Embedded Progression Blocks And Scene Progression Panel
+
+Status: passed for Slice 8 scope on 2026-06-29.
+
+Logic closure boundary verified:
+
+- Authority source: scene `SceneBlockDocument` files and unified `codex/progressions/<id>.json` records.
+- Read paths: Write block document load, Codex entry/detail type/progression list reads, effective-entry before/after preview, and current-scene progression panel.
+- Write paths: scene document saves, Progression create/update saves, and dedicated scene progression-block delete command.
+- Derived paths: plain text/count/mention projection still derives from blocks; progression preview uses effective-entry projection at the previous block and local draft folding.
+- User-visible entries: embedded Write progression block controls and the right-side current-scene progression panel.
+- Delete path: deleting from either embedded block or panel removes the block and linked Progression record together, or returns blocker reasons while leaving both records intact.
+- Out of scope for this slice: Proposal UI, direct AI generation into authority, Codex baseline/history UI, and broad remaining YAML/Markdown authority migration.
+
+Changes verified:
+
+- Added contract/API shapes for deleting a scene `codexProgression` block together with its linked Progression record.
+- Added repository logic that checks scene revision, Progression revision, block/source alignment, and blockers before deleting; blocker responses do not mutate either scene or Progression authority.
+- Added server route `DELETE /api/v1/series/:seriesId/scenes/:sceneId/progression-blocks/:blockId`.
+- Added `sceneId` filtering to Progression list APIs so Write can load current-scene Progressions.
+- Write can create an embedded story-change block, edit its target entry/field/operation/summary/body, preview before/after state at same-scene block position, collapse/expand UI state without writing it to authority, save the linked Progression, and delete the block from either the editor or panel.
+- Slice 8 user-facing story-change copy is centralized in `uiText.writeProgression`; the JSX references those keys rather than hardcoding the new labels.
+- Saved scene document bodies contain `codexProgression` blocks and do not persist preview markup such as `progression-preview-grid`.
+
+Adversarial cases covered:
+
+- Deleting a write-block-linked Progression through generic Progression delete is blocked.
+- Dedicated block deletion succeeds only when the scene block and linked Progression agree on scene/block source and the supplied revisions match.
+- Dedicated block deletion returns blocker reasons and leaves both the scene block and Progression intact when another authority record references the Progression.
+- Web tests cover duplicate display text in draft/preview/panel by asserting the intended UI regions rather than a single global text instance.
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `npm.cmd run build -w @novel-studio/contracts` | Passed. |
+| `npm.cmd run test -w @novel-studio/storage -- repository.test.ts json-authority.test.ts smoke.test.ts --reporter=verbose` | Initial run failed one new blocker fixture because the test evidence lacked the required `note`; after correcting the fixture, rerun passed with 64/64 tests. |
+| `npm.cmd run build -w @novel-studio/storage` | Passed; this was required before the focused server rerun because the server test process had loaded stale storage dist. |
+| `npm.cmd run test -w @novel-studio/server -- app.test.ts context-routes.test.ts --reporter=verbose` | Initial run failed the new route with stale storage dist (`deleteSceneProgressionBlock` unavailable); after rebuilding storage, rerun passed with 12/12 tests. |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx --reporter=verbose` | Initial runs exposed overly broad test queries for text appearing in both draft/preview/panel. After checking and fixing runtime TypeScript issues plus narrowing assertions to the intended regions, rerun passed with 47/47 tests; Vitest printed existing React `act(...)` warnings in the write selection and focus-mode tests. |
+| `npm.cmd run build` | First run failed on TypeScript issues in the new Write progression code and test mock typing; after fixing runtime type narrowing and scene block union typing, rerun passed with package builds, server build, and web production build. Vite still reports the existing large-chunk warning. |
+| `npm.cmd run test` | Passed with server 24/24, web 47/47, AI 20/20, and storage 66/66 tests. |
+| `git diff --check` | Passed with line-ending warnings only. |
+
+Note:
+
+- Automated DOM/build/test validation is not user visual acceptance.
+- `model-call` Progression blocker scanning is still not claimed because ModelCallLog currently has no Progression reference field.
 
 ## Invariant Checklist
 

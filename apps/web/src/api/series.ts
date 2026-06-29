@@ -8,6 +8,8 @@ import type {
   CreateChapterInput,
   CreateSceneInput,
   CreateSeriesInput,
+  DeleteSceneProgressionBlockInput,
+  DeleteSceneProgressionBlockResult,
   MoveSceneInput,
   PlanningBoard,
   ReorderInput,
@@ -117,6 +119,20 @@ export function createSeriesApi(client: ApiClient) {
     exportSceneMarkdown(seriesId: string, sceneId: string) {
       return client.requestJson<SceneMarkdownExport>(`/series/${seriesId}/scenes/${sceneId}/export/markdown`);
     },
+    deleteSceneProgressionBlock(
+      seriesId: string,
+      sceneId: string,
+      blockId: string,
+      input: DeleteSceneProgressionBlockInput,
+    ) {
+      return client.requestJson<DeleteSceneProgressionBlockResult>(
+        `/series/${seriesId}/scenes/${sceneId}/progression-blocks/${blockId}`,
+        {
+          body: input,
+          method: "DELETE",
+        },
+      );
+    },
     updateScene(seriesId: string, sceneId: string, input: UpdateSceneInput) {
       return client.requestJson<SceneDocument>(`/series/${seriesId}/scenes/${sceneId}`, {
         body: input,
@@ -152,6 +168,8 @@ export type {
   CreateChapterInput,
   CreateSceneInput,
   CreateSeriesInput,
+  DeleteSceneProgressionBlockInput,
+  DeleteSceneProgressionBlockResult,
   MoveSceneInput,
   PlanningBoard,
   ReorderInput,

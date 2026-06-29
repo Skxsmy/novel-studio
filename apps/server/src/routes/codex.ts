@@ -309,6 +309,7 @@ export function registerCodexRoutes(
       kind?: "field" | "world" | "relationship";
       entryId?: string;
       relationId?: string;
+      sceneId?: string;
       includeArchived?: string;
     };
   }>("/api/v1/series/:seriesId/codex/progressions", async (request) =>
@@ -316,6 +317,7 @@ export function registerCodexRoutes(
       ...(request.query.kind ? { kind: request.query.kind } : {}),
       ...(request.query.entryId ? { entryId: request.query.entryId } : {}),
       ...(request.query.relationId ? { relationId: request.query.relationId } : {}),
+      ...(request.query.sceneId ? { sceneId: request.query.sceneId } : {}),
       includeArchived: request.query.includeArchived === "true",
     }),
   );

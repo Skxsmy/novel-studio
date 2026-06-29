@@ -18,6 +18,7 @@ import {
   CreateSceneSectionInputSchema,
   CreateSeriesInputSchema,
   CreateTimelineEventInputSchema,
+  DeleteSceneProgressionBlockInputSchema,
   DeleteTimelineEventInputSchema,
   MoveSceneInputSchema,
   ReorderInputSchema,
@@ -215,6 +216,19 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.get<{ Params: { seriesId: string; sceneId: string } }>(
     "/api/v1/series/:seriesId/scenes/:sceneId/export/markdown",
     async (request) => repository.exportSceneMarkdown(request.params.seriesId, request.params.sceneId),
+  );
+
+  app.delete<{ Params: { seriesId: string; sceneId: string; blockId: string } }>(
+    "/api/v1/series/:seriesId/scenes/:sceneId/progression-blocks/:blockId",
+    async (request) => {
+      const input = DeleteSceneProgressionBlockInputSchema.parse(request.body);
+      return repository.deleteSceneProgressionBlock(
+        request.params.seriesId,
+        request.params.sceneId,
+        request.params.blockId,
+        input,
+      );
+    },
   );
 
   app.put<{ Params: { seriesId: string; sceneId: string } }>(

@@ -56,6 +56,11 @@ export interface ProjectSessionState {
   isLibraryLoading: boolean;
   isOpeningSeries: boolean;
   openSeries: (seriesId: string) => Promise<boolean>;
+  acceptSavedSceneDocument: (scene: SceneBlockDocumentResponse) => void;
+  commitDraftDocument: (
+    document: SceneBlockDocument,
+    options?: { baseRevision?: string; status?: SceneStatus; title?: string },
+  ) => Promise<SceneBlockDocumentResponse>;
   refreshSeriesList: () => Promise<void>;
   resetStructureSelection: () => void;
   saveDraft: () => Promise<void>;
@@ -622,16 +627,31 @@ export function useProjectSession(): ProjectSessionState {
     setSaveStatus("dirty");
   }, []);
 
-  const saveDraft = useCallback(async () => {
-    if (!activeSeries || !draft || !isDirty || saveStatus === "saving") {
-      return;
+  const acceptSavedSceneDocument = useCallback((scene: SceneBlockDocumentResponse) => {
+    const updated = sceneWithEditableDocument(toSceneDocument(scene));
+    setActiveSeries((current) => (current ? replaceScene(current, updated) : current));
+    setSelectedSceneId(updated.metadata.id);
+    setSelectedBookId(updated.metadata.bookId);
+    setSelectedActId(updated.metadata.actId);
+    setSelectedChapterId(updated.metadata.chapterId);
+    setDraft(toDraft(updated));
+    setIsDirty(false);
+    setSaveStatus("saved");
+  }, []);
+
+  const commitDraftDocument = useCallback(async (
+    document: SceneBlockDocument,
+    options: { baseRevision?: string; status?: SceneStatus; title?: string } = {},
+  ) => {
+    if (!activeSeries || !draft || saveStatus === "saving") {
+      throw new Error("No editable scene is open");
     }
 
-    const title = draft.title.trim() || "Untitled Scene";
+    const title = (options.title ?? draft.title).trim() || "Untitled Scene";
     const input = {
-      baseRevision: draft.revision,
-      document: draft.document,
-      status: draft.status,
+      baseRevision: options.baseRevision ?? draft.revision,
+      document,
+      status: options.status ?? draft.status,
       title,
     };
 
@@ -640,22 +660,30 @@ export function useProjectSession(): ProjectSessionState {
 
     try {
       const updated = toSceneDocument(await api.series.updateSceneDocument(activeSeries.manifest.id, draft.sceneId, input));
-      setActiveSeries((current) => (current ? replaceScene(current, sceneWithEditableDocument(updated)) : current));
-      setSelectedSceneId(updated.metadata.id);
-      setSelectedBookId(updated.metadata.bookId);
-      setSelectedActId(updated.metadata.actId);
-      setSelectedChapterId(updated.metadata.chapterId);
-      setDraft(toDraft(updated));
-      setIsDirty(false);
-      setSaveStatus("saved");
+      acceptSavedSceneDocument(updated);
+      return updated;
     } catch (error) {
       setSaveStatus(error instanceof ApiError && error.status === 409 ? "conflict" : "failed");
       setErrorMessage(formatError(error, "Failed to save scene"));
+      throw error;
     }
-  }, [activeSeries, draft, isDirty, saveStatus]);
+  }, [acceptSavedSceneDocument, activeSeries, draft, saveStatus]);
+
+  const saveDraft = useCallback(async () => {
+    if (!activeSeries || !draft || !isDirty || saveStatus === "saving") {
+      return;
+    }
+    try {
+      await commitDraftDocument(draft.document);
+    } catch {
+      // commitDraftDocument already updated the visible save state and error.
+    }
+  }, [commitDraftDocument, draft, isDirty, saveStatus]);
 
   return {
     activeSeries,
+    acceptSavedSceneDocument,
+    commitDraftDocument,
     createAct,
     createVolume,
     createChapter,

@@ -1,6 +1,7 @@
 import type {
   SceneBlock,
   SceneBlockDocument,
+  CodexProgressionSceneBlock,
   SceneHeadingBlock,
   SceneParagraphBlock,
   SceneQuoteBlock,
@@ -16,9 +17,9 @@ function randomBlockId() {
   });
 }
 
-export function createParagraphBlock(text = ""): SceneParagraphBlock {
+export function createParagraphBlock(text = "", id = randomBlockId()): SceneParagraphBlock {
   return {
-    id: randomBlockId(),
+    id,
     kind: "paragraph",
     text,
   };
@@ -45,6 +46,20 @@ export function createSceneBreakBlock(): SceneBlock {
   return {
     id: randomBlockId(),
     kind: "sceneBreak",
+  };
+}
+
+export function createCodexProgressionBlock(
+  progressionId: string,
+  id = randomBlockId(),
+): CodexProgressionSceneBlock {
+  const now = new Date().toISOString();
+  return {
+    id,
+    kind: "codexProgression",
+    progressionId,
+    createdAt: now,
+    updatedAt: now,
   };
 }
 

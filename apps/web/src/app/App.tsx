@@ -130,6 +130,8 @@ export function App() {
           onCreateVolume={session.createVolume}
           onCreateChapter={session.createChapter}
           onCreateScene={session.createScene}
+          onAcceptSavedSceneDocument={session.acceptSavedSceneDocument}
+          onCommitDocument={session.commitDraftDocument}
           onSaveDraft={session.saveDraft}
           onSelectVolume={session.selectVolume}
           onSelectAct={session.selectAct}

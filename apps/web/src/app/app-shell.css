@@ -1116,6 +1116,102 @@ button {
   padding: var(--space-3);
 }
 
+.scene-progression-block {
+  display: grid;
+  gap: var(--space-3);
+  border: 1px solid var(--line-strong);
+  background: #f8faf8;
+  padding: var(--space-3);
+}
+
+.progression-block-head,
+.progression-actions,
+.progression-panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.progression-block-head > div,
+.scene-progression-panel-row > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.progression-block-head span,
+.scene-progression-panel-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.progression-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.progression-form-grid label,
+.progression-field {
+  display: grid;
+  gap: 5px;
+  color: var(--quiet);
+  font-size: 11px;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.progression-body {
+  min-height: 94px;
+  resize: vertical;
+  text-transform: none;
+}
+
+.progression-form-grid .input,
+.progression-field .input {
+  font-weight: 500;
+  text-transform: none;
+}
+
+.progression-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.progression-preview-grid > div {
+  min-height: 82px;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: var(--space-2);
+}
+
+.progression-preview-grid p {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.scene-progression-panel {
+  display: grid;
+  gap: var(--space-2);
+  max-height: 260px;
+  overflow: auto;
+}
+
+.scene-progression-panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 8px;
+}
+
 .scene-block-mentions {
   display: flex;
   flex-wrap: wrap;

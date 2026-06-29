@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import type { SceneBlock, SceneBlockDocument } from "@novel-studio/contracts";
 
 if (typeof Range !== "undefined") {
   if (!Range.prototype.getClientRects) {
@@ -39,6 +40,7 @@ const relationId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const createdRelationId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const detailTypeId = "12121212-1212-4121-8121-121212121212";
 const secondDetailTypeId = "23232323-2323-4232-8232-232323232323";
+const progressionId = "34343434-3434-4434-8434-343434343434";
 const revision = "a".repeat(64);
 const updatedRevision = "b".repeat(64);
 const firstBlockId = "10101010-1010-4010-8010-101010101010";
@@ -50,11 +52,11 @@ function testBlockId(index: number) {
   return blockIds[index] ?? `40404040-4040-4040-8040-${String(index).padStart(12, "0").slice(0, 12)}`;
 }
 
-function blockText(block: { kind: string; text?: string }) {
+function blockText(block: SceneBlock) {
   return block.kind === "paragraph" || block.kind === "heading" || block.kind === "quote" ? block.text ?? "" : "";
 }
 
-function blockToMarkdown(block: { kind: string; level?: number; text?: string }) {
+function blockToMarkdown(block: SceneBlock) {
   if (block.kind === "heading") return `${"#".repeat(block.level ?? 2)} ${block.text ?? ""}`;
   if (block.kind === "quote") return (block.text ?? "").split("\n").map((line) => `> ${line}`).join("\n");
   if (block.kind === "sceneBreak") return "***";
@@ -62,7 +64,7 @@ function blockToMarkdown(block: { kind: string; level?: number; text?: string })
   return "";
 }
 
-function documentStats(document: { blocks: Array<{ kind: string; level?: number; text?: string }> }) {
+function documentStats(document: SceneBlockDocument) {
   const plainText = document.blocks.map(blockText).filter((segment) => segment.trim().length > 0).join("\n\n");
   const content = document.blocks.map(blockToMarkdown).filter((segment) => segment.trim().length > 0).join("\n\n");
   return {
@@ -73,7 +75,7 @@ function documentStats(document: { blocks: Array<{ kind: string; level?: number;
   };
 }
 
-function sceneBlockDocument(content = "") {
+function sceneBlockDocument(content = ""): SceneBlockDocument {
   if (!content.trim()) {
     return {
       schemaVersion: 1,
@@ -141,7 +143,7 @@ function seriesSummary() {
   };
 }
 
-function sceneDocument(content = "", nextRevision = revision, document = sceneBlockDocument(content)) {
+function sceneDocument(content = "", nextRevision = revision, document: SceneBlockDocument = sceneBlockDocument(content)) {
   const stats = documentStats(document);
   return {
     characterCount: stats.characterCount,
@@ -185,7 +187,7 @@ function sceneDocumentWithMetadata(
   metadata: Partial<ReturnType<typeof sceneDocument>["metadata"]>,
   content = "",
   nextRevision = revision,
-  document = sceneBlockDocument(content),
+  document: SceneBlockDocument = sceneBlockDocument(content),
 ) {
   const scene = sceneDocument(content, nextRevision, document);
   return {
@@ -544,6 +546,44 @@ function codexRelationDocument(
   };
 }
 
+function codexProgressionDocument(
+  blockId = secondBlockId,
+  id = progressionId,
+  options: Partial<{
+    body: string;
+    entryId: string;
+    operation: "add" | "replace";
+    summary: string;
+  }> = {},
+) {
+  return {
+    progression: {
+      archivedAt: null as string | null,
+      body: options.body ?? "Learns the lock changed.",
+      createdAt: "2026-06-23T00:00:00.000Z",
+      effectiveFromSceneId: sceneId,
+      effectiveToSceneId: null as string | null,
+      entryId: options.entryId ?? codexEntryId,
+      evidence: [],
+      field: { kind: "description" as const, detailTypeId: null },
+      fieldKey: null as string | null,
+      id,
+      kind: "field" as const,
+      operation: options.operation ?? "add",
+      relationId: null as string | null,
+      schemaVersion: 1 as const,
+      source: {
+        kind: "write-block" as const,
+        sceneId,
+        blockId,
+      },
+      summary: options.summary ?? "Lock state changes.",
+      updatedAt: "2026-06-23T00:00:00.000Z",
+    },
+    revision,
+  };
+}
+
 function modelProfile(overrides: Partial<{
   archivedAt: string | null;
   baseUrl: string | null;
@@ -591,6 +631,7 @@ function mockFetch(options: {
   conflictCodexUpdate?: boolean;
   initialCodexEntries?: ReturnType<typeof codexEntryDocument>[];
   initialCodexDetailTypes?: ReturnType<typeof codexDetailTypeDocument>[];
+  initialCodexProgressions?: ReturnType<typeof codexProgressionDocument>[];
   initialCodexRelations?: ReturnType<typeof codexRelationDocument>[];
   initialSeriesDetail?: ReturnType<typeof seriesDetail>;
   initialSeriesList?: ReturnType<typeof seriesSummary>[];
@@ -600,6 +641,7 @@ function mockFetch(options: {
   let codexCategoryDocs = codexCategories();
   let codexEntries: ReturnType<typeof codexEntryDocument>[] = options.initialCodexEntries ?? [];
   let codexDetailTypes: ReturnType<typeof codexDetailTypeDocument>[] = options.initialCodexDetailTypes ?? [];
+  let codexProgressions: ReturnType<typeof codexProgressionDocument>[] = options.initialCodexProgressions ?? [];
   let codexRelations: ReturnType<typeof codexRelationDocument>[] = options.initialCodexRelations ?? [];
   let conflictCodexUpdate = options.conflictCodexUpdate ?? false;
   let modelProfiles: ReturnType<typeof modelProfile>[] = [];
@@ -845,6 +887,105 @@ function mockFetch(options: {
         : []);
     }
 
+    const effectiveEntryMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/codex/entries/([^/]+)/effective`));
+    if (effectiveEntryMatch && method === "GET") {
+      const entryId = effectiveEntryMatch[1];
+      const parsedUrl = new URL(url, "http://localhost");
+      const targetBlockId = parsedUrl.searchParams.get("blockId");
+      const scene = (detailOverride ?? seriesDetail()).scenes.find((candidate) => candidate.metadata.id === sceneId) ??
+        sceneDocument();
+      const targetIndex = targetBlockId
+        ? scene.document.blocks.findIndex((block) => block.id === targetBlockId)
+        : scene.document.blocks.length - 1;
+      const entry = codexEntries.find((candidate) => candidate.metadata.id === entryId) ??
+        codexEntryDocument("Harbor Lock", "location", "Baseline lock state.", entryId);
+      let description = entry.description;
+      let hiddenFutureFieldProgressionCount = 0;
+      for (const progression of codexProgressions.filter((document) => (
+        document.progression.entryId === entryId &&
+        document.progression.source.kind === "write-block" &&
+        document.progression.source.sceneId === sceneId
+      ))) {
+        const progressionBlockIndex = scene.document.blocks.findIndex((block) =>
+          block.id === progression.progression.source.blockId,
+        );
+        if (progressionBlockIndex >= 0 && progressionBlockIndex <= targetIndex) {
+          description = progression.progression.operation === "replace"
+            ? progression.progression.body
+            : `${progression.progression.body}\n\n${description}`.trim();
+        } else {
+          hiddenFutureFieldProgressionCount += 1;
+        }
+      }
+      return jsonResponse({
+        blockId: targetBlockId,
+        entry: { ...entry, description },
+        fieldStates: [],
+        hiddenFutureFieldProgressionCount,
+        sceneId,
+      });
+    }
+
+    if (url.startsWith(`/api/v1/series/${seriesId}/codex/progressions`) && method === "GET") {
+      const parsedUrl = new URL(url, "http://localhost");
+      const sceneIdFilter = parsedUrl.searchParams.get("sceneId");
+      const kindFilter = parsedUrl.searchParams.get("kind");
+      return jsonResponse(codexProgressions.filter((document) => {
+        if (kindFilter && document.progression.kind !== kindFilter) return false;
+        if (sceneIdFilter && document.progression.effectiveFromSceneId !== sceneIdFilter) return false;
+        return true;
+      }));
+    }
+
+    if (url === `/api/v1/series/${seriesId}/codex/progressions` && method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      const progression = {
+        ...codexProgressionDocument(body.source.blockId, progressionId, {
+          body: body.body,
+          entryId: body.entryId,
+          operation: body.operation,
+          summary: body.summary,
+        }),
+        progression: {
+          ...codexProgressionDocument(body.source.blockId, progressionId).progression,
+          ...body,
+          id: progressionId,
+          createdAt: "2026-06-24T00:00:00.000Z",
+          updatedAt: "2026-06-24T00:00:00.000Z",
+          archivedAt: null,
+          schemaVersion: 1,
+        },
+      };
+      codexProgressions = [...codexProgressions, progression];
+      return jsonResponse(progression, 201);
+    }
+
+    const progressionMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/codex/progressions/([^/]+)$`));
+    if (progressionMatch && method === "PUT") {
+      const id = progressionMatch[1];
+      const body = JSON.parse(String(init?.body));
+      const current = codexProgressions.find((document) => document.progression.id === id);
+      if (!current) return jsonResponse({ message: "Progression not found" }, 404);
+      const updated = {
+        ...current,
+        progression: {
+          ...current.progression,
+          ...body,
+          updatedAt: "2026-06-24T00:00:00.000Z",
+        },
+        revision: updatedRevision,
+      };
+      codexProgressions = codexProgressions.map((document) => (
+        document.progression.id === id ? updated : document
+      ));
+      return jsonResponse(updated);
+    }
+    if (progressionMatch && method === "DELETE") {
+      const id = progressionMatch[1];
+      codexProgressions = codexProgressions.filter((document) => document.progression.id !== id);
+      return jsonResponse({ deletedId: id, blockers: [] });
+    }
+
     if (url.startsWith(`/api/v1/series/${seriesId}/codex/entries`) && method === "GET" && !url.includes(`/${codexEntryId}`)) {
       const includeArchived = url.includes("includeArchived=true");
       return jsonResponse(codexEntries.filter((entry) => includeArchived || !entry.metadata.archivedAt));
@@ -1084,6 +1225,32 @@ function mockFetch(options: {
         )),
       };
       return jsonResponse(scene);
+    }
+
+    const progressionBlockDeleteMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/scenes/${sceneId}/progression-blocks/([^/]+)$`));
+    if (progressionBlockDeleteMatch && method === "DELETE") {
+      const blockId = progressionBlockDeleteMatch[1];
+      const current = detailOverride ?? seriesDetail();
+      const existing = current.scenes.find((scene) => scene.metadata.id === sceneId) ?? sceneDocument();
+      const block = existing.document.blocks.find((candidate) => candidate.id === blockId);
+      if (!block || block.kind !== "codexProgression") return jsonResponse({ message: "Missing block" }, 422);
+      const scene = sceneDocumentWithMetadata(existing.metadata, "", updatedRevision, {
+        schemaVersion: 1,
+        blocks: existing.document.blocks.filter((candidate) => candidate.id !== blockId),
+      });
+      detailOverride = {
+        ...current,
+        scenes: current.scenes.map((candidate) => (
+          candidate.metadata.id === scene.metadata.id ? scene : candidate
+        )),
+      };
+      codexProgressions = codexProgressions.filter((document) => document.progression.id !== block.progressionId);
+      return jsonResponse({
+        blockId,
+        blockers: [],
+        deletedId: block.progressionId,
+        scene,
+      });
     }
 
     if (url === `/api/v1/series/${seriesId}/scenes/${sceneId}` && method === "PUT") {
@@ -2247,6 +2414,100 @@ describe("App shell", () => {
       expect(putCall).toBeTruthy();
       expect(JSON.parse(String(putCall![1]?.body)).document.blocks[0].text).toBe(" \n ");
     });
+  });
+
+  it("creates edits collapses and deletes write progression blocks", async () => {
+    const fetchMock = mockFetch({
+      initialCodexEntries: [
+        codexEntryDocument("Harbor Lock", "location", "Baseline lock state.", codexEntryId),
+      ],
+      initialSeriesDetail: seriesDetail("Opening line."),
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    const editor = await screen.findByLabelText("Scene content");
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/codex/progressions?kind=field&sceneId=${sceneId}`,
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    fireEvent.click(within(editor).getByRole("button", { name: "Add story change after 1" }));
+
+    expect(await screen.findByLabelText("Story change entry 2")).toBeTruthy();
+    await waitFor(() => {
+      const createCall = fetchMock.mock.calls.find(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/codex/progressions` && init?.method === "POST"
+      ));
+      expect(createCall).toBeTruthy();
+      const body = JSON.parse(String(createCall![1]?.body));
+      expect(body).toEqual(expect.objectContaining({
+        effectiveFromSceneId: sceneId,
+        entryId: codexEntryId,
+        kind: "field",
+        source: expect.objectContaining({ kind: "write-block", sceneId }),
+      }));
+    });
+    await waitFor(() => {
+      const documentPutCalls = fetchMock.mock.calls.filter(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
+      ));
+      expect(documentPutCalls.length).toBeGreaterThanOrEqual(2);
+      const lastBody = JSON.parse(String(documentPutCalls.at(-1)![1]?.body));
+      expect(lastBody.document.blocks.map((block: { kind: string }) => block.kind)).toEqual([
+        "paragraph",
+        "codexProgression",
+      ]);
+      expect(JSON.stringify(lastBody)).not.toContain("scene-progression-block");
+    });
+
+    fireEvent.change(screen.getByLabelText("Story change summary 2"), {
+      target: { value: "Lock state changes." },
+    });
+    fireEvent.change(screen.getByLabelText("Story change text 2"), {
+      target: { value: "The lock answers to the bell." },
+    });
+
+    expect(screen.getByDisplayValue("The lock answers to the bell.")).toBeTruthy();
+    const preview = await screen.findByLabelText("Story change preview 2");
+    expect(within(preview).getByText("Baseline lock state.")).toBeTruthy();
+    expect(within(preview).getByText(/The lock answers to the bell/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save change" }));
+    await waitFor(() => {
+      const updateCall = fetchMock.mock.calls.find(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/codex/progressions/${progressionId}` && init?.method === "PUT"
+      ));
+      expect(updateCall).toBeTruthy();
+      const body = JSON.parse(String(updateCall![1]?.body));
+      expect(body).toEqual(expect.objectContaining({
+        body: "The lock answers to the bell.",
+        operation: "add",
+        summary: "Lock state changes.",
+      }));
+      expect(JSON.stringify(body)).not.toContain("progression-preview-grid");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+    expect(screen.queryByLabelText("Story change text 2")).toBeNull();
+    expect(screen.getAllByText("Lock state changes.").length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+    expect(screen.getByLabelText("Story change text 2")).toBeTruthy();
+
+    const panel = screen.getByLabelText("Scene story changes");
+    fireEvent.click(within(panel).getByRole("button", { name: "Delete" }));
+    await waitFor(() => {
+      const deleteCall = fetchMock.mock.calls.find(([url, init]) => (
+        typeof url === "string" &&
+        url.startsWith(`/api/v1/series/${seriesId}/scenes/${sceneId}/progression-blocks/`) &&
+        init?.method === "DELETE"
+      ));
+      expect(deleteCall).toBeTruthy();
+    });
+    expect(await screen.findByText("No story changes in this scene.")).toBeTruthy();
+    expect(screen.queryByLabelText("Story change text 2")).toBeNull();
   });
 
   it("creates a model profile and saves project policy from settings", async () => {
