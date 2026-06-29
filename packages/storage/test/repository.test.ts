@@ -94,7 +94,7 @@ describe("ProjectRepository", () => {
     const initial = series.scenes[0]!;
     const createdAt = "2026-06-29T00:00:00.000Z";
 
-    const updated = await store.updateSceneBlockDocument(series.manifest.id, initial.metadata.id, {
+    const staged = await store.updateSceneBlockDocument(series.manifest.id, initial.metadata.id, {
       baseRevision: initial.revision,
       title: "Block Document",
       document: {
@@ -113,16 +113,55 @@ describe("ProjectRepository", () => {
           },
           {
             id: "00000000-0000-4000-8000-000000000103",
-            kind: "codexProgression",
-            progressionId: "00000000-0000-4000-8000-000000000203",
-            createdAt,
-            updatedAt: createdAt,
+            kind: "paragraph",
+            text: "Progression placeholder.",
           },
           {
             id: "00000000-0000-4000-8000-000000000104",
             kind: "quote",
             text: "Quoted memory.",
           },
+        ],
+      },
+    });
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Signal Keeper",
+    });
+    const progression = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entry.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "The signal changes here.",
+      summary: "Signal progression.",
+      effectiveFromSceneId: initial.metadata.id,
+      source: {
+        kind: "write-block",
+        sceneId: initial.metadata.id,
+        blockId: "00000000-0000-4000-8000-000000000103",
+      },
+      evidence: [],
+    });
+
+    const updated = await store.updateSceneBlockDocument(series.manifest.id, initial.metadata.id, {
+      baseRevision: staged.revision,
+      title: "Block Document",
+      document: {
+        schemaVersion: 1,
+        blocks: [
+          staged.document.blocks[0]!,
+          staged.document.blocks[1]!,
+          {
+            id: "00000000-0000-4000-8000-000000000103",
+            kind: "codexProgression",
+            progressionId: progression.progression.id,
+            createdAt,
+            updatedAt: createdAt,
+          },
+          staged.document.blocks[3]!,
         ],
       },
     });
@@ -149,7 +188,7 @@ describe("ProjectRepository", () => {
       markdown: "## Opening Signal\n\nVisible manuscript text.\n\n> Quoted memory.",
     });
     expect(exported.markdown).not.toContain("codexProgression");
-    expect(exported.markdown).not.toContain("00000000-0000-4000-8000-000000000203");
+    expect(exported.markdown).not.toContain(progression.progression.id);
 
     await expect(
       store.updateSceneBlockDocument(series.manifest.id, initial.metadata.id, {
@@ -179,7 +218,156 @@ describe("ProjectRepository", () => {
       }),
     ).rejects.toThrow();
 
+    await expect(
+      store.updateSceneBlockDocument(series.manifest.id, initial.metadata.id, {
+        baseRevision: updated.revision,
+        document: {
+          schemaVersion: 1,
+          blocks: [{
+            id: "00000000-0000-4000-8000-000000000401",
+            kind: "codexProgression",
+            progressionId: "00000000-0000-4000-8000-000000000499",
+            createdAt,
+            updatedAt: createdAt,
+          }],
+        },
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
     expect((await store.getScene(series.manifest.id, initial.metadata.id)).revision).toBe(updated.revision);
+  });
+
+  it("rejects invalid embedded progression block references", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "ProgressionBlockGuards" });
+    const scene = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
+      baseRevision: series.scenes[0]!.revision,
+      title: "Guarded Scene",
+      content: "First block.\n\nSecond block.",
+    });
+    const otherScene = await store.createScene(series.manifest.id, {
+      title: "Other Scene",
+      content: "Other block.",
+    });
+    const [firstBlock, secondBlock] = scene.document.blocks;
+    expect(firstBlock).toBeDefined();
+    expect(secondBlock).toBeDefined();
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Guarded Entry",
+    });
+    const firstProgression = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entry.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "First block state.",
+      summary: "First block state.",
+      effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "write-block", sceneId: scene.metadata.id, blockId: firstBlock!.id },
+      evidence: [],
+    });
+    const secondProgression = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entry.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Second block state.",
+      summary: "Second block state.",
+      effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "write-block", sceneId: scene.metadata.id, blockId: secondBlock!.id },
+      evidence: [],
+    });
+    const otherProgression = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entry.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Other scene state.",
+      summary: "Other scene state.",
+      effectiveFromSceneId: otherScene.metadata.id,
+      source: {
+        kind: "write-block",
+        sceneId: otherScene.metadata.id,
+        blockId: otherScene.document.blocks[0]!.id,
+      },
+      evidence: [],
+    });
+    const archived = await store.archiveCodexProgression(series.manifest.id, secondProgression.progression.id, {
+      baseRevision: secondProgression.revision,
+    });
+    const createdAt = "2026-06-29T00:00:00.000Z";
+
+    await expect(store.updateSceneBlockDocument(series.manifest.id, scene.metadata.id, {
+      baseRevision: scene.revision,
+      document: {
+        schemaVersion: 1,
+        blocks: [
+          {
+            id: firstBlock!.id,
+            kind: "codexProgression",
+            progressionId: firstProgression.progression.id,
+            createdAt,
+            updatedAt: createdAt,
+          },
+          {
+            id: secondBlock!.id,
+            kind: "codexProgression",
+            progressionId: firstProgression.progression.id,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        ],
+      },
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    await expect(store.updateSceneBlockDocument(series.manifest.id, scene.metadata.id, {
+      baseRevision: scene.revision,
+      document: {
+        schemaVersion: 1,
+        blocks: [{
+          id: secondBlock!.id,
+          kind: "codexProgression",
+          progressionId: firstProgression.progression.id,
+          createdAt,
+          updatedAt: createdAt,
+        }],
+      },
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    await expect(store.updateSceneBlockDocument(series.manifest.id, scene.metadata.id, {
+      baseRevision: scene.revision,
+      document: {
+        schemaVersion: 1,
+        blocks: [{
+          id: firstBlock!.id,
+          kind: "codexProgression",
+          progressionId: otherProgression.progression.id,
+          createdAt,
+          updatedAt: createdAt,
+        }],
+      },
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    await expect(store.updateSceneBlockDocument(series.manifest.id, scene.metadata.id, {
+      baseRevision: scene.revision,
+      document: {
+        schemaVersion: 1,
+        blocks: [{
+          id: secondBlock!.id,
+          kind: "codexProgression",
+          progressionId: archived.progression.id,
+          createdAt,
+          updatedAt: createdAt,
+        }],
+      },
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
   });
 
   it("rejects stale revisions without overwriting the scene", async () => {
@@ -868,6 +1056,26 @@ describe("ProjectRepository", () => {
       .ambiguities).toHaveLength(1);
   });
 
+  it("indexes scene search and Codex mentions from plain text block projection", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "PlainTextProjection" });
+    const scene = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
+      baseRevision: series.scenes[0]!.revision,
+      title: "Projection Scene",
+      content: "# Signal Heading\n\n> Alias Hero\n\n***\n\nFinal words.",
+    });
+    await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Alias Hero",
+    });
+
+    const mentions = await store.listCodexMentionsForScene(series.manifest.id, scene.metadata.id);
+    expect(mentions.mentions).toHaveLength(1);
+    expect(mentions.mentions[0]!.matchedText).toBe("Alias Hero");
+    expect(mentions.mentions[0]!.start).toBe("Signal Heading\n\n".length);
+    expect((await store.search(series.manifest.id, "Signal"))[0]!.excerpt).not.toContain("#");
+  });
+
   it("projects Progression additions and replacements by narrative scene without leaking future facts", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "状态沿革" });
@@ -983,6 +1191,97 @@ describe("ProjectRepository", () => {
     });
     expect((await store.getCodexEffectiveState(series.manifest.id, lost.metadata.id, lin.metadata.id))
       .worldFacts.map((document) => document.progression.summary)).toEqual([lostKey.progression.summary]);
+  });
+
+  it("isolates world and relationship progressions by same-scene block position", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "Block State Isolation" });
+    const scene = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
+      baseRevision: series.scenes[0]!.revision,
+      title: "Two Blocks",
+      content: "Before the reveal.\n\nAfter the reveal.",
+    });
+    const [firstBlock, secondBlock] = scene.document.blocks;
+    expect(firstBlock).toBeDefined();
+    expect(secondBlock).toBeDefined();
+    const lin = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Lin",
+    });
+    const zhou = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Zhou",
+    });
+    const relation = await store.createCodexRelation(series.manifest.id, {
+      sourceEntryId: lin.metadata.id,
+      targetEntryId: zhou.metadata.id,
+      type: "trust",
+      directed: true,
+    });
+    const worldProgression = await store.createCodexProgression(series.manifest.id, {
+      kind: "world",
+      entryId: lin.metadata.id,
+      relationId: null,
+      fieldKey: "state",
+      operation: "add",
+      body: "Lin learns the later-block secret.",
+      summary: "Lin learns the later-block secret.",
+      effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "write-block", sceneId: scene.metadata.id, blockId: secondBlock!.id },
+      evidence: [{
+        sourceType: "scene",
+        sourceId: scene.metadata.id,
+        quote: "After the reveal.",
+        note: "The fact appears in the second block.",
+      }],
+    });
+    const relationProgression = await store.createCodexProgression(series.manifest.id, {
+      kind: "relationship",
+      entryId: null,
+      relationId: relation.relation.id,
+      fieldKey: "trust",
+      operation: "replace",
+      body: "Trust changes in the later block.",
+      summary: "Trust changes in the later block.",
+      effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "write-block", sceneId: scene.metadata.id, blockId: secondBlock!.id },
+      evidence: [{
+        sourceType: "scene",
+        sourceId: scene.metadata.id,
+        quote: "After the reveal.",
+        note: "The relation change appears in the second block.",
+      }],
+    });
+
+    const before = await store.getCodexEffectiveState(
+      series.manifest.id,
+      scene.metadata.id,
+      lin.metadata.id,
+      undefined,
+      firstBlock!.id,
+    );
+    expect(before.worldFacts).toHaveLength(0);
+    expect(before.relationStates.flatMap((state) => state.progressions)).toHaveLength(0);
+    expect(before.hiddenFutureProgressionCount).toBe(2);
+    const beforeJson = JSON.stringify(before);
+    expect(beforeJson).not.toContain(worldProgression.progression.id);
+    expect(beforeJson).not.toContain(worldProgression.progression.summary);
+    expect(beforeJson).not.toContain(relationProgression.progression.id);
+    expect(beforeJson).not.toContain(relationProgression.progression.summary);
+
+    const after = await store.getCodexEffectiveState(
+      series.manifest.id,
+      scene.metadata.id,
+      lin.metadata.id,
+      undefined,
+      secondBlock!.id,
+    );
+    expect(after.worldFacts.map((document) => document.progression.summary))
+      .toEqual([worldProgression.progression.summary]);
+    expect(after.relationStates.flatMap((state) => state.progressions)
+      .map((document) => document.progression.summary))
+      .toEqual([relationProgression.progression.summary]);
+    expect(after.hiddenFutureProgressionCount).toBe(0);
   });
 
   it("keeps relationship progressions and character knowledge separate from world facts", async () => {
@@ -1317,6 +1616,13 @@ describe("ProjectRepository", () => {
         note: "知识引用统一 JSON Progression。",
       }],
     });
+    const knowledgeJsonPath = path.join(root, "codex", "knowledge", `${knowledge.knowledge.id}.json`);
+    const knowledgeYamlPath = path.join(root, "codex", "knowledge", `${knowledge.knowledge.id}.yaml`);
+    expect(JSON.parse(await readFile(knowledgeJsonPath, "utf8"))).toMatchObject({
+      id: knowledge.knowledge.id,
+      truthProgressionId: updated.progression.id,
+    });
+    await expect(readFile(knowledgeYamlPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     await expect(store.deleteCodexProgression(series.manifest.id, updated.progression.id, {
       baseRevision: updated.revision,
     })).rejects.toMatchObject<Partial<StorageError>>({
@@ -1347,6 +1653,36 @@ describe("ProjectRepository", () => {
     })).toMatchObject({ deletedId: removable.progression.id, blockers: [] });
     await expect(store.getCodexProgression(series.manifest.id, removable.progression.id))
       .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+
+    const proposalSourced = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: character.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Proposal-sourced state.",
+      summary: "Proposal-sourced state.",
+      effectiveFromSceneId: scene.metadata.id,
+      source: {
+        kind: "proposal",
+        sceneId: null,
+        blockId: null,
+        sourceId: "00000000-0000-4000-8000-00000000f001",
+      },
+      evidence: [],
+    });
+    await expect(store.deleteCodexProgression(series.manifest.id, proposalSourced.progression.id, {
+      baseRevision: proposalSourced.revision,
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      details: {
+        blockers: [{
+          kind: "proposal",
+          id: "00000000-0000-4000-8000-00000000f001",
+        }],
+      },
+    });
   });
 
   it("projects effective Codex fields by scene block without leaking future field data", async () => {
@@ -1628,6 +1964,50 @@ describe("ProjectRepository", () => {
       updatedEntry.metadata.id,
       third.metadata.id,
     )).entry.description).toBe("Post-replace addition.\n\nReplacement state.");
+  });
+
+  it("normalizes projected detail values to detail type IDs without leaking legacy name keys", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "Legacy Detail Projection" });
+    const scene = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
+      baseRevision: series.scenes[0]!.revision,
+      title: "Projection",
+      content: "Projection point.",
+    });
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Mira",
+    });
+    const detailType = await store.createCodexDetailType(series.manifest.id, {
+      categoryId: "character",
+      name: "Status",
+    });
+    const legacyEntry = await store.updateCodexEntry(series.manifest.id, entry.metadata.id, {
+      baseRevision: entry.revision,
+      details: { Status: "Legacy status." },
+    });
+    await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: legacyEntry.metadata.id,
+      relationId: null,
+      field: { kind: "detail", detailTypeId: detailType.detailType.id },
+      fieldKey: null,
+      operation: "replace",
+      body: "",
+      summary: "Clear legacy status.",
+      effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
+      evidence: [],
+    });
+
+    const effective = await store.getCodexEffectiveEntry(
+      series.manifest.id,
+      legacyEntry.metadata.id,
+      scene.metadata.id,
+    );
+    expect(effective.entry.metadata.details[detailType.detailType.id]).toBe("");
+    expect(effective.entry.metadata.details.Status).toBeUndefined();
+    expect(JSON.stringify(effective)).not.toContain("Legacy status.");
   });
 
   it("saves a 200,000-character Chinese scene without changing its text", async () => {
@@ -1940,7 +2320,7 @@ describe("ProjectRepository", () => {
       "chapters",
       `${scene.metadata.chapterId}.yaml`,
     );
-    const transactionId = "interrupted-test";
+    const transactionId = "00000000-0000-4000-8000-00000000feed";
     const backupFile = `${chapterFile}.${transactionId}.bak`;
     await rename(chapterFile, backupFile);
     await writeFile(chapterFile, "not: valid: yaml", "utf8");
@@ -1966,6 +2346,21 @@ describe("ProjectRepository", () => {
       scene.metadata.chapterId,
     );
     expect(await store.validateHierarchy(series.manifest.id)).toMatchObject({ valid: true });
+  });
+
+  it("quarantines malformed transaction journals instead of applying recovery", async () => {
+    const store = await repository();
+    const title = "Malformed Transaction";
+    const series = await store.createSeries({ title });
+    const root = seriesRoot(store, title, series.manifest.id);
+    const transactionDirectory = path.join(root, ".studio", "transactions");
+    await mkdir(transactionDirectory, { recursive: true });
+    const journalPath = path.join(transactionDirectory, "00000000-0000-4000-8000-00000000bad0.json");
+    await writeFile(journalPath, "{ not json", "utf8");
+
+    await expect(store.getSeries(series.manifest.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(readFile(`${journalPath}.invalid`, "utf8")).resolves.toContain("not json");
   });
 
   it("builds one planning board with matching hierarchy and narrative order", async () => {

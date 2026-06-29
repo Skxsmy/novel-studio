@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 import { StorageError } from "./errors.js";
 import { assertInside, atomicWrite, pathExists } from "./fileSystem.js";
 
@@ -24,6 +25,41 @@ interface TransactionJournal {
   entries: TransactionEntry[];
 }
 
+const TransactionEntrySchema = z.object({
+  target: z.string().min(1),
+  temporary: z.string().min(1).nullable(),
+  backup: z.string().min(1),
+  hadOriginal: z.boolean(),
+  delete: z.boolean(),
+});
+
+const TransactionJournalSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(["prepared", "committing", "committed"]),
+  entries: z.array(TransactionEntrySchema),
+});
+
+async function quarantineMalformedJournal(
+  journalPath: string,
+  cause: unknown,
+): Promise<never> {
+  const quarantinedPath = `${journalPath}.invalid`;
+  await rename(journalPath, quarantinedPath).catch(() => undefined);
+  throw new StorageError("Transaction journal is malformed", "INVALID_DATA", {
+    journalPath,
+    quarantinedPath,
+    cause: cause instanceof Error ? cause.message : String(cause),
+  });
+}
+
+async function readTransactionJournal(journalPath: string): Promise<TransactionJournal> {
+  try {
+    return TransactionJournalSchema.parse(JSON.parse(await readFile(journalPath, "utf8")));
+  } catch (error) {
+    return quarantineMalformedJournal(journalPath, error);
+  }
+}
+
 export async function recoverFileTransactions(seriesRoot: string): Promise<void> {
   const transactionRoot = path.join(seriesRoot, ".studio", "transactions");
   let files: string[];
@@ -37,7 +73,17 @@ export async function recoverFileTransactions(seriesRoot: string): Promise<void>
   }
 
   for (const journalPath of files) {
-    const journal = JSON.parse(await readFile(journalPath, "utf8")) as TransactionJournal;
+    const journal = await readTransactionJournal(journalPath);
+    const targets = new Set<string>();
+    for (const entry of journal.entries) {
+      if (targets.has(entry.target)) {
+        await quarantineMalformedJournal(
+          journalPath,
+          new Error(`Duplicate transaction target: ${entry.target}`),
+        );
+      }
+      targets.add(entry.target);
+    }
     const entries = journal.entries.map((entry) => ({
       ...entry,
       target: assertInside(seriesRoot, path.join(seriesRoot, entry.target)),

@@ -29,12 +29,13 @@ describe("M4 context preview API", () => {
       payload: {
         baseRevision: firstScene.revision,
         title: "旧钟声",
-        content: "林岚听见旧钟声，却不知道钟声来自哪里。",
+        content: "林岚听见旧钟声，却不知道钟声来自哪里。\n\n同场后段写出不应提前出现的钟声来源。",
         summary: "林岚听到旧钟声。",
       },
     });
     expect(updatedFirst.statusCode).toBe(200);
     const firstBlock = updatedFirst.json().document.blocks[0];
+    const secondBlock = updatedFirst.json().document.blocks[1];
     const secondScene = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/scenes`,
@@ -197,6 +198,32 @@ describe("M4 context preview API", () => {
       },
     });
     expect(emptyDetailProgression.statusCode).toBe(201);
+    const sameSceneLaterWorldProgression = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        kind: "world",
+        entryId: bell.json().metadata.id,
+        relationId: null,
+        fieldKey: "同场后段真相",
+        operation: "add",
+        body: "同场后段揭示旧钟声来自密室。",
+        summary: "同场后段揭示旧钟声来自密室。",
+        effectiveFromSceneId: updatedFirst.json().metadata.id,
+        source: {
+          kind: "write-block",
+          sceneId: updatedFirst.json().metadata.id,
+          blockId: secondBlock.id,
+        },
+        evidence: [{
+          sourceType: "scene",
+          sourceId: updatedFirst.json().metadata.id,
+          quote: "同场后段写出不应提前出现的钟声来源。",
+          note: "This later block must not enter first-block context.",
+        }],
+      },
+    });
+    expect(sameSceneLaterWorldProgression.statusCode).toBe(201);
     const futureFieldProgression = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
@@ -270,6 +297,7 @@ describe("M4 context preview API", () => {
       item.source.id !== undefined && item.inclusionReason.length > 0,
     )).toBe(true);
     expect(JSON.stringify(bundle.items)).toContain("林岚听见旧钟声");
+    expect(JSON.stringify(bundle.items)).not.toContain("同场后段写出不应提前出现");
     expect(JSON.stringify(bundle.items)).toContain("钟声会吸引守夜人");
     expect(JSON.stringify(bundle.items)).toContain("旧钟声只在雨夜响起");
     expect(JSON.stringify(bundle.items)).toContain("每到雨夜会响起的钟声");
@@ -278,6 +306,8 @@ describe("M4 context preview API", () => {
     expect(JSON.stringify(bundle.items)).not.toContain("旧钟声来自密室机关");
     expect(JSON.stringify(bundle.items)).not.toContain("钟声真相改变");
     expect(JSON.stringify(bundle)).not.toContain(futureFieldProgression.json().progression.id);
+    expect(JSON.stringify(bundle.items)).not.toContain("同场后段揭示旧钟声来自密室");
+    expect(JSON.stringify(bundle)).not.toContain(sameSceneLaterWorldProgression.json().progression.id);
     expect(JSON.stringify(bundle.items)).not.toContain("后文得知旧钟声来自密室");
     expect(JSON.stringify(bundle.items)).not.toContain("密室真相不应进入上下文");
     expect(bundle.excluded.map((item: { reason: string }) => item.reason)).toEqual(expect.arrayContaining([
@@ -286,6 +316,19 @@ describe("M4 context preview API", () => {
       "future-information",
     ]));
     expect(bundle.estimatedUsage.totalTokens).toBeGreaterThan(0);
+    const codexEntryItem = bundle.items.find((item: { kind: string; source: { id: string | null } }) =>
+      item.kind === "codex-entry" && item.source.id === bell.json().metadata.id,
+    );
+    expect(codexEntryItem.sourceRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "codex-entry",
+        id: bell.json().metadata.id,
+      }),
+      expect.objectContaining({
+        type: "codex-progression",
+        id: currentFieldProgression.json().progression.id,
+      }),
+    ]));
 
     const saved = await app.inject({
       method: "GET",

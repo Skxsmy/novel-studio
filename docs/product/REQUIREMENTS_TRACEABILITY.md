@@ -51,7 +51,7 @@
 - `FR-AI-01`、`FR-AI-04` 中与 Context Bundle 时间隔离相关的部分
 - `IMPORT_EXPORT_VERSIONING_SPEC.md` 中 Markdown 导出与数据迁移边界
 
-完成标准：Scene 正文以 JSON `SceneBlockDocument` 为内部权威格式；现有测试 Markdown/YAML 数据可迁移或重新生成到 JSON 权威结构；block document 可保存、重载并导出 Markdown；现有前端正在使用的场景 API 在过渡期保持兼容；旧 `codex/progressions/*.yaml` 退役并由统一 `codex/progressions/*.json` Progression 权威系统替代；Codex Canon Description、Detail、世界事实和关系变化可按 scene/block 位置投影；Context Builder、悬浮预览和有效状态 API 不泄露后文 progression；角色知识继续作为独立 JSON 权威系统工作并可引用 JSON progression。
+完成标准：Scene 正文以 JSON `SceneBlockDocument` 为内部权威格式；现有测试 Markdown/YAML 数据可迁移或重新生成到 JSON 权威结构；block document 可保存、重载并导出 Markdown；现有前端正在使用的场景 API 在过渡期保持兼容；旧 `codex/progressions/*.yaml` 退役并由统一 `codex/progressions/*.json` Progression 权威系统替代；Codex Canon Description、Detail、世界事实和关系变化可按 scene/block 位置投影；Context Builder、悬浮预览和有效状态 API 不泄露后文 progression；角色知识继续作为独立 JSON 权威系统工作并可引用 JSON progression。NS-410 最终关闭前，验收记录中列出的剩余 YAML/Markdown runtime authority path 必须迁移为 schema-versioned JSON，或通过新的产品/ADR 决策明确降级为导入、导出、镜像或迁移边界；不能只因目标架构写成 JSON 就视为已完成。
 
 验收 ID：
 

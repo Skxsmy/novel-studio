@@ -16,19 +16,19 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | NS-410-A01 | partial | Slice 2 regenerates current scene test data as JSON block documents; legacy `.md` scene authority is intentionally not preserved because current project data is disposable test data. Full import/migration preview remains later. |
 | NS-410-A02 | passed | Slice 1 covered deterministic JSON serialization/revision and reload via `json-authority.test.ts`; Slice 2 covers scene JSON authority save/reload through `repository.test.ts`; Slice 3 covers block document get/update/reload through storage and server tests. |
 | NS-410-A03 | passed | Slice 2 projects block documents back to Markdown-compatible `SceneDocument.content`; Slice 3 adds explicit Markdown export and verifies component/private progression blocks are omitted from exported manuscript text. |
-| NS-410-A04 | partial | Slice 1 covered malformed JSON, schema-version mismatch, duplicate block IDs, path escape, and atomic replacement cleanup via `json-authority.test.ts`; Slice 2 keeps scene conflict/revision behavior passing; Slice 3 covers stale document revisions and duplicate block IDs through storage/server APIs; Slice 4 covers invalid Progression detail type, scene block, cross-series entry, evidence quote, stale revision, and delete blocker diagnostics. Damaged progression JSON diagnostics remain covered by the JSON authority helper shape but can be expanded later if needed. |
-| NS-410-A05 | passed | Slice 4 storage/server tests cover unified JSON Progression create/list/get/update/delete, field/world/relationship targets, reference validation, cross-series rejection, and revision conflicts. |
-| NS-410-A06 | partial | Slice 4 adds hard-delete blocker shape and storage coverage for character-knowledge blockers. Write block deletion synchronization remains Slice 8. |
+| NS-410-A04 | passed | Slice 1 covered malformed JSON, schema-version mismatch, duplicate block IDs, path escape, atomic replacement cleanup, and post-write checksum/readback verification via `json-authority.test.ts`; Slice 2 keeps scene conflict/revision behavior passing; Slice 3 covers stale document revisions and duplicate block IDs through storage/server APIs; Slice 4 covers invalid Progression detail type, scene block, cross-series entry, evidence quote, stale revision, and delete blocker diagnostics; the audit repair adds missing/archived/wrong-scene/wrong-block/duplicate embedded Progression block rejection plus malformed transaction journal quarantine. |
+| NS-410-A05 | passed | Slice 4 storage/server tests cover unified JSON Progression create/list/get/update/delete, field/world/relationship targets, reference validation, cross-series rejection, and revision conflicts. The audit repair adds proposal-sourced hard-delete blocking through `sourceId`; model-call blocker scanning is not claimed because current ModelCallLog records have no Progression reference field. |
+| NS-410-A06 | partial | Storage now blocks hard deletion when a Progression is referenced by character knowledge, by an embedded write block, or by proposal provenance. Write block deletion synchronization remains Slice 8, and model-call reference scanning remains a future contract because ModelCallLog has no Progression reference field yet. |
 | NS-410-A07 | passed | Slice 5 storage tests verify baseline-only effective entry projection for Canon Description and reusable Detail values. |
 | NS-410-A08 | passed | Slice 5 storage tests verify `add`, repeated `add`, `replace`, replace-then-add, and empty `replace` folding per field. |
-| NS-410-A09 | passed | Slice 5 storage and server tests verify same-scene block position changes effective Codex fields before/after write-block progressions. |
-| NS-410-A10 | passed | Slice 5 storage and effective-entry API tests verify future field progression body, summary, and IDs are absent from earlier responses, with only hidden counts returned. Slice 6 context route tests verify future field progression body, summary, and IDs are also absent from Context Bundle payloads. |
+| NS-410-A09 | passed | Slice 5 storage and server tests verify same-scene block position changes effective Codex fields before/after write-block progressions. The audit repair extends same-scene block-position isolation to world and relationship Progression effective state. |
+| NS-410-A10 | passed | Slice 5 storage and effective-entry API tests verify future field progression body, summary, and IDs are absent from earlier responses, with only hidden counts returned. Slice 6 context route tests verify future field progression body, summary, and IDs are also absent from Context Bundle payloads. The audit repair adds same-scene later-block future isolation for world/relationship state and current-scene body block slicing. |
 | NS-410-A11 | passed | Slice 5 storage tests verify baseline edits update add chains before a replace boundary while projected values after a replace stay independent from earlier baseline changes. |
-| NS-410-A12 | passed | Slice 6 `context-routes.test.ts` verifies Context Builder uses projected Codex description/details, respects per-detail AI switches, omits empty-replaced fields, and records hidden future field counts without content leakage. |
-| NS-410-A13 | passed | Slice 4 keeps character knowledge separate from unified JSON Progression, verifies knowledge can reference JSON progression IDs, and verifies new Progression files are `.json` with no `.yaml` authority file. Slice 5 regression tests keep effective-state and character-knowledge behavior passing while adding field projection. |
+| NS-410-A12 | passed | Slice 6 `context-routes.test.ts` verifies Context Builder uses projected Codex description/details, respects per-detail AI switches, omits empty-replaced fields, and records hidden future field counts without content leakage. The audit repair adds block-aware current-scene manuscript context, world/relationship effective-state block isolation, and ContextItem `sourceRefs` for projected Progression sources. |
+| NS-410-A13 | passed | Slice 4 keeps character knowledge separate from unified JSON Progression, verifies knowledge can reference JSON progression IDs, and verifies new Progression files are `.json` with no `.yaml` authority file. The audit repair moves character knowledge authority to `codex/knowledge/<id>.json` and verifies no new knowledge `.yaml` file is written. |
 | NS-410-A14 | partial | Slice 7 web tests verify ordinary paragraph/heading/scene-break block editing and saving through a native Write block editor, with no saved UI-only markup and no old single-document text editor path for Write scene content. Embedded progression blocks remain Slice 8; user visual acceptance remains separate. |
 | NS-410-A15 | pending | Web tests planned where feasible; user visual acceptance required for final UI. |
-| NS-410-A16 | partial | Slice 2 storage repository tests cover existing scene save, hierarchy, mention/index, and search-adjacent regressions while scene files are JSON authority. Slice 6 verifies Context Builder reads projected scene/Codex context at scene/block position. Slice 7 verifies Write-local counts and Codex mention marks derive from `SceneBlockDocument` projection. Broader search UI coverage remains for later regression. |
+| NS-410-A16 | passed | Slice 2 storage repository tests cover existing scene save, hierarchy, mention/index, and search-adjacent regressions while scene files are JSON authority. Slice 6 verifies Context Builder reads projected scene/Codex context at scene/block position. Slice 7 verifies Write-local counts and Codex mention marks derive from `SceneBlockDocument` projection. The audit repair switches storage search, FTS indexing, Codex mention indexing, previous-scene summaries, and current-scene Context Builder body projection to plain text derived from blocks. |
 | NS-410-A17 | passed | Slice 2 keeps existing scene `content` read/write API behavior compatible by converting `content` writes to JSON blocks and returning projected `content`; Slice 3 adds block document APIs without removing legacy `content` routes, with server and web compatibility checks. Slice 7 keeps legacy route mocks/regressions available while moving the Write scene-content path to the document endpoint. |
 
 ## Slice Exit Map
@@ -47,7 +47,8 @@ Each slice must update this section with actual command output before the next s
 | Slice 7 Write Ordinary Block MVP | Write loads/saves ordinary blocks through a native block editor, not the old single-document text editor path; projection powers counts/search/mentions; no UI-only markup saved. | A14 partial, A16, A17 regression |
 | Slice 8 Write Progression Blocks | Embedded progression block and panel create/edit/delete synchronize with field progression records. | A05, A06, A09, A14 |
 | Slice 9 Codex Effective UI | Codex baseline/history/effective-at-scene UI is tested without future leakage or fake data. | A10, A13, A15 |
-| Slice 10 Final Regression | Required commands pass; docs/status/handoff/changelog contain actual results; user visual acceptance remains separate. | A01-A17 |
+| Slice 10 Remaining JSON Authority Migration | Remaining YAML/Markdown runtime authority paths migrate to schema-versioned JSON or are explicitly narrowed to import/export/migration boundaries. | A01, A04, A13, A16, A17 |
+| Slice 11 Final Regression | Required commands pass; docs/status/handoff/changelog contain actual results; user visual acceptance remains separate. | A01-A17 |
 
 ## Required Commands
 
@@ -252,9 +253,60 @@ Commands:
 | `git diff --check` | Passed with line-ending warnings only. |
 | Runtime-code non-ASCII diff scan | Passed with no added non-ASCII runtime strings in `apps/web/src/app/useProjectSession.ts`, `apps/web/src/features/write/WriteWorkspace.tsx`, `apps/web/src/app/sceneBlocks.ts`, `apps/web/src/app/app-shell.css`, `apps/web/src/app/App.tsx`, or `apps/web/src/app/AppShell.test.tsx`. |
 
+### Slice 1-7 Audit Repair Before Slice 8
+
+Status: passed for repaired NS-410 backend/storage/context scope on 2026-06-29.
+
+Audit findings verified and repaired:
+
+- Scene document updates now reject dangling, archived, wrong-scene, wrong-block, and duplicate `codexProgression` block references.
+- World and relationship Progression effective state now respects same-scene block position, including hidden future counts.
+- Character knowledge authority now writes and reads `codex/knowledge/<knowledgeId>.json`; new YAML knowledge files are not written.
+- Effective detail projection normalizes known reusable Details to detail type IDs and removes stale legacy detail-name keys from projected responses.
+- Storage search, FTS indexing, Codex mention indexing, previous-scene summaries, and current-scene Context Builder body use plain text projected from blocks.
+- Context Builder current-scene body is sliced to the requested block position instead of always sending the full scene.
+- Context Bundle Codex items include `sourceRefs` for projected Codex/Progression/Knowledge sources; projected item `sourceRevision` is derived from those refs and content.
+- Codex context preview returns hidden future field counts without exposing future Progression ID, body, or summary.
+- JSON authority writes now perform post-write readback, checksum comparison, and schema validation before returning success.
+- Malformed transaction journals are quarantined as `.invalid` and reported as `INVALID_DATA` instead of being silently applied or causing low-level parse errors.
+- Progression deletion blocks character-knowledge references, embedded write-block references, and proposal-sourced Progressions that carry `source.sourceId`.
+
+Audit findings intentionally not claimed as completed:
+
+- `proposal` storage and `model-call` Progression reference scanning are not implemented because current Proposal storage is still contract-only and ModelCallLog has no Progression reference field. The delete contract is not described as fully implemented for model-call blockers until those references exist.
+- Project archive/delete/restore is a project-lifecycle capability and remains assigned to Project Recovery or a later lifecycle task; NS-410 does not claim project deletion completeness.
+- Broad whole-project YAML/Markdown removal is not complete. Current NS-410 authority completion covers scene manuscript JSON, unified Progression JSON, and character knowledge JSON. Remaining YAML/Markdown authority files are inventoried below; they are open NS-410 JSON-authority work for Slice 10 unless a later product/ADR decision explicitly narrows a path to an import/export/migration boundary.
+- Internal names such as `SceneFrontmatterSchema` and compatibility helpers are known cleanup debt; they are not runtime authority paths and should be renamed when the scene contract layer is next touched.
+
+Remaining runtime authority inventory outside the completed NS-410 JSON authority set:
+
+- Story structure: `series.yaml`, `book.yaml`, `acts/<id>.yaml`, `chapters/<id>.yaml`.
+- Planning: `planning/timeline.yaml`, `planning/events/<id>.yaml`.
+- Sections and review: `sections/<sceneId>/<sectionId>.md`, `review/anchors/<id>.yaml`.
+- Codex baseline and supporting documents: `codex/categories/<id>.yaml`, `codex/detail-types/<id>.yaml`, `codex/*/<entryId>.md`, `codex/entry-research/<entryId>.md`, `codex/relations/<id>.yaml`.
+- AI/prompt storage from earlier M4 work: `.studio/model-profiles/*.yaml`, `.studio/context-bundles/*.yaml`, `.studio/model-calls/*.yaml`, prompt role/template/preset YAML files.
+- Proposal storage remains a future `.json` design in architecture docs, not a completed runtime implementation.
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `npm.cmd run build -w @novel-studio/contracts` | Passed. |
+| `npm.cmd run build -w @novel-studio/storage` | Passed after rerunning sequentially so storage read the updated contracts dist. |
+| `npm.cmd run test -w @novel-studio/storage -- repository.test.ts json-authority.test.ts smoke.test.ts --reporter=verbose` | Passed with 62/62 tests. |
+| `npm.cmd run build -w @novel-studio/server` | Passed. |
+| `npm.cmd run test -w @novel-studio/server -- app.test.ts context-routes.test.ts --reporter=verbose` | Passed with 11/11 tests. |
+| `npm.cmd run build -w @novel-studio/web` | Passed with the existing Vite large-chunk warning. |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx --reporter=verbose` | Passed with 46/46 tests; Vitest printed existing React `act(...)` warnings in the write selection and focus-mode tests. |
+| `npm.cmd run build` | Passed; package builds, server build, and web production build succeeded with the existing Vite large-chunk warning. |
+| `npm.cmd run test` | Passed with server 23/23, web 46/46, AI 20/20, and storage 64/64 tests. |
+| `git diff --check` | Passed with line-ending warnings only. |
+| Runtime-code non-ASCII diff scan | Passed with no added non-ASCII or mojibake runtime-code lines in touched contracts/storage/server files. |
+| Current-authority Markdown/YAML wording search | Passed for current product/task/status docs; remaining hits are superseded historical ADR/implementation-history records, not current authority. |
+
 ## Invariant Checklist
 
-- Project JSON files are durable authority; Markdown/Word are boundary formats; SQLite is rebuildable.
+- Completed NS-410 authority paths are durable JSON authority for scene manuscripts, unified Progression records, and character knowledge. Markdown/Word are boundary formats for those completed paths. Remaining YAML/Markdown authority paths are inventoried above, remain open for the NS-410 JSON authority completion slice, and must not be described as migrated.
 - AI and Proposal paths do not directly mutate authoritative scene or Codex files.
 - Unified JSON Progression replaces old YAML progression for field, world-fact, and relationship changes; character knowledge remains separate.
 - Same-scene block position determines visibility.

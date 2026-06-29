@@ -104,7 +104,7 @@ describe("local API", () => {
       document: { schemaVersion: 1, blocks: [] },
     });
 
-    const updateDocument = await app.inject({
+    const stagedDocument = await app.inject({
       method: "PUT",
       url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/document`,
       payload: {
@@ -126,8 +126,59 @@ describe("local API", () => {
             },
             {
               id: "00000000-0000-4000-8000-000000001103",
+              kind: "paragraph",
+              text: "Progression placeholder.",
+            },
+          ],
+        },
+      },
+    });
+    expect(stagedDocument.statusCode).toBe(200);
+
+    const entry = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: { categoryId: "character", name: "Signal Keeper" },
+    });
+    expect(entry.statusCode).toBe(201);
+    const progression = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        kind: "field",
+        entryId: entry.json().metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "add",
+        body: "The signal changes here.",
+        summary: "Signal progression.",
+        effectiveFromSceneId: scene.metadata.id,
+        source: {
+          kind: "write-block",
+          sceneId: scene.metadata.id,
+          blockId: "00000000-0000-4000-8000-000000001103",
+        },
+        evidence: [],
+      },
+    });
+    expect(progression.statusCode).toBe(201);
+
+    const updateDocument = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/document`,
+      payload: {
+        baseRevision: stagedDocument.json().revision,
+        title: "Block API",
+        document: {
+          schemaVersion: 1,
+          blocks: [
+            stagedDocument.json().document.blocks[0],
+            stagedDocument.json().document.blocks[1],
+            {
+              id: "00000000-0000-4000-8000-000000001103",
               kind: "codexProgression",
-              progressionId: "00000000-0000-4000-8000-000000001203",
+              progressionId: progression.json().progression.id,
               createdAt,
               updatedAt: createdAt,
             },
@@ -154,7 +205,7 @@ describe("local API", () => {
       markdown: "### Signal\n\nScene text from the document endpoint.",
     });
     expect(exportResponse.json().markdown).not.toContain("codexProgression");
-    expect(exportResponse.json().markdown).not.toContain("00000000-0000-4000-8000-000000001203");
+    expect(exportResponse.json().markdown).not.toContain(progression.json().progression.id);
 
     const staleResponse = await app.inject({
       method: "PUT",
@@ -386,6 +437,22 @@ describe("local API", () => {
     expect(firstJson).not.toContain(secondReplace.json().progression.id);
     expect(firstJson).not.toContain(secondReplace.json().progression.body);
     expect(firstJson).not.toContain(secondReplace.json().progression.summary);
+
+    const codexPreview = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/context?sceneId=${updatedScene.json().metadata.id}&blockId=${firstBlock.id}&pinnedIds=${entry.json().metadata.id}`,
+    });
+    expect(codexPreview.statusCode).toBe(200);
+    expect(codexPreview.json().hiddenFutureFieldProgressionCount).toBe(1);
+    expect(codexPreview.json().hiddenFutureFieldProgressions).toEqual([{
+      entryId: entry.json().metadata.id,
+      name: "Mira",
+      count: 1,
+    }]);
+    const previewJson = JSON.stringify(codexPreview.json());
+    expect(previewJson).not.toContain(secondReplace.json().progression.id);
+    expect(previewJson).not.toContain(secondReplace.json().progression.body);
+    expect(previewJson).not.toContain(secondReplace.json().progression.summary);
 
     const secondEffective = await app.inject({
       method: "GET",

@@ -181,21 +181,28 @@ export const CodexProgressionSourceSchema = z
     kind: z.enum(["write-block", "codex-page", "proposal"]),
     sceneId: z.string().uuid().nullable().default(null),
     blockId: z.string().uuid().nullable().default(null),
+    sourceId: z.string().uuid().nullable().default(null),
   })
   .superRefine((source, context) => {
-    if (source.kind !== "write-block") return;
-    if (!source.sceneId) {
+    if (source.kind === "write-block" && !source.sceneId) {
       context.addIssue({
         code: "custom",
         message: "Write-block field progression source requires sceneId",
         path: ["sceneId"],
       });
     }
-    if (!source.blockId) {
+    if (source.kind === "write-block" && !source.blockId) {
       context.addIssue({
         code: "custom",
         message: "Write-block field progression source requires blockId",
         path: ["blockId"],
+      });
+    }
+    if (source.kind === "proposal" && !source.sourceId) {
+      context.addIssue({
+        code: "custom",
+        message: "Proposal progression source requires sourceId",
+        path: ["sourceId"],
       });
     }
   });
@@ -710,6 +717,12 @@ export const CodexContextPreviewSchema = z.object({
   sceneId: z.string().uuid(),
   included: z.array(CodexEntryDocumentSchema),
   excluded: z.array(CodexContextExclusionSchema),
+  hiddenFutureFieldProgressionCount: z.number().int().nonnegative().default(0),
+  hiddenFutureFieldProgressions: z.array(z.object({
+    entryId: z.string().uuid(),
+    name: z.string(),
+    count: z.number().int().positive(),
+  })).default([]),
 });
 export type CodexContextPreview = z.infer<typeof CodexContextPreviewSchema>;
 

@@ -22,7 +22,7 @@ Codex previously had `codex/progressions/*.yaml` for world facts and relationshi
 6. Current Markdown/YAML fixtures may be migrated to JSON or regenerated. NS-410 does not need to preserve valueless test data through complex compatibility layers.
 7. Existing HTTP/API contracts used by the current frontend remain compatible where feasible. Storage authority changes should sit behind repository methods and route adapters.
 8. `SceneDocument.content` remains available as projected Markdown during the transition; legacy content writes may be accepted and converted to JSON block documents.
-9. Codex entries, detail types, relationships, Progression, character knowledge, prompts, sections, review anchors, AI call logs, and proposals move toward JSON authority files as part of the NS-410 storage boundary.
+9. Codex entries, detail types, relationships, Progression, character knowledge, prompts, sections, review anchors, AI call logs, and proposals have JSON authority as the NS-410 target storage boundary. Each runtime path is only considered migrated after the implementation and acceptance record prove it; remaining YAML/Markdown authority paths must stay inventoried and cannot be described as complete.
 10. Unified Progression is stored under `codex/progressions/<progressionId>.json`; old `codex/progressions/<progressionId>.yaml` files are not a runtime compatibility target.
 11. Progression supports only `add` and `replace` in v1. Empty `replace` is the deletion/hidden-field mechanism for field targets.
 12. A field target references `entryId` and either Canon description or a stable reusable detail type ID. World targets reference an entry and an author-readable state key. Relationship targets reference a relation and an author-readable state key.
@@ -49,6 +49,7 @@ Codex previously had `codex/progressions/*.yaml` for world facts and relationshi
 - Saving through the block document endpoint writes JSON authority and may refresh a Markdown mirror/export.
 - Existing scene save endpoints may remain temporarily compatible by converting submitted Markdown to a block document before JSON persistence.
 - Compatibility shims must have tests so current frontend-used calls do not break while block-aware surfaces are introduced.
+- NS-410 may proceed in vertical slices, but final NS-410 closure requires either migrating each remaining runtime authority path to schema-versioned JSON or recording an explicit product/ADR decision that a path is only an import/export/migration boundary.
 
 ## Rollback
 

@@ -61,6 +61,7 @@ export const ContextItemSchema = z.object({
   tokenEstimate: z.number().int().nonnegative().default(0),
   manuallySelected: z.boolean().default(false),
   textHash: RevisionHashSchema.nullable().default(null),
+  sourceRefs: z.array(ContextSourceSchema).default([]),
 });
 export type ContextItem = z.infer<typeof ContextItemSchema>;
 

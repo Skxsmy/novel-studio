@@ -7,10 +7,10 @@ This file is the short operational handoff. The older Chinese handoff was fully 
 ## Current Repository State
 
 - Branch: `codex/ns-410-json-authority`.
-- Latest relevant committed baseline after Slice 7: `NS-410 feat(write): add native block editor` on this branch.
+- Latest relevant committed baseline after Slice 7A audit repair: `NS-410 fix(storage): close progression audit gaps` on this branch.
 - Current active task: `NS-410` Block Write Editor and Unified Codex Progression.
 - Current acceptance state: NS-410 is in progress; project recovery remains not visually/product accepted.
-- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and unified Progression change. Slice 7 is implemented on the NS-410 branch; continue with Slice 8 unless the user redirects.
+- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and unified Progression change. Slice 7 and the Slice 7A audit repair are implemented on the NS-410 branch; continue with Slice 8 unless the user redirects.
 
 ## Start Here
 
@@ -55,7 +55,13 @@ NS-410 changes the writing and Codex foundations:
 - Write needs ordinary blocks, embedded progression blocks, and a scene progression panel.
 - Codex needs baseline/history/effective-at-scene views for progressed fields.
 
-Implementation order is now the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Slice 1 passed for its scope on 2026-06-26; Slices 2, 3, 4, 5, 6, and 7 passed for their scopes on 2026-06-29. Continue with embedded Progression blocks and the scene progression panel next; do not skip to Codex history UI.
+Implementation order is now the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Slice 1 passed for its scope on 2026-06-26; Slices 2, 3, 4, 5, 6, 7, and 7A audit repair passed for their scopes on 2026-06-29. Continue with embedded Progression blocks and the scene progression panel next; do not skip to Codex history UI.
+
+Current JSON authority boundary:
+
+- Completed in NS-410 so far: scene manuscripts, unified Progression records, and character knowledge.
+- Not completed and not to be overclaimed: story structure YAML, planning YAML, sections Markdown, review anchors YAML, Codex baseline Markdown/YAML, relations YAML, AI/prompt YAML, and future Proposal storage. The active inventory is in `docs/testing/NS-410_ACCEPTANCE.md` and remains open for the later NS-410 JSON authority completion slice.
+- ModelCallLog currently has no Progression reference field, so model-call Progression delete blocker scanning is not implemented or claimed.
 
 ## Current Recovery Work
 
@@ -326,4 +332,4 @@ Current recovery order:
 
 ## Immediate Next Step
 
-Continue with Slice 8: Write embedded progression blocks and the scene progression panel. Each slice must leave the app buildable and record its exit checks before the next slice starts. Do not skip to Codex baseline/history UI, provider expansion, or fake Proposal integration in Slice 8, and do not create parallel handoff files.
+Continue with Slice 8: Write embedded progression blocks and the scene progression panel. Each slice must leave the app buildable and record its exit checks before the next slice starts. Do not skip to Codex baseline/history UI, provider expansion, project deletion, or fake Proposal integration in Slice 8. Whole-project YAML/Markdown authority migration is still required later in NS-410 Slice 10, not silently dropped, and routine handoff must stay in the existing files.

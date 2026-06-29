@@ -122,4 +122,17 @@ describe("JSON authority files", () => {
     );
     expect(leftovers).toEqual([]);
   });
+
+  it("rejects a post-write readback checksum mismatch", async () => {
+    const root = await temporaryRoot();
+    const filePath = path.join(root, "scene.json");
+
+    await expect(writeJsonAuthorityFile(
+      root,
+      filePath,
+      { schemaVersion: 1 as const, blocks: [] },
+      parseSceneBlockDocument,
+      async () => `${serializeJsonAuthority({ schemaVersion: 1, blocks: [] }).trim()}\n `,
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+  });
 });

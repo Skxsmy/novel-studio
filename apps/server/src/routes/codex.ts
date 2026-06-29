@@ -465,16 +465,17 @@ export function registerCodexRoutes(
 
   app.get<{
     Params: { seriesId: string };
-    Querystring: { sceneId?: string; entryId?: string; viewerEntryId?: string };
+    Querystring: { sceneId?: string; entryId?: string; viewerEntryId?: string; blockId?: string };
   }>("/api/v1/series/:seriesId/codex/effective", async (request) => {
     if (!request.query.sceneId || !request.query.entryId) {
-      throw new StorageError("有效状态查询需要 sceneId 与 entryId", "INVALID_DATA");
+      throw new StorageError("Effective state query requires sceneId and entryId", "INVALID_DATA");
     }
     return repository.getCodexEffectiveState(
       request.params.seriesId,
       request.query.sceneId,
       request.query.entryId,
       request.query.viewerEntryId,
+      request.query.blockId ?? null,
     );
   });
 
@@ -483,7 +484,7 @@ export function registerCodexRoutes(
     Querystring: { sceneId?: string; blockId?: string; pinnedIds?: string };
   }>("/api/v1/series/:seriesId/codex/context", async (request) => {
     if (!request.query.sceneId) {
-      throw new StorageError("Codex 上下文预览需要 sceneId", "INVALID_DATA");
+      throw new StorageError("Codex context preview requires sceneId", "INVALID_DATA");
     }
     return repository.previewCodexContext(
       request.params.seriesId,

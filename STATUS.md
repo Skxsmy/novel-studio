@@ -26,7 +26,7 @@ This file is the current project-status authority. Earlier Chinese records were 
 ## Current Implementation Snapshot
 
 - Local-first React/Vite + Fastify application, bound to `127.0.0.1`.
-- Project JSON files are the target durable authority; Markdown/Word are boundary formats; SQLite/FTS5 remains a rebuildable derived index. Slice 7 now gives Write a native `SceneBlockDocument` editor for ordinary scene blocks; the Write scene-content path no longer uses CodeMirror/`EditorSurface`, while Codex editing surfaces may still use `EditorSurface`.
+- NS-410 completed JSON authority paths currently cover scene manuscripts, unified Progression records, and character knowledge. Markdown/Word are boundary formats for those completed paths; SQLite/FTS5 remains rebuildable derived state. Remaining YAML/Markdown authority paths are inventoried in `docs/testing/NS-410_ACCEPTANCE.md`, remain open NS-410 work for the later JSON authority completion slice, and must not be described as migrated. Slice 7 gives Write a native `SceneBlockDocument` editor for ordinary scene blocks; the Write scene-content path no longer uses CodeMirror/`EditorSurface`, while Codex editing surfaces may still use `EditorSurface`.
 - Current frontend structure:
   - `apps/web/src/app`
   - `apps/web/src/api`
@@ -68,9 +68,11 @@ The task now uses controlled vertical slices in `docs/tasks/NS-410.md`:
 6. Slice 5 Projection engine and effective entry API. Passed for Slice 5 scope on 2026-06-29.
 7. Slice 6 Context Builder and preview projection. Passed for Slice 6 scope on 2026-06-29.
 8. Slice 7 Write block editor MVP for ordinary blocks. Passed for Slice 7 scope on 2026-06-29.
-9. Slice 8 Write embedded progression blocks and scene progression panel. Next implementation slice.
-10. Slice 9 Codex baseline/history/effective-at-scene UI.
-11. Slice 10 Final regression, rollback, and handoff.
+9. Slice 7A Slice 1-7 audit repair. Passed for repaired backend/storage/context scope on 2026-06-29.
+10. Slice 8 Write embedded progression blocks and scene progression panel. Next implementation slice.
+11. Slice 9 Codex baseline/history/effective-at-scene UI.
+12. Slice 10 Remaining JSON authority migration.
+13. Slice 11 Final regression, rollback, and handoff.
 
 Each slice must leave the app buildable and must not proceed until its exit checks are recorded in `docs/testing/NS-410_ACCEPTANCE.md`.
 
@@ -269,6 +271,6 @@ Acceptance evidence files:
 
 ## Next Work
 
-Continue NS-410 with Slice 8 from `docs/tasks/NS-410.md`: Write embedded progression blocks and the scene progression panel. Slices 1-7 are verified and recorded in `docs/testing/NS-410_ACCEPTANCE.md`; Slice 8 should add progression block creation/edit/delete and panel synchronization without direct AI writes or fake Proposal integration.
+Continue NS-410 with Slice 8 from `docs/tasks/NS-410.md`: Write embedded progression blocks and the scene progression panel. Slices 1-7 plus Slice 7A audit repair are verified and recorded in `docs/testing/NS-410_ACCEPTANCE.md`; Slice 8 should add progression block creation/edit/delete and panel synchronization without direct AI writes or fake Proposal integration.
 
 After NS-410, return to project recovery visual/product acceptance unless the user redirects again.

@@ -2,6 +2,8 @@
 
 详细产品语义见 `docs/product/PRODUCT_SPEC.md`，层级操作、写作附属文档和 Codex 的强制不变量见 `docs/tasks/M3.md`，JSON 权威决策见 ADR-0012；ADR-0001、ADR-0005、ADR-0007、ADR-0008 与 ADR-0011 的历史约束如与 ADR-0012 冲突，以 ADR-0012 为准。
 
+本文件描述 NS-410 及后续工作的目标磁盘格式：作品权威数据应落在项目目录中的 schema-versioned JSON 文件。当前实现进度以 `STATUS.md` 与 `docs/testing/NS-410_ACCEPTANCE.md` 为准；尚未迁移的 YAML/Markdown runtime authority path 必须保留在验收清单中，不能把目标目录树当成已完成事实。
+
 ## 系列目录
 
 ```text

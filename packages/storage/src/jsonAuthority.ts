@@ -89,15 +89,27 @@ export async function writeJsonAuthorityFile<T>(
   filePath: string,
   value: unknown,
   parse: JsonAuthorityParser<T>,
+  readBack: (filePath: string) => Promise<string> = (targetPath) => readFile(targetPath, "utf8"),
 ): Promise<JsonAuthorityDocument<T>> {
   const resolvedPath = assertInside(root, filePath);
   const data = parse(value);
   const raw = serializeJsonAuthority(data);
+  const expectedRevision = jsonAuthorityRevision(raw);
   await atomicWrite(resolvedPath, raw);
+  const onDiskRaw = await readBack(resolvedPath);
+  const actualRevision = jsonAuthorityRevision(onDiskRaw);
+  if (actualRevision !== expectedRevision || onDiskRaw !== raw) {
+    throw new StorageError("JSON authority write verification failed", "INVALID_DATA", {
+      filePath: resolvedPath,
+      expectedRevision,
+      actualRevision,
+    });
+  }
+  const onDiskData = parseJsonAuthorityText(onDiskRaw, parse, "JSON authority write verification");
   return {
-    data,
-    revision: jsonAuthorityRevision(raw),
-    raw,
+    data: onDiskData,
+    revision: actualRevision,
+    raw: onDiskRaw,
     filePath: resolvedPath,
   };
 }

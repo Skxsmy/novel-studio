@@ -9,13 +9,15 @@ import {
   type ContextExclusion,
   type ContextItem,
   type ContextItemKind,
+  type ContextSource,
   type ContextSourceType,
   type ModelProfile,
+  type SceneBlock,
   type SceneDocument,
   type SceneSectionDocument,
 } from "@novel-studio/contracts";
 import type { ProviderRegistry } from "@novel-studio/ai";
-import type { ProjectRepository } from "@novel-studio/storage";
+import { StorageError, type ProjectRepository } from "@novel-studio/storage";
 import {
   ensureCloudAllowed,
   ensureCredentialBoundary,
@@ -48,6 +50,7 @@ function contextItem(input: {
   access?: CloudPolicy;
   contextPolicy?: ContextItem["contextPolicy"];
   manuallySelected?: boolean;
+  sourceRefs?: ContextSource[];
 }): ContextItem {
   return {
     id: `${input.kind}:${input.sourceId ?? randomUUID()}`,
@@ -67,6 +70,7 @@ function contextItem(input: {
     tokenEstimate: estimateTokens(input.content),
     manuallySelected: input.manuallySelected ?? false,
     textHash: hashText(input.content),
+    sourceRefs: input.sourceRefs ?? [],
   };
 }
 
@@ -92,7 +96,35 @@ function exclusion(input: {
   };
 }
 
-function sceneContext(scene: SceneDocument): string {
+function sceneBlockPlainText(block: SceneBlock): string {
+  switch (block.kind) {
+    case "paragraph":
+    case "heading":
+    case "quote":
+      return block.text;
+    case "sceneBreak":
+    case "codexProgression":
+      return "";
+  }
+}
+
+function scenePlainTextUntilBlock(scene: SceneDocument, blockId: string | null): string {
+  if (!blockId) return scene.plainText;
+  const blockIndex = scene.document.blocks.findIndex((block) => block.id === blockId);
+  if (blockIndex < 0) {
+    throw new StorageError("Context preview references an unknown scene block", "INVALID_DATA", {
+      sceneId: scene.metadata.id,
+      blockId,
+    });
+  }
+  return scene.document.blocks
+    .slice(0, blockIndex + 1)
+    .map((block) => sceneBlockPlainText(block))
+    .filter((segment) => segment.trim().length > 0)
+    .join("\n\n");
+}
+
+function sceneContextWithBody(scene: SceneDocument, body: string): string {
   const parts = [
     `场景标题：${scene.metadata.title}`,
     scene.metadata.goal ? `场景目标：${scene.metadata.goal}` : "",
@@ -100,14 +132,14 @@ function sceneContext(scene: SceneDocument): string {
     scene.metadata.outcome ? `结果：${scene.metadata.outcome}` : "",
     scene.metadata.summary ? `作者摘要：${scene.metadata.summary}` : "",
     scene.metadata.beats.length ? `节拍：\n${scene.metadata.beats.map((beat, index) => `${index + 1}. ${beat}`).join("\n")}` : "",
-    `正文：\n${scene.content}`,
+    `Manuscript:\n${body}`,
   ].filter(Boolean);
   return parts.join("\n\n");
 }
 
 function previousSceneSummary(scene: SceneDocument): string {
   if (scene.metadata.summary) return scene.metadata.summary;
-  return scene.content.trim().slice(0, 300) || "前一场景暂时没有摘要或正文。";
+  return scene.plainText.trim().slice(0, 300) || "Previous scene has no summary or manuscript text yet.";
 }
 
 function manualIdMatches(manualIds: Set<string>, kind: "section" | "codex", id: string): boolean {
@@ -297,7 +329,7 @@ async function buildContextBundle(
     sourceRevision: currentScene.revision,
     sourceLabel: currentScene.metadata.title,
     title: "当前场景",
-    content: sceneContext(currentScene),
+    content: sceneContextWithBody(currentScene, scenePlainTextUntilBlock(currentScene, input.blockId)),
     inclusion: "required",
     inclusionReason: "当前写作场景是本次任务的核心上下文。",
   }));
@@ -386,11 +418,34 @@ async function buildContextBundle(
     );
     const projectedEntry = effectiveEntry.entry;
     const content = await codexEntryContextContent(repository, seriesId, projectedEntry);
+    const fieldProgressionRefs = await Promise.all(
+      [...new Set(effectiveEntry.fieldStates
+        .map((state) => state.lastProgressionId)
+        .filter((id): id is string => Boolean(id)))]
+        .map(async (progressionId) => {
+          const document = await repository.getCodexProgression(seriesId, progressionId);
+          return {
+            type: "codex-progression" as const,
+            id: document.progression.id,
+            revision: document.revision,
+            label: document.progression.summary,
+          };
+        }),
+    );
+    const codexSourceRefs: ContextSource[] = [
+      {
+        type: "codex-entry",
+        id: projectedEntry.metadata.id,
+        revision: projectedEntry.revision,
+        label: projectedEntry.metadata.name,
+      },
+      ...fieldProgressionRefs,
+    ];
     items.push(contextItem({
       kind: "codex-entry",
       sourceType: "codex-entry",
       sourceId: projectedEntry.metadata.id,
-      sourceRevision: projectedEntry.revision,
+      sourceRevision: hashText(JSON.stringify(codexSourceRefs) + content),
       sourceLabel: projectedEntry.metadata.name,
       title: `Codex entry: ${projectedEntry.metadata.name}`,
       content,
@@ -400,6 +455,7 @@ async function buildContextBundle(
         : "Included by model-readable scope and current scene mentions.",
       contextPolicy: projectedEntry.metadata.aiContextPolicy,
       manuallySelected: selected,
+      sourceRefs: codexSourceRefs,
     }));
     if (effectiveEntry.hiddenFutureFieldProgressionCount > 0) {
       excluded.push(exclusion({
@@ -420,6 +476,7 @@ async function buildContextBundle(
       currentScene.metadata.id,
       projectedEntry.metadata.id,
       viewerEntryId,
+      input.blockId,
     );
     const effectiveLines = [
       ...effective.worldFacts.map((document) => `World fact: ${document.progression.summary}`),
@@ -430,30 +487,51 @@ async function buildContextBundle(
       ),
     ];
     if (effectiveLines.length) {
+      const effectiveProgressions = [
+        ...effective.worldFacts,
+        ...effective.relationStates.flatMap((state) => state.progressions),
+      ];
+      const effectiveSourceRefs: ContextSource[] = effectiveProgressions.map((document) => ({
+        type: "codex-progression",
+        id: document.progression.id,
+        revision: document.revision,
+        label: document.progression.summary,
+      }));
+      const effectiveContent = effectiveLines.join("\n");
       items.push(contextItem({
         kind: "codex-effective-state",
         sourceType: "codex-entry",
         sourceId: projectedEntry.metadata.id,
-        sourceRevision: projectedEntry.revision,
+        sourceRevision: hashText(JSON.stringify(effectiveSourceRefs) + effectiveContent),
         sourceLabel: projectedEntry.metadata.name,
         title: `Effective state: ${projectedEntry.metadata.name}`,
-        content: effectiveLines.join("\n"),
+        content: effectiveContent,
         inclusion: "derived",
         inclusionReason: "Only story state effective at the current narrative scene is included.",
+        sourceRefs: effectiveSourceRefs,
       }));
     }
     if (effective.characterKnowledge.length) {
+      const knowledgeContent = effective.characterKnowledge.map((document) =>
+        `${document.knowledge.stance}: ${document.knowledge.summary}`,
+      ).join("\n");
+      const knowledgeSourceRefs: ContextSource[] = effective.characterKnowledge.map((document) => ({
+        type: "codex-knowledge",
+        id: document.knowledge.id,
+        revision: document.revision,
+        label: document.knowledge.summary,
+      }));
       items.push(contextItem({
         kind: "character-knowledge",
         sourceType: "codex-knowledge",
         sourceId: viewerEntryId ?? null,
+        sourceRevision: hashText(JSON.stringify(knowledgeSourceRefs) + knowledgeContent),
         sourceLabel: "Character knowledge at this position",
         title: `Character knowledge: ${projectedEntry.metadata.name}`,
-        content: effective.characterKnowledge.map((document) =>
-          `${document.knowledge.stance}: ${document.knowledge.summary}`,
-        ).join("\n"),
+        content: knowledgeContent,
         inclusion: "derived",
         inclusionReason: "Only what the viewpoint character already knows, believes, or misunderstands is included.",
+        sourceRefs: knowledgeSourceRefs,
       }));
     }
     if (effective.hiddenFutureProgressionCount > 0) {
