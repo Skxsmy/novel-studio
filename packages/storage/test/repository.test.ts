@@ -61,18 +61,18 @@ describe("ProjectRepository", () => {
 
     await expect(store.deleteSeries(series.manifest.id, { confirmTitle: "DeleteBoundary" }))
       .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
-    await expect(readFile(path.join(root, "series.yaml"), "utf8")).resolves.toContain("DeleteBoundary");
+    await expect(readFile(path.join(root, "series.json"), "utf8")).resolves.toContain("DeleteBoundary");
 
     await store.trashSeries(series.manifest.id);
     await expect(store.deleteSeries(series.manifest.id, { confirmTitle: "Wrong" }))
       .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
-    await expect(readFile(path.join(root, "series.yaml"), "utf8")).resolves.toContain("DeleteBoundary");
+    await expect(readFile(path.join(root, "series.json"), "utf8")).resolves.toContain("DeleteBoundary");
 
     const deleted = await store.deleteSeries(series.manifest.id, { confirmTitle: "DeleteBoundary" });
     expect(deleted.deletedId).toBe(series.manifest.id);
     expect((await store.listSeries()).some((summary) => summary.id === series.manifest.id)).toBe(false);
     await expect(store.getSeries(series.manifest.id)).rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
-    await expect(readFile(path.join(root, "series.yaml"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(path.join(root, "series.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("persists scene prose as JSON blocks while preserving the legacy content projection", async () => {
@@ -625,7 +625,7 @@ describe("ProjectRepository", () => {
       end: start + quote.length,
     });
     const root = seriesRoot(store, "雾中证词", series.manifest.id);
-    const anchorFile = path.join(root, "review", "anchors", `${created.anchor.id}.yaml`);
+    const anchorFile = path.join(root, "review", "anchors", `${created.anchor.id}.json`);
     const beforeRead = await readFile(anchorFile, "utf8");
 
     const movedScene = await store.updateScene(series.manifest.id, scene.metadata.id, {
@@ -704,13 +704,13 @@ describe("ProjectRepository", () => {
       "codex",
       "custom",
       updatedCategory.category.id,
-      `${entry.metadata.id}.md`,
+      `${entry.metadata.id}.json`,
     );
     const researchFile = path.join(
       root,
       "codex",
       "entry-research",
-      `${entry.metadata.id}.md`,
+      `${entry.metadata.id}.json`,
     );
     expect(await readFile(entryFile, "utf8")).toContain("能言，通万物之情。");
     expect(await readFile(entryFile, "utf8")).not.toContain("现实资料尚待核实。");
@@ -777,8 +777,8 @@ describe("ProjectRepository", () => {
       description: "Weather door mechanism.",
     });
     const root = seriesRoot(store, title, series.manifest.id);
-    const originalFile = path.join(root, "codex", "characters", `${entry.metadata.id}.md`);
-    const movedFile = path.join(root, "codex", "custom", category.category.id, `${entry.metadata.id}.md`);
+    const originalFile = path.join(root, "codex", "characters", `${entry.metadata.id}.json`);
+    const movedFile = path.join(root, "codex", "custom", category.category.id, `${entry.metadata.id}.json`);
     expect(await readFile(originalFile, "utf8")).toContain("Weather door mechanism.");
 
     const moved = await store.updateCodexEntry(series.manifest.id, entry.metadata.id, {
@@ -787,7 +787,9 @@ describe("ProjectRepository", () => {
     });
 
     expect(moved.metadata.categoryId).toBe(category.category.id);
-    expect(await readFile(movedFile, "utf8")).toContain(`categoryId: ${category.category.id}`);
+    expect(JSON.parse(await readFile(movedFile, "utf8"))).toMatchObject({
+      metadata: { categoryId: category.category.id },
+    });
     await expect(readFile(originalFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     expect((await store.getCodexEntry(series.manifest.id, entry.metadata.id)).metadata.categoryId)
       .toBe(category.category.id);
@@ -874,7 +876,7 @@ describe("ProjectRepository", () => {
     expect(savedEntry.metadata.details).toEqual({ 年龄: "十七岁" });
     expect(savedEntry.metadata.detailAiContext).toEqual({ 年龄: false });
     await expect(readFile(
-      path.join(seriesRoot(store, title, series.manifest.id), "codex", "detail-types", `${appearance.detailType.id}.yaml`),
+      path.join(seriesRoot(store, title, series.manifest.id), "codex", "detail-types", `${appearance.detailType.id}.json`),
       "utf8",
     )).rejects.toMatchObject({ code: "ENOENT" });
   });
@@ -894,9 +896,9 @@ describe("ProjectRepository", () => {
       research: "Private research note.",
     });
     const root = seriesRoot(store, title, series.manifest.id);
-    const customFile = path.join(root, "codex", "custom", category.category.id, `${entry.metadata.id}.md`);
-    const uncategorizedFile = path.join(root, "codex", "uncategorized", `${entry.metadata.id}.md`);
-    const researchFile = path.join(root, "codex", "entry-research", `${entry.metadata.id}.md`);
+    const customFile = path.join(root, "codex", "custom", category.category.id, `${entry.metadata.id}.json`);
+    const uncategorizedFile = path.join(root, "codex", "uncategorized", `${entry.metadata.id}.json`);
+    const researchFile = path.join(root, "codex", "entry-research", `${entry.metadata.id}.json`);
 
     const deleted = await store.deleteCodexCategory(series.manifest.id, category.category.id, {
       baseRevision: category.revision!,
@@ -907,7 +909,9 @@ describe("ProjectRepository", () => {
       movedEntryIds: [entry.metadata.id],
     });
     await expect(readFile(customFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
-    expect(await readFile(uncategorizedFile, "utf8")).toContain("categoryId: uncategorized");
+    expect(JSON.parse(await readFile(uncategorizedFile, "utf8"))).toMatchObject({
+      metadata: { categoryId: "uncategorized" },
+    });
     expect(await readFile(researchFile, "utf8")).toContain("Private research note.");
     expect((await store.getCodexEntry(series.manifest.id, entry.metadata.id)).metadata.categoryId)
       .toBe("uncategorized");
@@ -926,8 +930,8 @@ describe("ProjectRepository", () => {
       research: "Delete this research note.",
     });
     const root = seriesRoot(store, title, series.manifest.id);
-    const entryFile = path.join(root, "codex", "characters", `${entry.metadata.id}.md`);
-    const researchFile = path.join(root, "codex", "entry-research", `${entry.metadata.id}.md`);
+    const entryFile = path.join(root, "codex", "characters", `${entry.metadata.id}.json`);
+    const researchFile = path.join(root, "codex", "entry-research", `${entry.metadata.id}.json`);
 
     await expect(store.deleteCodexEntry(series.manifest.id, entry.metadata.id, {
       baseRevision: "0".repeat(64),
@@ -1153,7 +1157,7 @@ describe("ProjectRepository", () => {
     ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
   });
 
-  it("rejects Codex files whose file name, frontmatter ID or category directory disagree", async () => {
+  it("rejects Codex files whose file name, JSON metadata ID or category directory disagree", async () => {
     const store = await repository();
     const title = "损坏档案";
     const series = await store.createSeries({ title });
@@ -1166,12 +1170,12 @@ describe("ProjectRepository", () => {
       root,
       "codex",
       "characters",
-      `${entry.metadata.id}.md`,
+      `${entry.metadata.id}.json`,
     );
     const raw = await readFile(entryFile, "utf8");
     await writeFile(
       entryFile,
-      raw.replace("categoryId: character", "categoryId: location"),
+      raw.replace('"categoryId": "character"', '"categoryId": "location"'),
       "utf8",
     );
     await expect(store.listCodexEntries(series.manifest.id)).rejects.toMatchObject<
@@ -1666,13 +1670,13 @@ describe("ProjectRepository", () => {
 
     const root = seriesRoot(store, "统一进展", series.manifest.id);
     const jsonPath = path.join(root, "codex", "progressions", `${progression.progression.id}.json`);
-    const yamlPath = path.join(root, "codex", "progressions", `${progression.progression.id}.yaml`);
+    const oldYamlPath = path.join(root, "codex", "progressions", `${progression.progression.id}.yaml`);
     expect(JSON.parse(await readFile(jsonPath, "utf8"))).toMatchObject({
       id: progression.progression.id,
       kind: "field",
       operation: "add",
     });
-    await expect(readFile(yamlPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(oldYamlPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 
     expect(await store.listCodexProgressions(series.manifest.id, {
       kind: "field",
@@ -1779,12 +1783,12 @@ describe("ProjectRepository", () => {
       }],
     });
     const knowledgeJsonPath = path.join(root, "codex", "knowledge", `${knowledge.knowledge.id}.json`);
-    const knowledgeYamlPath = path.join(root, "codex", "knowledge", `${knowledge.knowledge.id}.yaml`);
+    const oldKnowledgeYamlPath = path.join(root, "codex", "knowledge", `${knowledge.knowledge.id}.yaml`);
     expect(JSON.parse(await readFile(knowledgeJsonPath, "utf8"))).toMatchObject({
       id: knowledge.knowledge.id,
       truthProgressionId: updated.progression.id,
     });
-    await expect(readFile(knowledgeYamlPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(oldKnowledgeYamlPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     await expect(store.deleteCodexProgression(series.manifest.id, updated.progression.id, {
       baseRevision: updated.revision,
     })).rejects.toMatchObject<Partial<StorageError>>({
@@ -2366,7 +2370,7 @@ describe("ProjectRepository", () => {
     const title = "缺失幕";
     const series = await store.createSeries({ title });
     const book = series.books[0]!;
-    await rm(path.join(seriesRoot(store, title, series.manifest.id), "books", book.id, "acts", `${book.actIds[0]}.yaml`));
+    await rm(path.join(seriesRoot(store, title, series.manifest.id), "books", book.id, "acts", `${book.actIds[0]}.json`));
 
     await expect(store.listActs(series.manifest.id, book.id)).rejects.toMatchObject<Partial<StorageError>>({
       code: "INVALID_DATA",
@@ -2379,7 +2383,7 @@ describe("ProjectRepository", () => {
     const series = await store.createSeries({ title });
     const book = series.books[0]!;
     const [act] = await store.listActs(series.manifest.id, book.id);
-    await rm(path.join(seriesRoot(store, title, series.manifest.id), "books", book.id, "chapters", `${act!.chapterIds[0]}.yaml`));
+    await rm(path.join(seriesRoot(store, title, series.manifest.id), "books", book.id, "chapters", `${act!.chapterIds[0]}.json`));
 
     await expect(store.listChapters(series.manifest.id, act!.id)).rejects.toMatchObject<Partial<StorageError>>({
       code: "INVALID_DATA",
@@ -2462,7 +2466,7 @@ describe("ProjectRepository", () => {
     const chapter = await store.getChapter(series.manifest.id, scene.metadata.chapterId);
     await store.reorderScenes(series.manifest.id, chapter.id, { orderedIds: chapter.sceneIds });
     const root = seriesRoot(store, "孤儿检测", series.manifest.id);
-    const chapterPath = path.join(root, "books", series.books[0]!.id, "chapters", `${chapter.id}.yaml`);
+    const chapterPath = path.join(root, "books", series.books[0]!.id, "chapters", `${chapter.id}.json`);
     await rm(chapterPath);
     const validation = await store.validateHierarchy(series.manifest.id);
     expect(validation.valid).toBe(false);
@@ -2480,12 +2484,12 @@ describe("ProjectRepository", () => {
       "books",
       series.books[0]!.id,
       "chapters",
-      `${scene.metadata.chapterId}.yaml`,
+      `${scene.metadata.chapterId}.json`,
     );
     const transactionId = "00000000-0000-4000-8000-00000000feed";
     const backupFile = `${chapterFile}.${transactionId}.bak`;
     await rename(chapterFile, backupFile);
-    await writeFile(chapterFile, "not: valid: yaml", "utf8");
+    await writeFile(chapterFile, "not: valid: JSON", "utf8");
     const transactionDirectory = path.join(root, ".studio", "transactions");
     await mkdir(transactionDirectory, { recursive: true });
     await writeFile(
@@ -2633,7 +2637,7 @@ describe("ProjectRepository", () => {
     const title = "旧规划项目";
     const series = await store.createSeries({ title });
     const root = seriesRoot(store, title, series.manifest.id);
-    const timelineFile = path.join(root, "planning", "timeline.yaml");
+    const timelineFile = path.join(root, "planning", "timeline.json");
     await rm(timelineFile);
 
     const board = await store.getPlanningBoard(series.manifest.id);

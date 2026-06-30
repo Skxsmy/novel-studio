@@ -1113,6 +1113,7 @@ button {
 
 .canon-description-editor {
   width: 100%;
+  height: 188px;
   min-height: 104px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
@@ -1120,7 +1121,7 @@ button {
   color: var(--ink);
   padding: 8px 9px;
   font-size: 13px;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .canon-description-editor.is-disabled {
@@ -1138,14 +1139,28 @@ button {
 }
 
 .codex-detail .canon-description-editor {
-  min-height: 188px;
+  height: clamp(220px, 32vh, 360px);
+  min-height: 220px;
   padding: 12px 14px;
   font-size: 17px;
   line-height: 1.65;
 }
 
+.canon-description-editor.novel-editor .cm-editor,
+.detail-value-editor.novel-editor .cm-editor {
+  min-height: 0;
+}
+
+.canon-description-editor.novel-editor .cm-scroller,
+.detail-value-editor.novel-editor .cm-scroller {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .codex-detail .canon-description-editor.novel-editor .cm-content {
-  min-height: 152px;
+  min-height: 100%;
 }
 
 .novel-editor .cm-tooltip {
@@ -2274,6 +2289,7 @@ details.disclosure summary::-webkit-details-marker { display: none; }
 
 .detail-value-editor {
   width: 100%;
+  height: clamp(148px, 24vh, 260px);
   min-height: 126px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
@@ -2282,7 +2298,7 @@ details.disclosure summary::-webkit-details-marker { display: none; }
   padding: 12px 14px;
   font-size: 16px;
   line-height: 1.6;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .detail-value-editor.is-disabled {
@@ -2292,7 +2308,7 @@ details.disclosure summary::-webkit-details-marker { display: none; }
 }
 
 .detail-value-editor.novel-editor .cm-content {
-  min-height: 96px;
+  min-height: 100%;
 }
 
 .compact-empty {

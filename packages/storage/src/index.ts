@@ -7,7 +7,6 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import Database from "better-sqlite3";
-import YAML from "yaml";
 import {
   ActManifestSchema,
   ArchiveCodexDocumentInputSchema,
@@ -252,12 +251,12 @@ export { pathExists } from "./fileSystem.js";
 
 const FRONTMATTER_MARKER = "---";
 const SCENE_JSON_EXTENSION = ".json";
-const SERIES_FILE = "series.yaml";
-const BOOK_FILE = "book.yaml";
+const SERIES_FILE = "series.json";
+const BOOK_FILE = "book.json";
 const ACTS_DIR = "acts";
 const CHAPTERS_DIR = "chapters";
 const PLANNING_DIR = "planning";
-const TIMELINE_FILE = "timeline.yaml";
+const TIMELINE_FILE = "timeline.json";
 const TIMELINE_EVENTS_DIR = "events";
 const SECTIONS_DIR = "sections";
 const REVIEW_DIR = "review";
@@ -344,15 +343,26 @@ function assertExactPermutation(
   }
 }
 
-function serializeYaml(value: unknown): string {
-  return YAML.stringify(value, { lineWidth: 0 });
-}
-
 const SceneJsonAuthoritySchema = SceneFrontmatterSchema.extend({
   document: SceneBlockDocumentSchema,
 });
 
 type SceneJsonAuthority = SceneFrontmatter & { document: SceneBlockDocument };
+
+const SceneSectionAuthoritySchema = SceneSectionDocumentSchema.pick({
+  metadata: true,
+  content: true,
+});
+
+const CodexResearchAuthoritySchema = CodexResearchDocumentSchema.pick({
+  metadata: true,
+  content: true,
+});
+
+const CodexEntryAuthoritySchema = CodexEntryDocumentSchema.pick({
+  metadata: true,
+  description: true,
+});
 
 function normalizeMarkdownContent(content: string): string {
   return content.replace(/\r\n/gu, "\n").replace(/^\n+/u, "");
@@ -505,60 +515,55 @@ function parseSceneText(value: string, relativePath: string): SceneDocument {
 
 function serializeSceneSection(metadata: SceneSectionMetadata, content: string): string {
   const normalizedContent = content.replace(/\r\n/gu, "\n").replace(/^\n+/u, "");
-  return `${FRONTMATTER_MARKER}\n${serializeYaml(metadata)}${FRONTMATTER_MARKER}\n\n${normalizedContent}`;
+  return serializeJsonAuthority(SceneSectionAuthoritySchema.parse({
+    metadata,
+    content: normalizedContent,
+  }));
 }
 
 function parseSceneSectionText(value: string, relativePath: string): SceneSectionDocument {
   const normalized = value.replace(/\r\n/gu, "\n");
-  if (!normalized.startsWith(`${FRONTMATTER_MARKER}\n`)) {
-    throw new StorageError("Section file is missing YAML frontmatter", "INVALID_DATA", { relativePath });
-  }
-  const end = normalized.indexOf(`\n${FRONTMATTER_MARKER}\n`, 4);
-  if (end < 0) {
-    throw new StorageError("Section frontmatter is not closed", "INVALID_DATA", { relativePath });
-  }
-  const metadata = SceneSectionMetadataSchema.parse(YAML.parse(normalized.slice(4, end)));
-  const content = normalized.slice(end + 5).replace(/^\n/u, "");
+  const authority = parseJsonAuthorityText(
+    normalized,
+    (input) => SceneSectionAuthoritySchema.parse(input),
+    "Section JSON authority file",
+  );
   return SceneSectionDocumentSchema.parse({
-    metadata,
-    content,
-    revision: contentRevision(normalized),
+    metadata: authority.metadata,
+    content: authority.content,
+    revision: jsonAuthorityRevision(normalized),
     relativePath: relativePath.replace(/\\/gu, "/"),
-    characterCount: countChineseCharacters(content),
+    characterCount: countChineseCharacters(authority.content),
   });
 }
 
-function serializeMarkdownDocument(metadata: unknown, content: string): string {
+function serializeCodexResearch(metadata: CodexResearchMetadata, content: string): string {
   const normalizedContent = content.replace(/\r\n/gu, "\n").replace(/^\n+/u, "");
-  return `${FRONTMATTER_MARKER}\n${serializeYaml(metadata)}${FRONTMATTER_MARKER}\n\n${normalizedContent}`;
+  return serializeJsonAuthority(CodexResearchAuthoritySchema.parse({
+    metadata,
+    content: normalizedContent,
+  }));
 }
 
-function splitMarkdownDocument(
-  value: string,
-  relativePath: string,
-  label: string,
-): { normalized: string; metadata: unknown; content: string } {
-  const normalized = value.replace(/\r\n/gu, "\n");
-  if (!normalized.startsWith(`${FRONTMATTER_MARKER}\n`)) {
-    throw new StorageError(`${label}缺少 YAML frontmatter`, "INVALID_DATA", { relativePath });
-  }
-  const end = normalized.indexOf(`\n${FRONTMATTER_MARKER}\n`, 4);
-  if (end < 0) {
-    throw new StorageError(`${label} frontmatter 未闭合`, "INVALID_DATA", { relativePath });
-  }
-  return {
-    normalized,
-    metadata: YAML.parse(normalized.slice(4, end)),
-    content: normalized.slice(end + 5).replace(/^\n/u, ""),
-  };
+function serializeCodexEntry(metadata: CodexEntryMetadata, description: string): string {
+  const normalizedDescription = description.replace(/\r\n/gu, "\n").replace(/^\n+/u, "");
+  return serializeJsonAuthority(CodexEntryAuthoritySchema.parse({
+    metadata,
+    description: normalizedDescription,
+  }));
 }
 
 function parseCodexResearchText(value: string, relativePath: string): CodexResearchDocument {
-  const parsed = splitMarkdownDocument(value, relativePath, "Codex Research 文件");
+  const normalized = value.replace(/\r\n/gu, "\n");
+  const authority = parseJsonAuthorityText(
+    normalized,
+    (input) => CodexResearchAuthoritySchema.parse(input),
+    "Codex research JSON authority file",
+  );
   return CodexResearchDocumentSchema.parse({
-    metadata: CodexResearchMetadataSchema.parse(parsed.metadata),
-    content: parsed.content,
-    revision: contentRevision(parsed.normalized),
+    metadata: authority.metadata,
+    content: authority.content,
+    revision: jsonAuthorityRevision(normalized),
     relativePath: relativePath.replace(/\\/gu, "/"),
   });
 }
@@ -568,11 +573,16 @@ function parseCodexEntryText(
   relativePath: string,
   research: CodexResearchDocument,
 ): CodexEntryDocument {
-  const parsed = splitMarkdownDocument(value, relativePath, "Codex 条目文件");
+  const normalized = value.replace(/\r\n/gu, "\n");
+  const authority = parseJsonAuthorityText(
+    normalized,
+    (input) => CodexEntryAuthoritySchema.parse(input),
+    "Codex entry JSON authority file",
+  );
   return CodexEntryDocumentSchema.parse({
-    metadata: CodexEntryMetadataSchema.parse(parsed.metadata),
-    description: parsed.content,
-    revision: contentRevision(parsed.normalized),
+    metadata: authority.metadata,
+    description: authority.description,
+    revision: jsonAuthorityRevision(normalized),
     relativePath: relativePath.replace(/\\/gu, "/"),
     research,
   });
@@ -1034,15 +1044,24 @@ export function resolveReviewAnchor(
   };
 }
 
-async function readYaml<T>(filePath: string, parse: (input: unknown) => T): Promise<T> {
+async function readJson<T>(filePath: string, parse: (input: unknown) => T): Promise<T> {
   try {
-    return parse(YAML.parse(await readFile(filePath, "utf8")));
+    const document = await readJsonAuthorityFile(
+      path.dirname(filePath),
+      filePath,
+      parse,
+      "JSON authority file",
+    );
+    return document.data;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (
+      (error as NodeJS.ErrnoException).code === "ENOENT" ||
+      (error instanceof StorageError && error.code === "NOT_FOUND")
+    ) {
       throw new StorageError("文件不存在", "NOT_FOUND", { filePath });
     }
     if (error instanceof StorageError) throw error;
-    throw new StorageError("YAML 数据无效", "INVALID_DATA", {
+    throw new StorageError("JSON authority data is invalid", "INVALID_DATA", {
       filePath,
       cause: error instanceof Error ? error.message : String(error),
     });
@@ -1050,11 +1069,11 @@ async function readYaml<T>(filePath: string, parse: (input: unknown) => T): Prom
 }
 
 function actPath(bookRoot: string, actId: string): string {
-  return path.join(bookRoot, ACTS_DIR, `${actId}.yaml`);
+  return path.join(bookRoot, ACTS_DIR, `${actId}.json`);
 }
 
 function chapterPath(bookRoot: string, chapterId: string): string {
-  return path.join(bookRoot, CHAPTERS_DIR, `${chapterId}.yaml`);
+  return path.join(bookRoot, CHAPTERS_DIR, `${chapterId}.json`);
 }
 
 function timelineManifestPath(seriesRoot: string): string {
@@ -1062,23 +1081,23 @@ function timelineManifestPath(seriesRoot: string): string {
 }
 
 function timelineEventPath(seriesRoot: string, eventId: string): string {
-  return path.join(seriesRoot, PLANNING_DIR, TIMELINE_EVENTS_DIR, `${eventId}.yaml`);
+  return path.join(seriesRoot, PLANNING_DIR, TIMELINE_EVENTS_DIR, `${eventId}.json`);
 }
 
 function sectionPath(seriesRoot: string, sceneId: string, sectionId: string): string {
-  return path.join(seriesRoot, SECTIONS_DIR, sceneId, `${sectionId}.md`);
+  return path.join(seriesRoot, SECTIONS_DIR, sceneId, `${sectionId}.json`);
 }
 
 function reviewAnchorPath(seriesRoot: string, anchorId: string): string {
-  return path.join(seriesRoot, REVIEW_DIR, ANCHORS_DIR, `${anchorId}.yaml`);
+  return path.join(seriesRoot, REVIEW_DIR, ANCHORS_DIR, `${anchorId}.json`);
 }
 
 function codexCategoryPath(seriesRoot: string, categoryId: string): string {
-  return path.join(seriesRoot, CODEX_DIR, CODEX_CATEGORIES_DIR, `${categoryId}.yaml`);
+  return path.join(seriesRoot, CODEX_DIR, CODEX_CATEGORIES_DIR, `${categoryId}.json`);
 }
 
 function codexDetailTypePath(seriesRoot: string, detailTypeId: string): string {
-  return path.join(seriesRoot, CODEX_DIR, CODEX_DETAIL_TYPES_DIR, `${detailTypeId}.yaml`);
+  return path.join(seriesRoot, CODEX_DIR, CODEX_DETAIL_TYPES_DIR, `${detailTypeId}.json`);
 }
 
 function builtInCodexDirectory(categoryId: CodexCategoryId): string | null {
@@ -1092,16 +1111,16 @@ function codexEntryPath(
 ): string {
   const builtInDirectory = builtInCodexDirectory(categoryId);
   return builtInDirectory
-    ? path.join(seriesRoot, CODEX_DIR, builtInDirectory, `${entryId}.md`)
-    : path.join(seriesRoot, CODEX_DIR, CODEX_CUSTOM_DIR, categoryId, `${entryId}.md`);
+    ? path.join(seriesRoot, CODEX_DIR, builtInDirectory, `${entryId}.json`)
+    : path.join(seriesRoot, CODEX_DIR, CODEX_CUSTOM_DIR, categoryId, `${entryId}.json`);
 }
 
 function codexResearchPath(seriesRoot: string, entryId: string): string {
-  return path.join(seriesRoot, CODEX_DIR, CODEX_RESEARCH_DIR, `${entryId}.md`);
+  return path.join(seriesRoot, CODEX_DIR, CODEX_RESEARCH_DIR, `${entryId}.json`);
 }
 
 function codexRelationPath(seriesRoot: string, relationId: string): string {
-  return path.join(seriesRoot, CODEX_DIR, CODEX_RELATIONS_DIR, `${relationId}.yaml`);
+  return path.join(seriesRoot, CODEX_DIR, CODEX_RELATIONS_DIR, `${relationId}.json`);
 }
 
 function codexProgressionPath(seriesRoot: string, progressionId: string): string {
@@ -1113,19 +1132,19 @@ function codexKnowledgePath(seriesRoot: string, knowledgeId: string): string {
 }
 
 async function readActManifest(bookRoot: string, actId: string): Promise<ActManifest> {
-  return readYaml(actPath(bookRoot, actId), (value) => ActManifestSchema.parse(value));
+  return readJson(actPath(bookRoot, actId), (value) => ActManifestSchema.parse(value));
 }
 
 async function readChapterManifest(bookRoot: string, chapterId: string): Promise<ChapterManifest> {
-  return readYaml(chapterPath(bookRoot, chapterId), (value) => ChapterManifestSchema.parse(value));
+  return readJson(chapterPath(bookRoot, chapterId), (value) => ChapterManifestSchema.parse(value));
 }
 
 async function writeActManifest(bookRoot: string, manifest: ActManifest): Promise<void> {
-  await atomicWrite(actPath(bookRoot, manifest.id), serializeYaml(manifest));
+  await atomicWrite(actPath(bookRoot, manifest.id), serializeJsonAuthority(manifest));
 }
 
 async function writeChapterManifest(bookRoot: string, manifest: ChapterManifest): Promise<void> {
-  await atomicWrite(chapterPath(bookRoot, manifest.id), serializeYaml(manifest));
+  await atomicWrite(chapterPath(bookRoot, manifest.id), serializeJsonAuthority(manifest));
 }
 
 async function walkSceneFiles(directory: string): Promise<string[]> {
@@ -1140,7 +1159,13 @@ async function walkSceneFiles(directory: string): Promise<string[]> {
   for (const entry of entries) {
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) files.push(...(await walkSceneFiles(fullPath)));
-    else if (entry.isFile() && entry.name.endsWith(SCENE_JSON_EXTENSION)) files.push(fullPath);
+    else if (
+      entry.isFile() &&
+      entry.name.endsWith(SCENE_JSON_EXTENSION) &&
+      fullPath.split(path.sep).includes("manuscript")
+    ) {
+      files.push(fullPath);
+    }
   }
   return files;
 }
@@ -1274,11 +1299,11 @@ export class ProjectRepository {
       requiredDirectories.map((directory) => mkdir(path.join(seriesRoot, directory), { recursive: true })),
     );
     await applyFileTransaction(seriesRoot, [
-      { targetPath: path.join(seriesRoot, SERIES_FILE), content: serializeYaml(manifest) },
-      { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeYaml(book) },
-      { targetPath: actPath(bookRoot, act.id), content: serializeYaml(act) },
-      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(chapter) },
-      { targetPath: timelineManifestPath(seriesRoot), content: serializeYaml(timeline) },
+      { targetPath: path.join(seriesRoot, SERIES_FILE), content: serializeJsonAuthority(manifest) },
+      { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeJsonAuthority(book) },
+      { targetPath: actPath(bookRoot, act.id), content: serializeJsonAuthority(act) },
+      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeJsonAuthority(chapter) },
+      { targetPath: timelineManifestPath(seriesRoot), content: serializeJsonAuthority(timeline) },
     ]);
     await this.createScene(seriesId, { title: DefaultStructureTitles.initialScene, content: "" }, {
       bookId,
@@ -1292,7 +1317,7 @@ export class ProjectRepository {
   async createBook(seriesId: string, rawInput: CreateBookInput): Promise<BookManifest> {
     const input = CreateBookInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+    const manifest = await readJson(path.join(seriesRoot, SERIES_FILE), (value) =>
       SeriesManifestSchema.parse(value),
     );
     const now = new Date().toISOString();
@@ -1337,10 +1362,10 @@ export class ProjectRepository {
       updatedAt: now,
     });
     await applyFileTransaction(seriesRoot, [
-      { targetPath: path.join(seriesRoot, SERIES_FILE), content: serializeYaml(updatedManifest) },
-      { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeYaml(book) },
-      { targetPath: actPath(bookRoot, act.id), content: serializeYaml(act) },
-      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(chapter) },
+      { targetPath: path.join(seriesRoot, SERIES_FILE), content: serializeJsonAuthority(updatedManifest) },
+      { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeJsonAuthority(book) },
+      { targetPath: actPath(bookRoot, act.id), content: serializeJsonAuthority(act) },
+      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeJsonAuthority(chapter) },
     ]);
     return book;
   }
@@ -1362,7 +1387,7 @@ export class ProjectRepository {
     const remainingBooks: BookManifest[] = [];
     for (let index = 0; index < bookIds.length; index++) {
       const id = bookIds[index]!;
-      const remainingBook = await readYaml(path.join(seriesRoot, "books", id, BOOK_FILE), (value) =>
+      const remainingBook = await readJson(path.join(seriesRoot, "books", id, BOOK_FILE), (value) =>
         BookManifestSchema.parse(value),
       );
       remainingBooks.push(BookManifestSchema.parse({ ...remainingBook, order: index + 1, updatedAt: now }));
@@ -1390,10 +1415,10 @@ export class ProjectRepository {
     });
 
     await applyFileTransaction(seriesRoot, [
-      { targetPath: path.join(seriesRoot, SERIES_FILE), content: serializeYaml(updatedManifest) },
+      { targetPath: path.join(seriesRoot, SERIES_FILE), content: serializeJsonAuthority(updatedManifest) },
       ...remainingBooks.map((book) => ({
         targetPath: path.join(seriesRoot, "books", book.id, BOOK_FILE),
-        content: serializeYaml(book),
+        content: serializeJsonAuthority(book),
       })),
       { targetPath: path.join(context.bookRoot, BOOK_FILE), delete: true },
       ...acts.map((act) => ({ targetPath: actPath(context.bookRoot, act.id), delete: true })),
@@ -1420,7 +1445,7 @@ export class ProjectRepository {
       const seriesFile = path.join(root, SERIES_FILE);
       try {
         await recoverFileTransactions(root);
-        const manifest = await readYaml(seriesFile, (value) => SeriesManifestSchema.parse(value));
+        const manifest = await readJson(seriesFile, (value) => SeriesManifestSchema.parse(value));
         const scenes = await walkSceneFiles(path.join(this.libraryRoot, entry.name, "books"));
         summaries.push({
           id: manifest.id,
@@ -1442,7 +1467,7 @@ export class ProjectRepository {
 
   async trashSeries(seriesId: string): Promise<SeriesManifest> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+    const manifest = await readJson(path.join(seriesRoot, SERIES_FILE), (value) =>
       SeriesManifestSchema.parse(value),
     );
     if (manifest.archivedAt) return manifest;
@@ -1452,13 +1477,13 @@ export class ProjectRepository {
       archivedAt: now,
       updatedAt: now,
     });
-    await atomicWrite(path.join(seriesRoot, SERIES_FILE), serializeYaml(archived));
+    await atomicWrite(path.join(seriesRoot, SERIES_FILE), serializeJsonAuthority(archived));
     return archived;
   }
 
   async restoreSeries(seriesId: string): Promise<SeriesManifest> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+    const manifest = await readJson(path.join(seriesRoot, SERIES_FILE), (value) =>
       SeriesManifestSchema.parse(value),
     );
     if (!manifest.archivedAt) return manifest;
@@ -1467,14 +1492,14 @@ export class ProjectRepository {
       archivedAt: null,
       updatedAt: new Date().toISOString(),
     });
-    await atomicWrite(path.join(seriesRoot, SERIES_FILE), serializeYaml(restored));
+    await atomicWrite(path.join(seriesRoot, SERIES_FILE), serializeJsonAuthority(restored));
     return restored;
   }
 
   async deleteSeries(seriesId: string, rawInput: DeleteSeriesInput): Promise<DeleteSeriesResult> {
     const input = DeleteSeriesInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+    const manifest = await readJson(path.join(seriesRoot, SERIES_FILE), (value) =>
       SeriesManifestSchema.parse(value),
     );
     if (!manifest.archivedAt) {
@@ -1505,13 +1530,13 @@ export class ProjectRepository {
     if (!hierarchy.valid) {
       throw new StorageError("Series hierarchy is incomplete", "INVALID_DATA", { issues: hierarchy.issues });
     }
-    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+    const manifest = await readJson(path.join(seriesRoot, SERIES_FILE), (value) =>
       SeriesManifestSchema.parse(value),
     );
     const books: BookManifest[] = [];
     for (const bookId of manifest.bookIds) {
       books.push(
-        await readYaml(path.join(seriesRoot, "books", bookId, BOOK_FILE), (value) =>
+        await readJson(path.join(seriesRoot, "books", bookId, BOOK_FILE), (value) =>
           BookManifestSchema.parse(value),
         ),
       );
@@ -1543,7 +1568,7 @@ export class ProjectRepository {
   ): Promise<SeriesManifest> {
     const input = UpdateSeriesCloudPolicyInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+    const manifest = await readJson(path.join(seriesRoot, SERIES_FILE), (value) =>
       SeriesManifestSchema.parse(value),
     );
     const updatedManifest = SeriesManifestSchema.parse({
@@ -1551,7 +1576,7 @@ export class ProjectRepository {
       cloudPolicy: input.cloudPolicy,
       updatedAt: new Date().toISOString(),
     });
-    await atomicWrite(path.join(seriesRoot, SERIES_FILE), serializeYaml(updatedManifest));
+    await atomicWrite(path.join(seriesRoot, SERIES_FILE), serializeJsonAuthority(updatedManifest));
     return updatedManifest;
   }
 
@@ -1896,7 +1921,7 @@ export class ProjectRepository {
     });
     await applyFileTransaction(series.root, [
       { targetPath: filePath, content: serializeScene(metadata, input.content) },
-      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(updatedChapter) },
+      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeJsonAuthority(updatedChapter) },
     ]);
     const scene = parseSceneText(await readFile(filePath, "utf8"), path.relative(series.root, filePath));
     await this.indexScene(series.root, scene);
@@ -1982,14 +2007,14 @@ export class ProjectRepository {
     }
     const sections: SceneSectionDocument[] = [];
     for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       const filePath = assertInside(seriesRoot, path.join(directory, entry.name));
       const document = parseSceneSectionText(
         await readFile(filePath, "utf8"),
         path.relative(seriesRoot, filePath),
       );
       if (
-        document.metadata.id !== path.basename(entry.name, ".md") ||
+        document.metadata.id !== path.basename(entry.name, ".json") ||
         document.metadata.sceneId !== sceneId
       ) {
         throw new StorageError("Section file name or scene ownership is inconsistent", "INVALID_DATA", {
@@ -2152,18 +2177,22 @@ export class ProjectRepository {
     }
     const anchors: ResolvedReviewAnchor[] = [];
     for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".yaml")) continue;
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       const filePath = assertInside(seriesRoot, path.join(directory, entry.name));
       const raw = await readFile(filePath, "utf8");
-      const anchor = ReviewAnchorSchema.parse(YAML.parse(raw));
-      if (anchor.id !== path.basename(entry.name, ".yaml")) {
+      const anchor = parseJsonAuthorityText(
+        raw,
+        (value) => ReviewAnchorSchema.parse(value),
+        "Review anchor JSON authority file",
+      );
+      if (anchor.id !== path.basename(entry.name, ".json")) {
         throw new StorageError("锚点文件名与 ID 不一致", "INVALID_DATA", { anchorId: anchor.id });
       }
       if (anchor.sceneId !== sceneId) continue;
       anchors.push(
         ResolvedReviewAnchorSchema.parse({
           anchor,
-          revision: contentRevision(raw),
+          revision: jsonAuthorityRevision(raw),
           resolution: resolveReviewAnchor(anchor, scene.content),
         }),
       );
@@ -2209,12 +2238,12 @@ export class ProjectRepository {
       createdAt: now,
       updatedAt: now,
     });
-    const raw = serializeYaml(anchor);
+    const raw = serializeJsonAuthority(anchor);
     const filePath = assertInside(seriesRoot, reviewAnchorPath(seriesRoot, anchor.id));
     await atomicWrite(filePath, raw);
     return ResolvedReviewAnchorSchema.parse({
       anchor,
-      revision: contentRevision(raw),
+      revision: jsonAuthorityRevision(raw),
       resolution: resolveReviewAnchor(anchor, scene.content),
     });
   }
@@ -2246,19 +2275,23 @@ export class ProjectRepository {
     }
     const custom: CodexCategoryDocument[] = [];
     for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".yaml")) continue;
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       const filePath = assertInside(seriesRoot, path.join(directory, entry.name));
       const raw = await readFile(filePath, "utf8");
       let category: CodexCustomCategory;
       try {
-        category = CodexCustomCategorySchema.parse(YAML.parse(raw));
+        category = parseJsonAuthorityText(
+          raw,
+          (value) => CodexCustomCategorySchema.parse(value),
+          "Codex category JSON authority file",
+        );
       } catch (error) {
-        throw new StorageError("Codex 自定义类别 YAML 无效", "INVALID_DATA", {
+        throw new StorageError("Codex 自定义类别 JSON 无效", "INVALID_DATA", {
           relativePath: path.relative(seriesRoot, filePath),
           cause: error instanceof Error ? error.message : String(error),
         });
       }
-      if (category.id !== path.basename(entry.name, ".yaml")) {
+      if (category.id !== path.basename(entry.name, ".json")) {
         throw new StorageError("Codex 类别文件名与 ID 不一致", "INVALID_DATA", {
           categoryId: category.id,
         });
@@ -2273,7 +2306,7 @@ export class ProjectRepository {
             builtIn: false,
             archivedAt: category.archivedAt,
           },
-          revision: contentRevision(raw),
+          revision: jsonAuthorityRevision(raw),
         }),
       );
     }
@@ -2305,7 +2338,7 @@ export class ProjectRepository {
       updatedAt: now,
       archivedAt: null,
     });
-    const raw = serializeYaml(category);
+    const raw = serializeJsonAuthority(category);
     await atomicWrite(codexCategoryPath(seriesRoot, category.id), raw);
     await mkdir(path.join(seriesRoot, CODEX_DIR, CODEX_CUSTOM_DIR, category.id), {
       recursive: true,
@@ -2318,7 +2351,7 @@ export class ProjectRepository {
         builtIn: false,
         archivedAt: null,
       },
-      revision: contentRevision(raw),
+      revision: jsonAuthorityRevision(raw),
     });
   }
 
@@ -2348,7 +2381,7 @@ export class ProjectRepository {
       icon: input.icon ?? current.category.icon,
       updatedAt: new Date().toISOString(),
     });
-    const raw = serializeYaml(category);
+    const raw = serializeJsonAuthority(category);
     await atomicWrite(codexCategoryPath(seriesRoot, category.id), raw);
     return CodexCategoryDocumentSchema.parse({
       category: {
@@ -2358,7 +2391,7 @@ export class ProjectRepository {
         builtIn: false,
         archivedAt: category.archivedAt,
       },
-      revision: contentRevision(raw),
+      revision: jsonAuthorityRevision(raw),
     });
   }
 
@@ -2417,7 +2450,7 @@ export class ProjectRepository {
       });
       mutations.push({
         targetPath: nextPath,
-        content: serializeMarkdownDocument(metadata, currentEntry.document.description),
+        content: serializeCodexEntry(metadata, currentEntry.document.description),
       });
       if (nextPath !== currentEntry.filePath) {
         mutations.push({ targetPath: currentEntry.filePath, delete: true });
@@ -2450,8 +2483,8 @@ export class ProjectRepository {
     const documents: CodexDetailTypeDocument[] = [];
     const seen = new Set<string>();
     for (const entry of files) {
-      if (!entry.isFile() || !entry.name.endsWith(".yaml")) continue;
-      const document = await this.readCodexDetailType(seriesRoot, path.basename(entry.name, ".yaml"));
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+      const document = await this.readCodexDetailType(seriesRoot, path.basename(entry.name, ".json"));
       if (seen.has(document.detailType.id)) {
         throw new StorageError("多个 Codex detail type 文件使用同一 ID", "INVALID_DATA", {
           detailTypeId: document.detailType.id,
@@ -2489,11 +2522,11 @@ export class ProjectRepository {
       createdAt: now,
       updatedAt: now,
     });
-    const raw = serializeYaml(detailType);
+    const raw = serializeJsonAuthority(detailType);
     await atomicWrite(codexDetailTypePath(seriesRoot, detailType.id), raw);
     return CodexDetailTypeDocumentSchema.parse({
       detailType,
-      revision: contentRevision(raw),
+      revision: jsonAuthorityRevision(raw),
     });
   }
 
@@ -2516,11 +2549,11 @@ export class ProjectRepository {
       nsfw: input.nsfw,
       updatedAt: now,
     });
-    const raw = serializeYaml(detailType);
+    const raw = serializeJsonAuthority(detailType);
     await atomicWrite(codexDetailTypePath(seriesRoot, detailTypeId), raw);
     return CodexDetailTypeDocumentSchema.parse({
       detailType,
-      revision: contentRevision(raw),
+      revision: jsonAuthorityRevision(raw),
     });
   }
 
@@ -2783,11 +2816,11 @@ export class ProjectRepository {
     await applyFileTransaction(seriesRoot, [
       {
         targetPath: entryPath,
-        content: serializeMarkdownDocument(metadata, input.description),
+        content: serializeCodexEntry(metadata, input.description),
       },
       {
         targetPath: researchPath,
-        content: serializeMarkdownDocument(researchMetadata, input.research),
+        content: serializeCodexResearch(researchMetadata, input.research),
       },
     ]);
     await this.rebuildCodexIndex(seriesRoot);
@@ -2875,7 +2908,7 @@ export class ProjectRepository {
       }
       mutations.push({
         targetPath: nextEntryPath,
-        content: serializeMarkdownDocument(
+        content: serializeCodexEntry(
           metadata,
           input.description ?? current.document.description,
         ),
@@ -2887,11 +2920,11 @@ export class ProjectRepository {
     if (changesResearch) {
       mutations.push({
         targetPath: current.researchPath,
-        content: serializeMarkdownDocument(
-          {
+        content: serializeCodexResearch(
+          CodexResearchMetadataSchema.parse({
             ...current.document.research.metadata,
             updatedAt: now,
-          },
+          }),
           input.research!,
         ),
       });
@@ -2960,19 +2993,23 @@ export class ProjectRepository {
     );
     const relations: CodexRelationDocument[] = [];
     for (const file of files) {
-      if (!file.isFile() || !file.name.endsWith(".yaml")) continue;
+      if (!file.isFile() || !file.name.endsWith(".json")) continue;
       const filePath = assertInside(seriesRoot, path.join(directory, file.name));
       const raw = await readFile(filePath, "utf8");
       let relation: CodexRelation;
       try {
-        relation = CodexRelationSchema.parse(YAML.parse(raw));
+        relation = parseJsonAuthorityText(
+          raw,
+          (value) => CodexRelationSchema.parse(value),
+          "Codex relation JSON authority file",
+        );
       } catch (error) {
-        throw new StorageError("Codex 关系 YAML 无效", "INVALID_DATA", {
+        throw new StorageError("Codex 关系 JSON 无效", "INVALID_DATA", {
           relativePath: path.relative(seriesRoot, filePath),
           cause: error instanceof Error ? error.message : String(error),
         });
       }
-      if (relation.id !== path.basename(file.name, ".yaml")) {
+      if (relation.id !== path.basename(file.name, ".json")) {
         throw new StorageError("Codex 关系文件名与 ID 不一致", "INVALID_DATA", {
           relationId: relation.id,
         });
@@ -2989,7 +3026,7 @@ export class ProjectRepository {
       relations.push(
         CodexRelationDocumentSchema.parse({
           relation,
-          revision: contentRevision(raw),
+          revision: jsonAuthorityRevision(raw),
         }),
       );
     }
@@ -3030,11 +3067,11 @@ export class ProjectRepository {
       archivedAt: null,
     });
     this.assertCodexRelationReferences(relation, knownEntryIds, knownSceneIds);
-    const raw = serializeYaml(relation);
+    const raw = serializeJsonAuthority(relation);
     await atomicWrite(codexRelationPath(seriesRoot, relation.id), raw);
     return CodexRelationDocumentSchema.parse({
       relation,
-      revision: contentRevision(raw),
+      revision: jsonAuthorityRevision(raw),
     });
   }
 
@@ -3071,11 +3108,11 @@ export class ProjectRepository {
       (await this.getSeries(seriesId)).scenes.map((scene) => scene.metadata.id),
     );
     this.assertCodexRelationReferences(relation, knownEntryIds, knownSceneIds);
-    const raw = serializeYaml(relation);
+    const raw = serializeJsonAuthority(relation);
     await atomicWrite(codexRelationPath(seriesRoot, relation.id), raw);
     return CodexRelationDocumentSchema.parse({
       relation,
-      revision: contentRevision(raw),
+      revision: jsonAuthorityRevision(raw),
     });
   }
 
@@ -3944,8 +3981,8 @@ export class ProjectRepository {
       updatedAt: now,
     });
     await applyFileTransaction(seriesRoot, [
-      { targetPath: timelineEventPath(seriesRoot, event.id), content: serializeYaml(event) },
-      { targetPath: timelineManifestPath(seriesRoot), content: serializeYaml(updatedManifest) },
+      { targetPath: timelineEventPath(seriesRoot, event.id), content: serializeJsonAuthority(event) },
+      { targetPath: timelineManifestPath(seriesRoot), content: serializeJsonAuthority(updatedManifest) },
     ]);
     return this.readTimelineEventDocument(seriesRoot, event.id, updatedManifest.eventIds.length);
   }
@@ -3975,7 +4012,7 @@ export class ProjectRepository {
       ...changes,
       updatedAt: new Date().toISOString(),
     });
-    await atomicWrite(timelineEventPath(seriesRoot, event.id), serializeYaml(event));
+    await atomicWrite(timelineEventPath(seriesRoot, event.id), serializeJsonAuthority(event));
     return this.readTimelineEventDocument(seriesRoot, event.id, storyIndex);
   }
 
@@ -4003,7 +4040,7 @@ export class ProjectRepository {
     });
     await applyFileTransaction(seriesRoot, [
       { targetPath: timelineEventPath(seriesRoot, eventId), delete: true },
-      { targetPath: timelineManifestPath(seriesRoot), content: serializeYaml(updatedManifest) },
+      { targetPath: timelineManifestPath(seriesRoot), content: serializeJsonAuthority(updatedManifest) },
     ]);
     return { deletedId: eventId };
   }
@@ -4023,7 +4060,7 @@ export class ProjectRepository {
       updatedAt: new Date().toISOString(),
     });
     await applyFileTransaction(seriesRoot, [
-      { targetPath: timelineManifestPath(seriesRoot), content: serializeYaml(updatedManifest) },
+      { targetPath: timelineManifestPath(seriesRoot), content: serializeJsonAuthority(updatedManifest) },
     ]);
     return Promise.all(
       input.orderedIds.map((eventId, index) =>
@@ -4056,7 +4093,7 @@ export class ProjectRepository {
       ...input,
       updatedAt: new Date().toISOString(),
     });
-    await atomicWrite(path.join(context.bookRoot, BOOK_FILE), serializeYaml(updated));
+    await atomicWrite(path.join(context.bookRoot, BOOK_FILE), serializeJsonAuthority(updated));
     return updated;
   }
 
@@ -4068,7 +4105,7 @@ export class ProjectRepository {
   async listActs(seriesId: string, bookId: string): Promise<ActManifest[]> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const bookRoot = assertInside(seriesRoot, path.join(seriesRoot, "books", bookId));
-    const book = await readYaml(path.join(bookRoot, BOOK_FILE), (value) =>
+    const book = await readJson(path.join(bookRoot, BOOK_FILE), (value) =>
       BookManifestSchema.parse(value),
     );
     const acts = await Promise.all(
@@ -4107,7 +4144,7 @@ export class ProjectRepository {
     const input = CreateActInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const bookRoot = assertInside(seriesRoot, path.join(seriesRoot, "books", bookId));
-    const book = await readYaml(path.join(bookRoot, BOOK_FILE), (value) =>
+    const book = await readJson(path.join(bookRoot, BOOK_FILE), (value) =>
       BookManifestSchema.parse(value),
     );
     const now = new Date().toISOString();
@@ -4127,8 +4164,8 @@ export class ProjectRepository {
       updatedAt: now,
     });
     await applyFileTransaction(seriesRoot, [
-      { targetPath: actPath(bookRoot, act.id), content: serializeYaml(act) },
-      { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeYaml(updatedBook) },
+      { targetPath: actPath(bookRoot, act.id), content: serializeJsonAuthority(act) },
+      { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeJsonAuthority(updatedBook) },
     ]);
     return act;
   }
@@ -4159,8 +4196,8 @@ export class ProjectRepository {
       updatedAt: now,
     });
     await applyFileTransaction(seriesRoot, [
-      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(chapter) },
-      { targetPath: actPath(bookRoot, act.id), content: serializeYaml(updatedAct) },
+      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeJsonAuthority(chapter) },
+      { targetPath: actPath(bookRoot, act.id), content: serializeJsonAuthority(updatedAct) },
     ]);
     return chapter;
   }
@@ -4220,7 +4257,7 @@ export class ProjectRepository {
         targetPath: filePath,
         content: serializeSceneDocument(document.metadata, document.document),
       })),
-      { targetPath: chapterPath(context.bookRoot, context.chapter.id), content: serializeYaml(updatedChapter) },
+      { targetPath: chapterPath(context.bookRoot, context.chapter.id), content: serializeJsonAuthority(updatedChapter) },
       { targetPath: context.scenePath, delete: true },
     ]);
     await this.unindexScenes(seriesRoot, [sceneId]);
@@ -4256,9 +4293,9 @@ export class ProjectRepository {
     await applyFileTransaction(seriesRoot, [
       ...chapters.map((chapter) => ({
         targetPath: chapterPath(context.bookRoot, chapter.id),
-        content: serializeYaml(chapter),
+        content: serializeJsonAuthority(chapter),
       })),
-      { targetPath: actPath(context.bookRoot, context.act.id), content: serializeYaml(updatedAct) },
+      { targetPath: actPath(context.bookRoot, context.act.id), content: serializeJsonAuthority(updatedAct) },
       { targetPath: chapterPath(context.bookRoot, chapterId), delete: true },
       ...scenePaths.map(({ filePath }) => ({ targetPath: filePath, delete: true })),
     ]);
@@ -4296,8 +4333,8 @@ export class ProjectRepository {
       updatedAt: now,
     });
     await applyFileTransaction(seriesRoot, [
-      ...acts.map((act) => ({ targetPath: actPath(context.bookRoot, act.id), content: serializeYaml(act) })),
-      { targetPath: path.join(context.bookRoot, BOOK_FILE), content: serializeYaml(updatedBook) },
+      ...acts.map((act) => ({ targetPath: actPath(context.bookRoot, act.id), content: serializeJsonAuthority(act) })),
+      { targetPath: path.join(context.bookRoot, BOOK_FILE), content: serializeJsonAuthority(updatedBook) },
       { targetPath: actPath(context.bookRoot, actId), delete: true },
       ...chapters.map((chapter) => ({ targetPath: chapterPath(context.bookRoot, chapter.id), delete: true })),
       ...scenePaths.map(({ filePath }) => ({ targetPath: filePath, delete: true })),
@@ -4364,8 +4401,8 @@ export class ProjectRepository {
       `${sceneId}.json`,
     );
     const mutations: FileMutation[] = [
-      { targetPath: chapterPath(source.bookRoot, source.chapter.id), content: serializeYaml(updatedSourceChapter) },
-      { targetPath: chapterPath(target.bookRoot, target.chapter.id), content: serializeYaml(updatedTargetChapter) },
+      { targetPath: chapterPath(source.bookRoot, source.chapter.id), content: serializeJsonAuthority(updatedSourceChapter) },
+      { targetPath: chapterPath(target.bookRoot, target.chapter.id), content: serializeJsonAuthority(updatedTargetChapter) },
       ...sourceScenes.map(({ filePath, document }) => ({
         targetPath: filePath,
         content: serializeSceneDocument(document.metadata, document.document),
@@ -4398,7 +4435,7 @@ export class ProjectRepository {
     const input = ReorderInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const bookRoot = assertInside(seriesRoot, path.join(seriesRoot, "books", bookId));
-    const book = await readYaml(path.join(bookRoot, BOOK_FILE), (value) =>
+    const book = await readJson(path.join(bookRoot, BOOK_FILE), (value) =>
       BookManifestSchema.parse(value),
     );
 
@@ -4419,8 +4456,8 @@ export class ProjectRepository {
       updatedAt: now,
     });
     await applyFileTransaction(seriesRoot, [
-      ...acts.map((act) => ({ targetPath: actPath(bookRoot, act.id), content: serializeYaml(act) })),
-      { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeYaml(updatedBook) },
+      ...acts.map((act) => ({ targetPath: actPath(bookRoot, act.id), content: serializeJsonAuthority(act) })),
+      { targetPath: path.join(bookRoot, BOOK_FILE), content: serializeJsonAuthority(updatedBook) },
     ]);
     return acts;
   }
@@ -4458,9 +4495,9 @@ export class ProjectRepository {
     await applyFileTransaction(seriesRoot, [
       ...chapters.map((chapter) => ({
         targetPath: chapterPath(bookRoot, chapter.id),
-        content: serializeYaml(chapter),
+        content: serializeJsonAuthority(chapter),
       })),
-      { targetPath: actPath(bookRoot, act.id), content: serializeYaml(updatedAct) },
+      { targetPath: actPath(bookRoot, act.id), content: serializeJsonAuthority(updatedAct) },
     ]);
     return chapters;
   }
@@ -4489,7 +4526,7 @@ export class ProjectRepository {
         targetPath: filePath,
         content: serializeSceneDocument(document.metadata, document.document),
       })),
-      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeYaml(updatedChapter) },
+      { targetPath: chapterPath(bookRoot, chapter.id), content: serializeJsonAuthority(updatedChapter) },
     ]);
     const scenes: SceneDocument[] = [];
     for (const { filePath } of prepared) {
@@ -4543,7 +4580,7 @@ export class ProjectRepository {
         ...discoveredActIds.filter((actId) => !book.actIds.includes(actId)),
       ];
       const updatedBook = BookManifestSchema.parse({ ...book, actIds, updatedAt: now });
-      mutations.push({ targetPath: path.join(bookRoot, BOOK_FILE), content: serializeYaml(updatedBook) });
+      mutations.push({ targetPath: path.join(bookRoot, BOOK_FILE), content: serializeJsonAuthority(updatedBook) });
 
       for (let actIndex = 0; actIndex < actIds.length; actIndex++) {
         const actId = actIds[actIndex]!;
@@ -4572,7 +4609,7 @@ export class ProjectRepository {
           updatedAt: now,
         });
         if (!existingAct) actsCreated++;
-        mutations.push({ targetPath: actPath(bookRoot, actId), content: serializeYaml(act) });
+        mutations.push({ targetPath: actPath(bookRoot, actId), content: serializeJsonAuthority(act) });
 
         for (let chapterIndex = 0; chapterIndex < chapterIds.length; chapterIndex++) {
           const chapterId = chapterIds[chapterIndex]!;
@@ -4597,7 +4634,7 @@ export class ProjectRepository {
             updatedAt: now,
           });
           if (!existingChapter) chaptersCreated++;
-          mutations.push({ targetPath: chapterPath(bookRoot, chapterId), content: serializeYaml(chapter) });
+          mutations.push({ targetPath: chapterPath(bookRoot, chapterId), content: serializeJsonAuthority(chapter) });
         }
       }
     }
@@ -4623,12 +4660,12 @@ export class ProjectRepository {
     books: BookManifest[];
   }> {
     const root = await this.findSeriesRoot(seriesId);
-    const manifest = await readYaml(path.join(root, SERIES_FILE), (value) =>
+    const manifest = await readJson(path.join(root, SERIES_FILE), (value) =>
       SeriesManifestSchema.parse(value),
     );
     const books = await Promise.all(
       manifest.bookIds.map((bookId) =>
-        readYaml(path.join(root, "books", bookId, BOOK_FILE), (value) =>
+        readJson(path.join(root, "books", bookId, BOOK_FILE), (value) =>
           BookManifestSchema.parse(value),
         ),
       ),
@@ -4637,12 +4674,12 @@ export class ProjectRepository {
   }
 
   private async readBookManifests(seriesRoot: string): Promise<BookManifest[]> {
-    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+    const manifest = await readJson(path.join(seriesRoot, SERIES_FILE), (value) =>
       SeriesManifestSchema.parse(value),
     );
     return Promise.all(
       manifest.bookIds.map((bookId) =>
-        readYaml(path.join(seriesRoot, "books", bookId, BOOK_FILE), (value) =>
+        readJson(path.join(seriesRoot, "books", bookId, BOOK_FILE), (value) =>
           BookManifestSchema.parse(value),
         ),
       ),
@@ -4851,14 +4888,14 @@ export class ProjectRepository {
   }
 
   private async findBookContext(seriesRoot: string, bookId: string): Promise<BookContext> {
-    const manifest = await readYaml(path.join(seriesRoot, SERIES_FILE), (value) =>
+    const manifest = await readJson(path.join(seriesRoot, SERIES_FILE), (value) =>
       SeriesManifestSchema.parse(value),
     );
     if (!manifest.bookIds.includes(bookId)) {
       throw new StorageError("Book does not exist or is not referenced by a series", "NOT_FOUND", { bookId });
     }
     const bookRoot = path.join(seriesRoot, "books", bookId);
-    const book = await readYaml(path.join(bookRoot, BOOK_FILE), (value) => BookManifestSchema.parse(value));
+    const book = await readJson(path.join(bookRoot, BOOK_FILE), (value) => BookManifestSchema.parse(value));
     return { manifest, book, bookRoot };
   }
 
@@ -4943,8 +4980,8 @@ export class ProjectRepository {
   private async listManifestIds(directory: string): Promise<string[]> {
     try {
       return (await readdir(directory, { withFileTypes: true }))
-        .filter((entry) => entry.isFile() && entry.name.endsWith(".yaml"))
-        .map((entry) => path.basename(entry.name, ".yaml"));
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+        .map((entry) => path.basename(entry.name, ".json"));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
@@ -4957,7 +4994,7 @@ export class ProjectRepository {
   ): Promise<{ manifest: TimelineManifest; events: TimelineEventDocument[] }> {
     let manifest: TimelineManifest;
     try {
-      manifest = await readYaml(timelineManifestPath(seriesRoot), (value) =>
+      manifest = await readJson(timelineManifestPath(seriesRoot), (value) =>
         TimelineManifestSchema.parse(value),
       );
     } catch (error) {
@@ -5008,21 +5045,17 @@ export class ProjectRepository {
       }
       throw error;
     }
-    let event: TimelineEvent;
-    try {
-      event = TimelineEventSchema.parse(YAML.parse(raw));
-    } catch (error) {
-      throw new StorageError("故事事件 YAML 无效", "INVALID_DATA", {
-        eventId,
-        cause: error instanceof Error ? error.message : String(error),
-      });
-    }
+    const event = parseJsonAuthorityText(
+      raw,
+      (value) => TimelineEventSchema.parse(value),
+      "Timeline event JSON authority file",
+    );
     if (event.id !== eventId) {
       throw new StorageError("Story event file name and ID differ", "INVALID_DATA", { eventId, actualId: event.id });
     }
     return TimelineEventDocumentSchema.parse({
       event,
-      revision: contentRevision(raw),
+      revision: jsonAuthorityRevision(raw),
       storyIndex,
     });
   }
@@ -5067,7 +5100,7 @@ export class ProjectRepository {
       const root = assertInside(this.libraryRoot, path.join(this.libraryRoot, entry.name));
       try {
         await recoverFileTransactions(root);
-        const manifest = await readYaml(path.join(root, SERIES_FILE), (value) =>
+        const manifest = await readJson(path.join(root, SERIES_FILE), (value) =>
           SeriesManifestSchema.parse(value),
         );
         if (manifest.id === seriesId) return root;
@@ -5105,7 +5138,7 @@ export class ProjectRepository {
       if (!sceneDirectory.isDirectory()) continue;
       const filePath = assertInside(
         seriesRoot,
-        path.join(sectionsRoot, sceneDirectory.name, `${sectionId}.md`),
+        path.join(sectionsRoot, sceneDirectory.name, `${sectionId}.json`),
       );
       if (!(await pathExists(filePath))) continue;
       const document = parseSceneSectionText(
@@ -5148,22 +5181,18 @@ export class ProjectRepository {
       }
       throw error;
     }
-    let category: CodexCustomCategory;
-    try {
-      category = CodexCustomCategorySchema.parse(YAML.parse(raw));
-    } catch (error) {
-      throw new StorageError("Codex 自定义类别 YAML 无效", "INVALID_DATA", {
-        categoryId,
-        cause: error instanceof Error ? error.message : String(error),
-      });
-    }
+    const category = parseJsonAuthorityText(
+      raw,
+      (value) => CodexCustomCategorySchema.parse(value),
+      "Codex category JSON authority file",
+    );
     if (category.id !== categoryId) {
       throw new StorageError("Codex 类别文件名与 ID 不一致", "INVALID_DATA", {
         categoryId,
         actualId: category.id,
       });
     }
-    return { category, revision: contentRevision(raw) };
+    return { category, revision: jsonAuthorityRevision(raw) };
   }
 
   private assertCodexCategoryNameAvailable(
@@ -5199,15 +5228,11 @@ export class ProjectRepository {
       }
       throw error;
     }
-    let detailType: CodexDetailType;
-    try {
-      detailType = CodexDetailTypeSchema.parse(YAML.parse(raw));
-    } catch (error) {
-      throw new StorageError("Codex detail type YAML is invalid", "INVALID_DATA", {
-        detailTypeId,
-        cause: error instanceof Error ? error.message : String(error),
-      });
-    }
+    const detailType = parseJsonAuthorityText(
+      raw,
+      (value) => CodexDetailTypeSchema.parse(value),
+      "Codex detail type JSON authority file",
+    );
     if (detailType.id !== detailTypeId) {
       throw new StorageError("Codex detail type file name and ID differ", "INVALID_DATA", {
         detailTypeId,
@@ -5216,7 +5241,7 @@ export class ProjectRepository {
     }
     return CodexDetailTypeDocumentSchema.parse({
       detailType,
-      revision: contentRevision(raw),
+      revision: jsonAuthorityRevision(raw),
     });
   }
 
@@ -5297,7 +5322,7 @@ export class ProjectRepository {
       updatedAt: now,
       archivedAt: archived ? now : null,
     });
-    const raw = serializeYaml(category);
+    const raw = serializeJsonAuthority(category);
     await atomicWrite(codexCategoryPath(seriesRoot, categoryId), raw);
     return CodexCategoryDocumentSchema.parse({
       category: {
@@ -5307,7 +5332,7 @@ export class ProjectRepository {
         builtIn: false,
         archivedAt: category.archivedAt,
       },
-      revision: contentRevision(raw),
+      revision: jsonAuthorityRevision(raw),
     });
   }
 
@@ -5325,7 +5350,7 @@ export class ProjectRepository {
         throw error;
       }
       for (const file of files) {
-        if (!file.isFile() || !file.name.endsWith(".md")) continue;
+        if (!file.isFile() || !file.name.endsWith(".json")) continue;
         locations.push({
           filePath: assertInside(seriesRoot, path.join(directory, file.name)),
           categoryId: category.id,
@@ -5353,7 +5378,7 @@ export class ProjectRepository {
       const directory = path.join(customRoot, categoryDirectory.name);
       const files = await readdir(directory, { withFileTypes: true });
       for (const file of files) {
-        if (!file.isFile() || !file.name.endsWith(".md")) continue;
+        if (!file.isFile() || !file.name.endsWith(".json")) continue;
         locations.push({
           filePath: assertInside(seriesRoot, path.join(directory, file.name)),
           categoryId: parsedCategoryId,
@@ -5373,25 +5398,17 @@ export class ProjectRepository {
     document: CodexEntryDocument;
   }> {
     const raw = await readFile(filePath, "utf8");
-    const split = splitMarkdownDocument(
+    const authority = parseJsonAuthorityText(
       raw,
-      path.relative(seriesRoot, filePath),
-      "Codex 条目文件",
+      (value) => CodexEntryAuthoritySchema.parse(value),
+      "Codex entry JSON authority file",
     );
-    let metadata: CodexEntryMetadata;
-    try {
-      metadata = CodexEntryMetadataSchema.parse(split.metadata);
-    } catch (error) {
-      throw new StorageError("Codex 条目 frontmatter 无效", "INVALID_DATA", {
-        relativePath: path.relative(seriesRoot, filePath),
-        cause: error instanceof Error ? error.message : String(error),
-      });
-    }
+    const metadata = authority.metadata;
     if (
-      metadata.id !== path.basename(filePath, ".md") ||
+      metadata.id !== path.basename(filePath, ".json") ||
       metadata.categoryId !== expectedCategoryId
     ) {
-      throw new StorageError("Codex 条目文件名、类别目录或 frontmatter 不一致", "INVALID_DATA", {
+      throw new StorageError("Codex 条目文件名、类别目录或 JSON metadata 不一致", "INVALID_DATA", {
         entryId: metadata.id,
         expectedCategoryId,
         actualCategoryId: metadata.categoryId,
@@ -5462,7 +5479,7 @@ export class ProjectRepository {
     document: CodexEntryDocument;
   }> {
     for (const location of await this.codexEntryLocations(seriesRoot)) {
-      if (path.basename(location.filePath, ".md") !== entryId) continue;
+      if (path.basename(location.filePath, ".json") !== entryId) continue;
       return this.readCodexEntryAt(seriesRoot, location.filePath, location.categoryId);
     }
     throw new StorageError("Codex 条目不存在", "NOT_FOUND", { entryId });
@@ -5493,7 +5510,7 @@ export class ProjectRepository {
     });
     await atomicWrite(
       current.filePath,
-      serializeMarkdownDocument(metadata, current.document.description),
+      serializeCodexEntry(metadata, current.document.description),
     );
     await this.rebuildCodexIndex(seriesRoot);
     return (await this.findCodexEntry(seriesRoot, entryId)).document;
@@ -5553,15 +5570,11 @@ export class ProjectRepository {
       }
       throw error;
     }
-    let relation: CodexRelation;
-    try {
-      relation = CodexRelationSchema.parse(YAML.parse(raw));
-    } catch (error) {
-      throw new StorageError("Codex 关系 YAML 无效", "INVALID_DATA", {
-        relationId,
-        cause: error instanceof Error ? error.message : String(error),
-      });
-    }
+    const relation = parseJsonAuthorityText(
+      raw,
+      (value) => CodexRelationSchema.parse(value),
+      "Codex relation JSON authority file",
+    );
     if (relation.id !== relationId) {
       throw new StorageError("Codex 关系文件名与 ID 不一致", "INVALID_DATA", {
         relationId,
@@ -5570,7 +5583,7 @@ export class ProjectRepository {
     }
     return CodexRelationDocumentSchema.parse({
       relation,
-      revision: contentRevision(raw),
+      revision: jsonAuthorityRevision(raw),
     });
   }
 
@@ -5615,11 +5628,11 @@ export class ProjectRepository {
       updatedAt: now,
       archivedAt: archived ? now : null,
     });
-    const raw = serializeYaml(relation);
+    const raw = serializeJsonAuthority(relation);
     await atomicWrite(codexRelationPath(seriesRoot, relation.id), raw);
     return CodexRelationDocumentSchema.parse({
       relation,
-      revision: contentRevision(raw),
+      revision: jsonAuthorityRevision(raw),
     });
   }
 

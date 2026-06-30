@@ -215,10 +215,12 @@ describe("M4 AI file persistence", () => {
 
     const root = await seriesRoot(store, series.manifest.id);
     const profileFile = await readFile(
-      path.join(root, ".studio", "model-profiles", `${modelProfileId}.yaml`),
+      path.join(root, ".studio", "model-profiles", `${modelProfileId}.json`),
       "utf8",
     );
-    expect(profileFile).toContain("credentialRef: novel-studio:test:credential-ref");
+    expect(JSON.parse(profileFile)).toMatchObject({
+      credentialRef: "novel-studio:test:credential-ref",
+    });
     expect(profileFile).not.toContain("sk-");
 
     await rm(path.join(root, ".studio", "index.sqlite"), { force: true });
@@ -241,7 +243,7 @@ describe("M4 AI file persistence", () => {
     }
   });
 
-  it("rejects invalid AI contracts and corrupt AI YAML files", async () => {
+  it("rejects invalid AI contracts and corrupt AI JSON files", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "坏 AI 文件" });
     const root = await seriesRoot(store, series.manifest.id);
@@ -287,7 +289,7 @@ describe("M4 AI file persistence", () => {
 
     const directory = path.join(root, ".studio", "model-profiles");
     await mkdir(directory, { recursive: true });
-    await writeFile(path.join(directory, `${profileId}.yaml`), "not: valid: yaml", "utf8");
+    await writeFile(path.join(directory, `${profileId}.json`), "not: valid: JSON", "utf8");
 
     await expect(store.listModelProfiles(series.manifest.id)).rejects.toMatchObject<Partial<StorageError>>({
       code: "INVALID_DATA",

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DefaultCodexEntryValues,
   type CodexAiContextPolicy,
@@ -40,6 +40,7 @@ interface CodexWorkspaceProps {
 type CodexSaveStatus = "idle" | "dirty" | "saving" | "saved" | "conflict" | "failed";
 type MentionSource = "manuscript" | "codex";
 type CodexRelationDirection = "outgoing" | "incoming" | "undirected";
+const CODEX_AUTOSAVE_DELAY_MS = 1800;
 interface DetailDraftRow {
   includeInAi: boolean;
   typeName: string;
@@ -167,6 +168,10 @@ function buildUpdateInput(draft: CodexDraft): UpdateCodexEntryInput {
     name,
     research: draft.research,
   };
+}
+
+function codexDraftFingerprint(draft: CodexDraft) {
+  return JSON.stringify(draft);
 }
 
 function pluralVariants(term: string) {
@@ -381,6 +386,11 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [descriptionEditorStatus, setDescriptionEditorStatus] = useState<EditorSurfaceStatus | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const draftRef = useRef<CodexDraft | null>(draft);
+  const selectedEntryIdRef = useRef<string | null>(selectedEntryId);
+
+  draftRef.current = draft;
+  selectedEntryIdRef.current = selectedEntryId;
 
   useEffect(() => {
     let isActive = true;
@@ -675,7 +685,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   );
 
   function markDirty() {
-    if (saveStatus !== "saving") setSaveStatus("dirty");
+    setSaveStatus("dirty");
     setErrorMessage(null);
   }
 
@@ -968,24 +978,41 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     }
   }
 
-  async function saveEntry() {
-    if (!selectedEntry || !draft || isSaving || selectedEntry.metadata.archivedAt) return;
+  async function saveEntry(entryToSave: CodexEntryDocument, draftToSave: CodexDraft) {
+    if (isSaving || entryToSave.metadata.archivedAt) return;
+    const submittedFingerprint = codexDraftFingerprint(draftToSave);
     setIsSaving(true);
     setSaveStatus("saving");
     setErrorMessage(null);
     try {
-      const input = buildUpdateInput(draft);
-      const updated = await api.codex.updateEntry(series.manifest.id, selectedEntry.metadata.id, input);
+      const input = buildUpdateInput(draftToSave);
+      const updated = await api.codex.updateEntry(series.manifest.id, entryToSave.metadata.id, input);
       replaceEntry(updated);
-      setDraft(draftFromEntry(updated));
-      setSaveStatus("saved");
+      if (selectedEntryIdRef.current === updated.metadata.id) {
+        const currentDraft = draftRef.current;
+        const hasUnsubmittedChanges = Boolean(
+          currentDraft && codexDraftFingerprint(currentDraft) !== submittedFingerprint,
+        );
+        const nextDraft = hasUnsubmittedChanges && currentDraft
+          ? {
+              ...currentDraft,
+              baseResearchRevision: updated.research.revision,
+              baseRevision: updated.revision,
+            }
+          : draftFromEntry(updated);
+        draftRef.current = nextDraft;
+        setDraft(nextDraft);
+        setSaveStatus(hasUnsubmittedChanges ? "dirty" : "saved");
+      }
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        setSaveStatus("conflict");
-        setErrorMessage(codexText.errors.conflictSave);
-      } else {
-        setSaveStatus("failed");
-        setErrorMessage(formatCodexError(error, codexText.errors.saveFailed));
+      if (selectedEntryIdRef.current === entryToSave.metadata.id) {
+        if (error instanceof ApiError && error.status === 409) {
+          setSaveStatus("conflict");
+          setErrorMessage(codexText.errors.conflictSave);
+        } else {
+          setSaveStatus("failed");
+          setErrorMessage(formatCodexError(error, codexText.errors.saveFailed));
+        }
       }
     } finally {
       setIsSaving(false);
@@ -995,8 +1022,8 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   useEffect(() => {
     if (!selectedEntry || !draft || selectedEntry.metadata.archivedAt || isSaving || saveStatus !== "dirty") return;
     const timer = window.setTimeout(() => {
-      void saveEntry();
-    }, 900);
+      void saveEntry(selectedEntry, draft);
+    }, CODEX_AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [draft, isSaving, saveStatus, selectedEntry]);
 
@@ -1120,7 +1147,11 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   }
 
   function updateDraft(mutator: (current: CodexDraft) => CodexDraft) {
-    setDraft((current) => (current ? mutator(current) : current));
+    setDraft((current) => {
+      const next = current ? mutator(current) : current;
+      draftRef.current = next;
+      return next;
+    });
     markDirty();
   }
 
@@ -1142,7 +1173,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     }));
   }
 
-  const fieldsDisabled = Boolean(isSaving || selectedEntry?.metadata.archivedAt);
+  const fieldsDisabled = Boolean(selectedEntry?.metadata.archivedAt);
   const descriptionSelectionCount = descriptionEditorStatus
     ? Math.abs(descriptionEditorStatus.selectionTo - descriptionEditorStatus.selectionFrom)
     : 0;

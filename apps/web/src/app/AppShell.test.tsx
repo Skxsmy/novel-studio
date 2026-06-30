@@ -151,6 +151,18 @@ function jsonResponse(body: unknown, status = 200) {
   );
 }
 
+function delayedJsonResponse(body: unknown, status = 200, delayMs = 0) {
+  if (delayMs <= 0) return jsonResponse(body, status);
+  return new Promise<Response>((resolve) => {
+    window.setTimeout(() => {
+      resolve(new Response(JSON.stringify(body), {
+        headers: { "content-type": "application/json" },
+        status,
+      }));
+    }, delayMs);
+  });
+}
+
 function seriesSummary() {
   return {
     archived: false,
@@ -466,10 +478,10 @@ function codexCategories() {
 }
 
 function codexEntryRelativePath(categoryId: string, entryId = codexEntryId) {
-  if (categoryId === "uncategorized") return `codex/uncategorized/${entryId}.md`;
-  if (categoryId === "character") return `codex/characters/${entryId}.md`;
-  if (categoryId === "location") return `codex/locations/${entryId}.md`;
-  return `codex/custom/${categoryId}/${entryId}.md`;
+  if (categoryId === "uncategorized") return `codex/uncategorized/${entryId}.json`;
+  if (categoryId === "character") return `codex/characters/${entryId}.json`;
+  if (categoryId === "location") return `codex/locations/${entryId}.json`;
+  return `codex/custom/${categoryId}/${entryId}.json`;
 }
 
 function codexEntryDocument(
@@ -515,7 +527,7 @@ function codexEntryDocument(
         schemaVersion: 1,
         updatedAt: "2026-06-23T00:00:00.000Z",
       },
-      relativePath: `codex/entry-research/${entryId}.md`,
+      relativePath: `codex/entry-research/${entryId}.json`,
       revision,
     },
     revision,
@@ -562,7 +574,7 @@ function codexRelationDocument(
       validFromSceneId: null as string | null,
       validToSceneId: null as string | null,
     },
-    relativePath: `codex/relations/${id}.md`,
+    relativePath: `codex/relations/${id}.json`,
     revision,
   };
 }
@@ -652,6 +664,7 @@ function modelProfile(overrides: Partial<{
 
 function mockFetch(options: {
   conflictCodexUpdate?: boolean;
+  codexUpdateDelayMs?: number;
   initialCodexEntries?: ReturnType<typeof codexEntryDocument>[];
   initialCodexDetailTypes?: ReturnType<typeof codexDetailTypeDocument>[];
   initialCodexProgressions?: ReturnType<typeof codexProgressionDocument>[];
@@ -1122,7 +1135,7 @@ function mockFetch(options: {
       codexEntries = codexEntries.some((entry) => entry.metadata.id === codexEntryId)
         ? codexEntries.map((entry) => (entry.metadata.id === codexEntryId ? updated : entry))
         : [updated];
-      return jsonResponse(updated);
+      return delayedJsonResponse(updated, 200, options.codexUpdateDelayMs);
     }
 
     if (url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}/archive` && method === "POST") {
@@ -2262,6 +2275,46 @@ describe("App shell", () => {
       expect(putCall).toBeTruthy();
       expect(JSON.parse(String(putCall![1]?.body)).description).toBe(" \n ");
     }, { timeout: 3000 });
+  });
+
+  it("keeps codex canon editing responsive while autosave is in flight", async () => {
+    const fetchMock = mockFetch({
+      codexUpdateDelayMs: 300,
+      initialCodexEntries: [codexEntryDocument("Harbor Lock", "location", "", codexEntryId)],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    const harborRow = (await screen.findByText("Harbor Lock")).closest("button");
+    expect(harborRow).toBeTruthy();
+    fireEvent.click(harborRow!);
+
+    await screen.findByLabelText("Codex canon description");
+    setEditorValue("Codex canon description", "First autosave");
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}` && init?.method === "PUT"
+      ))).toBe(true);
+    }, { timeout: 3500 });
+
+    const editorElement = screen.getByLabelText("Codex canon description");
+    expect(editorElement.closest(".novel-editor")?.classList.contains("is-read-only")).toBe(false);
+    insertEditorText("Codex canon description", " still typing");
+    expect(findEditorView("Codex canon description").state.doc.toString()).toBe("First autosave still typing");
+
+    await waitFor(() => {
+      const putCalls = fetchMock.mock.calls.filter(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}` && init?.method === "PUT"
+      ));
+      expect(putCalls.length).toBeGreaterThanOrEqual(2);
+      const latestBody = JSON.parse(String(putCalls.at(-1)![1]?.body));
+      expect(latestBody.description).toBe("First autosave still typing");
+      expect(latestBody.baseRevision).toBe(updatedRevision);
+    }, { timeout: 7000 });
+
+    expect(findEditorView("Codex canon description").state.doc.toString()).toBe("First autosave still typing");
   });
 
   it("saves codex tracking settings from the renamed tracking tab", async () => {
