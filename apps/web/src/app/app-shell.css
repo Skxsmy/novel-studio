@@ -1036,111 +1036,22 @@ button {
   min-height: 430px;
 }
 
-.scene-block-editor {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.scene-block {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: #fff;
-  padding: var(--space-3);
-}
-
-.scene-block-toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-
-.scene-block-index {
-  display: inline-grid;
-  place-items: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 0.75rem;
-}
-
-.scene-block-kind,
-.scene-block-level {
-  width: auto;
-  min-height: 2rem;
-  padding-block: 0.25rem;
-}
-
-.scene-block-actions {
-  display: flex;
-  gap: var(--space-2);
-  margin-left: auto;
-}
-
-.scene-block-textarea,
-.scene-block-heading-input {
-  width: 100%;
-  border-radius: var(--radius);
-  resize: vertical;
-}
-
-.scene-block-textarea {
-  min-height: 9rem;
-  line-height: 1.75;
-}
-
-.scene-block-heading-input {
-  font-size: 1.35rem;
-  font-weight: 700;
-}
-
-.scene-break-block {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: var(--space-3);
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0;
-}
-
-.scene-break-block span {
-  height: 1px;
-  background: var(--line);
-}
-
-.scene-progression-placeholder {
-  border: 1px dashed var(--line-strong);
-  color: var(--muted);
-  padding: var(--space-3);
-}
-
-.scene-progression-block {
-  display: grid;
-  gap: var(--space-3);
-  border: 1px solid var(--line-strong);
-  background: #f8faf8;
-  padding: var(--space-3);
-}
-
-.progression-block-head,
-.progression-actions,
-.progression-panel-actions {
+.story-change-detail-head,
+.progression-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
 }
 
-.progression-block-head > div,
+.story-change-detail-head > div,
 .scene-progression-panel-row > div:first-child {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
-.progression-block-head span,
+.story-change-detail-head span,
 .scene-progression-panel-row span {
   color: var(--muted);
   font-size: 12px;
@@ -1207,19 +1118,34 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  width: 100%;
   border: 1px solid var(--line);
   background: #fff;
+  color: var(--ink);
+  cursor: pointer;
   padding: 8px;
+  text-align: left;
 }
 
-.scene-block-mentions {
+.scene-progression-panel-row.is-active {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(77, 114, 196, 0.12);
+}
+
+.story-change-panel,
+.story-change-detail {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.scene-codex-mentions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
 
-.block-codex-mention {
+.codex-mention-chip {
   border: 0;
   border-bottom: 1px dashed var(--blue);
   background: transparent;

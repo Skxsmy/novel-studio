@@ -1,0 +1,130 @@
+.novel-tiptap-shell {
+  position: relative;
+  margin-top: 24px;
+  width: 100%;
+  max-width: none;
+}
+
+.novel-editor-action-rail {
+  position: absolute;
+  top: 4px;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.novel-editor-action-rail .tool {
+  min-width: 34px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.novel-editor-action-rail .story-change-tool {
+  width: auto;
+  padding-inline: 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.novel-tiptap-editor {
+  position: relative;
+  width: 100%;
+  min-height: 54vh;
+  padding: 8px 0 56px 0;
+  color: #252724;
+  cursor: text;
+  font-family: var(--font-copy);
+  font-size: 21px;
+  line-height: 1.68;
+}
+
+.novel-tiptap-prosemirror {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 54vh;
+  outline: 0;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  word-break: normal;
+}
+
+.novel-tiptap-editor[data-empty="true"]::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  top: 9px;
+  left: 0;
+  color: #9ca39d;
+  pointer-events: none;
+}
+
+.novel-tiptap-prosemirror p,
+.novel-tiptap-prosemirror blockquote,
+.novel-tiptap-prosemirror h1,
+.novel-tiptap-prosemirror h2,
+.novel-tiptap-prosemirror h3,
+.novel-tiptap-prosemirror h4,
+.novel-tiptap-prosemirror h5,
+.novel-tiptap-prosemirror h6 {
+  max-width: 100%;
+  margin: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.novel-tiptap-prosemirror h1,
+.novel-tiptap-prosemirror h2,
+.novel-tiptap-prosemirror h3,
+.novel-tiptap-prosemirror h4,
+.novel-tiptap-prosemirror h5,
+.novel-tiptap-prosemirror h6 {
+  color: var(--ink);
+  font-family: var(--font-copy);
+  font-weight: 760;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.novel-tiptap-prosemirror h1 { font-size: 1.9em; }
+.novel-tiptap-prosemirror h2 { font-size: 1.55em; }
+.novel-tiptap-prosemirror h3 { font-size: 1.28em; }
+.novel-tiptap-prosemirror h4,
+.novel-tiptap-prosemirror h5,
+.novel-tiptap-prosemirror h6 { font-size: 1.08em; }
+
+.novel-tiptap-prosemirror blockquote {
+  margin-left: 0;
+  padding-left: 18px;
+  border-left: 3px solid var(--line-strong);
+  color: #3e443f;
+}
+
+.novel-tiptap-prosemirror hr {
+  width: 42%;
+  margin: 34px auto;
+  border: 0;
+  border-top: 1px solid var(--line-strong);
+}
+
+.story-change-anchor {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin: 4px 0 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: #f5f8f5;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1;
+  padding: 8px 10px;
+  vertical-align: baseline;
+}
+
+.story-change-anchor.ProseMirror-selectednode {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(77, 114, 196, 0.14);
+}

@@ -5,8 +5,6 @@ import type {
   ChapterManifest,
   CodexDetailTypeDocument,
   CodexEntryDocument,
-  CodexEffectiveEntry,
-  CodexFieldProgressionField,
   CodexProgressionDocument,
   CreateActInput,
   CreateBookInput,
@@ -24,14 +22,24 @@ import type {
 } from "@novel-studio/contracts";
 import { api } from "../../api";
 import {
-  createBlock,
   createParagraphBlock,
   sceneBlockDocumentStats,
-  sceneBlockToPlainText,
 } from "../../app/sceneBlocks";
 import { uiText } from "../../app/uiText";
 import type { SaveStatus, SceneDraft } from "../../app/useProjectSession";
 import { findInlineCodexMentions } from "../codex/inlineMentions";
+import { NovelEditor } from "./editor";
+import { StoryChangePanel } from "./story-change/StoryChangePanel";
+import {
+  applyProgressionDraft,
+  fieldFromSelection,
+  fieldValueFromEffective,
+  fieldValueFromEntry,
+  isSceneWriteProgression,
+  type ProgressionDraft,
+  type ProgressionPreview,
+  progressionDraftFromDocument,
+} from "./story-change/storyChangeViewModel";
 
 export interface WriteWorkspaceProps {
   draft: SceneDraft | null;
@@ -111,22 +119,7 @@ function toggleSetValue(values: Set<string>, value: string) {
 type ProductStructureType = "volume" | "chapter" | "act" | "scene";
 type RenamingStructure = { type: "volume" | "chapter" | "act"; id: string; title: string };
 type SelectedStructure = { type: ProductStructureType; id: string };
-type EditableBlockKind = "paragraph" | "heading" | "quote" | "sceneBreak";
 type ActiveBlockMention = { blockId: string; entryId: string };
-type ProgressionFieldSelection = "description" | `detail:${string}`;
-type ProgressionDraft = {
-  body: string;
-  entryId: string;
-  fieldSelection: ProgressionFieldSelection;
-  operation: "add" | "replace";
-  summary: string;
-};
-type ProgressionPreview = {
-  after: string;
-  before: string;
-  hiddenFutureCount: number;
-  status: "idle" | "loading" | "ready" | "failed";
-};
 const progressionText = uiText.writeProgression;
 const structureCreateLabels: Record<ProductStructureType, string> = {
   volume: uiText.hierarchy.volume,
@@ -134,103 +127,6 @@ const structureCreateLabels: Record<ProductStructureType, string> = {
   act: uiText.hierarchy.act,
   scene: uiText.hierarchy.scene,
 };
-
-const blockKindLabels: Record<EditableBlockKind, string> = {
-  heading: "Heading",
-  paragraph: "Paragraph",
-  quote: "Quote",
-  sceneBreak: "Break",
-};
-
-function progressionFieldSelection(progression: CodexProgressionDocument["progression"]): ProgressionFieldSelection {
-  if (progression.kind !== "field" || progression.field?.kind !== "detail") return "description";
-  return `detail:${progression.field.detailTypeId}`;
-}
-
-function progressionDraftFromDocument(document: CodexProgressionDocument): ProgressionDraft {
-  return {
-    body: document.progression.body,
-    entryId: document.progression.entryId ?? "",
-    fieldSelection: progressionFieldSelection(document.progression),
-    operation: document.progression.operation,
-    summary: document.progression.summary,
-  };
-}
-
-function fieldFromSelection(selection: ProgressionFieldSelection): CodexFieldProgressionField {
-  if (selection === "description") return { kind: "description", detailTypeId: null };
-  return { kind: "detail", detailTypeId: selection.slice("detail:".length) };
-}
-
-function fieldLabel(selection: ProgressionFieldSelection, detailTypes: CodexDetailTypeDocument[]) {
-  if (selection === "description") return progressionText.fieldDescription;
-  const detailTypeId = selection.slice("detail:".length);
-  return detailTypes.find((document) => document.detailType.id === detailTypeId)?.detailType.name ??
-    progressionText.fieldFallback;
-}
-
-function fieldValueFromEntry(entry: CodexEntryDocument, selection: ProgressionFieldSelection) {
-  if (selection === "description") return entry.description;
-  return entry.metadata.details[selection.slice("detail:".length)] ?? "";
-}
-
-function fieldValueFromEffective(effective: CodexEffectiveEntry, selection: ProgressionFieldSelection) {
-  return fieldValueFromEntry(effective.entry, selection);
-}
-
-function applyProgressionDraft(before: string, draft: ProgressionDraft) {
-  const body = draft.body.trim();
-  if (draft.operation === "replace") return draft.body;
-  if (!body) return before;
-  return before ? `${draft.body}\n\n${before}` : draft.body;
-}
-
-function isSceneWriteProgression(document: CodexProgressionDocument, sceneId: string) {
-  return document.progression.source.kind === "write-block" &&
-    document.progression.source.sceneId === sceneId &&
-    document.progression.kind === "field";
-}
-
-function editableTextForBlock(block: SceneBlock): string {
-  return sceneBlockToPlainText(block);
-}
-
-function blockWithText(block: SceneBlock, text: string): SceneBlock {
-  if (block.kind === "paragraph" || block.kind === "heading" || block.kind === "quote") {
-    return { ...block, text };
-  }
-  return block;
-}
-
-function convertBlockKind(block: SceneBlock, kind: EditableBlockKind): SceneBlock {
-  const text = editableTextForBlock(block);
-  if (kind === "heading") {
-    return {
-      id: block.id,
-      kind,
-      level: block.kind === "heading" ? block.level : 2,
-      text,
-    };
-  }
-  if (kind === "quote") {
-    return {
-      id: block.id,
-      kind,
-      text,
-    };
-  }
-  if (kind === "sceneBreak") {
-    return {
-      id: block.id,
-      kind,
-    };
-  }
-  return {
-    id: block.id,
-    kind: "paragraph",
-    text,
-  };
-}
 
 export function WriteWorkspace({
   draft,
@@ -282,6 +178,7 @@ export function WriteWorkspace({
   const [collapsedProgressionBlocks, setCollapsedProgressionBlocks] = useState<Set<string>>(() => new Set());
   const [progressionBusyId, setProgressionBusyId] = useState<string | null>(null);
   const [progressionError, setProgressionError] = useState<string | null>(null);
+  const [selectedProgressionBlockId, setSelectedProgressionBlockId] = useState<string | null>(null);
   const [activeBlockMention, setActiveBlockMention] = useState<ActiveBlockMention | null>(null);
   const [isBriefVisible, setIsBriefVisible] = useState(true);
   const [isCodexLoading, setIsCodexLoading] = useState(false);
@@ -372,6 +269,7 @@ export function WriteWorkspace({
     sceneProgressions.map((document) => [document.progression.id, document]),
   ), [sceneProgressions]);
   const progressionBlocks = draft?.document.blocks.filter((block) => block.kind === "codexProgression") ?? [];
+  const progressionBlockIds = progressionBlocks.map((block) => block.id).join("|");
 
   function updateSceneDocumentBlocks(blocks: SceneBlock[]) {
     if (!draft) return;
@@ -381,43 +279,29 @@ export function WriteWorkspace({
     });
   }
 
-  function updateBlockText(blockId: string, text: string) {
-    if (!draft) return;
-    updateSceneDocumentBlocks(draft.document.blocks.map((block) =>
-      block.id === blockId ? blockWithText(block, text) : block,
-    ));
-  }
-
-  function updateBlockKind(blockId: string, kind: EditableBlockKind) {
-    if (!draft) return;
-    updateSceneDocumentBlocks(draft.document.blocks.map((block) =>
-      block.id === blockId ? convertBlockKind(block, kind) : block,
-    ));
-  }
-
-  function updateHeadingLevel(blockId: string, level: number) {
-    if (!draft) return;
-    updateSceneDocumentBlocks(draft.document.blocks.map((block) =>
-      block.id === blockId && block.kind === "heading"
-        ? { ...block, level }
-        : block,
-    ));
-  }
-
-  function insertBlockAfter(blockId: string, kind: EditableBlockKind = "paragraph") {
-    if (!draft) return;
-    const nextBlock = createBlock(kind);
+  function insertParagraphAfter(blockId: string | null) {
+    if (!draft) return null;
+    const nextBlock = createParagraphBlock();
     const nextBlocks: SceneBlock[] = [];
     for (const block of draft.document.blocks) {
       nextBlocks.push(block);
       if (block.id === blockId) nextBlocks.push(nextBlock);
     }
-    updateSceneDocumentBlocks(nextBlocks.length === draft.document.blocks.length ? [...draft.document.blocks, nextBlock] : nextBlocks);
+    updateSceneDocumentBlocks(nextBlocks.length === draft.document.blocks.length
+      ? [...draft.document.blocks, nextBlock]
+      : nextBlocks);
+    return nextBlock.id;
   }
 
-  function deleteBlock(blockId: string) {
-    if (!draft) return;
-    updateSceneDocumentBlocks(draft.document.blocks.filter((block) => block.id !== blockId));
+  function deleteCurrentEditorBlock(blockId: string | null) {
+    if (!draft || !blockId) return;
+    const block = draft.document.blocks.find((candidate) => candidate.id === blockId);
+    if (!block) return;
+    if (block.kind === "codexProgression") {
+      void deleteProgressionBlock(block);
+      return;
+    }
+    updateSceneDocumentBlocks(draft.document.blocks.filter((candidate) => candidate.id !== blockId));
     setActiveBlockMention((current) => (current?.blockId === blockId ? null : current));
   }
 
@@ -489,6 +373,7 @@ export function WriteWorkspace({
         next.delete(result.block.id);
         return next;
       });
+      setSelectedProgressionBlockId(result.block.id);
     } catch (error) {
       setProgressionError(progressionErrorMessage(error, progressionText.errors.addFailed));
     } finally {
@@ -564,6 +449,7 @@ export function WriteWorkspace({
         next.delete(block.id);
         return next;
       });
+      setSelectedProgressionBlockId((current) => (current === block.id ? null : current));
     } catch (error) {
       setProgressionError(progressionErrorMessage(error, progressionText.errors.deleteFailed));
     } finally {
@@ -616,7 +502,18 @@ export function WriteWorkspace({
   useEffect(() => {
     setActiveBlockMention(null);
     setProgressionError(null);
+    setSelectedProgressionBlockId(null);
   }, [draft?.sceneId]);
+
+  useEffect(() => {
+    if (!progressionBlocks.length) {
+      setSelectedProgressionBlockId(null);
+      return;
+    }
+    if (!selectedProgressionBlockId || !progressionBlocks.some((block) => block.id === selectedProgressionBlockId)) {
+      setSelectedProgressionBlockId(progressionBlocks[0]?.id ?? null);
+    }
+  }, [progressionBlockIds, progressionBlocks, selectedProgressionBlockId]);
 
   useEffect(() => {
     setProgressionDrafts((current) => {
@@ -770,287 +667,10 @@ export function WriteWorkspace({
     setRenamingStructure(null);
   }
 
-  function renderProgressionBlock(
-    block: Extract<SceneBlock, { kind: "codexProgression" }>,
-    blockNumber: number,
-  ) {
-    const progression = progressionsById.get(block.progressionId);
-    const progressionDraft = progressionDrafts[block.progressionId] ??
-      (progression ? progressionDraftFromDocument(progression) : null);
-    const selectedEntry = progressionDraft
-      ? codexEntries.find((entry) => entry.metadata.id === progressionDraft.entryId) ?? null
-      : null;
-    const detailOptions = selectedEntry
-      ? codexDetailTypes.filter((document) => document.detailType.categoryId === selectedEntry.metadata.categoryId)
-      : [];
-    const preview = progressionPreviews[block.progressionId] ??
-      { after: "", before: "", hiddenFutureCount: 0, status: "idle" as const };
-    const isCollapsed = collapsedProgressionBlocks.has(block.id);
-    const isBusy = progressionBusyId === block.id || progressionBusyId === block.progressionId;
-
-    if (!progression || !progressionDraft) {
-      return (
-        <div aria-label={`Scene block ${blockNumber}`} className="scene-progression-block">
-          <div className="progression-block-head">
-            <strong>{progressionText.title}</strong>
-            <span className="pill amber">{progressionText.missingRecord}</span>
-          </div>
-          <p className="mini-note">{progressionText.missingRecordBody}</p>
-        </div>
-      );
-    }
-
-    return (
-      <div aria-label={`Scene block ${blockNumber}`} className="scene-progression-block">
-        <div className="progression-block-head">
-          <div>
-            <strong>{progressionText.title}</strong>
-            <span>{selectedEntry?.metadata.name ?? progressionText.chooseEntry}</span>
-          </div>
-          <button
-            className="btn compact"
-            onClick={() => setCollapsedProgressionBlocks((current) => toggleSetValue(current, block.id))}
-            type="button"
-          >
-            {isCollapsed ? progressionText.actions.expand : progressionText.actions.collapse}
-          </button>
-        </div>
-
-        {isCollapsed ? (
-          <p className="mini-note">{progressionDraft.summary || fieldLabel(progressionDraft.fieldSelection, codexDetailTypes)}</p>
-        ) : (
-          <>
-            <div className="progression-form-grid">
-              <label>
-                <span>{progressionText.labels.entry}</span>
-                <select
-                  aria-label={progressionText.aria.entry(blockNumber)}
-                  className="input"
-                  onChange={(event) => updateProgressionDraft(block.progressionId, {
-                    entryId: event.target.value,
-                    fieldSelection: "description",
-                  })}
-                  value={progressionDraft.entryId}
-                >
-                  {codexEntries.map((entry) => (
-                    <option key={entry.metadata.id} value={entry.metadata.id}>{entry.metadata.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>{progressionText.labels.field}</span>
-                <select
-                  aria-label={progressionText.aria.field(blockNumber)}
-                  className="input"
-                  onChange={(event) => updateProgressionDraft(block.progressionId, {
-                    fieldSelection: event.target.value as ProgressionFieldSelection,
-                  })}
-                  value={progressionDraft.fieldSelection}
-                >
-                  <option value="description">{progressionText.fieldDescription}</option>
-                  {detailOptions.map((document) => (
-                    <option
-                      key={document.detailType.id}
-                      value={`detail:${document.detailType.id}`}
-                    >
-                      {document.detailType.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>{progressionText.labels.change}</span>
-                <select
-                  aria-label={progressionText.aria.operation(blockNumber)}
-                  className="input"
-                  onChange={(event) => updateProgressionDraft(block.progressionId, {
-                    operation: event.target.value as ProgressionDraft["operation"],
-                  })}
-                  value={progressionDraft.operation}
-                >
-                  <option value="add">{progressionText.operations.add}</option>
-                  <option value="replace">{progressionText.operations.replace}</option>
-                </select>
-              </label>
-            </div>
-            <label className="progression-field">
-              <span>{progressionText.labels.summary}</span>
-              <input
-                aria-label={progressionText.aria.summary(blockNumber)}
-                className="input"
-                onChange={(event) => updateProgressionDraft(block.progressionId, { summary: event.target.value })}
-                placeholder={progressionText.placeholders.summary}
-                value={progressionDraft.summary}
-              />
-            </label>
-            <label className="progression-field">
-              <span>{progressionText.labels.text}</span>
-              <textarea
-                aria-label={progressionText.aria.text(blockNumber)}
-                className="input progression-body"
-                onChange={(event) => updateProgressionDraft(block.progressionId, { body: event.target.value })}
-                placeholder={progressionText.placeholders.text}
-                value={progressionDraft.body}
-              />
-            </label>
-            <div className="progression-preview-grid" aria-label={progressionText.aria.preview(blockNumber)}>
-              <div>
-                <span className="mini-label">{progressionText.labels.before}</span>
-                <p>{preview.status === "failed" ? progressionText.previewUnavailable : preview.before || progressionText.empty}</p>
-              </div>
-              <div>
-                <span className="mini-label">{progressionText.labels.after}</span>
-                <p>{preview.status === "loading" ? progressionText.loading : preview.after || progressionText.empty}</p>
-              </div>
-            </div>
-            {preview.hiddenFutureCount ? (
-              <p className="mini-note">{progressionText.laterChangesHidden(preview.hiddenFutureCount)}</p>
-            ) : null}
-            <div className="progression-actions">
-              <button
-                className="btn compact primary"
-                disabled={isBusy || !progressionDraft.entryId}
-                onClick={() => void saveProgression(block.progressionId)}
-                type="button"
-              >
-                {progressionText.actions.save}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
-
-  function renderSceneBlock(block: SceneBlock, index: number) {
-    const blockNumber = index + 1;
-    const blockText = editableTextForBlock(block);
-    const mentions = findInlineCodexMentions(blockText, codexEntries);
-    const activeEntry = activeBlockMention?.blockId === block.id
-      ? codexEntries.find((entry) => entry.metadata.id === activeBlockMention.entryId) ?? null
-      : null;
-    const editableKind: EditableBlockKind = block.kind === "heading" ||
-      block.kind === "quote" ||
-      block.kind === "sceneBreak"
-      ? block.kind
-      : "paragraph";
-
-    return (
-      <article className={`scene-block scene-block-${block.kind}`} data-block-id={block.id} key={block.id}>
-        <div className="scene-block-toolbar">
-          <span className="scene-block-index">{blockNumber}</span>
-          {block.kind === "codexProgression" ? (
-            <span className="pill blue">{progressionText.title}</span>
-          ) : (
-            <select
-              aria-label={`Block ${blockNumber} type`}
-              className="input compact scene-block-kind"
-              onChange={(event) => updateBlockKind(block.id, event.target.value as EditableBlockKind)}
-              value={editableKind}
-            >
-              {(["paragraph", "heading", "quote", "sceneBreak"] as EditableBlockKind[]).map((kind) => (
-                <option key={kind} value={kind}>{blockKindLabels[kind]}</option>
-              ))}
-            </select>
-          )}
-          {block.kind === "heading" ? (
-            <select
-              aria-label={`Block ${blockNumber} heading level`}
-              className="input compact scene-block-level"
-              onChange={(event) => updateHeadingLevel(block.id, Number(event.target.value))}
-              value={block.level}
-            >
-              {[1, 2, 3, 4, 5, 6].map((level) => (
-                <option key={level} value={level}>{`H${level}`}</option>
-              ))}
-            </select>
-          ) : null}
-          <div className="scene-block-actions">
-            <button
-              aria-label={`Add block after ${blockNumber}`}
-              className="btn compact"
-              onClick={() => insertBlockAfter(block.id)}
-              type="button"
-            >
-              Add
-            </button>
-            <button
-              aria-label={progressionText.aria.addAfter(blockNumber)}
-              className="btn compact"
-              disabled={!draft || !codexEntries.length || Boolean(progressionBusyId)}
-              onClick={() => void insertProgressionBlockAfter(block.id)}
-              type="button"
-            >
-              {progressionText.title}
-            </button>
-            <button
-              aria-label={`Delete block ${blockNumber}`}
-              className="btn compact"
-              onClick={() => {
-                if (block.kind === "codexProgression") void deleteProgressionBlock(block);
-                else deleteBlock(block.id);
-              }}
-              type="button"
-            >
-              {uiText.actions.delete}
-            </button>
-          </div>
-        </div>
-
-        {block.kind === "paragraph" || block.kind === "quote" ? (
-          <textarea
-            aria-label={`Scene block ${blockNumber}`}
-            className="input scene-block-textarea"
-            onChange={(event) => updateBlockText(block.id, event.target.value)}
-            placeholder="Continue the scene..."
-            value={block.text}
-          />
-        ) : block.kind === "heading" ? (
-          <input
-            aria-label={`Scene block ${blockNumber}`}
-            className="input scene-block-heading-input"
-            onChange={(event) => updateBlockText(block.id, event.target.value)}
-            placeholder="Heading"
-            value={block.text}
-          />
-        ) : block.kind === "sceneBreak" ? (
-          <div aria-label={`Scene block ${blockNumber}`} className="scene-break-block">
-            <span />
-            <strong>Scene break</strong>
-            <span />
-          </div>
-        ) : (
-          renderProgressionBlock(block, blockNumber)
-        )}
-
-        {mentions.length ? (
-          <div className="scene-block-mentions" aria-label={`Block ${blockNumber} Codex mentions`}>
-            {mentions.map((mention) => (
-              <button
-                className="block-codex-mention"
-                key={`${mention.entryId}-${mention.start}-${mention.end}`}
-                onClick={() => setActiveBlockMention((current) =>
-                  current?.blockId === block.id && current.entryId === mention.entryId
-                    ? null
-                    : { blockId: block.id, entryId: mention.entryId },
-                )}
-                type="button"
-              >
-                {mention.matchedText}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {activeEntry ? (
-          <div className="scene-content-preview" aria-label={`${activeEntry.metadata.name} canon description`}>
-            <div className="preview-title">{activeEntry.metadata.name}</div>
-            <p>{activeEntry.description || "No description"}</p>
-          </div>
-        ) : null}
-      </article>
-    );
-  }
+  const sceneMentions = sceneStats ? findInlineCodexMentions(sceneStats.plainText, codexEntries) : [];
+  const activeMentionEntry = activeBlockMention
+    ? codexEntries.find((entry) => entry.metadata.id === activeBlockMention.entryId) ?? null
+    : null;
 
   return (
     <>
@@ -1323,26 +943,10 @@ export function WriteWorkspace({
 
         <section className="panel manuscript-panel" aria-label="Manuscript">
           <div className="manuscript-toolbar">
-            <div className="format-tools" aria-label="Editor tools">
-              <button className="tool" title="Bold" type="button">B</button>
-              <button className="tool" title="Italic" type="button">I</button>
-              <button className="tool" title="Quote" type="button">Q</button>
-              <button className="tool" title="Scene break" type="button">S</button>
-              <button
-                className="tool"
-                disabled={!draft || !codexEntries.length || Boolean(progressionBusyId)}
-                onClick={() => void insertProgressionBlockAfter(null)}
-                title={progressionText.title}
-                type="button"
-              >
-                SC
-              </button>
-            </div>
             <div className="top-actions">
               <span className={saveClass(saveStatus)}>{saveText(saveStatus)}</span>
               <span className="pill">{selectedScene?.metadata.pov ? `${selectedScene.metadata.pov} POV` : "No POV"}</span>
               <span className="pill">{draft ? `${sceneEditorCharacterCount} chars / ${sceneEditorWordCount} words` : "No scene"}</span>
-              {draft ? <span className="pill">{`${draft.document.blocks.length} blocks`}</span> : null}
               <button
                 aria-pressed={isFocusMode}
                 className={`btn write-focus-action${isFocusMode ? " primary" : ""}`}
@@ -1368,9 +972,40 @@ export function WriteWorkspace({
                   onChange={(event) => onUpdateTitle(event.target.value)}
                   value={draft.title}
                 />
-                <div aria-label="Scene content" className="scene-block-editor">
-                  {draft.document.blocks.map((block, index) => renderSceneBlock(block, index))}
-                </div>
+                <NovelEditor
+                  canAddStoryChange={Boolean(codexEntries.length)}
+                  document={draft.document}
+                  isStoryChangeBusy={Boolean(progressionBusyId)}
+                  onAddStoryChangeAfter={(blockId) => void insertProgressionBlockAfter(blockId)}
+                  onChange={onUpdateDocument}
+                  onDeleteCurrent={deleteCurrentEditorBlock}
+                  onInsertParagraphAfter={insertParagraphAfter}
+                  onSelectStoryChange={setSelectedProgressionBlockId}
+                />
+                {sceneMentions.length ? (
+                  <div className="scene-codex-mentions" aria-label={uiText.writeEditor.aria.codexMentions}>
+                    {sceneMentions.map((mention) => (
+                      <button
+                        className="codex-mention-chip"
+                        key={`${mention.entryId}-${mention.start}-${mention.end}`}
+                        onClick={() => setActiveBlockMention((current) =>
+                          current?.entryId === mention.entryId
+                            ? null
+                            : { blockId: "scene", entryId: mention.entryId },
+                        )}
+                        type="button"
+                      >
+                        {mention.matchedText}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {activeMentionEntry ? (
+                  <div className="scene-content-preview" aria-label={`${activeMentionEntry.metadata.name} canon description`}>
+                    <div className="preview-title">{activeMentionEntry.metadata.name}</div>
+                    <p>{activeMentionEntry.description || "No description"}</p>
+                  </div>
+                ) : null}
               </>
             ) : (
               <div className="large-note">
@@ -1421,39 +1056,22 @@ export function WriteWorkspace({
               </div>
               <div className="brief-block">
                 <div className="brief-label">{progressionText.panelTitle}</div>
-                {progressionBlocks.length ? (
-                  <div className="scene-progression-panel" aria-label={progressionText.panelLabel}>
-                    {progressionBlocks.map((block, index) => {
-                      const progression = progressionsById.get(block.progressionId);
-                      const progressionDraft = progressionDrafts[block.progressionId] ??
-                        (progression ? progressionDraftFromDocument(progression) : null);
-                      const entry = progressionDraft
-                        ? codexEntries.find((candidate) => candidate.metadata.id === progressionDraft.entryId) ?? null
-                        : null;
-                      return (
-                        <article className="scene-progression-panel-row" key={block.id}>
-                          <div>
-                            <strong>{entry?.metadata.name ?? progressionText.title}</strong>
-                            <span>{progressionDraft?.summary || (progressionDraft ? fieldLabel(progressionDraft.fieldSelection, codexDetailTypes) : progressionText.missingRecord)}</span>
-                          </div>
-                          <div className="progression-panel-actions">
-                            <span className="pill">{index + 1}</span>
-                            <button
-                              className="btn compact"
-                              disabled={!progression || Boolean(progressionBusyId)}
-                              onClick={() => void deleteProgressionBlock(block)}
-                              type="button"
-                            >
-                              {uiText.actions.delete}
-                            </button>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="brief-text">{progressionText.panelEmpty}</p>
-                )}
+                <StoryChangePanel
+                  blocks={progressionBlocks}
+                  busyId={progressionBusyId}
+                  collapsedBlockIds={collapsedProgressionBlocks}
+                  detailTypes={codexDetailTypes}
+                  drafts={progressionDrafts}
+                  entries={codexEntries}
+                  onDelete={(block) => void deleteProgressionBlock(block)}
+                  onSave={(progressionId) => void saveProgression(progressionId)}
+                  onSelect={setSelectedProgressionBlockId}
+                  onToggleCollapse={(blockId) => setCollapsedProgressionBlocks((current) => toggleSetValue(current, blockId))}
+                  onUpdateDraft={updateProgressionDraft}
+                  previews={progressionPreviews}
+                  progressionsById={progressionsById}
+                  selectedBlockId={selectedProgressionBlockId}
+                />
               </div>
             </div>
           </aside>

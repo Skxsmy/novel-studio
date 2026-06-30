@@ -22,6 +22,7 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **NS-410 Slice 8 Review Repair**: Closed review findings in the story-change block flow. Insert/delete now use scene-level transaction-backed commands that write scene JSON and Progression JSON together; deleting a story-change block first saves dirty scene drafts so prose edits are not overwritten; first-block previews read the previous narrative scene effective state; and web/storage/server tests cover the repaired paths.
 - **Project Lifecycle Delete Repair**: Added Library Trash, Restore, and permanent project-directory deletion. Permanent delete requires typing the exact project name in a confirmation dialog and is enforced by the server/storage layer before files are removed.
 - **NS-410 Slice 9**: Added the Codex Progressions tab for baseline versus selected-scene effective field state, hidden-future count messaging, scene selection, and field-grouped Progression history. The UI consumes existing unified Progression/effective-entry APIs, centralizes new Codex copy in `codexViewModel`, and does not render Progression IDs or revisions in the author workflow.
+- **NS-410 Write Editor Refactor**: Replaced the visible repeated block-card/textarea Write manuscript surface with a continuous Tiptap-backed editor over `SceneBlockDocument`. Paragraph insertion/deletion, Focus mode, Codex mentions, story-change create/edit/delete/collapse, and Slice 9 Codex Progressions regressions remain covered; story-change editing moved to compact manuscript anchors plus the Scene Brief panel. The floating formatting panel/current-text type selector was removed, so scene-break is not exposed as a destructive conversion for active prose. Tiptap packages are used only as runtime editor integration and are MIT licensed. Vite/Rolldown manual chunks now split React, Tiptap/ProseMirror, CodeMirror, and other vendor modules so the current production build no longer emits the 500 kB chunk warning.
 
 ### Project Foundation
 
@@ -95,9 +96,11 @@ This changelog retains the historical milestone record from the earlier Chinese 
 
 ### Current Validation Snapshot
 
-- Focused NS-410 Slice 9 validation passed: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed 42/42 after fixing the initial hidden-tab test query issue, and `npm.cmd run build -w @novel-studio/web` passed with the existing Vite large-chunk warning. Earlier Slice 8/project lifecycle focused validations remain recorded in `docs/testing/NS-410_ACCEPTANCE.md`.
-- `npm.cmd run build`: passed in the latest validation, with the existing Vite large-chunk warning.
-- `npm.cmd run test`: passed in the latest validation; server 25, web 50, AI 20, and storage 67 tests.
+- Focused NS-410 Write editor refactor validation passed: `npm.cmd run test -w @novel-studio/web -- sceneBlockMapping.test.ts AppShell.test.tsx` passed 50/50 after removing the formatting panel and destructive text-type conversion path. Earlier Slice 8/Slice 9/project lifecycle focused validations remain recorded in `docs/testing/NS-410_ACCEPTANCE.md`.
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run build -w @novel-studio/web`: passed with no Vite large-chunk warning; largest emitted chunks were `editor-codemirror` at 494.48 kB and `editor-tiptap` at 429.21 kB.
+- `npm.cmd run build`: passed with no Vite large-chunk warning after adding manual chunks.
+- `npm.cmd run test`: passed in the latest validation; server 25, web 58, AI 20, and storage 67 tests.
 - Focused Codex Details checks also passed: storage `repository.test.ts` 43 tests, server `app.test.ts context-routes.test.ts` 8 tests, and web `AppShell.test.tsx EditorSurface.test.tsx` 44 tests.
 - Focused Codex layout / preview bounds checks passed: `EditorSurface.test.tsx` 8 tests, `AppShell.test.tsx` 38 tests, and web typecheck.
 - `git diff --check` passed with line-ending warnings only.

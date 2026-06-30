@@ -2,9 +2,11 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
+import type { Editor, JSONContent } from "@tiptap/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { SceneBlock, SceneBlockDocument } from "@novel-studio/contracts";
+import { sceneBlockDocumentToNovelEditorDocument } from "../features/write/editor";
 
 if (typeof Range !== "undefined") {
   if (!Range.prototype.getClientRects) {
@@ -120,6 +122,23 @@ function insertEditorText(label: string, value: string) {
       userEvent: "input.test",
     });
   });
+}
+
+function manuscriptEditor() {
+  const element = screen.getByLabelText("Manuscript editor") as HTMLElement & { __novelStudioEditor?: Editor };
+  if (!element.__novelStudioEditor) throw new Error("Missing Tiptap manuscript editor");
+  return element.__novelStudioEditor;
+}
+
+function setManuscriptDocument(document: SceneBlockDocument) {
+  const editor = manuscriptEditor();
+  act(() => {
+    editor.commands.setContent(sceneBlockDocumentToNovelEditorDocument(document) as JSONContent);
+  });
+}
+
+function setManuscriptBlocks(blocks: SceneBlock[]) {
+  setManuscriptDocument({ schemaVersion: 1, blocks });
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -1690,10 +1709,12 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
     const editor = await screen.findByLabelText("Scene content");
     expect(EditorView.findFromDOM(editor)).toBeNull();
+    expect(screen.getByLabelText("Manuscript editor")).toBeTruthy();
+    const mentions = await screen.findByLabelText("Scene Codex mentions");
     await waitFor(() => {
-      expect(editor.querySelector(".block-codex-mention")).toBeTruthy();
+      expect(mentions.querySelector(".codex-mention-chip")).toBeTruthy();
     });
-    const mark = editor.querySelector(".block-codex-mention");
+    const mark = mentions.querySelector(".codex-mention-chip");
     if (!mark) throw new Error("Missing Bellgate mark");
 
     expect(screen.queryByText(/codex marks/i)).toBeNull();
@@ -2651,8 +2672,8 @@ describe("App shell", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
-    const block = await screen.findByLabelText("Scene block 1");
-    fireEvent.change(block, { target: { value: "New paragraph" } });
+    await screen.findByLabelText("Manuscript editor");
+    setManuscriptBlocks([{ id: firstBlockId, kind: "paragraph", text: "New paragraph" }]);
     fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
@@ -2669,16 +2690,60 @@ describe("App shell", () => {
     });
   });
 
+  it("renders an empty scene as a continuous manuscript surface instead of a formatting panel", async () => {
+    mockFetch({
+      initialSeriesDetail: seriesDetail(""),
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    const editorSurface = await screen.findByLabelText("Scene content");
+
+    expect(editorSurface.getAttribute("data-empty")).toBe("true");
+    expect(editorSurface.getAttribute("data-placeholder")).toBe("Continue the scene...");
+    expect(screen.queryByRole("button", { name: "Open editor tools" })).toBeNull();
+    expect(screen.queryByLabelText("Current paragraph style")).toBeNull();
+    expect(document.querySelector(".scene-block")).toBeNull();
+  });
+
+  it("saves direct continuous manuscript input without the old card editor", async () => {
+    const fetchMock = mockFetch({
+      initialSeriesDetail: seriesDetail(""),
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    await screen.findByLabelText("Manuscript editor");
+
+    const editor = manuscriptEditor();
+    act(() => {
+      editor.commands.insertContent("First line");
+      editor.commands.splitBlock();
+      editor.commands.insertContent("Second line");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save now" }));
+
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
+      ));
+      expect(putCall).toBeTruthy();
+      const body = JSON.parse(String(putCall![1]?.body));
+      expect(body.document.blocks.map((block: { text?: string }) => block.text)).toEqual(["First line", "Second line"]);
+      expect(document.querySelector(".scene-block")).toBeNull();
+    });
+  });
+
   it("saves ordinary heading and scene break blocks without UI-only markup", async () => {
     const fetchMock = mockFetch();
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
-    const editor = await screen.findByLabelText("Scene content");
-    fireEvent.change(await screen.findByLabelText("Block 1 type"), { target: { value: "heading" } });
-    fireEvent.change(screen.getByLabelText("Scene block 1"), { target: { value: "A Hard Turn" } });
-    fireEvent.click(within(editor).getByRole("button", { name: "Add block after 1" }));
-    fireEvent.change(await screen.findByLabelText("Block 2 type"), { target: { value: "sceneBreak" } });
+    await screen.findByLabelText("Manuscript editor");
+    setManuscriptBlocks([
+      { id: firstBlockId, kind: "heading", level: 2, text: "A Hard Turn" },
+      { id: secondBlockId, kind: "sceneBreak" },
+    ]);
     fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
@@ -2690,6 +2755,47 @@ describe("App shell", () => {
       expect(body.document.blocks.map((block: { kind: string }) => block.kind)).toEqual(["heading", "sceneBreak"]);
       expect(JSON.stringify(body)).not.toContain("scene-block");
       expect(JSON.stringify(body)).not.toContain("activeBlockMention");
+      expect(document.querySelector(".scene-block")).toBeNull();
+    });
+  });
+
+  it("adds and deletes paragraphs through the continuous manuscript editor controls", async () => {
+    const fetchMock = mockFetch({
+      initialSeriesDetail: seriesDetail("Opening line."),
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    await screen.findByLabelText("Manuscript editor");
+
+    fireEvent.click(screen.getByRole("button", { name: "Add paragraph" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save now" }));
+
+    await waitFor(() => {
+      const documentSaveCalls = fetchMock.mock.calls.filter(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
+      ));
+      expect(documentSaveCalls).toHaveLength(1);
+      const body = JSON.parse(String(documentSaveCalls[0]![1]?.body));
+      expect(body.document.blocks).toEqual([
+        expect.objectContaining({ kind: "paragraph", text: "Opening line." }),
+        expect.objectContaining({ kind: "paragraph", text: "" }),
+      ]);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete current item" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save now" }));
+
+    await waitFor(() => {
+      const documentSaveCalls = fetchMock.mock.calls.filter(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
+      ));
+      expect(documentSaveCalls).toHaveLength(2);
+      const body = JSON.parse(String(documentSaveCalls[1]![1]?.body));
+      expect(body.document.blocks).toEqual([
+        expect.objectContaining({ kind: "paragraph", text: "Opening line." }),
+      ]);
+      expect(document.querySelector(".scene-block")).toBeNull();
     });
   });
 
@@ -2698,7 +2804,8 @@ describe("App shell", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
-    fireEvent.change(await screen.findByLabelText("Scene block 1"), { target: { value: " \n " } });
+    await screen.findByLabelText("Manuscript editor");
+    setManuscriptBlocks([{ id: firstBlockId, kind: "paragraph", text: " \n " }]);
     fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
@@ -2720,7 +2827,7 @@ describe("App shell", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
-    const editor = await screen.findByLabelText("Scene content");
+    await screen.findByLabelText("Manuscript editor");
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/v1/series/${seriesId}/codex/progressions?kind=field&sceneId=${sceneId}`,
@@ -2728,9 +2835,9 @@ describe("App shell", () => {
       );
     });
 
-    fireEvent.click(within(editor).getByRole("button", { name: "Add story change after 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Story change" }));
 
-    expect(await screen.findByLabelText("Story change entry 2")).toBeTruthy();
+    expect(await screen.findByLabelText("Story change entry")).toBeTruthy();
     await waitFor(() => {
       const createCall = fetchMock.mock.calls.find(([url, init]) => (
         url === `/api/v1/series/${seriesId}/scenes/${sceneId}/progression-blocks` && init?.method === "POST"
@@ -2755,15 +2862,15 @@ describe("App shell", () => {
       url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
     ))).toBe(false);
 
-    fireEvent.change(screen.getByLabelText("Story change summary 2"), {
+    fireEvent.change(screen.getByLabelText("Story change summary"), {
       target: { value: "Lock state changes." },
     });
-    fireEvent.change(screen.getByLabelText("Story change text 2"), {
+    fireEvent.change(screen.getByLabelText("Story change text"), {
       target: { value: "The lock answers to the bell." },
     });
 
     expect(screen.getByDisplayValue("The lock answers to the bell.")).toBeTruthy();
-    const preview = await screen.findByLabelText("Story change preview 2");
+    const preview = await screen.findByLabelText("Story change preview");
     expect(within(preview).getByText("Baseline lock state.")).toBeTruthy();
     expect(within(preview).getByText(/The lock answers to the bell/)).toBeTruthy();
 
@@ -2783,16 +2890,22 @@ describe("App shell", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
-    expect(screen.queryByLabelText("Story change text 2")).toBeNull();
+    expect(screen.queryByLabelText("Story change text")).toBeNull();
     expect(screen.getAllByText("Lock state changes.").length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getByRole("button", { name: "Expand" }));
-    expect(screen.getByLabelText("Story change text 2")).toBeTruthy();
+    expect(screen.getByLabelText("Story change text")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Scene block 1"), {
-      target: { value: "Opening line revised." },
-    });
-    const panel = screen.getByLabelText("Scene story changes");
-    fireEvent.click(within(panel).getByRole("button", { name: "Delete" }));
+    setManuscriptBlocks([
+      { id: firstBlockId, kind: "paragraph", text: "Opening line revised." },
+      {
+        createdAt: "2026-06-24T00:00:00.000Z",
+        id: secondBlockId,
+        kind: "codexProgression",
+        progressionId,
+        updatedAt: "2026-06-24T00:00:00.000Z",
+      },
+    ]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
     await waitFor(() => {
       const dirtySaveCallIndex = fetchMock.mock.calls.findIndex(([url, init]) => (
         url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` &&
@@ -2808,8 +2921,8 @@ describe("App shell", () => {
       expect(deleteCallIndex).toBeGreaterThan(dirtySaveCallIndex);
     });
     expect(await screen.findByText("No story changes in this scene.")).toBeTruthy();
-    expect(screen.queryByLabelText("Story change text 2")).toBeNull();
-    expect(screen.getByDisplayValue("Opening line revised.")).toBeTruthy();
+    expect(screen.queryByLabelText("Story change text")).toBeNull();
+    expect(manuscriptEditor().getText()).toContain("Opening line revised.");
   });
 
   it("previews the first write progression block from the previous scene effective state", async () => {
@@ -2880,7 +2993,7 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
     fireEvent.click(await screen.findByRole("button", { name: /^Second Scene/i }));
 
-    const preview = await screen.findByLabelText("Story change preview 1");
+    const preview = await screen.findByLabelText("Story change preview");
     await waitFor(() => {
       expect(within(preview).getByText("Previous scene truth.")).toBeTruthy();
       expect(within(preview).getByText(/Current scene truth/)).toBeTruthy();

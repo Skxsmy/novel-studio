@@ -89,13 +89,20 @@ export const uiText = {
       save: "Save change",
     },
     aria: {
-      addAfter: (blockNumber: number) => `Add story change after ${blockNumber}`,
+      addAfter: () => "Add story change here",
       entry: (blockNumber: number) => `Story change entry ${blockNumber}`,
       field: (blockNumber: number) => `Story change field ${blockNumber}`,
       operation: (blockNumber: number) => `Story change operation ${blockNumber}`,
       preview: (blockNumber: number) => `Story change preview ${blockNumber}`,
       summary: (blockNumber: number) => `Story change summary ${blockNumber}`,
       text: (blockNumber: number) => `Story change text ${blockNumber}`,
+      selectedEntry: "Story change entry",
+      selectedField: "Story change field",
+      selectedOperation: "Story change operation",
+      selectedPreview: "Story change preview",
+      selectedSummary: "Story change summary",
+      selectedText: "Story change text",
+      storyChangeList: "Story change list",
     },
     errors: {
       addFailed: "Failed to add story change.",
@@ -103,6 +110,22 @@ export const uiText = {
       deleteFailed: "Failed to delete story change.",
       missingEntry: "Create a Codex entry before adding a story change.",
       notLoaded: "The story change record is not loaded.",
+    },
+  },
+  writeEditor: {
+    aria: {
+      codexMentions: "Scene Codex mentions",
+      content: "Scene content",
+      editor: "Manuscript editor",
+      toolbar: "Editor tools",
+    },
+    placeholders: {
+      scene: "Continue the scene...",
+    },
+    tools: {
+      addParagraph: "Add paragraph",
+      deleteCurrent: "Delete current item",
+      storyChange: "Story change",
     },
   },
   navigation: {

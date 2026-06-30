@@ -15,6 +15,9 @@
     "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.43.1",
     "@novel-studio/contracts": "*",
+    "@tiptap/core": "^3.27.1",
+    "@tiptap/react": "^3.27.1",
+    "@tiptap/starter-kit": "^3.27.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
