@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, rename, rm, stat, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { StorageError } from "./errors.js";
 
@@ -19,12 +19,43 @@ export function assertInside(root: string, candidate: string): string {
 export async function atomicWrite(filePath: string, value: string): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.${randomUUID()}.tmp`;
-  await writeFile(tempPath, value, { encoding: "utf8", flag: "wx" });
+  await writeFileDurably(tempPath, value, "wx");
   try {
     await rename(tempPath, filePath);
+    await flushDirectory(path.dirname(filePath));
   } catch (error) {
     await rm(tempPath, { force: true });
     throw error;
+  }
+}
+
+export async function writeFileDurably(
+  filePath: string,
+  value: string,
+  flag: "w" | "wx" = "w",
+): Promise<void> {
+  const handle = await open(filePath, flag);
+  try {
+    await handle.writeFile(value, { encoding: "utf8" });
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+export async function flushDirectory(directoryPath: string): Promise<void> {
+  let handle: FileHandle | undefined;
+  try {
+    handle = await open(directoryPath, "r");
+    await handle.sync();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EISDIR" || code === "EINVAL" || code === "ENOTSUP" || code === "EPERM") {
+      return;
+    }
+    throw error;
+  } finally {
+    await handle?.close();
   }
 }
 

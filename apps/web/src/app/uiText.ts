@@ -51,6 +51,7 @@ export const uiText = {
     deleteProjectFailed: "Failed to permanently delete project",
     moveProjectToTrashFailed: "Failed to move project to trash",
     restoreProjectFailed: "Failed to restore project",
+    saveSceneFailed: "Failed to save scene",
   },
   writeProgression: {
     title: "Codex progression",
@@ -105,12 +106,36 @@ export const uiText = {
     aria: {
       codexMentions: "Scene Codex mentions",
       content: "Scene content",
+      codexDescriptionPreview: (name: string) => `${name} canon description`,
       editor: "Manuscript editor",
+      sceneTitle: "Scene title",
       toolbar: "Editor tools",
     },
+    empty: {
+      noDescription: "No description",
+      noSceneBody: "Select a scene to begin writing.",
+      noSceneTitle: "No scene open",
+    },
+    focus: {
+      enter: "Focus",
+      exit: "Exit Focus",
+    },
+    loadingCodex: "Loading codex",
     placeholders: {
       scene: "Continue the scene...",
     },
+    sceneBrief: {
+      cast: "Cast",
+      continuity: "Continuity",
+      goal: "Goal",
+      hidePanel: "Hide panel",
+      linkedCharacters: (count: number) => `${count} linked characters.`,
+      noContinuity: "No continuity note yet.",
+      noGoal: "No scene goal yet.",
+      subtitle: "Visible while writing",
+      title: "Scene Brief",
+    },
+    untitledScene: "Untitled Scene",
     tools: {
       insertMenu: "Insert",
       storyChange: "Codex progression",

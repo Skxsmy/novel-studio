@@ -27,8 +27,10 @@ Codex previously had `codex/progressions/*.yaml` for world facts and relationshi
 11. Progression supports only `add` and `replace` in v1. Empty `replace` is the deletion/hidden-field mechanism for field targets.
 12. A field target references `entryId` and either Canon description or a stable reusable detail type ID. World targets reference an entry and an author-readable state key. Relationship targets reference a relation and an author-readable state key.
 13. Embedded Write progression blocks reference unified Progression records by ID. Deleting the block deletes the linked Progression when no reference blocker exists.
-14. Projection evaluates narrative scene order plus same-scene block order and returns projected entry fields, world/relationship state, field-state metadata, and hidden future count.
-15. Character knowledge remains a separate JSON authority system and may reference unified JSON Progression IDs. It does not preserve the old YAML progression path.
+14. Write-block sourced Progressions are created through scene-level progression-block commands. Generic Progression CRUD must not attach `write-block` sources to ordinary manuscript blocks; when an existing write-block Progression is updated, its source must still reference a `codexProgression` scene block that points back to the same Progression.
+15. Projection evaluates narrative scene order plus same-scene block order and returns projected entry fields, world/relationship state, field-state metadata, and hidden future count.
+16. `effectiveToSceneId` is an optional inclusive end-scene boundary for v1 Progression and Knowledge records. It must point to a later scene than `effectiveFromSceneId`; v1 does not define a block-level end boundary.
+17. Character knowledge remains a separate JSON authority system and may reference unified JSON Progression IDs. It does not preserve the old YAML progression path.
 
 ## Consequences
 

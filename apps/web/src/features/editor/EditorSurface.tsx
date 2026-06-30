@@ -23,6 +23,7 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 import type { CodexEntryDocument } from "@novel-studio/contracts";
+import { uiText } from "../../app/uiText";
 import { findInlineCodexMentions } from "../codex/inlineMentions";
 
 export interface EditorSurfaceStatus {
@@ -614,7 +615,7 @@ export function EditorSurface({
   ariaLabel,
   className = "",
   codexEntries = [],
-  emptyPreviewText = "No description",
+  emptyPreviewText = uiText.writeEditor.empty.noDescription,
   onChange,
   onStateChange,
   placeholder = "",

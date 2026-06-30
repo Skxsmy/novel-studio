@@ -153,7 +153,6 @@ describe("local API", () => {
     expect(createResponse.statusCode).toBe(201);
     const series = createResponse.json();
     const scene = series.scenes[0];
-    const createdAt = "2026-06-29T00:00:00.000Z";
 
     const initialDocument = await app.inject({
       method: "GET",
@@ -202,47 +201,39 @@ describe("local API", () => {
       payload: { categoryId: "character", name: "Signal Keeper" },
     });
     expect(entry.statusCode).toBe(201);
-    const progression = await app.inject({
+    const embedded = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/progression-blocks`,
       payload: {
-        kind: "field",
-        entryId: entry.json().metadata.id,
-        relationId: null,
-        field: { kind: "description", detailTypeId: null },
-        fieldKey: null,
-        operation: "add",
-        body: "The signal changes here.",
-        summary: "Signal progression.",
-        effectiveFromSceneId: scene.metadata.id,
-        source: {
-          kind: "write-block",
-          sceneId: scene.metadata.id,
-          blockId: "00000000-0000-4000-8000-000000001103",
+        baseRevision: stagedDocument.json().revision,
+        afterBlockId: "00000000-0000-4000-8000-000000001102",
+        progression: {
+          kind: "field",
+          entryId: entry.json().metadata.id,
+          relationId: null,
+          field: { kind: "description", detailTypeId: null },
+          fieldKey: null,
+          operation: "add",
+          body: "The signal changes here.",
+          summary: "Signal progression.",
+          evidence: [],
         },
-        evidence: [],
       },
     });
-    expect(progression.statusCode).toBe(201);
+    expect(embedded.statusCode).toBe(201);
 
     const updateDocument = await app.inject({
       method: "PUT",
       url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/document`,
       payload: {
-        baseRevision: stagedDocument.json().revision,
+        baseRevision: embedded.json().scene.revision,
         title: "Block API",
         document: {
           schemaVersion: 1,
           blocks: [
             stagedDocument.json().document.blocks[0],
             stagedDocument.json().document.blocks[1],
-            {
-              id: "00000000-0000-4000-8000-000000001103",
-              kind: "codexProgression",
-              progressionId: progression.json().progression.id,
-              createdAt,
-              updatedAt: createdAt,
-            },
+            embedded.json().block,
           ],
         },
       },
@@ -266,7 +257,7 @@ describe("local API", () => {
       markdown: "### Signal\n\nScene text from the document endpoint.",
     });
     expect(exportResponse.json().markdown).not.toContain("codexProgression");
-    expect(exportResponse.json().markdown).not.toContain(progression.json().progression.id);
+    expect(exportResponse.json().markdown).not.toContain(embedded.json().progression.progression.id);
 
     const staleResponse = await app.inject({
       method: "PUT",
@@ -538,59 +529,55 @@ describe("local API", () => {
 
     const firstAdd = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      url: `/api/v1/series/${series.manifest.id}/scenes/${updatedScene.json().metadata.id}/progression-blocks`,
       payload: {
-        kind: "field",
-        entryId: entry.json().metadata.id,
-        relationId: null,
-        field: { kind: "description", detailTypeId: null },
-        fieldKey: null,
-        operation: "add",
-        body: "Visible at first block.",
-        summary: "First block summary.",
-        effectiveFromSceneId: updatedScene.json().metadata.id,
-        source: {
-          kind: "write-block",
-          sceneId: updatedScene.json().metadata.id,
-          blockId: firstBlock.id,
+        baseRevision: updatedScene.json().revision,
+        afterBlockId: firstBlock.id,
+        progression: {
+          kind: "field",
+          entryId: entry.json().metadata.id,
+          relationId: null,
+          field: { kind: "description", detailTypeId: null },
+          fieldKey: null,
+          operation: "add",
+          body: "Visible at first block.",
+          summary: "First block summary.",
+          evidence: [],
         },
-        evidence: [],
       },
     });
     expect(firstAdd.statusCode).toBe(201);
     const secondReplace = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      url: `/api/v1/series/${series.manifest.id}/scenes/${updatedScene.json().metadata.id}/progression-blocks`,
       payload: {
-        kind: "field",
-        entryId: entry.json().metadata.id,
-        relationId: null,
-        field: { kind: "description", detailTypeId: null },
-        fieldKey: null,
-        operation: "replace",
-        body: "Visible at second block.",
-        summary: "Second block summary.",
-        effectiveFromSceneId: updatedScene.json().metadata.id,
-        source: {
-          kind: "write-block",
-          sceneId: updatedScene.json().metadata.id,
-          blockId: secondBlock.id,
+        baseRevision: firstAdd.json().scene.revision,
+        afterBlockId: secondBlock.id,
+        progression: {
+          kind: "field",
+          entryId: entry.json().metadata.id,
+          relationId: null,
+          field: { kind: "description", detailTypeId: null },
+          fieldKey: null,
+          operation: "replace",
+          body: "Visible at second block.",
+          summary: "Second block summary.",
+          evidence: [],
         },
-        evidence: [],
       },
     });
     expect(secondReplace.statusCode).toBe(201);
 
     const firstEffective = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/codex/entries/${entry.json().metadata.id}/effective?sceneId=${updatedScene.json().metadata.id}&blockId=${firstBlock.id}`,
+      url: `/api/v1/series/${series.manifest.id}/codex/entries/${entry.json().metadata.id}/effective?sceneId=${updatedScene.json().metadata.id}&blockId=${firstAdd.json().block.id}`,
     });
     expect(firstEffective.statusCode).toBe(200);
     expect(firstEffective.json().entry.description).toBe("Visible at first block.\n\nBaseline description.");
     expect(firstEffective.json().hiddenFutureFieldProgressionCount).toBe(1);
     expect(firstEffective.json().fieldStates[0]).toMatchObject({
       source: "progression",
-      lastProgressionId: firstAdd.json().progression.id,
+      lastProgressionId: firstAdd.json().progression.progression.id,
       hiddenFutureCount: 1,
     });
     const firstJson = JSON.stringify(firstEffective.json());
@@ -600,7 +587,7 @@ describe("local API", () => {
 
     const codexPreview = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/codex/context?sceneId=${updatedScene.json().metadata.id}&blockId=${firstBlock.id}&pinnedIds=${entry.json().metadata.id}`,
+      url: `/api/v1/series/${series.manifest.id}/codex/context?sceneId=${updatedScene.json().metadata.id}&blockId=${firstAdd.json().block.id}&pinnedIds=${entry.json().metadata.id}`,
     });
     expect(codexPreview.statusCode).toBe(200);
     expect(codexPreview.json().hiddenFutureFieldProgressionCount).toBe(1);
@@ -610,20 +597,20 @@ describe("local API", () => {
       count: 1,
     }]);
     const previewJson = JSON.stringify(codexPreview.json());
-    expect(previewJson).not.toContain(secondReplace.json().progression.id);
-    expect(previewJson).not.toContain(secondReplace.json().progression.body);
-    expect(previewJson).not.toContain(secondReplace.json().progression.summary);
+    expect(previewJson).not.toContain(secondReplace.json().progression.progression.id);
+    expect(previewJson).not.toContain(secondReplace.json().progression.progression.body);
+    expect(previewJson).not.toContain(secondReplace.json().progression.progression.summary);
 
     const secondEffective = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/codex/entries/${entry.json().metadata.id}/effective?sceneId=${updatedScene.json().metadata.id}&blockId=${secondBlock.id}`,
+      url: `/api/v1/series/${series.manifest.id}/codex/entries/${entry.json().metadata.id}/effective?sceneId=${updatedScene.json().metadata.id}&blockId=${secondReplace.json().block.id}`,
     });
     expect(secondEffective.statusCode).toBe(200);
     expect(secondEffective.json().entry.description).toBe("Visible at second block.");
     expect(secondEffective.json().hiddenFutureFieldProgressionCount).toBe(0);
     expect(secondEffective.json().fieldStates[0]).toMatchObject({
       source: "progression",
-      lastProgressionId: secondReplace.json().progression.id,
+      lastProgressionId: secondReplace.json().progression.progression.id,
       hiddenFutureCount: 0,
     });
 

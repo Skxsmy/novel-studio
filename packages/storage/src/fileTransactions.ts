@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { StorageError } from "./errors.js";
-import { assertInside, atomicWrite, pathExists } from "./fileSystem.js";
+import { assertInside, atomicWrite, flushDirectory, pathExists, writeFileDurably } from "./fileSystem.js";
 
 export interface FileMutation {
   targetPath: string;
@@ -141,7 +141,7 @@ export async function applyFileTransaction(
       if (mutation.content === undefined) {
         throw new StorageError("文件事务缺少写入内容", "INVALID_DATA", { targetPath });
       }
-      await writeFile(temporary, mutation.content, { encoding: "utf8", flag: "wx" });
+      await writeFileDurably(temporary, mutation.content, "wx");
     }
     entries.push({
       target: path.relative(seriesRoot, targetPath),
@@ -164,6 +164,9 @@ export async function applyFileTransaction(
       if (entry.hadOriginal) await rename(target, backup);
       if (entry.temporary) await rename(path.join(seriesRoot, entry.temporary), target);
     }
+    await Promise.all([...new Set(entries.map((entry) => path.dirname(path.join(seriesRoot, entry.target))))].map(
+      (directory) => flushDirectory(directory),
+    ));
     await writeJournal("committed");
     await Promise.all(entries.map((entry) => rm(path.join(seriesRoot, entry.backup), { force: true })));
     await rm(journalPath, { force: true });

@@ -157,39 +157,32 @@ describe("ProjectRepository", () => {
       categoryId: "character",
       name: "Signal Keeper",
     });
-    const progression = await store.createCodexProgression(series.manifest.id, {
-      kind: "field",
-      entryId: entry.metadata.id,
-      relationId: null,
-      field: { kind: "description", detailTypeId: null },
-      fieldKey: null,
-      operation: "add",
-      body: "The signal changes here.",
-      summary: "Signal progression.",
-      effectiveFromSceneId: initial.metadata.id,
-      source: {
-        kind: "write-block",
-        sceneId: initial.metadata.id,
-        blockId: "00000000-0000-4000-8000-000000000103",
+    const embedded = await store.createSceneProgressionBlock(series.manifest.id, initial.metadata.id, {
+      baseRevision: staged.revision,
+      afterBlockId: staged.document.blocks[1]!.id,
+      progression: {
+        kind: "field",
+        entryId: entry.metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "add",
+        body: "The signal changes here.",
+        summary: "Signal progression.",
+        evidence: [],
       },
-      evidence: [],
     });
+    const progression = embedded.progression;
 
     const updated = await store.updateSceneBlockDocument(series.manifest.id, initial.metadata.id, {
-      baseRevision: staged.revision,
+      baseRevision: embedded.scene.revision,
       title: "Block Document",
       document: {
         schemaVersion: 1,
         blocks: [
           staged.document.blocks[0]!,
           staged.document.blocks[1]!,
-          {
-            id: "00000000-0000-4000-8000-000000000103",
-            kind: "codexProgression",
-            progressionId: progression.progression.id,
-            createdAt,
-            updatedAt: createdAt,
-          },
+          embedded.block,
           staged.document.blocks[3]!,
         ],
       },
@@ -285,68 +278,73 @@ describe("ProjectRepository", () => {
       categoryId: "character",
       name: "Guarded Entry",
     });
-    const firstProgression = await store.createCodexProgression(series.manifest.id, {
-      kind: "field",
-      entryId: entry.metadata.id,
-      relationId: null,
-      field: { kind: "description", detailTypeId: null },
-      fieldKey: null,
-      operation: "add",
-      body: "First block state.",
-      summary: "First block state.",
-      effectiveFromSceneId: scene.metadata.id,
-      source: { kind: "write-block", sceneId: scene.metadata.id, blockId: firstBlock!.id },
-      evidence: [],
-    });
-    const secondProgression = await store.createCodexProgression(series.manifest.id, {
-      kind: "field",
-      entryId: entry.metadata.id,
-      relationId: null,
-      field: { kind: "description", detailTypeId: null },
-      fieldKey: null,
-      operation: "add",
-      body: "Second block state.",
-      summary: "Second block state.",
-      effectiveFromSceneId: scene.metadata.id,
-      source: { kind: "write-block", sceneId: scene.metadata.id, blockId: secondBlock!.id },
-      evidence: [],
-    });
-    const otherProgression = await store.createCodexProgression(series.manifest.id, {
-      kind: "field",
-      entryId: entry.metadata.id,
-      relationId: null,
-      field: { kind: "description", detailTypeId: null },
-      fieldKey: null,
-      operation: "add",
-      body: "Other scene state.",
-      summary: "Other scene state.",
-      effectiveFromSceneId: otherScene.metadata.id,
-      source: {
-        kind: "write-block",
-        sceneId: otherScene.metadata.id,
-        blockId: otherScene.document.blocks[0]!.id,
+    const firstEmbedded = await store.createSceneProgressionBlock(series.manifest.id, scene.metadata.id, {
+      baseRevision: scene.revision,
+      afterBlockId: firstBlock!.id,
+      progression: {
+        kind: "field",
+        entryId: entry.metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "add",
+        body: "First block state.",
+        summary: "First block state.",
+        evidence: [],
       },
-      evidence: [],
     });
+    const secondEmbedded = await store.createSceneProgressionBlock(series.manifest.id, scene.metadata.id, {
+      baseRevision: firstEmbedded.scene.revision,
+      afterBlockId: secondBlock!.id,
+      progression: {
+        kind: "field",
+        entryId: entry.metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "add",
+        body: "Second block state.",
+        summary: "Second block state.",
+        evidence: [],
+      },
+    });
+    const otherEmbedded = await store.createSceneProgressionBlock(series.manifest.id, otherScene.metadata.id, {
+      baseRevision: otherScene.revision,
+      afterBlockId: otherScene.document.blocks[0]!.id,
+      progression: {
+        kind: "field",
+        entryId: entry.metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "add",
+        body: "Other scene state.",
+        summary: "Other scene state.",
+        evidence: [],
+      },
+    });
+    const firstProgression = firstEmbedded.progression;
+    const secondProgression = secondEmbedded.progression;
+    const otherProgression = otherEmbedded.progression;
     const archived = await store.archiveCodexProgression(series.manifest.id, secondProgression.progression.id, {
       baseRevision: secondProgression.revision,
     });
     const createdAt = "2026-06-29T00:00:00.000Z";
 
     await expect(store.updateSceneBlockDocument(series.manifest.id, scene.metadata.id, {
-      baseRevision: scene.revision,
+      baseRevision: secondEmbedded.scene.revision,
       document: {
         schemaVersion: 1,
         blocks: [
           {
-            id: firstBlock!.id,
+            id: firstEmbedded.block.id,
             kind: "codexProgression",
             progressionId: firstProgression.progression.id,
             createdAt,
             updatedAt: createdAt,
           },
           {
-            id: secondBlock!.id,
+            id: secondEmbedded.block.id,
             kind: "codexProgression",
             progressionId: firstProgression.progression.id,
             createdAt,
@@ -357,11 +355,11 @@ describe("ProjectRepository", () => {
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
 
     await expect(store.updateSceneBlockDocument(series.manifest.id, scene.metadata.id, {
-      baseRevision: scene.revision,
+      baseRevision: secondEmbedded.scene.revision,
       document: {
         schemaVersion: 1,
         blocks: [{
-          id: secondBlock!.id,
+          id: secondEmbedded.block.id,
           kind: "codexProgression",
           progressionId: firstProgression.progression.id,
           createdAt,
@@ -371,11 +369,11 @@ describe("ProjectRepository", () => {
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
 
     await expect(store.updateSceneBlockDocument(series.manifest.id, scene.metadata.id, {
-      baseRevision: scene.revision,
+      baseRevision: secondEmbedded.scene.revision,
       document: {
         schemaVersion: 1,
         blocks: [{
-          id: firstBlock!.id,
+          id: firstEmbedded.block.id,
           kind: "codexProgression",
           progressionId: otherProgression.progression.id,
           createdAt,
@@ -385,11 +383,11 @@ describe("ProjectRepository", () => {
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
 
     await expect(store.updateSceneBlockDocument(series.manifest.id, scene.metadata.id, {
-      baseRevision: scene.revision,
+      baseRevision: secondEmbedded.scene.revision,
       document: {
         schemaVersion: 1,
         blocks: [{
-          id: secondBlock!.id,
+          id: secondEmbedded.block.id,
           kind: "codexProgression",
           progressionId: archived.progression.id,
           createdAt,
@@ -468,36 +466,22 @@ describe("ProjectRepository", () => {
       categoryId: "character",
       name: "Keeper",
     });
-    const progression = await store.createCodexProgression(series.manifest.id, {
-      kind: "field",
-      entryId: entry.metadata.id,
-      relationId: null,
-      field: { kind: "description", detailTypeId: null },
-      fieldKey: null,
-      operation: "add",
-      body: "Knows the lock has changed.",
-      summary: "Lock knowledge changes.",
-      effectiveFromSceneId: scene.metadata.id,
-      source: { kind: "write-block", sceneId: scene.metadata.id, blockId: slotBlock.id },
-      evidence: [],
-    });
-    const embedded = await store.updateSceneBlockDocument(series.manifest.id, scene.metadata.id, {
+    const embedded = await store.createSceneProgressionBlock(series.manifest.id, scene.metadata.id, {
       baseRevision: scene.revision,
-      title: scene.metadata.title,
-      document: {
-        schemaVersion: 1,
-        blocks: [
-          scene.document.blocks[0]!,
-          {
-            id: slotBlock.id,
-            kind: "codexProgression",
-            progressionId: progression.progression.id,
-            createdAt: "2026-06-29T00:00:00.000Z",
-            updatedAt: "2026-06-29T00:00:00.000Z",
-          },
-        ],
+      afterBlockId: slotBlock.id,
+      progression: {
+        kind: "field",
+        entryId: entry.metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "add",
+        body: "Knows the lock has changed.",
+        summary: "Lock knowledge changes.",
+        evidence: [],
       },
     });
+    const progression = embedded.progression;
     await store.createCodexKnowledge(series.manifest.id, {
       characterEntryId: entry.metadata.id,
       subjectEntryId: entry.metadata.id,
@@ -514,8 +498,8 @@ describe("ProjectRepository", () => {
       }],
     });
 
-    const blocked = await store.deleteSceneProgressionBlock(series.manifest.id, scene.metadata.id, slotBlock.id, {
-      baseRevision: embedded.revision,
+    const blocked = await store.deleteSceneProgressionBlock(series.manifest.id, scene.metadata.id, embedded.block.id, {
+      baseRevision: embedded.scene.revision,
       progressionBaseRevision: progression.revision,
     });
 
@@ -524,7 +508,7 @@ describe("ProjectRepository", () => {
     expect(blocked.blockers).toEqual([
       expect.objectContaining({ kind: "character-knowledge" }),
     ]);
-    expect((await store.getScene(series.manifest.id, scene.metadata.id)).document.blocks[1]).toMatchObject({
+    expect((await store.getScene(series.manifest.id, scene.metadata.id)).document.blocks[2]).toMatchObject({
       kind: "codexProgression",
       progressionId: progression.progression.id,
     });
@@ -1384,40 +1368,46 @@ describe("ProjectRepository", () => {
       type: "trust",
       directed: true,
     });
-    const worldProgression = await store.createCodexProgression(series.manifest.id, {
-      kind: "world",
-      entryId: lin.metadata.id,
-      relationId: null,
-      fieldKey: "state",
-      operation: "add",
-      body: "Lin learns the later-block secret.",
-      summary: "Lin learns the later-block secret.",
-      effectiveFromSceneId: scene.metadata.id,
-      source: { kind: "write-block", sceneId: scene.metadata.id, blockId: secondBlock!.id },
-      evidence: [{
-        sourceType: "scene",
-        sourceId: scene.metadata.id,
-        quote: "After the reveal.",
-        note: "The fact appears in the second block.",
-      }],
+    const worldEmbedded = await store.createSceneProgressionBlock(series.manifest.id, scene.metadata.id, {
+      baseRevision: scene.revision,
+      afterBlockId: secondBlock!.id,
+      progression: {
+        kind: "world",
+        entryId: lin.metadata.id,
+        relationId: null,
+        fieldKey: "state",
+        operation: "add",
+        body: "Lin learns the later-block secret.",
+        summary: "Lin learns the later-block secret.",
+        evidence: [{
+          sourceType: "scene",
+          sourceId: scene.metadata.id,
+          quote: "After the reveal.",
+          note: "The fact appears in the second block.",
+        }],
+      },
     });
-    const relationProgression = await store.createCodexProgression(series.manifest.id, {
-      kind: "relationship",
-      entryId: null,
-      relationId: relation.relation.id,
-      fieldKey: "trust",
-      operation: "replace",
-      body: "Trust changes in the later block.",
-      summary: "Trust changes in the later block.",
-      effectiveFromSceneId: scene.metadata.id,
-      source: { kind: "write-block", sceneId: scene.metadata.id, blockId: secondBlock!.id },
-      evidence: [{
-        sourceType: "scene",
-        sourceId: scene.metadata.id,
-        quote: "After the reveal.",
-        note: "The relation change appears in the second block.",
-      }],
+    const relationEmbedded = await store.createSceneProgressionBlock(series.manifest.id, scene.metadata.id, {
+      baseRevision: worldEmbedded.scene.revision,
+      afterBlockId: secondBlock!.id,
+      progression: {
+        kind: "relationship",
+        entryId: null,
+        relationId: relation.relation.id,
+        fieldKey: "trust",
+        operation: "replace",
+        body: "Trust changes in the later block.",
+        summary: "Trust changes in the later block.",
+        evidence: [{
+          sourceType: "scene",
+          sourceId: scene.metadata.id,
+          quote: "After the reveal.",
+          note: "The relation change appears in the second block.",
+        }],
+      },
     });
+    const worldProgression = worldEmbedded.progression;
+    const relationProgression = relationEmbedded.progression;
 
     const before = await store.getCodexEffectiveState(
       series.manifest.id,
@@ -1440,7 +1430,7 @@ describe("ProjectRepository", () => {
       scene.metadata.id,
       lin.metadata.id,
       undefined,
-      secondBlock!.id,
+      worldEmbedded.block.id,
     );
     expect(after.worldFacts.map((document) => document.progression.summary))
       .toEqual([worldProgression.progression.summary]);
@@ -1448,6 +1438,77 @@ describe("ProjectRepository", () => {
       .map((document) => document.progression.summary))
       .toEqual([relationProgression.progression.summary]);
     expect(after.hiddenFutureProgressionCount).toBe(0);
+  });
+
+  it("treats effectiveToSceneId as an inclusive scene boundary", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "BoundedProgression" });
+    const first = await store.updateScene(series.manifest.id, series.scenes[0]!.metadata.id, {
+      baseRevision: series.scenes[0]!.revision,
+      title: "First",
+      content: "First scene.",
+    });
+    const second = await store.createScene(series.manifest.id, {
+      title: "Second",
+      content: "Second scene.",
+    });
+    const third = await store.createScene(series.manifest.id, {
+      title: "Third",
+      content: "Third scene.",
+    });
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Bounded Entry",
+      description: "Baseline.",
+    });
+
+    await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entry.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Bounded addition.",
+      summary: "Bounded addition.",
+      effectiveFromSceneId: first.metadata.id,
+      effectiveToSceneId: second.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
+      evidence: [],
+    });
+
+    expect((await store.getCodexEffectiveEntry(
+      series.manifest.id,
+      entry.metadata.id,
+      first.metadata.id,
+    )).entry.description).toBe("Bounded addition.\n\nBaseline.");
+    expect((await store.getCodexEffectiveEntry(
+      series.manifest.id,
+      entry.metadata.id,
+      second.metadata.id,
+    )).entry.description).toBe("Bounded addition.\n\nBaseline.");
+    const afterBoundary = await store.getCodexEffectiveEntry(
+      series.manifest.id,
+      entry.metadata.id,
+      third.metadata.id,
+    );
+    expect(afterBoundary.entry.description).toBe("Baseline.");
+    expect(afterBoundary.hiddenFutureFieldProgressionCount).toBe(0);
+
+    await expect(store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entry.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Invalid range.",
+      summary: "Invalid range.",
+      effectiveFromSceneId: second.metadata.id,
+      effectiveToSceneId: first.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
+      evidence: [],
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
   });
 
   it("keeps relationship progressions and character knowledge separate from world facts", async () => {
@@ -1664,7 +1725,7 @@ describe("ProjectRepository", () => {
       body: "袖口带着潮水味。",
       summary: "林岚留下潮水痕迹。",
       effectiveFromSceneId: scene.metadata.id,
-      source: { kind: "write-block", sceneId: scene.metadata.id, blockId },
+      source: { kind: "codex-page", sceneId: null, blockId: null },
       evidence: [],
     });
 
@@ -1690,6 +1751,25 @@ describe("ProjectRepository", () => {
       summary: "林岚的潮水痕迹消失。",
     });
     expect(updated.progression.operation).toBe("replace");
+
+    await expect(store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: character.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "add",
+      body: "Generic CRUD cannot attach to ordinary manuscript blocks.",
+      summary: "Generic CRUD cannot attach to ordinary manuscript blocks.",
+      effectiveFromSceneId: scene.metadata.id,
+      source: { kind: "write-block", sceneId: scene.metadata.id, blockId },
+      evidence: [],
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    await expect(store.updateCodexProgression(series.manifest.id, updated.progression.id, {
+      baseRevision: updated.revision,
+      source: { kind: "write-block", sceneId: scene.metadata.id, blockId },
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
 
     await expect(store.createCodexProgression(series.manifest.id, {
       kind: "field",
@@ -1905,58 +1985,70 @@ describe("ProjectRepository", () => {
       }),
     ]));
 
-    const firstAdd = await store.createCodexProgression(series.manifest.id, {
-      kind: "field",
-      entryId: entryWithDetail.metadata.id,
-      relationId: null,
-      field: { kind: "description", detailTypeId: null },
-      fieldKey: null,
-      operation: "add",
-      body: "First block addition.",
-      summary: "First block summary.",
-      effectiveFromSceneId: opening.metadata.id,
-      source: { kind: "write-block", sceneId: opening.metadata.id, blockId: firstBlock!.id },
-      evidence: [],
+    const firstAddBlock = await store.createSceneProgressionBlock(series.manifest.id, opening.metadata.id, {
+      baseRevision: opening.revision,
+      afterBlockId: firstBlock!.id,
+      progression: {
+        kind: "field",
+        entryId: entryWithDetail.metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "add",
+        body: "First block addition.",
+        summary: "First block summary.",
+        evidence: [],
+      },
     });
-    const secondAdd = await store.createCodexProgression(series.manifest.id, {
-      kind: "field",
-      entryId: entryWithDetail.metadata.id,
-      relationId: null,
-      field: { kind: "description", detailTypeId: null },
-      fieldKey: null,
-      operation: "add",
-      body: "Second block addition.",
-      summary: "Second block summary.",
-      effectiveFromSceneId: opening.metadata.id,
-      source: { kind: "write-block", sceneId: opening.metadata.id, blockId: secondBlock!.id },
-      evidence: [],
+    const secondAddBlock = await store.createSceneProgressionBlock(series.manifest.id, opening.metadata.id, {
+      baseRevision: firstAddBlock.scene.revision,
+      afterBlockId: secondBlock!.id,
+      progression: {
+        kind: "field",
+        entryId: entryWithDetail.metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "add",
+        body: "Second block addition.",
+        summary: "Second block summary.",
+        evidence: [],
+      },
     });
-    const thirdReplace = await store.createCodexProgression(series.manifest.id, {
-      kind: "field",
-      entryId: entryWithDetail.metadata.id,
-      relationId: null,
-      field: { kind: "description", detailTypeId: null },
-      fieldKey: null,
-      operation: "replace",
-      body: "Third block replacement.",
-      summary: "Third block summary.",
-      effectiveFromSceneId: opening.metadata.id,
-      source: { kind: "write-block", sceneId: opening.metadata.id, blockId: thirdBlock!.id },
-      evidence: [],
+    const thirdReplaceBlock = await store.createSceneProgressionBlock(series.manifest.id, opening.metadata.id, {
+      baseRevision: secondAddBlock.scene.revision,
+      afterBlockId: thirdBlock!.id,
+      progression: {
+        kind: "field",
+        entryId: entryWithDetail.metadata.id,
+        relationId: null,
+        field: { kind: "description", detailTypeId: null },
+        fieldKey: null,
+        operation: "replace",
+        body: "Third block replacement.",
+        summary: "Third block summary.",
+        evidence: [],
+      },
     });
-    const emptyDetail = await store.createCodexProgression(series.manifest.id, {
-      kind: "field",
-      entryId: entryWithDetail.metadata.id,
-      relationId: null,
-      field: { kind: "detail", detailTypeId: detailType.detailType.id },
-      fieldKey: null,
-      operation: "replace",
-      body: "",
-      summary: "Clear status.",
-      effectiveFromSceneId: opening.metadata.id,
-      source: { kind: "write-block", sceneId: opening.metadata.id, blockId: thirdBlock!.id },
-      evidence: [],
+    const emptyDetailBlock = await store.createSceneProgressionBlock(series.manifest.id, opening.metadata.id, {
+      baseRevision: thirdReplaceBlock.scene.revision,
+      afterBlockId: thirdBlock!.id,
+      progression: {
+        kind: "field",
+        entryId: entryWithDetail.metadata.id,
+        relationId: null,
+        field: { kind: "detail", detailTypeId: detailType.detailType.id },
+        fieldKey: null,
+        operation: "replace",
+        body: "",
+        summary: "Clear status.",
+        evidence: [],
+      },
     });
+    const firstAdd = firstAddBlock.progression;
+    const secondAdd = secondAddBlock.progression;
+    const thirdReplace = thirdReplaceBlock.progression;
+    const emptyDetail = emptyDetailBlock.progression;
     const futureAdd = await store.createCodexProgression(series.manifest.id, {
       kind: "field",
       entryId: entryWithDetail.metadata.id,
@@ -1975,7 +2067,7 @@ describe("ProjectRepository", () => {
       series.manifest.id,
       entryWithDetail.metadata.id,
       opening.metadata.id,
-      firstBlock!.id,
+      firstAddBlock.block.id,
     );
     expect(atFirstBlock.entry.description).toBe("First block addition.\n\nBaseline description.");
     expect(atFirstBlock.entry.metadata.details[detailType.detailType.id]).toBe("Baseline status.");
@@ -2002,7 +2094,7 @@ describe("ProjectRepository", () => {
       series.manifest.id,
       entryWithDetail.metadata.id,
       opening.metadata.id,
-      secondBlock!.id,
+      secondAddBlock.block.id,
     );
     expect(atSecondBlock.entry.description)
       .toBe("Second block addition.\n\nFirst block addition.\n\nBaseline description.");
@@ -2012,7 +2104,7 @@ describe("ProjectRepository", () => {
       series.manifest.id,
       entryWithDetail.metadata.id,
       opening.metadata.id,
-      thirdBlock!.id,
+      thirdReplaceBlock.block.id,
     );
     expect(atThirdBlock.entry.description).toBe("Third block replacement.");
     expect(atThirdBlock.entry.metadata.details[detailType.detailType.id]).toBe("");

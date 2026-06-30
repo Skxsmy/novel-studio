@@ -1012,7 +1012,7 @@ export function WriteWorkspace({
                 onClick={onToggleFocus}
                 type="button"
               >
-                {isFocusMode ? "Exit Focus" : "Focus"}
+                {isFocusMode ? uiText.writeEditor.focus.exit : uiText.writeEditor.focus.enter}
               </button>
             </div>
           </div>
@@ -1023,12 +1023,12 @@ export function WriteWorkspace({
               <>
                 {isCodexLoading ? (
                   <div className="scene-kicker">
-                    <span className="pill">Loading codex</span>
+                    <span className="pill">{uiText.writeEditor.loadingCodex}</span>
                   </div>
                 ) : null}
                 {progressionError ? <p className="alert">{progressionError}</p> : null}
                 <input
-                  aria-label="Scene title"
+                  aria-label={uiText.writeEditor.aria.sceneTitle}
                   className="scene-title-input"
                   onChange={(event) => onUpdateTitle(event.target.value)}
                   value={draft.title}
@@ -1068,16 +1068,16 @@ export function WriteWorkspace({
                   </div>
                 ) : null}
                 {activeMentionEntry ? (
-                  <div className="scene-content-preview" aria-label={`${activeMentionEntry.metadata.name} canon description`}>
+                  <div className="scene-content-preview" aria-label={uiText.writeEditor.aria.codexDescriptionPreview(activeMentionEntry.metadata.name)}>
                     <div className="preview-title">{activeMentionEntry.metadata.name}</div>
-                    <p>{activeMentionEntry.description || "No description"}</p>
+                    <p>{activeMentionEntry.description || uiText.writeEditor.empty.noDescription}</p>
                   </div>
                 ) : null}
               </>
             ) : (
               <div className="large-note">
-                <h2>No scene open</h2>
-                <p>Select a scene to begin writing.</p>
+                <h2>{uiText.writeEditor.empty.noSceneTitle}</h2>
+                <p>{uiText.writeEditor.empty.noSceneBody}</p>
               </div>
             )}
           </div>
@@ -1094,13 +1094,13 @@ export function WriteWorkspace({
           <aside className="panel no-shadow">
             <div className="panel-head">
               <div>
-                <div className="panel-title">Scene Brief</div>
-                <div className="panel-kicker">Visible while writing</div>
+                <div className="panel-title">{uiText.writeEditor.sceneBrief.title}</div>
+                <div className="panel-kicker">{uiText.writeEditor.sceneBrief.subtitle}</div>
               </div>
               <button
                 className="icon-btn"
                 onClick={() => setIsBriefVisible(false)}
-                title="Hide panel"
+                title={uiText.writeEditor.sceneBrief.hidePanel}
                 type="button"
               >
                 x
@@ -1108,16 +1108,16 @@ export function WriteWorkspace({
             </div>
             <div className="panel-body stack">
               <div className="brief-block">
-                <div className="brief-label">Goal</div>
-                <p className="brief-text">{selectedScene?.metadata.goal || "No scene goal yet."}</p>
+                <div className="brief-label">{uiText.writeEditor.sceneBrief.goal}</div>
+                <p className="brief-text">{selectedScene?.metadata.goal || uiText.writeEditor.sceneBrief.noGoal}</p>
               </div>
               <div className="brief-block">
-                <div className="brief-label">Cast</div>
-                <p className="brief-text">{selectedScene?.metadata.characterIds.length || 0} linked characters.</p>
+                <div className="brief-label">{uiText.writeEditor.sceneBrief.cast}</div>
+                <p className="brief-text">{uiText.writeEditor.sceneBrief.linkedCharacters(selectedScene?.metadata.characterIds.length || 0)}</p>
               </div>
               <div className="brief-block">
-                <div className="brief-label">Continuity</div>
-                <p className="brief-text">{selectedScene?.metadata.summary || "No continuity note yet."}</p>
+                <div className="brief-label">{uiText.writeEditor.sceneBrief.continuity}</div>
+                <p className="brief-text">{selectedScene?.metadata.summary || uiText.writeEditor.sceneBrief.noContinuity}</p>
               </div>
             </div>
           </aside>

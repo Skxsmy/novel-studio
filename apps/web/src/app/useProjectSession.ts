@@ -710,7 +710,7 @@ export function useProjectSession(): ProjectSessionState {
       throw new Error("No editable scene is open");
     }
 
-    const title = (options.title ?? draft.title).trim() || "Untitled Scene";
+    const title = (options.title ?? draft.title).trim() || uiText.writeEditor.untitledScene;
     const input = {
       baseRevision: options.baseRevision ?? draft.revision,
       document,
@@ -727,7 +727,7 @@ export function useProjectSession(): ProjectSessionState {
       return updated;
     } catch (error) {
       setSaveStatus(error instanceof ApiError && error.status === 409 ? "conflict" : "failed");
-      setErrorMessage(formatError(error, "Failed to save scene"));
+      setErrorMessage(formatError(error, uiText.errors.saveSceneFailed));
       throw error;
     }
   }, [acceptSavedSceneDocument, activeSeries, draft, saveStatus]);

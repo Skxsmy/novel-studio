@@ -123,7 +123,7 @@ describe("M4 context preview API", () => {
     });
     expect(bellDetails.statusCode).toBe(200);
 
-    await app.inject({
+    const plannedFirst = await app.inject({
       method: "PATCH",
       url: `/api/v1/series/${series.manifest.id}/scenes/${firstScene.metadata.id}/planning`,
       payload: {
@@ -131,6 +131,7 @@ describe("M4 context preview API", () => {
         characterIds: [lin.json().metadata.id],
       },
     });
+    expect(plannedFirst.statusCode).toBe(200);
 
     const futureProgression = await app.inject({
       method: "POST",
@@ -156,8 +157,11 @@ describe("M4 context preview API", () => {
     expect(futureProgression.statusCode).toBe(201);
     const currentFieldProgression = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      url: `/api/v1/series/${series.manifest.id}/scenes/${updatedFirst.json().metadata.id}/progression-blocks`,
       payload: {
+        baseRevision: plannedFirst.json().revision,
+        afterBlockId: firstBlock.id,
+        progression: {
         kind: "field",
         entryId: bell.json().metadata.id,
         relationId: null,
@@ -166,20 +170,18 @@ describe("M4 context preview API", () => {
         operation: "add",
         body: "钟声会吸引守夜人。",
         summary: "钟声吸引守夜人。",
-        effectiveFromSceneId: updatedFirst.json().metadata.id,
-        source: {
-          kind: "write-block",
-          sceneId: updatedFirst.json().metadata.id,
-          blockId: firstBlock.id,
-        },
         evidence: [],
+        },
       },
     });
     expect(currentFieldProgression.statusCode).toBe(201);
     const emptyDetailProgression = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      url: `/api/v1/series/${series.manifest.id}/scenes/${updatedFirst.json().metadata.id}/progression-blocks`,
       payload: {
+        baseRevision: currentFieldProgression.json().scene.revision,
+        afterBlockId: firstBlock.id,
+        progression: {
         kind: "field",
         entryId: bell.json().metadata.id,
         relationId: null,
@@ -188,20 +190,18 @@ describe("M4 context preview API", () => {
         operation: "replace",
         body: "",
         summary: "清空临时线索。",
-        effectiveFromSceneId: updatedFirst.json().metadata.id,
-        source: {
-          kind: "write-block",
-          sceneId: updatedFirst.json().metadata.id,
-          blockId: firstBlock.id,
-        },
         evidence: [],
+        },
       },
     });
     expect(emptyDetailProgression.statusCode).toBe(201);
     const sameSceneLaterWorldProgression = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      url: `/api/v1/series/${series.manifest.id}/scenes/${updatedFirst.json().metadata.id}/progression-blocks`,
       payload: {
+        baseRevision: emptyDetailProgression.json().scene.revision,
+        afterBlockId: secondBlock.id,
+        progression: {
         kind: "world",
         entryId: bell.json().metadata.id,
         relationId: null,
@@ -209,18 +209,13 @@ describe("M4 context preview API", () => {
         operation: "add",
         body: "同场后段揭示旧钟声来自密室。",
         summary: "同场后段揭示旧钟声来自密室。",
-        effectiveFromSceneId: updatedFirst.json().metadata.id,
-        source: {
-          kind: "write-block",
-          sceneId: updatedFirst.json().metadata.id,
-          blockId: secondBlock.id,
-        },
         evidence: [{
           sourceType: "scene",
           sourceId: updatedFirst.json().metadata.id,
           quote: "同场后段写出不应提前出现的钟声来源。",
           note: "This later block must not enter first-block context.",
         }],
+        },
       },
     });
     expect(sameSceneLaterWorldProgression.statusCode).toBe(201);
@@ -270,7 +265,7 @@ describe("M4 context preview API", () => {
       url: `/api/v1/series/${series.manifest.id}/context/preview`,
       payload: {
         sceneId: firstScene.metadata.id,
-        blockId: firstBlock.id,
+        blockId: currentFieldProgression.json().block.id,
         roleId: "continuity-editor",
         taskKind: "continuity-check",
         userRequest: "检查旧钟声这一场是否泄露后文。",
@@ -307,7 +302,7 @@ describe("M4 context preview API", () => {
     expect(JSON.stringify(bundle.items)).not.toContain("钟声真相改变");
     expect(JSON.stringify(bundle)).not.toContain(futureFieldProgression.json().progression.id);
     expect(JSON.stringify(bundle.items)).not.toContain("同场后段揭示旧钟声来自密室");
-    expect(JSON.stringify(bundle)).not.toContain(sameSceneLaterWorldProgression.json().progression.id);
+    expect(JSON.stringify(bundle)).not.toContain(sameSceneLaterWorldProgression.json().progression.progression.id);
     expect(JSON.stringify(bundle.items)).not.toContain("后文得知旧钟声来自密室");
     expect(JSON.stringify(bundle.items)).not.toContain("密室真相不应进入上下文");
     expect(bundle.excluded.map((item: { reason: string }) => item.reason)).toEqual(expect.arrayContaining([
@@ -326,7 +321,7 @@ describe("M4 context preview API", () => {
       }),
       expect.objectContaining({
         type: "codex-progression",
-        id: currentFieldProgression.json().progression.id,
+        id: currentFieldProgression.json().progression.progression.id,
       }),
     ]));
 

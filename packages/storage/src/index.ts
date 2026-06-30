@@ -3267,7 +3267,9 @@ export class ProjectRepository {
         blockers,
       });
     }
-    await rm(codexProgressionPath(seriesRoot, progressionId), { force: true });
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: codexProgressionPath(seriesRoot, progressionId), delete: true },
+    ]);
     return DeleteCodexProgressionResultSchema.parse({ deletedId: progressionId, blockers: [] });
   }
 
@@ -5821,6 +5823,14 @@ export class ProjectRepository {
         blockId: progression.source.blockId,
       });
     }
+    const block = scene.document.blocks[blockIndex]!;
+    if (block.kind !== "codexProgression" || block.progressionId !== progression.id) {
+      throw new StorageError("Write-block progression source must reference its embedded scene progression block", "INVALID_DATA", {
+        progressionId: progression.id,
+        sceneId: progression.source.sceneId,
+        blockId: progression.source.blockId,
+      });
+    }
     return { sceneIndex, blockIndex };
   }
 
@@ -5981,8 +5991,20 @@ export class ProjectRepository {
       const blockId = progression.source.blockId!;
       const isKnownWriteBlock = options.knownWriteBlock?.sceneId === progression.source.sceneId &&
         options.knownWriteBlock.blockId === blockId;
-      if (!isKnownWriteBlock && !scene.document.blocks.some((block) => block.id === blockId)) {
+      const block = scene.document.blocks.find((candidate) => candidate.id === blockId);
+      if (!isKnownWriteBlock && !block) {
         throw new StorageError("Progression source references an unknown scene block", "INVALID_DATA", {
+          sceneId: progression.source.sceneId,
+          blockId,
+        });
+      }
+      if (
+        !isKnownWriteBlock &&
+        block &&
+        (block.kind !== "codexProgression" || block.progressionId !== progression.id)
+      ) {
+        throw new StorageError("Write-block progression source must reference its embedded scene progression block", "INVALID_DATA", {
+          progressionId: progression.id,
           sceneId: progression.source.sceneId,
           blockId,
         });
