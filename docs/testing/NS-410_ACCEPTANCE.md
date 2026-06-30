@@ -460,7 +460,7 @@ Logic closure boundary verified:
 - Read paths: Write scene document load, current-scene Codex progression list for embedded block hydration, Codex scene mentions, and Slice 9 Codex Progressions reads.
 - Write paths: ordinary manuscript autosave, paragraph insert/delete, Codex progression create/edit/delete through the existing scene-level commands, and linked Progression autosave update. Legacy heading/quote/scene-break blocks still round-trip, but the author-facing current-text conversion control has been removed.
 - Derived paths: character/word counts, plain-text save projection, Codex mention matching, context/effective-state projections, and Codex Progressions tab behavior remain derived from authority APIs instead of editor runtime JSON.
-- User-visible entries: continuous manuscript editor, compact editor command rail for paragraph add/Codex progression/delete, resizable inline Codex progression components, Scene Brief without duplicated progression state, Focus mode, and existing hierarchy collapse controls.
+- User-visible entries: continuous manuscript editor, top Insert menu for Codex progression insertion, resizable inline Codex progression components with drag-handle movement, Scene Brief without duplicated progression state, Focus mode, and existing hierarchy collapse controls. Redundant paragraph insertion and delete-selection toolbar commands are intentionally absent.
 - Delete path: ordinary paragraph deletion mutates the local `SceneBlockDocument` draft; Codex progression deletion still saves dirty drafts first and then uses the scene-level progression-block delete command.
 - Migration/rollback path: no saved file format changes were introduced by the editor runtime. Rollback would remove the Tiptap adapter and continue rendering the same `SceneBlockDocument` authority.
 - Tests and fixtures: adapter tests exercise synthetic Tiptap JSON fixtures; AppShell tests exercise the Write API mocks for autosave, add/delete, Codex progression, absence of duplicated Write preview/panel, and Codex Progressions regressions.
@@ -473,6 +473,9 @@ Changes verified:
 - Added resizable inline Codex progression components so progression editing happens in the manuscript at the authored position; Scene Brief no longer lists current-scene progressions or shows a duplicated read-only overview.
 - Codex progression components now default to a compact collapsed inline row after creation and scene load; authors explicitly expand the component before editing entry, field, operation, summary, or body.
 - Removed the author-facing stored block count from the Write toolbar and stopped rendering the old `.scene-block` card UI.
+- Removed redundant `Insert paragraph` and `Delete selection` toolbar commands; Codex progression insertion now lives inside the top Insert menu.
+- Replaced visible Up/Down Codex progression movement buttons with a vertical drag handle; releasing the drag at a target position reorders the progression there and saves the reordered `SceneBlockDocument.blocks`.
+- Reworked the expanded inline Codex progression layout so entry, field, and operation controls wrap in their own row and are not clipped by narrow component widths.
 - Removed the duplicated Scene Brief Codex progression panel, removed the constant Write before/after preview grid, and kept effective-at-scene review in the Codex Progressions tab.
 - Removed the hard-coded 780 px manuscript shell limit and 680 px Codex progression default width. Prose now follows the current Write panel width, while each progression's UI-only dragged width is clamped to the editor container.
 - Removed the floating format panel and destructive current-text type selector. Scene break is no longer exposed as a conversion for active prose, so existing text is not erased by changing a style dropdown.
@@ -484,10 +487,10 @@ Commands:
 | Command | Result |
 | --- | --- |
 | `npm.cmd run build -w @novel-studio/contracts` | Passed. |
-| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx sceneBlockMapping.test.ts` | Passed with 50/50 tests after defaulting inline Codex progression components to collapsed, requiring explicit expand before edit, removing the duplicated Write progression panel/preview, repairing manuscript/progression width caps, and keeping inline Codex progression autosave assertions. |
-| `npm.cmd run build -w @novel-studio/web` | Passed with no Vite large-chunk warning after the default-collapse repair; largest emitted chunks were `editor-codemirror` at 494.48 kB and `editor-tiptap` at 439.56 kB. |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx sceneBlockMapping.test.ts` | Passed with 50/50 tests after defaulting inline Codex progression components to collapsed, requiring explicit expand before edit, removing the duplicated Write progression panel/preview, repairing manuscript/progression width caps, moving Codex progression insertion into the top Insert menu, removing paragraph/delete toolbar commands, replacing Up/Down movement with drag-handle movement to a target position, and keeping inline Codex progression autosave assertions. |
+| `npm.cmd run build -w @novel-studio/web` | Passed with no Vite large-chunk warning after the top-menu/drag repair; largest emitted chunks were `editor-codemirror` at 494.48 kB and `editor-tiptap` at 439.56 kB. |
 | `npm.cmd run test` | Passed with server 25/25, web 58/58, AI 20/20, and storage 67/67 tests. |
-| `npm.cmd run build` | Passed with no Vite large-chunk warning after inline Codex progression/autosave/default-collapse repair. |
+| `npm.cmd run build` | Passed with no Vite large-chunk warning after inline Codex progression/autosave/default-collapse/top-menu/drag repair. Largest emitted chunks remained below the warning threshold: `editor-codemirror` 494.48 kB and `editor-tiptap` 439.56 kB. |
 | In-app browser self-check | Not completed: the Browser plugin reported no available browser instances (`agent.browsers.list()` returned `[]`). This is not user visual acceptance. |
 | `git diff --check` | Passed with line-ending warnings only. |
 

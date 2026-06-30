@@ -68,11 +68,17 @@ export const uiText = {
       text: "What becomes true from this point",
     },
     actions: {
+      cancelDelete: "Cancel",
+      collapseShort: "Collapse",
+      confirmDelete: "Confirm delete Codex progression",
       collapse: "Collapse Codex progression",
       delete: "Delete Codex progression",
+      deleteShort: "Delete",
       expand: "Expand Codex progression",
+      expandShort: "Expand",
       selectEntry: "Select",
     },
+    confirmDeleteCopy: "Delete this Codex progression?",
     aria: {
       addAfter: () => "Add Codex progression here",
       entry: (blockNumber: number) => `Codex progression entry ${blockNumber}`,
@@ -106,8 +112,7 @@ export const uiText = {
       scene: "Continue the scene...",
     },
     tools: {
-      addParagraph: "Add paragraph",
-      deleteCurrent: "Delete current item",
+      insertMenu: "Insert",
       storyChange: "Codex progression",
     },
   },

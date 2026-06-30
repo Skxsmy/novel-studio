@@ -25,6 +25,7 @@ Implemented:
 - Preserved paragraph insertion, paragraph deletion, Focus mode, Scene Brief hiding/restoring, Codex progression creation/edit/delete/collapse, and Codex Progressions tab regressions. Heading/quote/scene-break nodes remain adapter compatibility, not visible current-text conversion controls.
 - Current product decision after user visual review: Codex progression editing happens only in a resizable inline manuscript component; Scene Brief must not duplicate current-scene progressions or show a read-only progression overview.
 - Current follow-up after later user visual review: Codex progression components default to a compact collapsed inline row, and expansion is an explicit action before editing the entry, field, operation, summary, or body.
+- Current follow-up after later user visual review: Codex progression insertion is hidden in the top Write toolbar Insert menu; redundant Insert paragraph/Delete selection toolbar commands are absent; inline Codex progression movement uses a drag handle rather than Up/Down buttons, and the release position determines the target block position instead of moving only one slot; expanded progression controls wrap into rows instead of clipping when the component is narrow.
 - Write scene edits, inline Codex progression edits, and Codex entry edits autosave. Normal editor Save buttons and normal save-status noise are removed; failure/conflict feedback remains.
 - Removed the floating formatting panel and destructive current-text type selector after user visual review showed it was still behaving like a form panel and could erase active prose by converting it to a scene break.
 - Kept `SceneBlockDocument` as the saved authority. Tiptap JSON remains runtime state only and is converted back to the authority document before saving.
@@ -186,9 +187,10 @@ Required behavior after user visual review:
 
 - Codex progression blocks appear inline at their manuscript position as an independent component.
 - The inline component owns target entry/field/operation/summary/body editing, collapse/delete, and UI-only width/height resizing by dragging component edges.
+- The inline component owns movement through a vertical drag handle; releasing at a target block position updates the authoritative `SceneBlockDocument.blocks` order through the existing scene document save path.
 - The default visible state is collapsed so the manuscript remains readable; expanded editing state must not behave like a duplicated side panel or constant preview form.
 - Scene Brief must not list current-scene Codex progressions or show a duplicated read-only selected overview.
-- Add Codex progression is a compact command at the cursor/selected block.
+- Add Codex progression is available from the top Write toolbar Insert menu at the cursor/selected block.
 - Delete Codex progression uses the existing repaired scene-level delete command and must preserve dirty draft content first.
 - Effective-state review remains in the Codex Progressions tab and projection/API tests, not as a constant Write before/after panel.
 - Labels remain author-facing and must use "Codex progression" where the inline component needs a label; do not expose progression IDs, revision names, hashes, or internal operation names.

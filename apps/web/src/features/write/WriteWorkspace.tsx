@@ -163,6 +163,9 @@ export function WriteWorkspace({
   const [progressionBusyId, setProgressionBusyId] = useState<string | null>(null);
   const [progressionError, setProgressionError] = useState<string | null>(null);
   const [selectedProgressionBlockId, setSelectedProgressionBlockId] = useState<string | null>(null);
+  const [activeEditorBlockId, setActiveEditorBlockId] = useState<string | null>(null);
+  const [pendingEditorFocusBlockId, setPendingEditorFocusBlockId] = useState<string | null>(null);
+  const [isEditorToolMenuOpen, setIsEditorToolMenuOpen] = useState(false);
   const [activeBlockMention, setActiveBlockMention] = useState<ActiveBlockMention | null>(null);
   const [isBriefVisible, setIsBriefVisible] = useState(true);
   const [isCodexLoading, setIsCodexLoading] = useState(false);
@@ -263,30 +266,9 @@ export function WriteWorkspace({
     });
   }
 
-  function insertParagraphAfter(blockId: string | null) {
-    if (!draft) return null;
-    const nextBlock = createParagraphBlock();
-    const nextBlocks: SceneBlock[] = [];
-    for (const block of draft.document.blocks) {
-      nextBlocks.push(block);
-      if (block.id === blockId) nextBlocks.push(nextBlock);
-    }
-    updateSceneDocumentBlocks(nextBlocks.length === draft.document.blocks.length
-      ? [...draft.document.blocks, nextBlock]
-      : nextBlocks);
-    return nextBlock.id;
-  }
-
-  function deleteCurrentEditorBlock(blockId: string | null) {
-    if (!draft || !blockId) return;
-    const block = draft.document.blocks.find((candidate) => candidate.id === blockId);
-    if (!block) return;
-    if (block.kind === "codexProgression") {
-      void deleteProgressionBlock(block);
-      return;
-    }
-    updateSceneDocumentBlocks(draft.document.blocks.filter((candidate) => candidate.id !== blockId));
-    setActiveBlockMention((current) => (current?.blockId === blockId ? null : current));
+  function insertProgressionFromToolbar() {
+    setIsEditorToolMenuOpen(false);
+    void insertProgressionBlockAfter(activeEditorBlockId);
   }
 
   function updateProgressionDraft(progressionId: string, patch: Partial<ProgressionDraft>) {
@@ -359,6 +341,7 @@ export function WriteWorkspace({
         return next;
       });
       setSelectedProgressionBlockId(result.block.id);
+      setPendingEditorFocusBlockId(result.block.id);
     } catch (error) {
       setProgressionError(progressionErrorMessage(error, progressionText.errors.addFailed));
     } finally {
@@ -408,6 +391,44 @@ export function WriteWorkspace({
 
   function progressionBlockById(blockId: string) {
     return progressionBlocks.find((block) => block.id === blockId) ?? null;
+  }
+
+  function moveProgressionBlock(blockId: string, direction: "down" | "up") {
+    if (!draft) return;
+    const index = draft.document.blocks.findIndex((block) => block.id === blockId && block.kind === "codexProgression");
+    if (index < 0) return;
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= draft.document.blocks.length) return;
+    const nextBlocks = [...draft.document.blocks];
+    const current = nextBlocks[index];
+    const target = nextBlocks[targetIndex];
+    if (!current || !target) return;
+    nextBlocks[index] = target;
+    nextBlocks[targetIndex] = current;
+    updateSceneDocumentBlocks(nextBlocks);
+    setSelectedProgressionBlockId(blockId);
+    setPendingEditorFocusBlockId(blockId);
+  }
+
+  function moveProgressionBlockTo(blockId: string, targetBlockId: string, placement: "after" | "before") {
+    if (!draft || blockId === targetBlockId) return;
+    const currentIndex = draft.document.blocks.findIndex((block) => block.id === blockId && block.kind === "codexProgression");
+    if (currentIndex < 0) return;
+    const currentBlock = draft.document.blocks[currentIndex];
+    if (!currentBlock) return;
+    const remainingBlocks = draft.document.blocks.filter((block) => block.id !== blockId);
+    const targetIndex = remainingBlocks.findIndex((block) => block.id === targetBlockId);
+    if (targetIndex < 0) return;
+    const insertIndex = placement === "before" ? targetIndex : targetIndex + 1;
+    const nextBlocks = [
+      ...remainingBlocks.slice(0, insertIndex),
+      currentBlock,
+      ...remainingBlocks.slice(insertIndex),
+    ];
+    if (nextBlocks.map((block) => block.id).join("|") === draft.document.blocks.map((block) => block.id).join("|")) return;
+    updateSceneDocumentBlocks(nextBlocks);
+    setSelectedProgressionBlockId(blockId);
+    setPendingEditorFocusBlockId(blockId);
   }
 
   function updateProgressionDraftByBlockId(blockId: string, patch: Partial<ProgressionDraft>) {
@@ -506,6 +527,9 @@ export function WriteWorkspace({
     setActiveBlockMention(null);
     setProgressionError(null);
     setSelectedProgressionBlockId(null);
+    setActiveEditorBlockId(null);
+    setPendingEditorFocusBlockId(null);
+    setIsEditorToolMenuOpen(false);
     setCollapsedProgressionBlocks(new Set(
       draft?.document.blocks
         .filter((block) => block.kind === "codexProgression")
@@ -613,17 +637,19 @@ export function WriteWorkspace({
     : null;
   const progressionNodeViews = useMemo(() => {
     const views: Record<string, ProgressionNodeViewModel> = {};
+    const sceneBlocks = draft?.document.blocks ?? [];
     for (const block of progressionBlocks) {
+      const blockIndex = sceneBlocks.findIndex((candidate) => candidate.id === block.id);
       const progression = progressionsById.get(block.progressionId);
-      const draft = progressionDrafts[block.progressionId] ??
+      const progressionDraft = progressionDrafts[block.progressionId] ??
         (progression ? progressionDraftFromDocument(progression) : null);
-      if (!draft) continue;
-      const selectedEntry = codexEntries.find((entry) => entry.metadata.id === draft.entryId) ?? null;
+      if (!progressionDraft) continue;
+      const selectedEntry = codexEntries.find((entry) => entry.metadata.id === progressionDraft.entryId) ?? null;
       const entryOptions = codexEntries
-        .filter((entry) => !entry.metadata.archivedAt || entry.metadata.id === draft.entryId)
+        .filter((entry) => !entry.metadata.archivedAt || entry.metadata.id === progressionDraft.entryId)
         .map((entry) => ({ label: entry.metadata.name, value: entry.metadata.id }));
-      if (draft.entryId && !entryOptions.some((option) => option.value === draft.entryId)) {
-        entryOptions.push({ label: selectedEntry?.metadata.name ?? progressionText.missingRecord, value: draft.entryId });
+      if (progressionDraft.entryId && !entryOptions.some((option) => option.value === progressionDraft.entryId)) {
+        entryOptions.push({ label: selectedEntry?.metadata.name ?? progressionText.missingRecord, value: progressionDraft.entryId });
       }
       const detailOptions = selectedEntry
         ? codexDetailTypes.filter((document) => document.detailType.categoryId === selectedEntry.metadata.categoryId)
@@ -635,22 +661,24 @@ export function WriteWorkspace({
           value: `detail:${document.detailType.id}`,
         })),
       ];
-      if (!fieldOptions.some((option) => option.value === draft.fieldSelection)) {
-        fieldOptions.push({ label: fieldLabel(draft.fieldSelection, codexDetailTypes), value: draft.fieldSelection });
+      if (!fieldOptions.some((option) => option.value === progressionDraft.fieldSelection)) {
+        fieldOptions.push({ label: fieldLabel(progressionDraft.fieldSelection, codexDetailTypes), value: progressionDraft.fieldSelection });
       }
       views[block.id] = {
         blockId: block.id,
-        draft,
+        canMoveDown: blockIndex >= 0 && blockIndex < sceneBlocks.length - 1,
+        canMoveUp: blockIndex > 0,
+        draft: progressionDraft,
         draftKey: [
-          draft.entryId,
-          draft.fieldSelection,
-          draft.operation,
-          draft.summary,
-          draft.body,
+          progressionDraft.entryId,
+          progressionDraft.fieldSelection,
+          progressionDraft.operation,
+          progressionDraft.summary,
+          progressionDraft.body,
         ].join("\u001f"),
         entryLabel: selectedEntry?.metadata.name ?? progressionText.missingRecord,
         entryOptions,
-        fieldLabel: fieldLabel(draft.fieldSelection, codexDetailTypes),
+        fieldLabel: fieldLabel(progressionDraft.fieldSelection, codexDetailTypes),
         fieldOptions,
         isBusy: Boolean(progressionBusyId && (
           progressionBusyId === block.id || progressionBusyId === block.progressionId
@@ -669,6 +697,7 @@ export function WriteWorkspace({
     codexDetailTypes,
     codexEntries,
     collapsedProgressionBlocks,
+    draft?.document.blocks,
     progressionBlocks,
     progressionBusyId,
     progressionDrafts,
@@ -950,6 +979,33 @@ export function WriteWorkspace({
             <div className="top-actions">
               <span className="pill">{selectedScene?.metadata.pov ? `${selectedScene.metadata.pov} POV` : "No POV"}</span>
               <span className="pill">{draft ? `${sceneEditorCharacterCount} chars / ${sceneEditorWordCount} words` : "No scene"}</span>
+            </div>
+            <div className="manuscript-toolbar-actions" aria-label={uiText.writeEditor.aria.toolbar}>
+              <div className="manuscript-tool-menu">
+                <button
+                  aria-expanded={isEditorToolMenuOpen}
+                  aria-haspopup="menu"
+                  className="btn compact"
+                  disabled={!draft}
+                  onClick={() => setIsEditorToolMenuOpen((current) => !current)}
+                  type="button"
+                >
+                  {uiText.writeEditor.tools.insertMenu}
+                </button>
+                {isEditorToolMenuOpen ? (
+                  <div className="manuscript-tool-popover" role="menu">
+                    <button
+                      className="menu-item"
+                      disabled={!draft || !codexEntries.length || Boolean(progressionBusyId)}
+                      onClick={insertProgressionFromToolbar}
+                      role="menuitem"
+                      type="button"
+                    >
+                      {uiText.writeEditor.tools.storyChange}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
               <button
                 aria-pressed={isFocusMode}
                 className={`btn write-focus-action${isFocusMode ? " primary" : ""}`}
@@ -978,14 +1034,16 @@ export function WriteWorkspace({
                   value={draft.title}
                 />
                 <NovelEditor
-                  canAddStoryChange={Boolean(codexEntries.length)}
                   document={draft.document}
-                  isStoryChangeBusy={Boolean(progressionBusyId)}
-                  onAddStoryChangeAfter={(blockId) => void insertProgressionBlockAfter(blockId)}
+                  focusBlockId={pendingEditorFocusBlockId}
+                  onActiveBlockChange={setActiveEditorBlockId}
                   onChange={onUpdateDocument}
-                  onDeleteCurrent={deleteCurrentEditorBlock}
                   onDeleteProgressionBlock={deleteProgressionBlockById}
-                  onInsertParagraphAfter={insertParagraphAfter}
+                  onFocusBlockHandled={(blockId) => {
+                    setPendingEditorFocusBlockId((current) => (current === blockId ? null : current));
+                  }}
+                  onMoveProgressionBlock={moveProgressionBlock}
+                  onMoveProgressionBlockTo={moveProgressionBlockTo}
                   onSelectStoryChange={setSelectedProgressionBlockId}
                   onToggleProgressionCollapse={(blockId) => setCollapsedProgressionBlocks((current) => toggleSetValue(current, blockId))}
                   onUpdateProgressionDraft={updateProgressionDraftByBlockId}

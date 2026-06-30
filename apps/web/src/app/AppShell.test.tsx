@@ -49,6 +49,7 @@ const updatedRevision = "b".repeat(64);
 const firstBlockId = "10101010-1010-4010-8010-101010101010";
 const secondBlockId = "20202020-2020-4020-8020-202020202020";
 const thirdBlockId = "30303030-3030-4030-8030-303030303030";
+const fourthBlockId = "40404040-4040-4040-8040-404040404040";
 const blockIds = [firstBlockId, secondBlockId, thirdBlockId];
 
 function testBlockId(index: number) {
@@ -2743,8 +2744,8 @@ describe("App shell", () => {
     }, { timeout: 3000 });
   });
 
-  it("adds and deletes paragraphs through the continuous manuscript editor controls", async () => {
-    const fetchMock = mockFetch({
+  it("keeps Codex progression behind the top editor tool menu", async () => {
+    mockFetch({
       initialSeriesDetail: seriesDetail("Opening line."),
     });
     render(<App />);
@@ -2752,33 +2753,13 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
     await screen.findByLabelText("Manuscript editor");
 
-    fireEvent.click(screen.getByRole("button", { name: "Add paragraph" }));
+    expect(screen.queryByRole("button", { name: "Insert paragraph" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete selection" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Codex progression" })).toBeNull();
 
-    await waitFor(() => {
-      const documentSaveCalls = fetchMock.mock.calls.filter(([url, init]) => (
-        url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
-      ));
-      expect(documentSaveCalls).toHaveLength(1);
-      const body = JSON.parse(String(documentSaveCalls[0]![1]?.body));
-      expect(body.document.blocks).toEqual([
-        expect.objectContaining({ kind: "paragraph", text: "Opening line." }),
-        expect.objectContaining({ kind: "paragraph", text: "" }),
-      ]);
-    }, { timeout: 3000 });
-
-    fireEvent.click(screen.getByRole("button", { name: "Delete current item" }));
-
-    await waitFor(() => {
-      const documentSaveCalls = fetchMock.mock.calls.filter(([url, init]) => (
-        url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
-      ));
-      expect(documentSaveCalls).toHaveLength(2);
-      const body = JSON.parse(String(documentSaveCalls[1]![1]?.body));
-      expect(body.document.blocks).toEqual([
-        expect.objectContaining({ kind: "paragraph", text: "Opening line." }),
-      ]);
-      expect(document.querySelector(".scene-block")).toBeNull();
-    }, { timeout: 3000 });
+    fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+    expect(screen.getByRole("menuitem", { name: "Codex progression" })).toBeTruthy();
+    expect(document.querySelector(".scene-block")).toBeNull();
   });
 
   it("preserves leading spaces inside ordinary write blocks", async () => {
@@ -2816,7 +2797,8 @@ describe("App shell", () => {
       );
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Codex progression" }));
+    fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Codex progression" }));
 
     await waitFor(() => {
       const createCall = fetchMock.mock.calls.find(([url, init]) => (
@@ -2878,6 +2860,33 @@ describe("App shell", () => {
     expect(screen.getByLabelText("Codex progression text")).toBeTruthy();
 
     setManuscriptBlocks([
+      { id: firstBlockId, kind: "paragraph", text: "Opening line." },
+      {
+        createdAt: "2026-06-24T00:00:00.000Z",
+        id: secondBlockId,
+        kind: "codexProgression",
+        progressionId,
+        updatedAt: "2026-06-24T00:00:00.000Z",
+      },
+      { id: thirdBlockId, kind: "paragraph", text: "After progression." },
+      { id: fourthBlockId, kind: "paragraph", text: "End marker." },
+    ]);
+    const moveHandle = await screen.findByLabelText("Move Codex progression");
+    fireEvent.pointerDown(moveHandle, { clientY: 100, pointerId: 1 });
+    fireEvent.pointerUp(moveHandle, { clientY: 500, pointerId: 1 });
+    await waitFor(() => {
+      const movedCall = fetchMock.mock.calls.find(([url, init]) => {
+        if (url !== `/api/v1/series/${seriesId}/scenes/${sceneId}/document` || init?.method !== "PUT") return false;
+        const blocks = JSON.parse(String(init.body)).document.blocks;
+        return blocks[0]?.id === firstBlockId &&
+          blocks[1]?.id === thirdBlockId &&
+          blocks[2]?.id === fourthBlockId &&
+          blocks[3]?.id === secondBlockId;
+      });
+      expect(movedCall).toBeTruthy();
+    }, { timeout: 3000 });
+
+    setManuscriptBlocks([
       { id: firstBlockId, kind: "paragraph", text: "Opening line revised." },
       {
         createdAt: "2026-06-24T00:00:00.000Z",
@@ -2888,6 +2897,8 @@ describe("App shell", () => {
       },
     ]);
     fireEvent.click(screen.getByRole("button", { name: "Delete Codex progression" }));
+    expect(screen.getByText("Delete this Codex progression?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete Codex progression" }));
     await waitFor(() => {
       const dirtySaveCallIndex = fetchMock.mock.calls.findIndex(([url, init]) => (
         url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` &&

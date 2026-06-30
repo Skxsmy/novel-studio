@@ -901,6 +901,56 @@ button {
   border-bottom: 1px solid var(--line);
 }
 
+.manuscript-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.manuscript-toolbar-actions .btn {
+  min-height: 34px;
+  white-space: nowrap;
+}
+
+.manuscript-tool-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.manuscript-tool-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fffefa;
+  box-shadow: var(--shadow);
+}
+
+.manuscript-tool-popover .menu-item {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  padding: 0 10px;
+}
+
+.manuscript-tool-popover .menu-item:hover:not(:disabled),
+.manuscript-tool-popover .menu-item:focus-visible:not(:disabled) {
+  background: #eef5f2;
+}
+
 .format-tools {
   display: flex;
   gap: 6px;

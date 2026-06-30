@@ -16,17 +16,15 @@ import {
 import { storyChangeAnchorSelector } from "./storyChangeAnchors";
 import "./editorStyles.css";
 
-type EditableSceneBlockKind = "paragraph" | "heading" | "quote" | "sceneBreak";
-
 export interface NovelEditorProps {
-  canAddStoryChange: boolean;
   document: SceneBlockDocument;
-  isStoryChangeBusy: boolean;
-  onAddStoryChangeAfter: (blockId: string | null) => void;
+  focusBlockId: string | null;
+  onActiveBlockChange: (blockId: string | null) => void;
   onChange: (document: SceneBlockDocument) => void;
-  onDeleteCurrent: (blockId: string | null) => void;
   onDeleteProgressionBlock: (blockId: string) => void;
-  onInsertParagraphAfter: (blockId: string | null) => string | null;
+  onFocusBlockHandled: (blockId: string) => void;
+  onMoveProgressionBlock: (blockId: string, direction: "down" | "up") => void;
+  onMoveProgressionBlockTo: (blockId: string, targetBlockId: string, placement: "after" | "before") => void;
   onSelectStoryChange: (blockId: string) => void;
   onToggleProgressionCollapse: (blockId: string) => void;
   onUpdateProgressionDraft: (blockId: string, patch: Partial<ProgressionDraft>) => void;
@@ -103,12 +101,6 @@ function createProgressionNodeStore(initialViews: Record<string, ProgressionNode
   };
 }
 
-function editableKindForBlock(block: SceneBlock | null): EditableSceneBlockKind | "storyChange" {
-  if (!block) return "paragraph";
-  if (block.kind === "codexProgression") return "storyChange";
-  return block.kind;
-}
-
 function isEmptyManuscript(document: SceneBlockDocument) {
   return document.blocks.every((block) => {
     if (block.kind === "sceneBreak" || block.kind === "codexProgression") return false;
@@ -124,14 +116,14 @@ function needsBlockIdNormalization(document: NovelEditorDocument) {
 }
 
 export function NovelEditor({
-  canAddStoryChange,
   document,
-  isStoryChangeBusy,
-  onAddStoryChangeAfter,
+  focusBlockId,
+  onActiveBlockChange,
   onChange,
-  onDeleteCurrent,
   onDeleteProgressionBlock,
-  onInsertParagraphAfter,
+  onFocusBlockHandled,
+  onMoveProgressionBlock,
+  onMoveProgressionBlockTo,
   onSelectStoryChange,
   onToggleProgressionCollapse,
   onUpdateProgressionDraft,
@@ -140,32 +132,34 @@ export function NovelEditor({
   const [activeBlockId, setActiveBlockId] = useState<string | null>(() => document.blocks[0]?.id ?? null);
   const [renderVersion, setRenderVersion] = useState(0);
   const isApplyingExternalDocument = useRef(false);
-  const pendingFocusBlockId = useRef<string | null>(null);
   const progressionNodeStoreRef = useRef(createProgressionNodeStore(progressionNodeViews));
-  const onAddStoryChangeAfterRef = useRef(onAddStoryChangeAfter);
+  const onActiveBlockChangeRef = useRef(onActiveBlockChange);
   const onChangeRef = useRef(onChange);
-  const onDeleteCurrentRef = useRef(onDeleteCurrent);
   const onDeleteProgressionBlockRef = useRef(onDeleteProgressionBlock);
-  const onInsertParagraphAfterRef = useRef(onInsertParagraphAfter);
+  const onFocusBlockHandledRef = useRef(onFocusBlockHandled);
+  const onMoveProgressionBlockRef = useRef(onMoveProgressionBlock);
+  const onMoveProgressionBlockToRef = useRef(onMoveProgressionBlockTo);
   const onSelectStoryChangeRef = useRef(onSelectStoryChange);
   const onToggleProgressionCollapseRef = useRef(onToggleProgressionCollapse);
   const onUpdateProgressionDraftRef = useRef(onUpdateProgressionDraft);
 
   useEffect(() => {
-    onAddStoryChangeAfterRef.current = onAddStoryChangeAfter;
+    onActiveBlockChangeRef.current = onActiveBlockChange;
     onChangeRef.current = onChange;
-    onDeleteCurrentRef.current = onDeleteCurrent;
     onDeleteProgressionBlockRef.current = onDeleteProgressionBlock;
-    onInsertParagraphAfterRef.current = onInsertParagraphAfter;
+    onFocusBlockHandledRef.current = onFocusBlockHandled;
+    onMoveProgressionBlockRef.current = onMoveProgressionBlock;
+    onMoveProgressionBlockToRef.current = onMoveProgressionBlockTo;
     onSelectStoryChangeRef.current = onSelectStoryChange;
     onToggleProgressionCollapseRef.current = onToggleProgressionCollapse;
     onUpdateProgressionDraftRef.current = onUpdateProgressionDraft;
   }, [
-    onAddStoryChangeAfter,
+    onActiveBlockChange,
     onChange,
-    onDeleteCurrent,
     onDeleteProgressionBlock,
-    onInsertParagraphAfter,
+    onFocusBlockHandled,
+    onMoveProgressionBlock,
+    onMoveProgressionBlockTo,
     onSelectStoryChange,
     onToggleProgressionCollapse,
     onUpdateProgressionDraft,
@@ -178,6 +172,8 @@ export function NovelEditor({
   const extensions = useMemo(() => novelEditorExtensions({
     getView: (blockId) => progressionNodeStoreRef.current.getView(blockId),
     onDelete: (blockId) => onDeleteProgressionBlockRef.current(blockId),
+    onMove: (blockId, direction) => onMoveProgressionBlockRef.current(blockId, direction),
+    onMoveTo: (blockId, targetBlockId, placement) => onMoveProgressionBlockToRef.current(blockId, targetBlockId, placement),
     onSelect: (blockId) => onSelectStoryChangeRef.current(blockId),
     onToggleCollapse: (blockId) => onToggleProgressionCollapseRef.current(blockId),
     onUpdateDraft: (blockId, patch) => onUpdateProgressionDraftRef.current(blockId, patch),
@@ -187,6 +183,7 @@ export function NovelEditor({
   function syncSelection(editor: Editor) {
     const nextBlockId = selectedBlockIdFromEditor(editor);
     setActiveBlockId(nextBlockId);
+    onActiveBlockChangeRef.current(nextBlockId);
   }
 
   const editor = useEditor({
@@ -241,12 +238,16 @@ export function NovelEditor({
     const selectionFrom = editor.state.selection.from;
     isApplyingExternalDocument.current = true;
     editor.commands.setContent(sceneBlockDocumentToNovelEditorDocument(document) as JSONContent, { emitUpdate: false });
-    const focusBlockId = pendingFocusBlockId.current;
-    pendingFocusBlockId.current = null;
     if (!focusBlockId || !focusBlock(editor, focusBlockId)) restoreSelection(editor, selectionFrom);
+    else onFocusBlockHandledRef.current(focusBlockId);
     syncSelection(editor);
     isApplyingExternalDocument.current = false;
-  }, [document, editor]);
+  }, [document, editor, focusBlockId]);
+
+  useEffect(() => {
+    if (!editor || !focusBlockId) return;
+    if (focusBlock(editor, focusBlockId)) onFocusBlockHandledRef.current(focusBlockId);
+  }, [document, editor, focusBlockId]);
 
   function focusEditorEnd() {
     if (!editor) return;
@@ -262,50 +263,10 @@ export function NovelEditor({
     if (blockId) onSelectStoryChangeRef.current(blockId);
   }
 
-  const activeBlock = document.blocks.find((block) => block.id === activeBlockId) ?? null;
-  const activeKind = editableKindForBlock(activeBlock);
-  const canEditCurrentBlock = Boolean(activeBlockId && activeKind !== "storyChange");
   const isEmpty = isEmptyManuscript(document);
 
   return (
     <div className="novel-tiptap-shell">
-      <div
-        className="novel-editor-action-rail"
-        aria-label={uiText.writeEditor.aria.toolbar}
-      >
-        <button
-          aria-label={uiText.writeEditor.tools.addParagraph}
-          className="tool"
-          disabled={!editor}
-          onClick={() => {
-            pendingFocusBlockId.current = onInsertParagraphAfterRef.current(activeBlockId);
-          }}
-          title={uiText.writeEditor.tools.addParagraph}
-          type="button"
-        >
-          +
-        </button>
-        <button
-          aria-label={uiText.writeEditor.tools.storyChange}
-          className="tool story-change-tool"
-          disabled={!editor || !canAddStoryChange || isStoryChangeBusy}
-          onClick={() => onAddStoryChangeAfterRef.current(activeBlockId)}
-          title={uiText.writeEditor.tools.storyChange}
-          type="button"
-        >
-          {uiText.writeProgression.title}
-        </button>
-        <button
-          aria-label={uiText.writeEditor.tools.deleteCurrent}
-          className="tool"
-          disabled={!editor || !activeBlockId || (!canEditCurrentBlock && activeKind !== "storyChange")}
-          onClick={() => onDeleteCurrentRef.current(activeBlockId)}
-          title={uiText.writeEditor.tools.deleteCurrent}
-          type="button"
-        >
-          x
-        </button>
-      </div>
       <EditorContent
         aria-label={uiText.writeEditor.aria.content}
         className="novel-tiptap-editor"

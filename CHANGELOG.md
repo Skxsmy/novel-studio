@@ -26,6 +26,7 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **NS-410 Write Editor UI Repair**: Removed the duplicated Scene Brief Codex progression list/read-only panel and the constant before/after preview from the Write author surface. Codex progression editing now stays only in the resizable inline manuscript component; the editor command rail is in-flow above the manuscript instead of floating over text. Slice 9 Codex Progressions remains the read-only place for baseline/history/effective-at-scene state.
 - **NS-410 Write Width Repair**: Removed the hard-coded 780 px manuscript shell limit and 680 px Codex progression default width. The manuscript now follows the current Write panel width, while each Codex progression keeps independent UI-only resize state clamped to the editor container.
 - **NS-410 Write Progression Collapse Repair**: Codex progression components now default to a compact collapsed inline row after creation and scene load, expand explicitly for editing entry/field/operation/summary/body, keep resize handles on the independent component, and use specific Codex progression action labels instead of generic Expand/Collapse/Delete controls.
+- **NS-410 Write Toolbar And Drag Repair**: Removed the redundant `Insert paragraph` and `Delete selection` toolbar commands. Codex progression insertion now lives behind the top Insert menu, and inline Codex progression movement uses a vertical drag handle instead of Up/Down buttons. The expanded progression panel now wraps entry/field/operation controls into a separate row so narrow component widths do not clip the editor controls.
 
 ### Project Foundation
 
@@ -99,10 +100,10 @@ This changelog retains the historical milestone record from the earlier Chinese 
 
 ### Current Validation Snapshot
 
-- Focused NS-410 Write editor refactor validation passed: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx sceneBlockMapping.test.ts` passed 50/50 after adding inline resizable/default-collapsed Codex progression components and autosave assertions. `npm.cmd run test` passed with server 25/25, web 58/58, AI 20/20, and storage 67/67 tests. `npm.cmd run build` passed with no Vite large-chunk warning. Earlier Slice 8/Slice 9/project lifecycle focused validations remain recorded in `docs/testing/NS-410_ACCEPTANCE.md`.
+- Focused NS-410 Write editor refactor validation passed: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx sceneBlockMapping.test.ts` passed 50/50 after adding inline resizable/default-collapsed Codex progression components, autosave assertions, top Insert menu placement, drag-handle progression movement, and wrapped progression controls. `npm.cmd run test` passed with server 25/25, web 58/58, AI 20/20, and storage 67/67 tests. `npm.cmd run build` passed with no Vite large-chunk warning. Earlier Slice 8/Slice 9/project lifecycle focused validations remain recorded in `docs/testing/NS-410_ACCEPTANCE.md`.
 - `npm.cmd run build -w @novel-studio/contracts`: passed.
 - `npm.cmd run build -w @novel-studio/web`: passed with no Vite large-chunk warning; largest emitted chunks were `editor-codemirror` at 494.48 kB and `editor-tiptap` at 439.56 kB.
-- `npm.cmd run build`: passed with no Vite large-chunk warning after adding manual chunks.
+- `npm.cmd run build`: passed with no Vite large-chunk warning after the top-menu/drag Write repair.
 - `npm.cmd run test`: passed in the latest validation; server 25, web 58, AI 20, and storage 67 tests.
 - Focused Codex Details checks also passed: storage `repository.test.ts` 43 tests, server `app.test.ts context-routes.test.ts` 8 tests, and web `AppShell.test.tsx EditorSurface.test.tsx` 44 tests.
 - Focused Codex layout / preview bounds checks passed: `EditorSurface.test.tsx` 8 tests, `AppShell.test.tsx` 38 tests, and web typecheck.

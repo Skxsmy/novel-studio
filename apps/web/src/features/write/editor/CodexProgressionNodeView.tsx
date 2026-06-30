@@ -4,6 +4,7 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type SyntheticEvent,
 } from "react";
@@ -21,6 +22,8 @@ export type ProgressionNodeOption = {
 
 export type ProgressionNodeViewModel = {
   blockId: string;
+  canMoveDown: boolean;
+  canMoveUp: boolean;
   draft: ProgressionDraft;
   draftKey: string;
   entryLabel: string;
@@ -37,6 +40,8 @@ export type ProgressionNodeViewModel = {
 export type ProgressionNodeViewOptions = {
   getView: (blockId: string) => ProgressionNodeViewModel | null;
   onDelete: (blockId: string) => void;
+  onMove: (blockId: string, direction: "down" | "up") => void;
+  onMoveTo: (blockId: string, targetBlockId: string, placement: "after" | "before") => void;
   onSelect: (blockId: string) => void;
   onToggleCollapse: (blockId: string) => void;
   onUpdateDraft: (blockId: string, patch: Partial<ProgressionDraft>) => void;
@@ -46,6 +51,8 @@ export type ProgressionNodeViewOptions = {
 export const emptyProgressionNodeViewOptions: ProgressionNodeViewOptions = {
   getView: () => null,
   onDelete: () => undefined,
+  onMove: () => undefined,
+  onMoveTo: () => undefined,
   onSelect: () => undefined,
   onToggleCollapse: () => undefined,
   onUpdateDraft: () => undefined,
@@ -53,8 +60,8 @@ export const emptyProgressionNodeViewOptions: ProgressionNodeViewOptions = {
 };
 
 const progressionText = uiText.writeProgression;
-const minBoxHeight = 150;
-const minBoxWidth = 360;
+const minBoxHeight = 260;
+const minBoxWidth = 320;
 
 type BoxSize = {
   height?: number;
@@ -64,7 +71,7 @@ type BoxSize = {
 type ResizeEdge = "bottom" | "corner" | "right";
 
 function sizeStorageKey(blockId: string) {
-  return `novelStudio.codexProgressionBox.${blockId}`;
+  return `novelStudio.codexProgressionBox.v2.${blockId}`;
 }
 
 function readStoredSize(blockId: string): BoxSize {
@@ -99,6 +106,40 @@ function progressionContainerWidth(element: HTMLElement | null) {
     : null;
 }
 
+function progressionDropTarget(element: HTMLElement | null, blockId: string, pointerY: number) {
+  const container = element?.closest(".novel-tiptap-prosemirror");
+  if (!container) return null;
+  const orderedBlocks = Array.from(container.querySelectorAll<HTMLElement>("[data-block-id]"))
+    .map((candidate) => ({
+      id: candidate.getAttribute("data-block-id") ?? "",
+      rect: candidate.getBoundingClientRect(),
+    }))
+    .filter((candidate) => candidate.id);
+  const sourceIndex = orderedBlocks.findIndex((candidate) => candidate.id === blockId);
+  if (sourceIndex < 0) return null;
+
+  let insertionIndex = orderedBlocks.length;
+  for (let index = 0; index < orderedBlocks.length; index += 1) {
+    const rect = orderedBlocks[index]!.rect;
+    if (pointerY < rect.top + rect.height / 2) {
+      insertionIndex = index;
+      break;
+    }
+  }
+
+  const finalIndex = sourceIndex < insertionIndex ? insertionIndex - 1 : insertionIndex;
+  if (finalIndex === sourceIndex) return null;
+  const withoutSource = orderedBlocks.filter((candidate) => candidate.id !== blockId);
+  if (!withoutSource.length) return null;
+  if (finalIndex <= 0) {
+    return { placement: "before" as const, targetBlockId: withoutSource[0]!.id };
+  }
+  if (finalIndex >= withoutSource.length) {
+    return { placement: "after" as const, targetBlockId: withoutSource[withoutSource.length - 1]!.id };
+  }
+  return { placement: "before" as const, targetBlockId: withoutSource[finalIndex]!.id };
+}
+
 function clampBoxWidth(width: number, maxWidth: number | null) {
   if (!maxWidth) return Math.max(minBoxWidth, width);
   const minWidth = Math.min(minBoxWidth, maxWidth);
@@ -127,6 +168,7 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
   const options = props.extension.options as ProgressionNodeViewOptions;
   const blockId = String(props.node.attrs.blockId ?? "");
   const shellRef = useRef<HTMLElement | null>(null);
+  const moveDragStartY = useRef<number | null>(null);
   const view = useSyncExternalStore(
     options.subscribe,
     viewSnapshot(options, blockId),
@@ -134,6 +176,7 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
   );
   const [draft, setDraft] = useState<ProgressionDraft>(() => draftFromView(view));
   const [size, setSize] = useState<BoxSize>(() => readStoredSize(blockId));
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
   useEffect(() => {
     setDraft(draftFromView(view));
@@ -141,6 +184,7 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
 
   useEffect(() => {
     setSize(readStoredSize(blockId));
+    setIsConfirmingDelete(false);
   }, [blockId]);
 
   useEffect(() => {
@@ -208,6 +252,38 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
     window.addEventListener("pointerup", stopResize);
   }
 
+  function startMoveDrag(event: ReactPointerEvent<HTMLElement>) {
+    if (view?.isBusy) return;
+    event.preventDefault();
+    event.stopPropagation();
+    options.onSelect(blockId);
+    moveDragStartY.current = event.clientY;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function finishMoveDrag(event: ReactPointerEvent<HTMLElement>) {
+    const startY = moveDragStartY.current;
+    moveDragStartY.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    if (startY === null || !view || view.isBusy) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = progressionDropTarget(shellRef.current, blockId, event.clientY);
+    if (target) options.onMoveTo(blockId, target.targetBlockId, target.placement);
+  }
+
+  function moveFromKeyboard(event: ReactKeyboardEvent<HTMLElement>) {
+    if (!view || view.isBusy) return;
+    if (event.key === "ArrowUp" && view.canMoveUp) {
+      event.preventDefault();
+      options.onMove(blockId, "up");
+    }
+    if (event.key === "ArrowDown" && view.canMoveDown) {
+      event.preventDefault();
+      options.onMove(blockId, "down");
+    }
+  }
+
   if (!view) {
     return (
       <NodeViewWrapper
@@ -226,7 +302,7 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
   }
 
   const collapsedText = draft.summary.trim() || draft.body.trim();
-
+  const isCollapsed = view.isCollapsed && !isConfirmingDelete;
   const sizeStyle: CSSProperties = {
     height: !view.isCollapsed && size.height ? `${size.height}px` : undefined,
     width: size.width ? `${size.width}px` : undefined,
@@ -235,7 +311,7 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
   return (
     <NodeViewWrapper
       as="section"
-      className={`codex-progression-node${view.isSelected ? " is-selected" : ""}${view.isCollapsed ? " is-collapsed" : ""}`}
+      className={`codex-progression-node${view.isSelected ? " is-selected" : ""}${isCollapsed ? " is-collapsed" : ""}${isConfirmingDelete ? " is-confirming-delete" : ""}`}
       data-block-id={blockId}
       data-codex-progression-block="true"
       contentEditable={false}
@@ -244,20 +320,25 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
       style={sizeStyle}
     >
       <div className="codex-progression-head">
-        <button
+        <span
+          aria-disabled={view.isBusy || (!view.canMoveUp && !view.canMoveDown)}
           aria-label={progressionText.aria.move}
-          className="codex-progression-handle"
-          data-drag-handle
+          className="codex-progression-drag-handle"
+          onKeyDown={moveFromKeyboard}
           onMouseDown={stopEditorEvent}
+          onPointerCancel={() => {
+            moveDragStartY.current = null;
+          }}
+          onPointerDown={startMoveDrag}
+          onPointerUp={finishMoveDrag}
+          role="button"
+          tabIndex={0}
           title={progressionText.aria.move}
-          type="button"
-        >
-          ::
-        </button>
+        />
         {view.isCollapsed ? (
           <button
             className="codex-progression-collapsed-line"
-            disabled={view.isBusy}
+            disabled={view.isBusy || isConfirmingDelete}
             onClick={() => options.onToggleCollapse(blockId)}
             onMouseDown={stopEditorEvent}
             title={progressionText.actions.expand}
@@ -271,8 +352,62 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
             </strong>
           </button>
         ) : (
-          <>
-            <span className="codex-progression-chip">{progressionText.title}</span>
+          <span className="codex-progression-chip">{progressionText.title}</span>
+        )}
+        <div className="codex-progression-node-actions">
+          <button
+            aria-label={view.isCollapsed ? progressionText.actions.expand : progressionText.actions.collapse}
+            className="btn compact codex-progression-collapse-trigger"
+            disabled={view.isBusy || isConfirmingDelete}
+            onClick={() => options.onToggleCollapse(blockId)}
+            onMouseDown={stopEditorEvent}
+            title={view.isCollapsed ? progressionText.actions.expand : progressionText.actions.collapse}
+            type="button"
+          >
+            {view.isCollapsed ? progressionText.actions.expandShort : progressionText.actions.collapseShort}
+          </button>
+          <button
+            aria-label={progressionText.actions.delete}
+            className="btn compact codex-progression-delete-trigger"
+            disabled={view.isBusy || isConfirmingDelete}
+            onClick={() => setIsConfirmingDelete(true)}
+            onMouseDown={stopEditorEvent}
+            title={progressionText.actions.delete}
+            type="button"
+          >
+            {progressionText.actions.deleteShort}
+          </button>
+        </div>
+      </div>
+
+      {isConfirmingDelete ? (
+        <div className="codex-progression-delete-confirm" role="alert">
+          <span>{progressionText.confirmDeleteCopy}</span>
+          <button
+            className="btn compact"
+            disabled={view.isBusy}
+            onClick={() => setIsConfirmingDelete(false)}
+            onMouseDown={stopEditorEvent}
+            type="button"
+          >
+            {progressionText.actions.cancelDelete}
+          </button>
+          <button
+            aria-label={progressionText.actions.confirmDelete}
+            className="btn compact danger"
+            disabled={view.isBusy}
+            onClick={() => options.onDelete(blockId)}
+            onMouseDown={stopEditorEvent}
+            type="button"
+          >
+            {progressionText.actions.deleteShort}
+          </button>
+        </div>
+      ) : null}
+
+      {!view.isCollapsed && !isConfirmingDelete ? (
+        <>
+          <div className="codex-progression-control-row">
             <select
               aria-label={progressionText.aria.selectedEntry}
               className="codex-progression-entry-select"
@@ -309,34 +444,7 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
-          </>
-        )}
-        <button
-          aria-label={view.isCollapsed ? progressionText.actions.expand : progressionText.actions.collapse}
-          className="icon-btn"
-          disabled={view.isBusy}
-          onClick={() => options.onToggleCollapse(blockId)}
-          onMouseDown={stopEditorEvent}
-          title={view.isCollapsed ? progressionText.actions.expand : progressionText.actions.collapse}
-          type="button"
-        >
-          {view.isCollapsed ? "+" : "-"}
-        </button>
-        <button
-          aria-label={progressionText.actions.delete}
-          className="icon-btn"
-          disabled={view.isBusy}
-          onClick={() => options.onDelete(blockId)}
-          onMouseDown={stopEditorEvent}
-          title={progressionText.actions.delete}
-          type="button"
-        >
-          x
-        </button>
-      </div>
-
-      {!view.isCollapsed ? (
-        <>
+          </div>
           <input
             aria-label={progressionText.aria.selectedSummary}
             className="codex-progression-summary-input"

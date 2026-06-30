@@ -5,28 +5,6 @@
   max-width: none;
 }
 
-.novel-editor-action-rail {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin: 0 0 12px;
-}
-
-.novel-editor-action-rail .tool {
-  min-width: 34px;
-  background: rgba(255, 255, 255, 0.88);
-}
-
-.novel-editor-action-rail .story-change-tool {
-  width: auto;
-  max-width: 142px;
-  padding-inline: 10px;
-  font-size: 12px;
-  line-height: 1.05;
-  white-space: nowrap;
-}
-
 .novel-tiptap-editor {
   position: relative;
   width: 100%;
@@ -110,12 +88,12 @@
   position: relative;
   box-sizing: border-box;
   display: grid;
-  grid-template-rows: auto auto minmax(104px, 1fr);
+  grid-template-rows: auto auto auto minmax(118px, 1fr);
   gap: 10px;
   width: 100%;
   max-width: 100%;
-  min-width: min(100%, 360px);
-  min-height: 190px;
+  min-width: min(100%, 320px);
+  min-height: 238px;
   margin: 22px 0;
   padding: 12px 14px 14px 12px;
   border: 1px solid #b7ccc8;
@@ -148,29 +126,28 @@
 
 .codex-progression-head {
   display: grid;
-  grid-template-columns: 20px auto minmax(150px, 1fr) minmax(136px, 0.78fr) minmax(126px, 0.68fr) 36px 36px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   min-width: 0;
 }
 
-.codex-progression-handle {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 28px;
-  border: 0;
-  background: transparent;
-  color: #7d8780;
-  cursor: grab;
-  font: inherit;
-  font-weight: 800;
-  letter-spacing: 0;
+.codex-progression-drag-handle {
+  display: block;
+  width: 24px;
+  height: 34px;
+  border-radius: var(--radius);
+  cursor: ns-resize;
+  background-image: radial-gradient(circle, #72908b 1.5px, transparent 1.5px);
+  background-position: 4px 5px;
+  background-size: 8px 8px;
 }
 
 .codex-progression-chip {
   display: inline-flex;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
   min-height: 34px;
   border: 1px solid #c9d8d4;
   border-radius: var(--radius);
@@ -179,7 +156,25 @@
   padding: 0 10px;
   font-size: 15px;
   font-weight: 720;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.codex-progression-node-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.codex-progression-control-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 172px), 1fr));
+  gap: 8px;
+  min-width: 0;
 }
 
 .codex-progression-target-select,
@@ -238,7 +233,6 @@
 
 .codex-progression-collapsed-line {
   display: grid;
-  grid-column: 2 / -3;
   grid-template-columns: auto auto auto minmax(0, 1fr);
   gap: 8px;
   align-items: center;
@@ -248,6 +242,37 @@
   color: var(--muted);
   padding: 0;
   text-align: left;
+}
+
+.codex-progression-collapse-trigger {
+  min-height: 34px;
+  padding-inline: 10px;
+  white-space: nowrap;
+}
+
+.codex-progression-delete-trigger {
+  min-height: 34px;
+  padding-inline: 10px;
+  white-space: nowrap;
+}
+
+.codex-progression-delete-confirm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid #e5c5b8;
+  border-radius: var(--radius);
+  background: #fff8f5;
+  color: #6d2f1e;
+  font-size: 14px;
+  font-weight: 680;
+}
+
+.codex-progression-delete-confirm .danger {
+  border-color: #d49a86;
+  color: #8c2f1a;
 }
 
 .codex-progression-collapsed-line span:not(.codex-progression-chip) {
@@ -313,16 +338,24 @@
 }
 
 @media (max-width: 920px) {
-  .codex-progression-head {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .codex-progression-collapsed-line {
     grid-column: auto;
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .codex-progression-handle {
-    display: none;
+  .codex-progression-node-actions {
+    justify-content: flex-start;
   }
+
+  .codex-progression-head {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .codex-progression-node-actions {
+    grid-column: 2;
+  }
+}
+.codex-progression-node.is-confirming-delete {
+  grid-template-rows: auto auto;
+  min-height: 104px;
 }
