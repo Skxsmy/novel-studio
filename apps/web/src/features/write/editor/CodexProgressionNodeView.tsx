@@ -12,7 +12,6 @@ import { uiText } from "../../../app/uiText";
 import type {
   ProgressionDraft,
   ProgressionFieldSelection,
-  ProgressionPreview,
 } from "../story-change/storyChangeViewModel";
 
 export type ProgressionNodeOption = {
@@ -32,7 +31,6 @@ export type ProgressionNodeViewModel = {
   isCollapsed: boolean;
   isSelected: boolean;
   operationOptions: Array<{ label: string; value: ProgressionDraft["operation"] }>;
-  preview: ProgressionPreview;
   progressionId: string;
 };
 
@@ -55,7 +53,7 @@ export const emptyProgressionNodeViewOptions: ProgressionNodeViewOptions = {
 };
 
 const progressionText = uiText.writeProgression;
-const minBoxHeight = 230;
+const minBoxHeight = 150;
 const minBoxWidth = 360;
 
 type BoxSize = {
@@ -93,6 +91,20 @@ function storeSize(blockId: string, size: BoxSize) {
   }
 }
 
+function progressionContainerWidth(element: HTMLElement | null) {
+  const container = element?.closest(".novel-tiptap-prosemirror") ?? element?.parentElement;
+  const width = container?.getBoundingClientRect().width;
+  return typeof width === "number" && Number.isFinite(width) && width > 0
+    ? Math.floor(width)
+    : null;
+}
+
+function clampBoxWidth(width: number, maxWidth: number | null) {
+  if (!maxWidth) return Math.max(minBoxWidth, width);
+  const minWidth = Math.min(minBoxWidth, maxWidth);
+  return Math.min(maxWidth, Math.max(minWidth, width));
+}
+
 function draftFromView(view: ProgressionNodeViewModel | null): ProgressionDraft {
   return view?.draft ?? {
     body: "",
@@ -101,13 +113,6 @@ function draftFromView(view: ProgressionNodeViewModel | null): ProgressionDraft 
     operation: "add",
     summary: "",
   };
-}
-
-function applyDraftPreview(before: string, draft: ProgressionDraft) {
-  const body = draft.body.trim();
-  if (draft.operation === "replace") return draft.body;
-  if (!body) return before;
-  return before ? `${draft.body}\n\n${before}` : draft.body;
 }
 
 function stopEditorEvent(event: SyntheticEvent) {
@@ -129,7 +134,6 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
   );
   const [draft, setDraft] = useState<ProgressionDraft>(() => draftFromView(view));
   const [size, setSize] = useState<BoxSize>(() => readStoredSize(blockId));
-  const entrySelectRef = useRef<HTMLSelectElement | null>(null);
 
   useEffect(() => {
     setDraft(draftFromView(view));
@@ -142,6 +146,25 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
   useEffect(() => {
     storeSize(blockId, size);
   }, [blockId, size]);
+
+  useEffect(() => {
+    const element = shellRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return undefined;
+    const container = element.closest(".novel-tiptap-prosemirror") ?? element.parentElement;
+    if (!container) return undefined;
+    const clampStoredWidth = () => {
+      const maxWidth = progressionContainerWidth(element);
+      setSize((current) => {
+        if (current.width === undefined) return current;
+        const width = clampBoxWidth(current.width, maxWidth);
+        return width === current.width ? current : { ...current, width };
+      });
+    };
+    clampStoredWidth();
+    const observer = new ResizeObserver(clampStoredWidth);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [blockId]);
 
   function patchDraft(patch: Partial<ProgressionDraft>) {
     setDraft((current) => ({ ...current, ...patch }));
@@ -161,13 +184,14 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
       pointerY: event.clientY,
       width: size.width ?? rect.width,
     };
+    const maxWidth = progressionContainerWidth(shellRef.current);
 
     const handleMove = (moveEvent: PointerEvent) => {
       const nextSize: BoxSize = {};
       if (start.edge === "right" || start.edge === "corner") {
-        nextSize.width = Math.max(minBoxWidth, Math.round(start.width + moveEvent.clientX - start.pointerX));
+        nextSize.width = clampBoxWidth(Math.round(start.width + moveEvent.clientX - start.pointerX), maxWidth);
       } else if (size.width !== undefined) {
-        nextSize.width = size.width;
+        nextSize.width = clampBoxWidth(size.width, maxWidth);
       }
       if (start.edge === "bottom" || start.edge === "corner") {
         nextSize.height = Math.max(minBoxHeight, Math.round(start.height + moveEvent.clientY - start.pointerY));
@@ -201,7 +225,6 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
     );
   }
 
-  const previewAfter = applyDraftPreview(view.preview.before, draft);
   const collapsedText = draft.summary.trim() || draft.body.trim() || view.fieldLabel;
 
   const sizeStyle: CSSProperties = {
@@ -252,7 +275,6 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
           disabled={view.isBusy}
           onChange={(event) => patchDraft({ entryId: event.target.value, fieldSelection: "description" })}
           onMouseDown={stopEditorEvent}
-          ref={entrySelectRef}
           value={draft.entryId}
         >
           {view.entryOptions.map((option) => (
@@ -260,15 +282,7 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
           ))}
         </select>
         <button
-          className="btn compact"
-          disabled={view.isBusy}
-          onClick={() => entrySelectRef.current?.focus()}
-          onMouseDown={stopEditorEvent}
-          type="button"
-        >
-          {progressionText.actions.selectEntry}
-        </button>
-        <button
+          aria-label={view.isCollapsed ? progressionText.actions.expand : progressionText.actions.collapse}
           className="icon-btn"
           disabled={view.isBusy}
           onClick={() => options.onToggleCollapse(blockId)}
@@ -277,6 +291,17 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
           type="button"
         >
           {view.isCollapsed ? "+" : "-"}
+        </button>
+        <button
+          aria-label={uiText.actions.delete}
+          className="icon-btn"
+          disabled={view.isBusy}
+          onClick={() => options.onDelete(blockId)}
+          onMouseDown={stopEditorEvent}
+          title={uiText.actions.delete}
+          type="button"
+        >
+          x
         </button>
       </div>
 
@@ -314,7 +339,6 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
             </label>
           </div>
           <label className="codex-progression-writing-area">
-            <span>{progressionText.labels.text}</span>
             <textarea
               aria-label={progressionText.aria.selectedText}
               className="input codex-progression-body"
@@ -325,30 +349,6 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
               value={draft.body}
             />
           </label>
-          <div className="progression-preview-grid" aria-label={progressionText.aria.selectedPreview}>
-            <div>
-              <span className="mini-label">{progressionText.labels.before}</span>
-              <p>{view.preview.status === "failed" ? progressionText.previewUnavailable : view.preview.before || progressionText.empty}</p>
-            </div>
-            <div>
-              <span className="mini-label">{progressionText.labels.after}</span>
-              <p>{view.preview.status === "loading" ? progressionText.loading : previewAfter || progressionText.empty}</p>
-            </div>
-          </div>
-          {view.preview.hiddenFutureCount ? (
-            <p className="mini-note">{progressionText.laterChangesHidden(view.preview.hiddenFutureCount)}</p>
-          ) : null}
-          <div className="codex-progression-actions">
-            <button
-              className="btn compact"
-              disabled={view.isBusy}
-              onClick={() => options.onDelete(blockId)}
-              onMouseDown={stopEditorEvent}
-              type="button"
-            >
-              {uiText.actions.delete}
-            </button>
-          </div>
         </>
       )}
       <span

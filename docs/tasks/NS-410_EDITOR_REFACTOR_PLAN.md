@@ -20,10 +20,10 @@ Implemented:
 - Added Tiptap as a runtime editor integration layer: `@tiptap/core`, `@tiptap/react`, and `@tiptap/starter-kit` at `^3.27.1`.
 - Verified installed package metadata for those Tiptap packages lists the MIT license.
 - Added `apps/web/src/features/write/editor/` with a reversible `SceneBlockDocument` to Tiptap JSON adapter, schema extensions, selection helpers, and a continuous `NovelEditor`.
-- Added `apps/web/src/features/write/story-change/` with Codex progression view-model helpers and the Scene Brief current-scene progression list.
+- Added `apps/web/src/features/write/story-change/` with Codex progression view-model helpers.
 - Replaced the author-facing Write scene body with a continuous manuscript editor. The old repeated card/textarea row UI is no longer rendered.
-- Preserved paragraph insertion, paragraph deletion, Focus mode, Scene Brief hiding/restoring, Codex progression creation/edit/delete/collapse, previous-scene first-Codex-progression preview behavior, and Codex Progressions tab regressions. Heading/quote/scene-break nodes remain adapter compatibility, not visible current-text conversion controls.
-- Current product decision after user visual review: Codex progression editing happens in a resizable inline manuscript component; Scene Brief lists current-scene progressions and shows a read-only selected overview.
+- Preserved paragraph insertion, paragraph deletion, Focus mode, Scene Brief hiding/restoring, Codex progression creation/edit/delete/collapse, and Codex Progressions tab regressions. Heading/quote/scene-break nodes remain adapter compatibility, not visible current-text conversion controls.
+- Current product decision after user visual review: Codex progression editing happens only in a resizable inline manuscript component; Scene Brief must not duplicate current-scene progressions or show a read-only progression overview.
 - Write scene edits, inline Codex progression edits, and Codex entry edits autosave. Normal editor Save buttons and normal save-status noise are removed; failure/conflict feedback remains.
 - Removed the floating formatting panel and destructive current-text type selector after user visual review showed it was still behaving like a form panel and could erase active prose by converting it to a scene break.
 - Kept `SceneBlockDocument` as the saved authority. Tiptap JSON remains runtime state only and is converted back to the authority document before saving.
@@ -40,7 +40,7 @@ The plan assumes the following current state from `STATUS.md`, `docs/tasks/NS-41
 
 - Scene manuscripts are already JSON-authoritative through `SceneBlockDocument`.
 - Write scene content no longer depends on CodeMirror or `EditorSurface`; ordinary scene blocks are rendered through the native Write workspace.
-- Slice 8 has repaired the earlier Write progression defects with scene-level atomic progression-block create/delete commands, dirty-draft-safe deletion, and previous-scene first-block previews.
+- Slice 8 has repaired the earlier Write progression defects with scene-level atomic progression-block create/delete commands, dirty-draft-safe deletion, and previous-scene effective-state projection.
 - Progression records use unified JSON authority under `codex/progressions/<id>.json`.
 - Slice 9 has completed the Codex `Progressions` tab for baseline, effective-at-scene state, scene selection, field history, hidden-future behavior, and author-safe labels without exposing progression IDs or revisions.
 - Slice 9 is command-verified, but user visual acceptance is still separate.
@@ -102,7 +102,7 @@ Do not rebuild these already-completed foundations:
 - Unified Progression JSON storage.
 - Slice 8 scene-level progression-block create/delete API.
 - Slice 8 dirty-draft-safe deletion behavior.
-- Slice 8 previous-scene first-block preview semantics.
+- Slice 8 previous-scene effective-state projection semantics.
 - Slice 9 Codex Progressions tab.
 - Slice 9 effective-at-scene read model.
 
@@ -147,7 +147,6 @@ apps/web/src/features/write/
     editorSelection.ts
     editorStyles.css
   story-change/
-    StoryChangePanel.tsx
     storyChangeViewModel.ts
 ```
 
@@ -158,7 +157,6 @@ Roles:
 - `sceneBlockMapping.ts` converts between `SceneBlockDocument` and Tiptap JSON.
 - `CodexProgressionNodeView.tsx` renders the resizable inline manuscript Codex progression component.
 - `storyChangeAnchors.ts` maps progression-backed blocks to the Codex progression editor node.
-- `StoryChangePanel.tsx` hosts the current-scene Codex progression list and read-only selected overview outside the main prose flow.
 - `writeViewModel.ts` and `storyChangeViewModel.ts` centralize user-facing labels and prevent mixed hard-coded UI text.
 
 If Codex and Write need shared progression labels after Slice 9, add a narrow shared helper only for labels or formatting. Do not couple the Write editor to `CodexWorkspace.tsx`.
@@ -175,7 +173,7 @@ Initial mapping:
 | Heading or scene marker | Legacy heading node mapping | Compatibility only unless a later product decision gives intra-scene headings a role |
 | Separator | Legacy horizontal rule mapping | Compatibility only; not exposed as a current-text conversion control |
 | Note or planning block, if present | Distinct inline/block node only when product-approved | Not shown as raw metadata |
-| Codex progression block | Resizable inline manuscript component plus Scene Brief list affordance | Editable at its manuscript position without exposing IDs/revisions |
+| Codex progression block | Resizable inline manuscript component | Editable at its manuscript position without exposing IDs/revisions or duplicating state in Scene Brief |
 
 The mapping must be deterministic and reversible. Unsupported legacy block types should round-trip safely and display as an unobtrusive recoverable block, not be dropped.
 
@@ -186,12 +184,12 @@ Codex progressions are product content, but they should not turn the manuscript 
 Required behavior after user visual review:
 
 - Codex progression blocks appear inline at their manuscript position as an independent component.
-- The inline component owns target entry/field/operation/summary/body editing, before/after preview, collapse/delete, and UI-only width/height resizing by dragging component edges.
-- Scene Brief lists current-scene Codex progressions and may show a read-only selected overview; it must not be the primary edit form.
+- The inline component owns target entry/field/operation/summary/body editing, collapse/delete, and UI-only width/height resizing by dragging component edges.
+- Scene Brief must not list current-scene Codex progressions or show a duplicated read-only selected overview.
 - Add Codex progression is a compact command at the cursor/selected block.
 - Delete Codex progression uses the existing repaired scene-level delete command and must preserve dirty draft content first.
-- Previous-scene previews preserve the repaired Slice 8 first-block behavior.
-- Labels remain author-facing and must use "Codex progression", "Before", and "After"; do not expose progression IDs, revision names, hashes, or internal operation names.
+- Effective-state review remains in the Codex Progressions tab and projection/API tests, not as a constant Write before/after panel.
+- Labels remain author-facing and must use "Codex progression" where the inline component needs a label; do not expose progression IDs, revision names, hashes, or internal operation names.
 
 The editor must use the existing scene-level progression-block APIs rather than recreating multi-file transaction logic in the browser.
 
@@ -222,7 +220,7 @@ Before code changes, capture the current accepted baseline:
 
 - Record that Slice 8 storage/API repairs are the baseline and must not be replaced.
 - Record that Slice 9 Codex Progressions is read-only and command-verified but visually separate.
-- Identify the exact current Write tests that cover save state, progression create/delete, previous-scene previews, and Codex progressions.
+- Identify the exact current Write tests that cover save state, progression create/delete, absence of duplicated Write progression panels/previews, and Codex progressions.
 - Map every affected acceptance ID to existing tests, proposed tests, or explicit manual visual verification.
 
 No code should be written until this mapping exists.
@@ -265,7 +263,7 @@ Required behavior:
 
 This phase should keep Codex progression editing temporarily functional through the existing commands while the inline component UI is finished.
 
-### Phase 4 - Codex Progression Inline Components And Scene Brief List
+### Phase 4 - Codex Progression Inline Components
 
 Move Codex progression editing out of the block-row layout and into the new manuscript model.
 
@@ -275,11 +273,11 @@ Required behavior:
 - Render Codex progressions as independent inline manuscript components.
 - Let the user edit target entry/field/operation/summary/body inside the inline component.
 - Let the user resize the inline component by dragging its edges; component size is UI-only and not persisted to authority.
-- Scene Brief lists current-scene Codex progressions and can show a read-only selected overview, but it is not the primary edit form.
+- Scene Brief does not duplicate Codex progression state.
 - Autosave updates through the existing repaired scene-level/Progression APIs.
 - Delete through the existing repaired scene-level APIs.
 - Preserve dirty-draft-safe deletion.
-- Preserve previous-scene first-block preview behavior.
+- Preserve effective-state behavior through the existing projection/API and Codex Progressions regressions.
 - Preserve author-safe labels and avoid internal IDs.
 
 ### Phase 5 - Slice 9 Codex Regression Integration
@@ -292,7 +290,7 @@ Required behavior:
 - Effective-at-scene values match the existing Slice 9 projection behavior.
 - Hidden future items remain hidden.
 - Codex continues to render only the active tab content.
-- No duplicate hidden Progressions panels reappear in DOM queries.
+- No duplicate hidden Progressions panels or Write-side progression overviews reappear in DOM queries.
 
 Optional behavior:
 
@@ -335,7 +333,7 @@ Before moving into later cleanup or migration slices, run a full regression over
 - scene manuscript load/save
 - dirty save
 - Codex progression create/edit/delete
-- previous-scene preview
+- effective-at-scene projection
 - Codex Progressions read-only tab
 - effective-at-scene calculation
 - hidden-future progression behavior
@@ -375,7 +373,7 @@ Component tests:
 - Codex progression create uses the existing scene-level API.
 - Codex progression delete saves dirty draft content before deletion.
 - Codex progression edits autosave without a normal Save button.
-- Previous-scene first-block preview remains correct.
+- Effective-state behavior remains correct through Codex Progressions and projection/API tests.
 - UI does not render block numbers, block type dropdowns, or raw IDs in the main writing surface.
 
 Codex regression tests:
@@ -397,7 +395,7 @@ Manual visual checks:
 - Desktop screenshot.
 - Narrow viewport screenshot.
 - Long scene editing behavior.
-- Inline Codex progression resized/collapsed states and Scene Brief progression list.
+- Inline Codex progression resized/collapsed states, with no duplicated Scene Brief progression list.
 
 ## Required Commands
 
@@ -439,7 +437,7 @@ This refactor is done only when:
 
 - The Write scene body is a continuous editor suitable for long-form prose.
 - Existing JSON authority files remain the saved source of truth.
-- Codex progression creation, editing, deletion, and previews work through the repaired Slice 8 paths.
+- Codex progression creation, editing, and deletion work through the repaired Slice 8 paths; effective-state review remains in Codex Progressions/projection tests.
 - Slice 9 Codex Progressions behavior still passes regression checks.
 - The main author workflow does not expose block IDs, revisions, hashes, or internal operation names.
 - Tests cover the adapter, Write behavior, Codex progression behavior, and Codex progression regressions.

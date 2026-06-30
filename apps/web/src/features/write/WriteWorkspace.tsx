@@ -30,16 +30,11 @@ import type { SaveStatus, SceneDraft } from "../../app/useProjectSession";
 import { findInlineCodexMentions } from "../codex/inlineMentions";
 import { NovelEditor } from "./editor";
 import type { ProgressionNodeViewModel } from "./editor/CodexProgressionNodeView";
-import { StoryChangePanel } from "./story-change/StoryChangePanel";
 import {
-  applyProgressionDraft,
   fieldFromSelection,
   fieldLabel,
-  fieldValueFromEffective,
-  fieldValueFromEntry,
   isSceneWriteProgression,
   type ProgressionDraft,
-  type ProgressionPreview,
   progressionDraftFromDocument,
 } from "./story-change/storyChangeViewModel";
 
@@ -164,7 +159,6 @@ export function WriteWorkspace({
   const [codexDetailTypes, setCodexDetailTypes] = useState<CodexDetailTypeDocument[]>([]);
   const [sceneProgressions, setSceneProgressions] = useState<CodexProgressionDocument[]>([]);
   const [progressionDrafts, setProgressionDrafts] = useState<Record<string, ProgressionDraft>>({});
-  const [progressionPreviews, setProgressionPreviews] = useState<Record<string, ProgressionPreview>>({});
   const [collapsedProgressionBlocks, setCollapsedProgressionBlocks] = useState<Set<string>>(() => new Set());
   const [progressionBusyId, setProgressionBusyId] = useState<string | null>(null);
   const [progressionError, setProgressionError] = useState<string | null>(null);
@@ -453,11 +447,6 @@ export function WriteWorkspace({
         delete next[block.progressionId];
         return next;
       });
-      setProgressionPreviews((current) => {
-        const next = { ...current };
-        delete next[block.progressionId];
-        return next;
-      });
       setCollapsedProgressionBlocks((current) => {
         const next = new Set(current);
         next.delete(block.id);
@@ -555,91 +544,6 @@ export function WriteWorkspace({
     }, 900);
     return () => window.clearTimeout(timer);
   }, [progressionBusyId, progressionDrafts, sceneProgressions]);
-
-  useEffect(() => {
-    if (!draft || !selectedScene) {
-      setProgressionPreviews({});
-      return;
-    }
-    let isActive = true;
-    const blocks = draft.document.blocks;
-    const selectedSceneIndex = series.scenes.findIndex((scene) => scene.metadata.id === selectedScene.metadata.id);
-    const previousScene = selectedSceneIndex > 0 ? series.scenes[selectedSceneIndex - 1] : null;
-
-    for (const block of blocks) {
-      if (block.kind !== "codexProgression") continue;
-      const progression = progressionsById.get(block.progressionId);
-      const progressionDraft = progressionDrafts[block.progressionId] ??
-        (progression ? progressionDraftFromDocument(progression) : null);
-      if (!progression || !progressionDraft || !progressionDraft.entryId) continue;
-      const resolvedDraft = progressionDraft;
-      const entry = codexEntries.find((candidate) => candidate.metadata.id === resolvedDraft.entryId);
-      if (!entry) continue;
-      const blockIndex = blocks.findIndex((candidate) => candidate.id === block.id);
-      const previousBlock = blockIndex > 0 ? blocks[blockIndex - 1] : null;
-
-      setProgressionPreviews((current) => {
-        const previousPreview = current[block.progressionId];
-        const loadingPreview: ProgressionPreview = previousPreview
-          ? { ...previousPreview, status: "loading" }
-          : { after: "", before: "", hiddenFutureCount: 0, status: "loading" };
-        return {
-          ...current,
-          [block.progressionId]: loadingPreview,
-        };
-      });
-
-      const beforePromise = previousBlock
-        ? api.codex.getEffectiveEntry(series.manifest.id, resolvedDraft.entryId, {
-            sceneId: selectedScene.metadata.id,
-            blockId: previousBlock.id,
-          }).then((effective) => ({
-            before: fieldValueFromEffective(effective, resolvedDraft.fieldSelection),
-            hiddenFutureCount: effective.hiddenFutureFieldProgressionCount,
-          }))
-        : previousScene
-          ? api.codex.getEffectiveEntry(series.manifest.id, resolvedDraft.entryId, {
-              sceneId: previousScene.metadata.id,
-            }).then((effective) => ({
-              before: fieldValueFromEffective(effective, resolvedDraft.fieldSelection),
-              hiddenFutureCount: effective.hiddenFutureFieldProgressionCount,
-            }))
-        : Promise.resolve({
-            before: fieldValueFromEntry(entry, resolvedDraft.fieldSelection),
-            hiddenFutureCount: 0,
-          });
-
-      beforePromise
-        .then(({ before, hiddenFutureCount }) => {
-          if (!isActive) return;
-          setProgressionPreviews((current) => ({
-            ...current,
-            [block.progressionId]: {
-              after: applyProgressionDraft(before, resolvedDraft),
-              before,
-              hiddenFutureCount,
-              status: "ready",
-            },
-          }));
-        })
-        .catch(() => {
-          if (!isActive) return;
-          setProgressionPreviews((current) => ({
-            ...current,
-            [block.progressionId]: {
-              after: "",
-              before: "",
-              hiddenFutureCount: 0,
-              status: "failed",
-            },
-          }));
-        });
-    }
-
-    return () => {
-      isActive = false;
-    };
-  }, [codexEntries, draft, progressionDrafts, progressionsById, selectedScene, series.manifest.id, series.scenes]);
 
   function canCreateStructure(type: ProductStructureType) {
     if (type === "volume") return true;
@@ -752,12 +656,6 @@ export function WriteWorkspace({
           { label: progressionText.operations.add, value: "add" },
           { label: progressionText.operations.replace, value: "replace" },
         ],
-        preview: progressionPreviews[block.progressionId] ?? {
-          after: "",
-          before: "",
-          hiddenFutureCount: 0,
-          status: "idle",
-        },
         progressionId: block.progressionId,
       };
     }
@@ -769,7 +667,6 @@ export function WriteWorkspace({
     progressionBlocks,
     progressionBusyId,
     progressionDrafts,
-    progressionPreviews,
     progressionsById,
     selectedProgressionBlockId,
   ]);
@@ -1158,23 +1055,6 @@ export function WriteWorkspace({
               <div className="brief-block">
                 <div className="brief-label">Continuity</div>
                 <p className="brief-text">{selectedScene?.metadata.summary || "No continuity note yet."}</p>
-              </div>
-              <div className="brief-block">
-                <div className="brief-label">{progressionText.panelTitle}</div>
-                <StoryChangePanel
-                  blocks={progressionBlocks}
-                  busyId={progressionBusyId}
-                  collapsedBlockIds={collapsedProgressionBlocks}
-                  detailTypes={codexDetailTypes}
-                  drafts={progressionDrafts}
-                  entries={codexEntries}
-                  onDelete={(block) => void deleteProgressionBlock(block)}
-                  onSelect={setSelectedProgressionBlockId}
-                  onToggleCollapse={(blockId) => setCollapsedProgressionBlocks((current) => toggleSetValue(current, blockId))}
-                  previews={progressionPreviews}
-                  progressionsById={progressionsById}
-                  selectedBlockId={selectedProgressionBlockId}
-                />
               </div>
             </div>
           </aside>

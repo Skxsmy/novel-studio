@@ -1,7 +1,5 @@
 import type {
   CodexDetailTypeDocument,
-  CodexEffectiveEntry,
-  CodexEntryDocument,
   CodexFieldProgressionField,
   CodexProgressionDocument,
 } from "@novel-studio/contracts";
@@ -16,12 +14,6 @@ export type ProgressionDraft = {
   fieldSelection: ProgressionFieldSelection;
   operation: "add" | "replace";
   summary: string;
-};
-export type ProgressionPreview = {
-  after: string;
-  before: string;
-  hiddenFutureCount: number;
-  status: "idle" | "loading" | "ready" | "failed";
 };
 
 export function progressionFieldSelection(progression: CodexProgressionDocument["progression"]): ProgressionFieldSelection {
@@ -49,22 +41,6 @@ export function fieldLabel(selection: ProgressionFieldSelection, detailTypes: Co
   const detailTypeId = selection.slice("detail:".length);
   return detailTypes.find((document) => document.detailType.id === detailTypeId)?.detailType.name ??
     progressionText.fieldFallback;
-}
-
-export function fieldValueFromEntry(entry: CodexEntryDocument, selection: ProgressionFieldSelection) {
-  if (selection === "description") return entry.description;
-  return entry.metadata.details[selection.slice("detail:".length)] ?? "";
-}
-
-export function fieldValueFromEffective(effective: CodexEffectiveEntry, selection: ProgressionFieldSelection) {
-  return fieldValueFromEntry(effective.entry, selection);
-}
-
-export function applyProgressionDraft(before: string, draft: ProgressionDraft) {
-  const body = draft.body.trim();
-  if (draft.operation === "replace") return draft.body;
-  if (!body) return before;
-  return before ? `${draft.body}\n\n${before}` : draft.body;
 }
 
 export function isSceneWriteProgression(document: CodexProgressionDocument, sceneId: string) {

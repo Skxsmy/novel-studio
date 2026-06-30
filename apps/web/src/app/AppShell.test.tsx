@@ -2851,11 +2851,8 @@ describe("App shell", () => {
     });
 
     expect(screen.getByDisplayValue("The lock answers to the bell.")).toBeTruthy();
-    const preview = await screen.findByLabelText("Codex progression preview");
-    await waitFor(() => {
-      expect(within(preview).getByText("Baseline lock state.")).toBeTruthy();
-      expect(within(preview).getByText(/The lock answers to the bell/)).toBeTruthy();
-    });
+    expect(screen.queryByLabelText("Codex progression preview")).toBeNull();
+    expect(screen.queryByText("Codex progressions")).toBeNull();
 
     await waitFor(() => {
       const updateCall = fetchMock.mock.calls.find(([url, init]) => (
@@ -2868,7 +2865,6 @@ describe("App shell", () => {
         operation: "add",
         summary: "Lock state changes.",
       }));
-      expect(JSON.stringify(body)).not.toContain("progression-preview-grid");
     }, { timeout: 3000 });
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
@@ -2902,12 +2898,14 @@ describe("App shell", () => {
       expect(dirtySaveCallIndex).toBeGreaterThanOrEqual(0);
       expect(deleteCallIndex).toBeGreaterThan(dirtySaveCallIndex);
     }, { timeout: 3000 });
-    expect(await screen.findByText("No Codex progressions in this scene.")).toBeTruthy();
-    expect(screen.queryByLabelText("Codex progression text")).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Codex progression text")).toBeNull();
+    });
+    expect(screen.queryByText("Codex progressions")).toBeNull();
     expect(manuscriptEditor().getText()).toContain("Opening line revised.");
   });
 
-  it("previews the first write progression block from the previous scene effective state", async () => {
+  it("renders first write progression blocks without a duplicated Write preview panel", async () => {
     const previousSceneDocument: SceneBlockDocument = {
       schemaVersion: 1,
       blocks: [
@@ -2975,16 +2973,15 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
     fireEvent.click(await screen.findByRole("button", { name: /^Second Scene/i }));
 
-    const preview = await screen.findByLabelText("Codex progression preview");
+    expect(await screen.findByDisplayValue("Current scene truth.")).toBeTruthy();
+    expect(screen.queryByLabelText("Codex progression preview")).toBeNull();
+    expect(screen.queryByText("Codex progressions")).toBeNull();
     await waitFor(() => {
-      expect(within(preview).getByText("Previous scene truth.")).toBeTruthy();
-      expect(within(preview).getByText(/Current scene truth/)).toBeTruthy();
       expect(fetchMock.mock.calls.some(([url, init]) => (
         typeof url === "string" &&
         url.includes(`/api/v1/series/${seriesId}/codex/entries/${codexEntryId}/effective`) &&
-        url.includes(`sceneId=${sceneId}`) &&
         init?.method === "GET"
-      ))).toBe(true);
+      ))).toBe(false);
     });
   });
 

@@ -6,13 +6,11 @@
 }
 
 .novel-editor-action-rail {
-  position: absolute;
-  top: 4px;
-  right: 0;
-  z-index: 2;
   display: flex;
-  gap: 6px;
   align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0 0 12px;
 }
 
 .novel-editor-action-rail .tool {
@@ -33,7 +31,7 @@
   position: relative;
   width: 100%;
   min-height: 54vh;
-  padding: 8px 0 56px 0;
+  padding: 0 0 56px 0;
   color: #252724;
   cursor: text;
   font-family: var(--font-copy);
@@ -112,18 +110,18 @@
   position: relative;
   box-sizing: border-box;
   display: grid;
-  grid-template-rows: auto auto minmax(96px, 1fr) auto auto auto;
-  gap: 10px;
-  width: min(100%, 760px);
+  grid-template-rows: auto auto minmax(72px, 1fr);
+  gap: 8px;
+  width: 100%;
   max-width: 100%;
   min-width: min(100%, 360px);
-  min-height: 230px;
-  margin: 18px 0 26px;
-  padding: 12px 14px 14px;
+  min-height: 150px;
+  margin: 14px 0 18px;
+  padding: 10px 12px 12px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: #fbfdfb;
-  box-shadow: 0 2px 10px rgba(31, 37, 35, 0.08);
+  box-shadow: 0 1px 7px rgba(31, 37, 35, 0.06);
   color: var(--ink);
   font-family: var(--font-ui);
   font-size: 13px;
@@ -134,12 +132,12 @@
 .codex-progression-node.is-selected,
 .codex-progression-node.ProseMirror-selectednode {
   border-color: #5f9794;
-  box-shadow: 0 0 0 2px rgba(95, 151, 148, 0.18), 0 2px 12px rgba(31, 37, 35, 0.1);
+  box-shadow: 0 0 0 2px rgba(95, 151, 148, 0.18), 0 1px 9px rgba(31, 37, 35, 0.08);
 }
 
 .codex-progression-node.is-collapsed {
   grid-template-rows: auto minmax(0, 1fr);
-  min-height: 96px;
+  min-height: 78px;
 }
 
 .codex-progression-node.is-missing {
@@ -148,7 +146,7 @@
 
 .codex-progression-head {
   display: grid;
-  grid-template-columns: 20px minmax(170px, 1fr) minmax(130px, auto) auto auto;
+  grid-template-columns: 20px minmax(150px, 1fr) minmax(120px, 0.65fr) 34px 34px;
   gap: 8px;
   align-items: center;
   min-width: 0;
@@ -174,7 +172,7 @@
   align-items: center;
   gap: 6px;
   color: var(--quiet);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
 }
@@ -183,7 +181,7 @@
 .codex-progression-entry-select {
   min-width: 0;
   max-width: 100%;
-  height: 30px;
+  height: 32px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: #fff;
@@ -205,8 +203,8 @@
 
 .codex-progression-meta {
   display: grid;
-  grid-template-columns: minmax(150px, 0.42fr) minmax(190px, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(145px, 0.35fr) minmax(180px, 1fr);
+  gap: 8px;
 }
 
 .codex-progression-meta label,
@@ -227,21 +225,15 @@
 .codex-progression-body {
   box-sizing: border-box;
   width: 100%;
-  min-height: 96px;
+  min-height: 72px;
   height: 100%;
   resize: none;
   color: var(--ink);
   font-family: var(--font-copy);
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 500;
   line-height: 1.56;
   text-transform: none;
-}
-
-.codex-progression-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 .codex-progression-collapsed {
