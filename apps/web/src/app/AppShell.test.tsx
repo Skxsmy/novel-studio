@@ -1952,7 +1952,6 @@ describe("App shell", () => {
     fireEvent.change(screen.getByLabelText("Codex research notes"), {
       target: { value: "Research source stays private until confirmed." },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       const putCall = fetchMock.mock.calls.find(([url, init]) => (
@@ -1970,11 +1969,8 @@ describe("App shell", () => {
         research: "Research source stays private until confirmed.",
       }));
       expect(body).not.toHaveProperty("tags");
-    });
+    }, { timeout: 3000 });
     expect(await screen.findByRole("heading", { name: "Harbor Lock" })).toBeTruthy();
-    await waitFor(() => {
-      expect(screen.getAllByText("Saved").length).toBeGreaterThan(0);
-    });
   });
 
   it("shows codex relations and mentions from manuscript and other codex entries", async () => {
@@ -2231,7 +2227,6 @@ describe("App shell", () => {
     await screen.findByLabelText("Codex canon description");
     insertEditorText("Codex canon description", "\n");
     insertEditorText("Codex canon description", "\n");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       const putCall = fetchMock.mock.calls.find(([url, init]) => (
@@ -2239,7 +2234,7 @@ describe("App shell", () => {
       ));
       expect(putCall).toBeTruthy();
       expect(JSON.parse(String(putCall![1]?.body)).description).toBe("\n\n");
-    });
+    }, { timeout: 3000 });
   });
 
   it("preserves leading spaces in codex canon description lines", async () => {
@@ -2258,7 +2253,6 @@ describe("App shell", () => {
     insertEditorText("Codex canon description", " ");
     insertEditorText("Codex canon description", "\n");
     insertEditorText("Codex canon description", " ");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       const putCall = fetchMock.mock.calls.find(([url, init]) => (
@@ -2266,7 +2260,7 @@ describe("App shell", () => {
       ));
       expect(putCall).toBeTruthy();
       expect(JSON.parse(String(putCall![1]?.body)).description).toBe(" \n ");
-    });
+    }, { timeout: 3000 });
   });
 
   it("saves codex tracking settings from the renamed tracking tab", async () => {
@@ -2289,7 +2283,6 @@ describe("App shell", () => {
       target: { value: "common lock, stage lock" },
     });
     fireEvent.click(screen.getByLabelText(/Never include/));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       const putCall = fetchMock.mock.calls.find(([url, init]) => (
@@ -2304,7 +2297,7 @@ describe("App shell", () => {
         excludedTerms: ["common lock", "stage lock"],
         matchAliases: true,
       }));
-    });
+    }, { timeout: 3000 });
   });
 
   it("creates custom codex categories and saves entry category changes", async () => {
@@ -2322,7 +2315,6 @@ describe("App shell", () => {
     expect(await screen.findByRole("button", { name: /Mechanism/i })).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Codex entry category"), { target: { value: customCategoryId } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       const postCategory = fetchMock.mock.calls.find(([url, init]) => (
@@ -2335,7 +2327,7 @@ describe("App shell", () => {
       expect(putCall).toBeTruthy();
       const body = JSON.parse(String(putCall![1]?.body));
       expect(body.categoryId).toBe(customCategoryId);
-    });
+    }, { timeout: 3000 });
     await waitFor(() => {
       expect(screen.getAllByText("Mechanism").length).toBeGreaterThan(0);
     });
@@ -2356,13 +2348,12 @@ describe("App shell", () => {
     expect(await screen.findByRole("button", { name: /Mechanism/i })).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Codex entry category"), { target: { value: customCategoryId } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}`,
         expect.objectContaining({ method: "PUT" }),
       );
-    });
+    }, { timeout: 3000 });
 
     fireEvent.doubleClick(screen.getByRole("button", { name: /Mechanism/i }));
     const renameInput = screen.getByLabelText("Rename Mechanism");
@@ -2463,11 +2454,10 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
     fireEvent.click(await screen.findByRole("button", { name: "New Entry" }));
     fireEvent.change(await screen.findByLabelText("Codex entry name"), { target: { value: "Local Entry" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(screen.getAllByText("This entry changed on disk. Reload it before saving again.").length).toBeGreaterThan(0);
-    });
+    }, { timeout: 3000 });
     fireEvent.click(screen.getByRole("button", { name: "Reload" }));
 
     await waitFor(() => {
@@ -2674,7 +2664,6 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
     await screen.findByLabelText("Manuscript editor");
     setManuscriptBlocks([{ id: firstBlockId, kind: "paragraph", text: "New paragraph" }]);
-    fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
       const putCall = fetchMock.mock.calls.find(([url, init]) => (
@@ -2684,10 +2673,7 @@ describe("App shell", () => {
       const body = JSON.parse(String(putCall![1]?.body));
       expect(body.content).toBeUndefined();
       expect(body.document.blocks[0]).toMatchObject({ kind: "paragraph", text: "New paragraph" });
-    });
-    await waitFor(() => {
-      expect(screen.getAllByText("Saved").length).toBeGreaterThan(0);
-    });
+    }, { timeout: 3000 });
   });
 
   it("renders an empty scene as a continuous manuscript surface instead of a formatting panel", async () => {
@@ -2721,7 +2707,6 @@ describe("App shell", () => {
       editor.commands.splitBlock();
       editor.commands.insertContent("Second line");
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
       const putCall = fetchMock.mock.calls.find(([url, init]) => (
@@ -2731,7 +2716,7 @@ describe("App shell", () => {
       const body = JSON.parse(String(putCall![1]?.body));
       expect(body.document.blocks.map((block: { text?: string }) => block.text)).toEqual(["First line", "Second line"]);
       expect(document.querySelector(".scene-block")).toBeNull();
-    });
+    }, { timeout: 3000 });
   });
 
   it("saves ordinary heading and scene break blocks without UI-only markup", async () => {
@@ -2744,7 +2729,6 @@ describe("App shell", () => {
       { id: firstBlockId, kind: "heading", level: 2, text: "A Hard Turn" },
       { id: secondBlockId, kind: "sceneBreak" },
     ]);
-    fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
       const putCall = fetchMock.mock.calls.find(([url, init]) => (
@@ -2756,7 +2740,7 @@ describe("App shell", () => {
       expect(JSON.stringify(body)).not.toContain("scene-block");
       expect(JSON.stringify(body)).not.toContain("activeBlockMention");
       expect(document.querySelector(".scene-block")).toBeNull();
-    });
+    }, { timeout: 3000 });
   });
 
   it("adds and deletes paragraphs through the continuous manuscript editor controls", async () => {
@@ -2769,7 +2753,6 @@ describe("App shell", () => {
     await screen.findByLabelText("Manuscript editor");
 
     fireEvent.click(screen.getByRole("button", { name: "Add paragraph" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
       const documentSaveCalls = fetchMock.mock.calls.filter(([url, init]) => (
@@ -2781,10 +2764,9 @@ describe("App shell", () => {
         expect.objectContaining({ kind: "paragraph", text: "Opening line." }),
         expect.objectContaining({ kind: "paragraph", text: "" }),
       ]);
-    });
+    }, { timeout: 3000 });
 
     fireEvent.click(screen.getByRole("button", { name: "Delete current item" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
       const documentSaveCalls = fetchMock.mock.calls.filter(([url, init]) => (
@@ -2796,7 +2778,7 @@ describe("App shell", () => {
         expect.objectContaining({ kind: "paragraph", text: "Opening line." }),
       ]);
       expect(document.querySelector(".scene-block")).toBeNull();
-    });
+    }, { timeout: 3000 });
   });
 
   it("preserves leading spaces inside ordinary write blocks", async () => {
@@ -2806,7 +2788,6 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
     await screen.findByLabelText("Manuscript editor");
     setManuscriptBlocks([{ id: firstBlockId, kind: "paragraph", text: " \n " }]);
-    fireEvent.click(screen.getByRole("button", { name: "Save now" }));
 
     await waitFor(() => {
       const putCall = fetchMock.mock.calls.find(([url, init]) => (
@@ -2814,7 +2795,7 @@ describe("App shell", () => {
       ));
       expect(putCall).toBeTruthy();
       expect(JSON.parse(String(putCall![1]?.body)).document.blocks[0].text).toBe(" \n ");
-    });
+    }, { timeout: 3000 });
   });
 
   it("creates edits collapses and deletes write progression blocks", async () => {
@@ -2835,9 +2816,8 @@ describe("App shell", () => {
       );
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Story change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Codex progression" }));
 
-    expect(await screen.findByLabelText("Story change entry")).toBeTruthy();
     await waitFor(() => {
       const createCall = fetchMock.mock.calls.find(([url, init]) => (
         url === `/api/v1/series/${seriesId}/scenes/${sceneId}/progression-blocks` && init?.method === "POST"
@@ -2855,6 +2835,7 @@ describe("App shell", () => {
       expect(JSON.stringify(body)).not.toContain("effectiveFromSceneId");
       expect(JSON.stringify(body)).not.toContain("\"source\"");
     });
+    expect(await screen.findByLabelText("Codex progression entry", {}, { timeout: 3000 })).toBeTruthy();
     expect(fetchMock.mock.calls.some(([url, init]) => (
       url === `/api/v1/series/${seriesId}/codex/progressions` && init?.method === "POST"
     ))).toBe(false);
@@ -2862,19 +2843,20 @@ describe("App shell", () => {
       url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` && init?.method === "PUT"
     ))).toBe(false);
 
-    fireEvent.change(screen.getByLabelText("Story change summary"), {
+    fireEvent.change(screen.getByLabelText("Codex progression summary"), {
       target: { value: "Lock state changes." },
     });
-    fireEvent.change(screen.getByLabelText("Story change text"), {
+    fireEvent.change(screen.getByLabelText("Codex progression text"), {
       target: { value: "The lock answers to the bell." },
     });
 
     expect(screen.getByDisplayValue("The lock answers to the bell.")).toBeTruthy();
-    const preview = await screen.findByLabelText("Story change preview");
-    expect(within(preview).getByText("Baseline lock state.")).toBeTruthy();
-    expect(within(preview).getByText(/The lock answers to the bell/)).toBeTruthy();
+    const preview = await screen.findByLabelText("Codex progression preview");
+    await waitFor(() => {
+      expect(within(preview).getByText("Baseline lock state.")).toBeTruthy();
+      expect(within(preview).getByText(/The lock answers to the bell/)).toBeTruthy();
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: "Save change" }));
     await waitFor(() => {
       const updateCall = fetchMock.mock.calls.find(([url, init]) => (
         url === `/api/v1/series/${seriesId}/codex/progressions/${progressionId}` && init?.method === "PUT"
@@ -2887,13 +2869,13 @@ describe("App shell", () => {
         summary: "Lock state changes.",
       }));
       expect(JSON.stringify(body)).not.toContain("progression-preview-grid");
-    });
+    }, { timeout: 3000 });
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
-    expect(screen.queryByLabelText("Story change text")).toBeNull();
+    expect(screen.queryByLabelText("Codex progression text")).toBeNull();
     expect(screen.getAllByText("Lock state changes.").length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getByRole("button", { name: "Expand" }));
-    expect(screen.getByLabelText("Story change text")).toBeTruthy();
+    expect(screen.getByLabelText("Codex progression text")).toBeTruthy();
 
     setManuscriptBlocks([
       { id: firstBlockId, kind: "paragraph", text: "Opening line revised." },
@@ -2919,9 +2901,9 @@ describe("App shell", () => {
       ));
       expect(dirtySaveCallIndex).toBeGreaterThanOrEqual(0);
       expect(deleteCallIndex).toBeGreaterThan(dirtySaveCallIndex);
-    });
-    expect(await screen.findByText("No story changes in this scene.")).toBeTruthy();
-    expect(screen.queryByLabelText("Story change text")).toBeNull();
+    }, { timeout: 3000 });
+    expect(await screen.findByText("No Codex progressions in this scene.")).toBeTruthy();
+    expect(screen.queryByLabelText("Codex progression text")).toBeNull();
     expect(manuscriptEditor().getText()).toContain("Opening line revised.");
   });
 
@@ -2993,7 +2975,7 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
     fireEvent.click(await screen.findByRole("button", { name: /^Second Scene/i }));
 
-    const preview = await screen.findByLabelText("Story change preview");
+    const preview = await screen.findByLabelText("Codex progression preview");
     await waitFor(() => {
       expect(within(preview).getByText("Previous scene truth.")).toBeTruthy();
       expect(within(preview).getByText(/Current scene truth/)).toBeTruthy();

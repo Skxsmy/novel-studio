@@ -23,13 +23,10 @@ function projectInitials(title: string) {
     .join("") || "NS";
 }
 
-function savePill(status: SaveStatus) {
-  if (status === "saved") return { label: "Saved", className: "pill green" };
-  if (status === "dirty") return { label: "Unsaved", className: "pill amber" };
-  if (status === "saving") return { label: "Saving", className: "pill amber" };
+function saveFailurePill(status: SaveStatus) {
   if (status === "failed") return { label: "Failed", className: "pill amber" };
   if (status === "conflict") return { label: "Conflict", className: "pill amber" };
-  return { label: "Idle", className: "pill" };
+  return null;
 }
 
 function formatCount(value: number) {
@@ -59,7 +56,7 @@ export function App() {
     ];
   }, [session.activeSeries]);
 
-  const saveState = savePill(session.saveStatus);
+  const saveState = saveFailurePill(session.saveStatus);
   const barTitle = isLibraryOpen || (!session.activeSeries && activeWorkspace !== "settings")
     ? "Novel Studio"
     : projectTitle;
@@ -135,7 +132,6 @@ export function App() {
           onCreateScene={session.createScene}
           onAcceptSavedSceneDocument={session.acceptSavedSceneDocument}
           onCommitDocument={session.commitDraftDocument}
-          onSaveDraft={session.saveDraft}
           onSelectVolume={session.selectVolume}
           onSelectAct={session.selectAct}
           onSelectChapter={session.selectChapter}
@@ -220,8 +216,8 @@ export function App() {
                   .map((workspace) => {
                     const isActive = workspace.id === activeWorkspace && !isLibraryOpen;
                     const isUnavailableShell = workspace.id === "workshop" || workspace.id === "review";
-                    const pillClass = workspace.id === "write" ? saveState.className : "pill muted";
-                    const pillLabel = workspace.id === "write" ? saveState.label
+                    const pillClass = workspace.id === "write" && saveState ? saveState.className : "pill muted";
+                    const pillLabel = workspace.id === "write" ? saveState?.label ?? ""
                       : isUnavailableShell ? uiText.navigation.notConnected
                       : "";
                     return (
@@ -279,7 +275,7 @@ export function App() {
               <span className="key">Ctrl K</span>
             </label>
             <div className="top-actions">
-              {!isLibraryOpen ? <span className={saveState.className}>{saveState.label}</span> : null}
+              {!isLibraryOpen && saveState ? <span className={saveState.className}>{saveState.label}</span> : null}
             </div>
           </header>
           <ErrorBoundary>

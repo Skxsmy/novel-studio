@@ -978,7 +978,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       const updated = await api.codex.updateEntry(series.manifest.id, selectedEntry.metadata.id, input);
       replaceEntry(updated);
       setDraft(draftFromEntry(updated));
-      setIsDetailsExpanded(false);
       setSaveStatus("saved");
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
@@ -992,6 +991,14 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setIsSaving(false);
     }
   }
+
+  useEffect(() => {
+    if (!selectedEntry || !draft || selectedEntry.metadata.archivedAt || isSaving || saveStatus !== "dirty") return;
+    const timer = window.setTimeout(() => {
+      void saveEntry();
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [draft, isSaving, saveStatus, selectedEntry]);
 
   async function reloadSelectedEntry() {
     if (!selectedEntryId) return;
@@ -1139,17 +1146,13 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   const descriptionSelectionCount = descriptionEditorStatus
     ? Math.abs(descriptionEditorStatus.selectionTo - descriptionEditorStatus.selectionFrom)
     : 0;
-  const saveStatusText = saveStatus === "dirty"
-    ? codexText.saveStatus.dirty
-    : saveStatus === "saving"
-      ? codexText.saveStatus.saving
-      : saveStatus === "saved"
-        ? codexText.saveStatus.saved
-        : saveStatus === "conflict"
-          ? codexText.saveStatus.conflict
-          : selectedEntry?.metadata.archivedAt
-            ? codexText.saveStatus.archived
-            : codexText.saveStatus.ready;
+  const saveStatusText = selectedEntry?.metadata.archivedAt
+    ? codexText.saveStatus.archived
+    : saveStatus === "conflict"
+        ? codexText.saveStatus.conflict
+        : saveStatus === "failed"
+          ? codexText.saveStatus.failed
+          : "";
 
   return (
     <>
@@ -1393,7 +1396,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                 <strong>{codexText.mentions.count(sceneMentionCount)}</strong>
               </div>
               <div className="entry-meta-line">
-                <span>{saveStatusText}</span>
+                {saveStatusText ? <span>{saveStatusText}</span> : <span aria-hidden="true" />}
                 <div className="top-actions">
                   <button
                     aria-pressed={isDetailFocus}
@@ -1404,14 +1407,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                     {isDetailFocus ? codexText.actions.browseEntries : codexText.actions.focusEdit}
                   </button>
                   <button className="btn compact" onClick={() => void reloadSelectedEntry()} type="button">{codexText.actions.reload}</button>
-                  <button
-                    className="btn compact primary"
-                    disabled={fieldsDisabled || saveStatus !== "dirty"}
-                    onClick={() => void saveEntry()}
-                    type="button"
-                  >
-                    {codexText.actions.save}
-                  </button>
                 </div>
               </div>
               <div className="codex-tabs" role="tablist" aria-label={codexText.aria.detailSections}>

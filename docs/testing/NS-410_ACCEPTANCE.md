@@ -26,7 +26,7 @@ Command/browser checks do not equal user visual acceptance. User visual acceptan
 | NS-410-A11 | passed | Slice 5 storage tests verify baseline edits update add chains before a replace boundary while projected values after a replace stay independent from earlier baseline changes. |
 | NS-410-A12 | passed | Slice 6 `context-routes.test.ts` verifies Context Builder uses projected Codex description/details, respects per-detail AI switches, omits empty-replaced fields, and records hidden future field counts without content leakage. The audit repair adds block-aware current-scene manuscript context, world/relationship effective-state block isolation, and ContextItem `sourceRefs` for projected Progression sources. |
 | NS-410-A13 | passed | Slice 4 keeps character knowledge separate from unified JSON Progression, verifies knowledge can reference JSON progression IDs, and verifies new Progression files are `.json` with no `.yaml` authority file. The audit repair moves character knowledge authority to `codex/knowledge/<id>.json` and verifies no new knowledge `.yaml` file is written. Slice 9 consumes only unified Progression APIs and effective-entry projection; it does not introduce knowledge/progression merging or an old YAML progression UI. |
-| NS-410-A14 | passed for automated Write behavior | Slice 7 web tests verify ordinary paragraph/heading/scene-break editing and saving through `SceneBlockDocument`, with no saved UI-only markup and no old single-document text editor path for Write scene content. Slice 8 adds embedded progression create/edit/collapse/delete behavior and verifies saved scene documents contain `codexProgression` data only, not UI-only preview markup. The post-Slice 9 editor refactor replaces the visible repeated block-card/textarea UI with a continuous Tiptap-backed manuscript editor while keeping `SceneBlockDocument` as authority; adapter and web tests cover mapping, save, paragraph add/delete controls, absence of the formatting panel, legacy heading/scene-break persistence, story-change behavior, and Codex regressions. User visual acceptance remains separate. |
+| NS-410-A14 | passed for automated Write behavior | Slice 7 web tests verify ordinary paragraph/heading/scene-break editing and saving through `SceneBlockDocument`, with no saved UI-only markup and no old single-document text editor path for Write scene content. Slice 8 adds embedded progression create/edit/collapse/delete behavior and verifies saved scene documents contain `codexProgression` data only, not UI-only preview markup. The post-Slice 9 editor refactor replaces the visible repeated block-card/textarea UI with a continuous Tiptap-backed manuscript editor while keeping `SceneBlockDocument` as authority; adapter and web tests cover mapping, autosave, paragraph add/delete controls, absence of the formatting panel, legacy heading/scene-break persistence, inline Codex progression behavior, and Codex regressions. User visual acceptance remains separate. |
 | NS-410-A15 | passed for automated Slice 9 scope | Web tests cover Codex baseline versus effective state, field-grouped Progression history, and earlier-scene future isolation. User visual acceptance remains separate and is not claimed by this automated result. |
 | NS-410-A16 | passed | Slice 2 storage repository tests cover existing scene save, hierarchy, mention/index, and search-adjacent regressions while scene files are JSON authority. Slice 6 verifies Context Builder reads projected scene/Codex context at scene/block position. Slice 7 verifies Write-local counts and Codex mention marks derive from `SceneBlockDocument` projection. The audit repair switches storage search, FTS indexing, Codex mention indexing, previous-scene summaries, and current-scene Context Builder body projection to plain text derived from blocks. |
 | NS-410-A17 | passed | Slice 2 keeps existing scene `content` read/write API behavior compatible by converting `content` writes to JSON blocks and returning projected `content`; Slice 3 adds block document APIs without removing legacy `content` routes, with server and web compatibility checks. Slice 7 keeps legacy route mocks/regressions available while moving the Write scene-content path to the document endpoint. |
@@ -325,8 +325,8 @@ Changes verified:
 - Added repository logic that checks scene revision, Progression revision, block/source alignment, and blockers before deleting; blocker responses do not mutate either scene or Progression authority.
 - Added server route `DELETE /api/v1/series/:seriesId/scenes/:sceneId/progression-blocks/:blockId`.
 - Added `sceneId` filtering to Progression list APIs so Write can load current-scene Progressions.
-- Write can create an embedded story-change block, edit its target entry/field/operation/summary/body, preview before/after state at same-scene block position, collapse/expand UI state without writing it to authority, save the linked Progression, and delete the block from either the editor or panel.
-- Slice 8 story-change-specific copy is centralized in `uiText.writeProgression`; shared action labels such as Delete use `uiText.actions`.
+- Write can create an embedded Codex progression block, edit its target entry/field/operation/summary/body, preview before/after state at same-scene block position, collapse/expand UI state without writing it to authority, autosave the linked Progression, and delete the block through the editor or Scene Brief list.
+- Codex progression copy is centralized in `uiText.writeProgression`; shared action labels such as Delete use `uiText.actions`.
 - Saved scene document bodies contain `codexProgression` blocks and do not persist preview markup such as `progression-preview-grid`.
 
 Adversarial cases covered:
@@ -360,10 +360,10 @@ Status: passed for repaired Slice 8 scope on 2026-06-29.
 
 Review findings addressed:
 
-- High: deleting a story-change block no longer drops unsaved scene prose. Write now saves a dirty `SceneBlockDocument` draft first, uses the saved revision for the delete command, and only then accepts the server-returned scene.
-- High: story-change insertion and deletion are no longer frontend/storage best-effort multi-file sequences. Storage exposes `createSceneProgressionBlock` and `deleteSceneProgressionBlock` scene-level commands that write the scene JSON and Progression JSON in one recoverable `applyFileTransaction`.
-- Medium: first-block story-change preview now reads effective entry state at the previous narrative scene instead of falling back to raw Codex baseline.
-- Low: the Slice 8 copy claim is narrowed to story-change-specific `uiText.writeProgression` keys, with shared actions such as Delete coming from `uiText.actions`.
+- High: deleting a Codex progression block no longer drops unsaved scene prose. Write now saves a dirty `SceneBlockDocument` draft first, uses the saved revision for the delete command, and only then accepts the server-returned scene.
+- High: Codex progression insertion and deletion are no longer frontend/storage best-effort multi-file sequences. Storage exposes `createSceneProgressionBlock` and `deleteSceneProgressionBlock` scene-level commands that write the scene JSON and Progression JSON in one recoverable `applyFileTransaction`.
+- Medium: first-block Codex progression preview now reads effective entry state at the previous narrative scene instead of falling back to raw Codex baseline.
+- Low: the Slice 8 copy claim is narrowed to Codex-progression-specific `uiText.writeProgression` keys, with shared actions such as Delete coming from `uiText.actions`.
 
 Logic closure boundary verified:
 
@@ -371,7 +371,7 @@ Logic closure boundary verified:
 - Read paths: scene document load, current-scene progression list, effective-entry preview at previous block or previous scene, and panel display.
 - Write paths: dirty draft scene save, scene-level progression-block create/delete, and linked Progression update.
 - Derived paths: scene plain text/count/mentions still derive from block projection; preview state is UI-only.
-- User-visible entries: embedded story-change block controls and Scene Brief panel delete.
+- User-visible entries: embedded Codex progression block controls and Scene Brief panel delete.
 - Delete path: blocker responses leave scene and Progression unchanged; successful delete removes both in one transaction.
 - Migration/rollback path: create/delete use `applyFileTransaction`, so interrupted multi-file writes are recovered by the existing transaction journal recovery path.
 - Project/series delete is no longer absent on the branch. It remains outside the NS-410 JSON-authority acceptance IDs, but the user explicitly required the lifecycle repair in this pass; see the project lifecycle section below.
@@ -424,7 +424,7 @@ Logic closure boundary verified:
 
 - Authority source: baseline `CodexEntryDocument` fields and unified `codex/progressions/<id>.json` field Progression records.
 - Read paths: Codex entry list/detail type data, `GET /codex/progressions?kind=field&entryId=...`, and `GET /codex/entries/:entryId/effective?sceneId=...`.
-- Write paths: no new authority write path was added in Slice 9; Codex baseline edits still use the existing entry save path, and Write-sourced Progression edits remain in the Write story-change block workflow.
+- Write paths: no new authority write path was added in Slice 9; Codex baseline edits still use the existing entry update path, and Write-sourced Progression edits remain in the Write Codex progression block workflow.
 - Derived paths: effective-at-scene fields come only from the existing effective-entry projection; the Codex UI does not calculate future-effective state from raw history.
 - User-visible entry: Codex detail `Progressions` tab with an initial-state card, effective-at-scene card, scene selector, hidden-future count messaging, and field-grouped Progression history.
 - Future isolation: the effective card for an earlier scene hides later-scene field Progression body while showing only a hidden-future count. Full history remains labelled as history and does not claim future records are current state.
@@ -457,32 +457,33 @@ Logic closure boundary verified:
 
 - Authority source: scene `SceneBlockDocument` JSON remains the saved manuscript authority.
 - Runtime model: Tiptap/ProseMirror JSON is editor state only and is converted back to `SceneBlockDocument` before `PUT /scenes/:sceneId/document`.
-- Read paths: Write scene document load, story-change progression list, effective-entry previews, Codex scene mentions, and Slice 9 Codex Progressions reads.
-- Write paths: ordinary manuscript save, paragraph insert/delete, story-change create/edit/delete through the existing scene-level commands, and linked Progression update. Legacy heading/quote/scene-break blocks still round-trip, but the author-facing current-text conversion control has been removed.
+- Read paths: Write scene document load, current-scene Codex progression list, effective-entry previews, Codex scene mentions, and Slice 9 Codex Progressions reads.
+- Write paths: ordinary manuscript autosave, paragraph insert/delete, Codex progression create/edit/delete through the existing scene-level commands, and linked Progression autosave update. Legacy heading/quote/scene-break blocks still round-trip, but the author-facing current-text conversion control has been removed.
 - Derived paths: character/word counts, plain-text save projection, Codex mention matching, context/progression previews, and Codex Progressions tab behavior remain derived from authority APIs instead of editor runtime JSON.
-- User-visible entries: continuous manuscript editor, compact editor command rail for paragraph add/story-change/delete, compact story-change anchors, Scene Brief story-change list/detail panel, Focus mode, and existing hierarchy collapse controls.
-- Delete path: ordinary paragraph deletion mutates the local `SceneBlockDocument` draft; story-change deletion still saves dirty drafts first and then uses the scene-level progression-block delete command.
+- User-visible entries: continuous manuscript editor, compact editor command rail for paragraph add/Codex progression/delete, resizable inline Codex progression components, Scene Brief Codex progression list/read-only overview, Focus mode, and existing hierarchy collapse controls.
+- Delete path: ordinary paragraph deletion mutates the local `SceneBlockDocument` draft; Codex progression deletion still saves dirty drafts first and then uses the scene-level progression-block delete command.
 - Migration/rollback path: no saved file format changes were introduced by the editor runtime. Rollback would remove the Tiptap adapter and continue rendering the same `SceneBlockDocument` authority.
-- Tests and fixtures: adapter tests exercise synthetic Tiptap JSON fixtures; AppShell tests exercise the Write API mocks for save, add/delete, story-change, first-block preview, and Codex Progressions regressions.
+- Tests and fixtures: adapter tests exercise synthetic Tiptap JSON fixtures; AppShell tests exercise the Write API mocks for autosave, add/delete, Codex progression, first-block preview, and Codex Progressions regressions.
 
 Changes verified:
 
 - Added `@tiptap/core`, `@tiptap/react`, and `@tiptap/starter-kit` at `^3.27.1`; installed package metadata lists the MIT license.
 - Added `apps/web/src/features/write/editor/sceneBlockMapping.ts` and tests for round-trip mapping, mark stripping, empty editor recovery, duplicate ID regeneration, and trailing cursor paragraph cleanup.
 - Added a continuous `NovelEditor` for the Write manuscript surface and removed the old repeated block-card/textarea render path from `WriteWorkspace.tsx`.
-- Added a Scene Brief story-change panel so story-change editing/collapse/delete remains available without turning each manuscript item into a form row.
+- Added resizable inline Codex progression components so progression editing happens in the manuscript at the authored position; Scene Brief now lists current-scene progressions and shows a read-only selected overview.
 - Removed the author-facing stored block count from the Write toolbar and stopped rendering the old `.scene-block` card UI.
 - Removed the floating format panel and destructive current-text type selector. Scene break is no longer exposed as a conversion for active prose, so existing text is not erased by changing a style dropdown.
 - Added Vite/Rolldown manual chunks for React, Tiptap/ProseMirror, CodeMirror, and other vendor modules so the current production build no longer emits the 500 kB chunk warning.
+- Removed normal editor Save buttons and normal save-status noise from Write/Codex editing surfaces. Write scene edits, inline Codex progression edits, and Codex entry edits autosave; save failure/conflict messaging remains visible.
 
 Commands:
 
 | Command | Result |
 | --- | --- |
 | `npm.cmd run build -w @novel-studio/contracts` | Passed. |
-| `npm.cmd run test -w @novel-studio/web -- sceneBlockMapping.test.ts AppShell.test.tsx` | Passed with 50/50 tests after removing the formatting panel and destructive text-type conversion path. |
-| `npm.cmd run build -w @novel-studio/web` | Passed with no Vite large-chunk warning; largest emitted chunks were `editor-codemirror` at 494.48 kB and `editor-tiptap` at 429.21 kB. |
-| `npm.cmd run build` | Passed with no Vite large-chunk warning after adding manual chunks. |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx sceneBlockMapping.test.ts` | Passed with 50/50 tests after adding inline Codex progression components and autosave assertions. |
+| `npm.cmd run build -w @novel-studio/web` | Passed with no Vite large-chunk warning; largest emitted chunks were `editor-codemirror` at 494.48 kB and `editor-tiptap` at 439.56 kB. |
+| `npm.cmd run build` | Passed with no Vite large-chunk warning after inline Codex progression/autosave repair. |
 | `npm.cmd run test` | Passed with server 25/25, web 58/58, AI 20/20, and storage 67/67 tests. |
 | `git diff --check` | Passed with line-ending warnings only. |
 

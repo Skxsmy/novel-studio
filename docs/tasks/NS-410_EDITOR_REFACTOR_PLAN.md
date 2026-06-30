@@ -20,9 +20,11 @@ Implemented:
 - Added Tiptap as a runtime editor integration layer: `@tiptap/core`, `@tiptap/react`, and `@tiptap/starter-kit` at `^3.27.1`.
 - Verified installed package metadata for those Tiptap packages lists the MIT license.
 - Added `apps/web/src/features/write/editor/` with a reversible `SceneBlockDocument` to Tiptap JSON adapter, schema extensions, selection helpers, and a continuous `NovelEditor`.
-- Added `apps/web/src/features/write/story-change/` with a focused Story Change panel and view-model helpers.
+- Added `apps/web/src/features/write/story-change/` with Codex progression view-model helpers and the Scene Brief current-scene progression list.
 - Replaced the author-facing Write scene body with a continuous manuscript editor. The old repeated card/textarea row UI is no longer rendered.
-- Preserved paragraph insertion, paragraph deletion, Focus mode, Scene Brief hiding/restoring, story-change creation/edit/delete/collapse, previous-scene first-story-change preview behavior, and Codex Progressions tab regressions. Heading/quote/scene-break nodes remain adapter compatibility, not visible current-text conversion controls.
+- Preserved paragraph insertion, paragraph deletion, Focus mode, Scene Brief hiding/restoring, Codex progression creation/edit/delete/collapse, previous-scene first-Codex-progression preview behavior, and Codex Progressions tab regressions. Heading/quote/scene-break nodes remain adapter compatibility, not visible current-text conversion controls.
+- Current product decision after user visual review: Codex progression editing happens in a resizable inline manuscript component; Scene Brief lists current-scene progressions and shows a read-only selected overview.
+- Write scene edits, inline Codex progression edits, and Codex entry edits autosave. Normal editor Save buttons and normal save-status noise are removed; failure/conflict feedback remains.
 - Removed the floating formatting panel and destructive current-text type selector after user visual review showed it was still behaving like a form panel and could erase active prose by converting it to a scene break.
 - Kept `SceneBlockDocument` as the saved authority. Tiptap JSON remains runtime state only and is converted back to the authority document before saving.
 
@@ -66,7 +68,7 @@ Expected gains:
 
 - Continuous writing instead of one textarea per block.
 - Mature selection, paste, undo, redo, keyboard handling, and composition behavior.
-- Structured nodes for paragraphs, headings, separators, notes, and story-change anchors.
+- Structured nodes for paragraphs, headings, separators, notes, and Codex progression blocks.
 - JSON output that can be mapped deterministically to `SceneBlockDocument`.
 - Extension points for scene-specific controls without showing raw engineering fields.
 - A path to future comments, inline annotations, review marks, and import/export mapping.
@@ -84,7 +86,7 @@ The refactor must fix these problems:
 - The primary scene surface must look and behave like a continuous document.
 - Paragraphs and structural elements must be edited inline, not through a repeated form layout.
 - Block identity must remain internal; normal writing must not show block IDs, source hashes, revisions, or implementation names.
-- Story-change operations must be available without dominating the manuscript surface.
+- Codex progression operations must be available without dominating the manuscript surface.
 - Adding, deleting, and reordering text must feel like document editing first and JSON mutation second.
 - Autosave and dirty-state behavior must remain clear without turning the editor into a task dashboard.
 - Existing repaired behavior from Slice 8 must not regress.
@@ -141,6 +143,7 @@ apps/web/src/features/write/
     novelEditorSchema.ts
     sceneBlockMapping.ts
     storyChangeAnchors.ts
+    CodexProgressionNodeView.tsx
     editorSelection.ts
     editorStyles.css
   story-change/
@@ -153,8 +156,9 @@ Roles:
 - `WriteWorkspace.tsx` remains the scene-level page composer and API coordinator.
 - `NovelEditor.tsx` owns the continuous manuscript editing surface.
 - `sceneBlockMapping.ts` converts between `SceneBlockDocument` and Tiptap JSON.
-- `storyChangeAnchors.ts` maps progression-backed blocks to inline editor anchors.
-- `StoryChangePanel.tsx` hosts focused story-change editing actions outside the main prose flow.
+- `CodexProgressionNodeView.tsx` renders the resizable inline manuscript Codex progression component.
+- `storyChangeAnchors.ts` maps progression-backed blocks to the Codex progression editor node.
+- `StoryChangePanel.tsx` hosts the current-scene Codex progression list and read-only selected overview outside the main prose flow.
 - `writeViewModel.ts` and `storyChangeViewModel.ts` centralize user-facing labels and prevent mixed hard-coded UI text.
 
 If Codex and Write need shared progression labels after Slice 9, add a narrow shared helper only for labels or formatting. Do not couple the Write editor to `CodexWorkspace.tsx`.
@@ -171,23 +175,23 @@ Initial mapping:
 | Heading or scene marker | Legacy heading node mapping | Compatibility only unless a later product decision gives intra-scene headings a role |
 | Separator | Legacy horizontal rule mapping | Compatibility only; not exposed as a current-text conversion control |
 | Note or planning block, if present | Distinct inline/block node only when product-approved | Not shown as raw metadata |
-| Story change block | Inline anchor plus side panel/card affordance | Compact marker, not a full form row |
+| Codex progression block | Resizable inline manuscript component plus Scene Brief list affordance | Editable at its manuscript position without exposing IDs/revisions |
 
 The mapping must be deterministic and reversible. Unsupported legacy block types should round-trip safely and display as an unobtrusive recoverable block, not be dropped.
 
-## Story-Change UX
+## Codex Progression UX
 
-Story changes are product content, but they should not turn the manuscript into a database editor.
+Codex progressions are product content, but they should not turn the manuscript into a database editor.
 
-Recommended behavior:
+Required behavior after user visual review:
 
-- Story-change anchors appear inline at their manuscript position with a compact marker.
-- Selecting an anchor opens a focused side panel or inline popover for story-change fields.
-- The main manuscript remains readable when no anchor is selected.
-- Add story change is a command from a compact insert menu or keyboard command at the cursor.
-- Delete story change uses the existing repaired scene-level delete command and must preserve dirty draft content first.
+- Codex progression blocks appear inline at their manuscript position as an independent component.
+- The inline component owns target entry/field/operation/summary/body editing, before/after preview, collapse/delete, and UI-only width/height resizing by dragging component edges.
+- Scene Brief lists current-scene Codex progressions and may show a read-only selected overview; it must not be the primary edit form.
+- Add Codex progression is a compact command at the cursor/selected block.
+- Delete Codex progression uses the existing repaired scene-level delete command and must preserve dirty draft content first.
 - Previous-scene previews preserve the repaired Slice 8 first-block behavior.
-- Labels remain author-facing: use names such as "Story change", "Before", "After", and "Applies from this scene"; do not expose progression IDs, revision names, hashes, or internal operation names.
+- Labels remain author-facing and must use "Codex progression", "Before", and "After"; do not expose progression IDs, revision names, hashes, or internal operation names.
 
 The editor must use the existing scene-level progression-block APIs rather than recreating multi-file transaction logic in the browser.
 
@@ -208,7 +212,7 @@ Recommended integration:
 - If the Codex Progressions tab shows a write-block-sourced history item, it may offer a navigation affordance to the corresponding Write editor anchor.
 - If that navigation is implemented, tests must prove that the target anchor is located in the continuous editor and that the selected scene context is respected.
 - If that navigation is not implemented in the first editor slice, the plan must record it as deferred rather than imply it exists.
-- Write and Codex should share progression field labels where practical so that the same story change is not described differently across workspaces.
+- Write and Codex should share progression field labels where practical so that the same Codex progression is not described differently across workspaces.
 
 ## Implementation Phases
 
@@ -259,18 +263,21 @@ Required behavior:
 - Dirty state remains accurate when the user edits prose.
 - The UI does not show block numbers, block type selectors, or row-level database controls during normal writing.
 
-This phase should keep story-change editing temporarily functional through the existing commands while the anchor UI is finished.
+This phase should keep Codex progression editing temporarily functional through the existing commands while the inline component UI is finished.
 
-### Phase 4 - Story-Change Anchors And Panel
+### Phase 4 - Codex Progression Inline Components And Scene Brief List
 
-Move story-change editing out of the block-row layout and into the new manuscript model.
+Move Codex progression editing out of the block-row layout and into the new manuscript model.
 
 Required behavior:
 
-- Create story change at cursor through the existing scene-level create command.
-- Render story changes as compact anchors in the manuscript.
-- Select an anchor to edit story-change fields in a focused panel or popover.
-- Save and delete through the existing repaired scene-level APIs.
+- Create Codex progression at cursor through the existing scene-level create command.
+- Render Codex progressions as independent inline manuscript components.
+- Let the user edit target entry/field/operation/summary/body inside the inline component.
+- Let the user resize the inline component by dragging its edges; component size is UI-only and not persisted to authority.
+- Scene Brief lists current-scene Codex progressions and can show a read-only selected overview, but it is not the primary edit form.
+- Autosave updates through the existing repaired scene-level/Progression APIs.
+- Delete through the existing repaired scene-level APIs.
 - Preserve dirty-draft-safe deletion.
 - Preserve previous-scene first-block preview behavior.
 - Preserve author-safe labels and avoid internal IDs.
@@ -281,7 +288,7 @@ Verify the new editor does not break Codex progression visibility.
 
 Required behavior:
 
-- A story change created from the new editor appears in the Codex `Progressions` tab history through the existing API path.
+- A Codex progression created from the new editor appears in the Codex `Progressions` tab history through the existing API path.
 - Effective-at-scene values match the existing Slice 9 projection behavior.
 - Hidden future items remain hidden.
 - Codex continues to render only the active tab content.
@@ -293,14 +300,14 @@ Optional behavior:
 
 ### Phase 6 - Remove Old Block-Form UI
 
-After the continuous editor and story-change anchors are covered, remove the obsolete author-facing block-row editor UI from Write.
+After the continuous editor and Codex progression inline components are covered, remove the obsolete author-facing block-row editor UI from Write.
 
 Required cleanup:
 
 - Remove visible block number controls from the writing surface.
 - Remove paragraph type dropdowns from ordinary prose editing.
 - Remove row-level add/delete controls from normal manuscript paragraphs.
-- Keep only author-facing insert, story-change, and document controls.
+- Keep only author-facing insert, Codex progression, and document controls.
 - Update tests that asserted the old block UI to assert author behavior instead.
 
 Do not delete server commands, storage code, or acceptance coverage that still proves JSON authority.
@@ -314,7 +321,7 @@ Manual visual acceptance must check:
 - The first viewport looks like a writing editor, not a record editor.
 - Scene title and body hierarchy are clear.
 - The editor can support long-form writing without visible block chrome.
-- Story-change controls are discoverable without taking over the manuscript.
+- Codex progression controls are discoverable without taking over the manuscript.
 - English UI copy is consistent.
 - No engineering identifiers appear in the author workflow.
 - Mobile and desktop layouts do not overlap or force text out of controls.
@@ -327,7 +334,7 @@ Before moving into later cleanup or migration slices, run a full regression over
 
 - scene manuscript load/save
 - dirty save
-- story-change create/edit/delete
+- Codex progression create/edit/delete
 - previous-scene preview
 - Codex Progressions read-only tab
 - effective-at-scene calculation
@@ -356,17 +363,18 @@ Unit tests:
 
 - `SceneBlockDocument` to Tiptap JSON conversion.
 - Tiptap JSON to `SceneBlockDocument` conversion.
-- Round-trip stability for paragraphs, separators, headings, and story-change anchors.
+- Round-trip stability for paragraphs, separators, headings, and Codex progression blocks.
 - Unsupported block preservation.
-- Story-change anchor lookup by block ID.
+- Codex progression block lookup by block ID.
 
 Component tests:
 
 - Write editor renders as one continuous surface.
 - Editing prose marks the scene dirty and saves through the existing save path.
 - Paragraph creation and deletion produce correct `SceneBlockDocument` output.
-- Story-change create uses the existing scene-level API.
-- Story-change delete saves dirty draft content before deletion.
+- Codex progression create uses the existing scene-level API.
+- Codex progression delete saves dirty draft content before deletion.
+- Codex progression edits autosave without a normal Save button.
 - Previous-scene first-block preview remains correct.
 - UI does not render block numbers, block type dropdowns, or raw IDs in the main writing surface.
 
@@ -375,21 +383,21 @@ Codex regression tests:
 - Codex Progressions tab still renders baseline/history/effective values.
 - Hidden future progressions remain hidden.
 - Duplicate hidden Progressions content is not rendered.
-- Story changes created through Write appear in Codex history through the existing API.
+- Codex progressions created through Write appear in Codex history through the existing API.
 - Optional navigation from Codex to Write anchor works if implemented.
 
 End-to-end or integration tests:
 
 - Open project, select work, open Write, edit prose, save, reload, verify JSON authority.
-- Add story change, save, view Codex Progressions, verify field history and effective-at-scene value.
-- Delete story change with dirty prose present, verify prose is not lost and progression is removed atomically.
+- Add Codex progression, verify autosave, view Codex Progressions, verify field history and effective-at-scene value.
+- Delete Codex progression with dirty prose present, verify prose is not lost and progression is removed atomically.
 
 Manual visual checks:
 
 - Desktop screenshot.
 - Narrow viewport screenshot.
 - Long scene editing behavior.
-- Story-change panel open and closed states.
+- Inline Codex progression resized/collapsed states and Scene Brief progression list.
 
 ## Required Commands
 
@@ -410,7 +418,7 @@ The final task record must include exact commands, pass/fail results, branch, di
 Main risks:
 
 - Treating Tiptap JSON as the new authority instead of a runtime document.
-- Losing internal block identity needed for story-change anchors.
+- Losing internal block identity needed for Codex progression blocks.
 - Reintroducing multi-file progression writes in the browser instead of using the repaired scene-level APIs.
 - Regressing dirty-draft-safe deletion.
 - Regressing Slice 9 hidden-future Codex behavior.
@@ -431,10 +439,10 @@ This refactor is done only when:
 
 - The Write scene body is a continuous editor suitable for long-form prose.
 - Existing JSON authority files remain the saved source of truth.
-- Story-change creation, editing, deletion, and previews work through the repaired Slice 8 paths.
+- Codex progression creation, editing, deletion, and previews work through the repaired Slice 8 paths.
 - Slice 9 Codex Progressions behavior still passes regression checks.
 - The main author workflow does not expose block IDs, revisions, hashes, or internal operation names.
-- Tests cover the adapter, Write behavior, story-change behavior, and Codex progression regressions.
+- Tests cover the adapter, Write behavior, Codex progression behavior, and Codex progression regressions.
 - Visual acceptance is explicitly recorded as passed by the user or an approved screenshot baseline.
 - `STATUS.md`, `TASKS.md`, `HANDOFF.md`, `CHANGELOG.md`, task docs, and acceptance records are updated truthfully.
 

@@ -4,6 +4,7 @@ import type {
   SceneBlockDocument,
 } from "@novel-studio/contracts";
 import { createParagraphBlock } from "../../../app/sceneBlocks";
+import { storyChangeAnchorNodeName } from "./storyChangeAnchors";
 
 export type NovelEditorNode = {
   type: string;
@@ -98,7 +99,7 @@ export function sceneBlockDocumentToNovelEditorDocument(document: SceneBlockDocu
     }
     if (block.kind === "codexProgression") {
       return {
-        type: "storyChangeAnchor",
+        type: storyChangeAnchorNodeName,
         attrs: {
           blockId: block.id,
           createdAt: block.createdAt,
@@ -147,7 +148,7 @@ export function novelEditorDocumentToSceneBlockDocument(
       continue;
     }
 
-    if (node.type === "storyChangeAnchor") {
+    if (node.type === storyChangeAnchorNodeName || node.type === "storyChangeAnchor") {
       const progressionId = node.attrs?.progressionId;
       if (typeof progressionId !== "string" || !progressionId) continue;
       const dates = progressionDatesFromNode(node);

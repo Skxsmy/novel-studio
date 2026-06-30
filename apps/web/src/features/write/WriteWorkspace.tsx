@@ -29,10 +29,12 @@ import { uiText } from "../../app/uiText";
 import type { SaveStatus, SceneDraft } from "../../app/useProjectSession";
 import { findInlineCodexMentions } from "../codex/inlineMentions";
 import { NovelEditor } from "./editor";
+import type { ProgressionNodeViewModel } from "./editor/CodexProgressionNodeView";
 import { StoryChangePanel } from "./story-change/StoryChangePanel";
 import {
   applyProgressionDraft,
   fieldFromSelection,
+  fieldLabel,
   fieldValueFromEffective,
   fieldValueFromEntry,
   isSceneWriteProgression,
@@ -61,7 +63,6 @@ export interface WriteWorkspaceProps {
   onCreateChapter: (actId?: string | null, input?: CreateChapterInput) => Promise<void>;
   onCreateScene: (input?: CreateSceneInput) => Promise<void>;
   onClearStructureSelection: () => void;
-  onSaveDraft: () => Promise<void>;
   onSelectVolume: (bookId: string) => void;
   onSelectAct: (actId: string) => void;
   onSelectChapter: (chapterId: string) => void;
@@ -81,19 +82,9 @@ export interface WriteWorkspaceProps {
 }
 
 function saveText(status: SaveStatus) {
-  if (status === "dirty") return "Unsaved";
-  if (status === "saving") return "Saving";
   if (status === "failed") return "Failed";
   if (status === "conflict") return "Conflict";
-  if (status === "saved") return "Saved just now";
-  return "Idle";
-}
-
-function saveClass(status: SaveStatus) {
-  if (status === "saved") return "pill green";
-  if (status === "dirty" || status === "saving") return "pill amber";
-  if (status === "failed" || status === "conflict") return "pill amber";
-  return "pill";
+  return "";
 }
 
 function sceneWords(scene: SceneDocument) {
@@ -145,7 +136,6 @@ export function WriteWorkspace({
   onCreateChapter,
   onCreateScene,
   onClearStructureSelection,
-  onSaveDraft,
   onSelectVolume,
   onSelectAct,
   onSelectChapter,
@@ -306,6 +296,7 @@ export function WriteWorkspace({
   }
 
   function updateProgressionDraft(progressionId: string, patch: Partial<ProgressionDraft>) {
+    setProgressionError(null);
     setProgressionDrafts((current) => {
       const source = current[progressionId] ??
         (progressionsById.get(progressionId) ? progressionDraftFromDocument(progressionsById.get(progressionId)!) : null);
@@ -381,9 +372,9 @@ export function WriteWorkspace({
     }
   }
 
-  async function saveProgression(progressionId: string) {
+  async function saveProgression(progressionId: string, draftOverride?: ProgressionDraft) {
     const progression = progressionsById.get(progressionId);
-    const progressionDraft = progressionDrafts[progressionId];
+    const progressionDraft = draftOverride ?? progressionDrafts[progressionId];
     if (!progression || !progressionDraft || progressionBusyId) return;
     setProgressionBusyId(progressionId);
     setProgressionError(null);
@@ -411,6 +402,29 @@ export function WriteWorkspace({
     } finally {
       setProgressionBusyId(null);
     }
+  }
+
+  function progressionDraftMatchesDocument(document: CodexProgressionDocument, progressionDraft: ProgressionDraft) {
+    return document.progression.entryId === progressionDraft.entryId &&
+      document.progression.operation === progressionDraft.operation &&
+      document.progression.body === progressionDraft.body &&
+      document.progression.summary === progressionDraft.summary &&
+      JSON.stringify(document.progression.field) === JSON.stringify(fieldFromSelection(progressionDraft.fieldSelection));
+  }
+
+  function progressionBlockById(blockId: string) {
+    return progressionBlocks.find((block) => block.id === blockId) ?? null;
+  }
+
+  function updateProgressionDraftByBlockId(blockId: string, patch: Partial<ProgressionDraft>) {
+    const block = progressionBlockById(blockId);
+    if (!block) return;
+    updateProgressionDraft(block.progressionId, patch);
+  }
+
+  function deleteProgressionBlockById(blockId: string) {
+    const block = progressionBlockById(blockId);
+    if (block) void deleteProgressionBlock(block);
   }
 
   async function deleteProgressionBlock(block: Extract<SceneBlock, { kind: "codexProgression" }>) {
@@ -524,6 +538,23 @@ export function WriteWorkspace({
       return next;
     });
   }, [sceneProgressions]);
+
+  useEffect(() => {
+    if (progressionBusyId) return;
+    const dirtyProgression = sceneProgressions.find((document) => {
+      const progressionDraft = progressionDrafts[document.progression.id];
+      return progressionDraft &&
+        progressionDraft.entryId &&
+        !progressionDraftMatchesDocument(document, progressionDraft);
+    });
+    if (!dirtyProgression) return;
+    const progressionDraft = progressionDrafts[dirtyProgression.progression.id];
+    const timer = window.setTimeout(() => {
+      if (!progressionDraft) return;
+      void saveProgression(dirtyProgression.progression.id, progressionDraft);
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [progressionBusyId, progressionDrafts, sceneProgressions]);
 
   useEffect(() => {
     if (!draft || !selectedScene) {
@@ -671,6 +702,77 @@ export function WriteWorkspace({
   const activeMentionEntry = activeBlockMention
     ? codexEntries.find((entry) => entry.metadata.id === activeBlockMention.entryId) ?? null
     : null;
+  const progressionNodeViews = useMemo(() => {
+    const views: Record<string, ProgressionNodeViewModel> = {};
+    for (const block of progressionBlocks) {
+      const progression = progressionsById.get(block.progressionId);
+      const draft = progressionDrafts[block.progressionId] ??
+        (progression ? progressionDraftFromDocument(progression) : null);
+      if (!draft) continue;
+      const selectedEntry = codexEntries.find((entry) => entry.metadata.id === draft.entryId) ?? null;
+      const entryOptions = codexEntries
+        .filter((entry) => !entry.metadata.archivedAt || entry.metadata.id === draft.entryId)
+        .map((entry) => ({ label: entry.metadata.name, value: entry.metadata.id }));
+      if (draft.entryId && !entryOptions.some((option) => option.value === draft.entryId)) {
+        entryOptions.push({ label: selectedEntry?.metadata.name ?? progressionText.missingRecord, value: draft.entryId });
+      }
+      const detailOptions = selectedEntry
+        ? codexDetailTypes.filter((document) => document.detailType.categoryId === selectedEntry.metadata.categoryId)
+        : [];
+      const fieldOptions = [
+        { label: progressionText.fieldDescription, value: "description" },
+        ...detailOptions.map((document) => ({
+          label: document.detailType.name,
+          value: `detail:${document.detailType.id}`,
+        })),
+      ];
+      if (!fieldOptions.some((option) => option.value === draft.fieldSelection)) {
+        fieldOptions.push({ label: fieldLabel(draft.fieldSelection, codexDetailTypes), value: draft.fieldSelection });
+      }
+      views[block.id] = {
+        blockId: block.id,
+        draft,
+        draftKey: [
+          draft.entryId,
+          draft.fieldSelection,
+          draft.operation,
+          draft.summary,
+          draft.body,
+        ].join("\u001f"),
+        entryLabel: selectedEntry?.metadata.name ?? progressionText.missingRecord,
+        entryOptions,
+        fieldLabel: fieldLabel(draft.fieldSelection, codexDetailTypes),
+        fieldOptions,
+        isBusy: Boolean(progressionBusyId && (
+          progressionBusyId === block.id || progressionBusyId === block.progressionId
+        )),
+        isCollapsed: collapsedProgressionBlocks.has(block.id),
+        isSelected: selectedProgressionBlockId === block.id,
+        operationOptions: [
+          { label: progressionText.operations.add, value: "add" },
+          { label: progressionText.operations.replace, value: "replace" },
+        ],
+        preview: progressionPreviews[block.progressionId] ?? {
+          after: "",
+          before: "",
+          hiddenFutureCount: 0,
+          status: "idle",
+        },
+        progressionId: block.progressionId,
+      };
+    }
+    return views;
+  }, [
+    codexDetailTypes,
+    codexEntries,
+    collapsedProgressionBlocks,
+    progressionBlocks,
+    progressionBusyId,
+    progressionDrafts,
+    progressionPreviews,
+    progressionsById,
+    selectedProgressionBlockId,
+  ]);
 
   return (
     <>
@@ -944,7 +1046,6 @@ export function WriteWorkspace({
         <section className="panel manuscript-panel" aria-label="Manuscript">
           <div className="manuscript-toolbar">
             <div className="top-actions">
-              <span className={saveClass(saveStatus)}>{saveText(saveStatus)}</span>
               <span className="pill">{selectedScene?.metadata.pov ? `${selectedScene.metadata.pov} POV` : "No POV"}</span>
               <span className="pill">{draft ? `${sceneEditorCharacterCount} chars / ${sceneEditorWordCount} words` : "No scene"}</span>
               <button
@@ -962,10 +1063,12 @@ export function WriteWorkspace({
             {errorMessage ? <p className="alert">{errorMessage}</p> : null}
             {draft ? (
               <>
-                <div className="scene-kicker">
-                  <span className={isDirty ? "pill amber" : "pill green"}>{isDirty ? "Unsaved" : "Autosave on"}</span>
-                  {isCodexLoading ? <span className="pill">Loading codex</span> : null}
-                </div>
+                {isCodexLoading ? (
+                  <div className="scene-kicker">
+                    <span className="pill">Loading codex</span>
+                  </div>
+                ) : null}
+                {progressionError ? <p className="alert">{progressionError}</p> : null}
                 <input
                   aria-label="Scene title"
                   className="scene-title-input"
@@ -979,8 +1082,12 @@ export function WriteWorkspace({
                   onAddStoryChangeAfter={(blockId) => void insertProgressionBlockAfter(blockId)}
                   onChange={onUpdateDocument}
                   onDeleteCurrent={deleteCurrentEditorBlock}
+                  onDeleteProgressionBlock={deleteProgressionBlockById}
                   onInsertParagraphAfter={insertParagraphAfter}
                   onSelectStoryChange={setSelectedProgressionBlockId}
+                  onToggleProgressionCollapse={(blockId) => setCollapsedProgressionBlocks((current) => toggleSetValue(current, blockId))}
+                  onUpdateProgressionDraft={updateProgressionDraftByBlockId}
+                  progressionNodeViews={progressionNodeViews}
                 />
                 {sceneMentions.length ? (
                   <div className="scene-codex-mentions" aria-label={uiText.writeEditor.aria.codexMentions}>
@@ -1015,13 +1122,12 @@ export function WriteWorkspace({
             )}
           </div>
 
-          <footer className="save-bar">
-            <span>{saveText(saveStatus)}</span>
-            {draft ? <span className="save-bar-meta">{`${draft.paragraphCount} paragraphs`}</span> : null}
-            <button className="btn primary" disabled={!isDirty || saveStatus === "saving"} onClick={() => void onSaveDraft()} type="button">
-              Save now
-            </button>
-          </footer>
+          {saveStatus === "failed" || saveStatus === "conflict" ? (
+            <footer className="save-bar is-error">
+              <span>{saveText(saveStatus)}</span>
+              {draft ? <span className="save-bar-meta">{`${draft.paragraphCount} paragraphs`}</span> : null}
+            </footer>
+          ) : null}
         </section>
 
         {isBriefVisible ? (
@@ -1041,7 +1147,6 @@ export function WriteWorkspace({
               </button>
             </div>
             <div className="panel-body stack">
-              {progressionError ? <p className="alert">{progressionError}</p> : null}
               <div className="brief-block">
                 <div className="brief-label">Goal</div>
                 <p className="brief-text">{selectedScene?.metadata.goal || "No scene goal yet."}</p>
@@ -1064,10 +1169,8 @@ export function WriteWorkspace({
                   drafts={progressionDrafts}
                   entries={codexEntries}
                   onDelete={(block) => void deleteProgressionBlock(block)}
-                  onSave={(progressionId) => void saveProgression(progressionId)}
                   onSelect={setSelectedProgressionBlockId}
                   onToggleCollapse={(blockId) => setCollapsedProgressionBlocks((current) => toggleSetValue(current, blockId))}
-                  onUpdateDraft={updateProgressionDraft}
                   previews={progressionPreviews}
                   progressionsById={progressionsById}
                   selectedBlockId={selectedProgressionBlockId}

@@ -1,5 +1,11 @@
 import { Extension, mergeAttributes, Node } from "@tiptap/core";
+import { ReactNodeViewRenderer } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import {
+  CodexProgressionNodeView,
+  emptyProgressionNodeViewOptions,
+  type ProgressionNodeViewOptions,
+} from "./CodexProgressionNodeView";
 import { storyChangeAnchorLabel, storyChangeAnchorNodeName } from "./storyChangeAnchors";
 
 function dataAttribute(name: string, dataName: string) {
@@ -32,12 +38,15 @@ const SceneBlockAttributes = Extension.create({
   },
 });
 
-const StoryChangeAnchor = Node.create({
+const StoryChangeAnchor = Node.create<ProgressionNodeViewOptions>({
   name: storyChangeAnchorNodeName,
   group: "block",
   atom: true,
   selectable: true,
   draggable: false,
+  addOptions() {
+    return emptyProgressionNodeViewOptions;
+  },
   addAttributes() {
     return {
       blockId: dataAttribute("blockId", "block-id"),
@@ -47,24 +56,29 @@ const StoryChangeAnchor = Node.create({
     };
   },
   parseHTML() {
-    return [{ tag: "span[data-story-change-anchor='true']" }];
+    return [
+      { tag: "section[data-codex-progression-block='true']" },
+      { tag: "div[data-codex-progression-block='true']" },
+      { tag: "span[data-story-change-anchor='true']" },
+    ];
   },
   renderHTML({ HTMLAttributes }) {
     return [
-      "span",
+      "div",
       mergeAttributes(HTMLAttributes, {
-        "data-story-change-anchor": "true",
+        "data-codex-progression-block": "true",
         "contenteditable": "false",
-        "role": "button",
-        "tabindex": "0",
-        "class": "story-change-anchor",
+        "class": "codex-progression-node",
       }),
       storyChangeAnchorLabel(),
     ];
   },
+  addNodeView() {
+    return ReactNodeViewRenderer(CodexProgressionNodeView);
+  },
 });
 
-export function novelEditorExtensions() {
+export function novelEditorExtensions(progressionOptions?: ProgressionNodeViewOptions) {
   return [
     StarterKit.configure({
       codeBlock: false,
@@ -72,6 +86,6 @@ export function novelEditorExtensions() {
       listKeymap: false,
     }),
     SceneBlockAttributes,
-    StoryChangeAnchor,
+    StoryChangeAnchor.configure(progressionOptions ?? emptyProgressionNodeViewOptions),
   ];
 }

@@ -42,7 +42,7 @@ describe("sceneBlockMapping", () => {
       "heading",
       "blockquote",
       "horizontalRule",
-      "storyChangeAnchor",
+      "codexProgressionBlock",
     ]);
     expect(editorDocument.content[0]?.content?.map((node) => node.type)).toEqual([
       "text",

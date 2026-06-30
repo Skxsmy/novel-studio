@@ -4,6 +4,8 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import type { SceneBlock, SceneBlockDocument } from "@novel-studio/contracts";
 import { createParagraphBlock } from "../../../app/sceneBlocks";
 import { uiText } from "../../../app/uiText";
+import type { ProgressionDraft } from "../story-change/storyChangeViewModel";
+import type { ProgressionNodeViewModel } from "./CodexProgressionNodeView";
 import { selectedBlockIdFromEditor } from "./editorSelection";
 import { novelEditorExtensions } from "./novelEditorSchema";
 import {
@@ -23,9 +25,19 @@ export interface NovelEditorProps {
   onAddStoryChangeAfter: (blockId: string | null) => void;
   onChange: (document: SceneBlockDocument) => void;
   onDeleteCurrent: (blockId: string | null) => void;
+  onDeleteProgressionBlock: (blockId: string) => void;
   onInsertParagraphAfter: (blockId: string | null) => string | null;
   onSelectStoryChange: (blockId: string) => void;
+  onToggleProgressionCollapse: (blockId: string) => void;
+  onUpdateProgressionDraft: (blockId: string, patch: Partial<ProgressionDraft>) => void;
+  progressionNodeViews: Record<string, ProgressionNodeViewModel>;
 }
+
+type ProgressionNodeStore = {
+  getView: (blockId: string) => ProgressionNodeViewModel | null;
+  setViews: (views: Record<string, ProgressionNodeViewModel>) => void;
+  subscribe: (listener: () => void) => () => void;
+};
 
 function createEditorBlockId() {
   return createParagraphBlock().id;
@@ -73,6 +85,24 @@ function documentsEqual(left: SceneBlockDocument, right: SceneBlockDocument) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function createProgressionNodeStore(initialViews: Record<string, ProgressionNodeViewModel>): ProgressionNodeStore {
+  let views = initialViews;
+  const listeners = new Set<() => void>();
+  return {
+    getView: (blockId) => views[blockId] ?? null,
+    setViews: (nextViews) => {
+      views = nextViews;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
 function editableKindForBlock(block: SceneBlock | null): EditableSceneBlockKind | "storyChange" {
   if (!block) return "paragraph";
   if (block.kind === "codexProgression") return "storyChange";
@@ -88,7 +118,7 @@ function isEmptyManuscript(document: SceneBlockDocument) {
 
 function needsBlockIdNormalization(document: NovelEditorDocument) {
   return (document.content ?? []).some((node) => {
-    if (!["paragraph", "heading", "blockquote", "horizontalRule", "storyChangeAnchor"].includes(node.type)) return false;
+    if (!["paragraph", "heading", "blockquote", "horizontalRule", "codexProgressionBlock"].includes(node.type)) return false;
     return typeof node.attrs?.blockId !== "string" || !node.attrs.blockId;
   });
 }
@@ -100,34 +130,59 @@ export function NovelEditor({
   onAddStoryChangeAfter,
   onChange,
   onDeleteCurrent,
+  onDeleteProgressionBlock,
   onInsertParagraphAfter,
   onSelectStoryChange,
+  onToggleProgressionCollapse,
+  onUpdateProgressionDraft,
+  progressionNodeViews,
 }: NovelEditorProps) {
   const [activeBlockId, setActiveBlockId] = useState<string | null>(() => document.blocks[0]?.id ?? null);
   const [renderVersion, setRenderVersion] = useState(0);
   const isApplyingExternalDocument = useRef(false);
   const pendingFocusBlockId = useRef<string | null>(null);
+  const progressionNodeStoreRef = useRef(createProgressionNodeStore(progressionNodeViews));
   const onAddStoryChangeAfterRef = useRef(onAddStoryChangeAfter);
   const onChangeRef = useRef(onChange);
   const onDeleteCurrentRef = useRef(onDeleteCurrent);
+  const onDeleteProgressionBlockRef = useRef(onDeleteProgressionBlock);
   const onInsertParagraphAfterRef = useRef(onInsertParagraphAfter);
   const onSelectStoryChangeRef = useRef(onSelectStoryChange);
+  const onToggleProgressionCollapseRef = useRef(onToggleProgressionCollapse);
+  const onUpdateProgressionDraftRef = useRef(onUpdateProgressionDraft);
 
   useEffect(() => {
     onAddStoryChangeAfterRef.current = onAddStoryChangeAfter;
     onChangeRef.current = onChange;
     onDeleteCurrentRef.current = onDeleteCurrent;
+    onDeleteProgressionBlockRef.current = onDeleteProgressionBlock;
     onInsertParagraphAfterRef.current = onInsertParagraphAfter;
     onSelectStoryChangeRef.current = onSelectStoryChange;
+    onToggleProgressionCollapseRef.current = onToggleProgressionCollapse;
+    onUpdateProgressionDraftRef.current = onUpdateProgressionDraft;
   }, [
     onAddStoryChangeAfter,
     onChange,
     onDeleteCurrent,
+    onDeleteProgressionBlock,
     onInsertParagraphAfter,
     onSelectStoryChange,
+    onToggleProgressionCollapse,
+    onUpdateProgressionDraft,
   ]);
 
-  const extensions = useMemo(() => novelEditorExtensions(), []);
+  useEffect(() => {
+    progressionNodeStoreRef.current.setViews(progressionNodeViews);
+  }, [progressionNodeViews]);
+
+  const extensions = useMemo(() => novelEditorExtensions({
+    getView: (blockId) => progressionNodeStoreRef.current.getView(blockId),
+    onDelete: (blockId) => onDeleteProgressionBlockRef.current(blockId),
+    onSelect: (blockId) => onSelectStoryChangeRef.current(blockId),
+    onToggleCollapse: (blockId) => onToggleProgressionCollapseRef.current(blockId),
+    onUpdateDraft: (blockId, patch) => onUpdateProgressionDraftRef.current(blockId, patch),
+    subscribe: (listener) => progressionNodeStoreRef.current.subscribe(listener),
+  }), []);
 
   function syncSelection(editor: Editor) {
     const nextBlockId = selectedBlockIdFromEditor(editor);
@@ -243,7 +298,7 @@ export function NovelEditor({
         <button
           aria-label={uiText.writeEditor.tools.deleteCurrent}
           className="tool"
-          disabled={!editor || !activeBlockId || !canEditCurrentBlock && activeKind !== "storyChange"}
+          disabled={!editor || !activeBlockId || (!canEditCurrentBlock && activeKind !== "storyChange")}
           onClick={() => onDeleteCurrentRef.current(activeBlockId)}
           title={uiText.writeEditor.tools.deleteCurrent}
           type="button"

@@ -743,6 +743,14 @@ export function useProjectSession(): ProjectSessionState {
     }
   }, [commitDraftDocument, draft, isDirty, saveStatus]);
 
+  useEffect(() => {
+    if (!activeSeries || !draft || !isDirty || saveStatus !== "dirty") return;
+    const timer = window.setTimeout(() => {
+      void saveDraft();
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [activeSeries, draft, isDirty, saveDraft, saveStatus]);
+
   return {
     activeSeries,
     acceptSavedSceneDocument,

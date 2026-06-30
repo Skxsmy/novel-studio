@@ -926,6 +926,14 @@ button {
   overflow: auto;
 }
 
+.copy-area > .scene-kicker,
+.copy-area > .scene-title-input,
+.copy-area > .novel-tiptap-shell,
+.copy-area > .scene-codex-mentions,
+.copy-area > .scene-content-preview {
+  max-width: 780px;
+}
+
 .scene-kicker {
   display: flex;
   gap: 8px;
@@ -1044,17 +1052,45 @@ button {
   gap: var(--space-2);
 }
 
-.story-change-detail-head > div,
+.story-change-detail-head > div:first-child,
 .scene-progression-panel-row > div:first-child {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
+.story-change-detail-head > .top-actions {
+  flex: 0 0 auto;
+}
+
 .story-change-detail-head span,
 .scene-progression-panel-row span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.progression-readonly-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.progression-readonly-grid > div,
+.progression-readonly-block {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: var(--space-2);
+}
+
+.progression-readonly-grid p,
+.progression-readonly-block p {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .progression-form-grid {

@@ -222,10 +222,7 @@ export const codexText = {
   saveStatus: {
     archived: "Archived",
     conflict: "Conflict",
-    dirty: "Unsaved changes",
-    ready: "Ready",
-    saved: "Saved",
-    saving: "Saving",
+    failed: "Save failed",
   },
   table: {
     aliases: "Aliases",
