@@ -7,7 +7,7 @@ Started: 2026-06-26
 
 This record verifies the Block Write Editor and Unified Codex Progression task described in `docs/tasks/NS-410.md`.
 
-Command/browser checks do not equal user visual acceptance. User visual acceptance remains separate because the current recovery UI is not accepted.
+Command/browser checks do not equal user visual acceptance. Project Recovery is accepted for the current stage by user decision on 2026-06-30; M5 Workshop/Proposal/Review visual acceptance remains separate.
 
 ## Acceptance IDs
 

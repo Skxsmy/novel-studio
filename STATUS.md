@@ -7,14 +7,19 @@ This file is the current project-status authority. Earlier Chinese records were 
 ## Read First
 
 - Most recent completed line: `NS-410` Block Write Editor and Unified Codex Progression, command-verified through post-Slice 11 audit repair on 2026-06-30.
-- Current decision: the previous recovery warning not to start `NS-410` is superseded for this task. The project is still not visually/product accepted, so NS-410 command verification must not be reported as user visual acceptance.
+- Current user acceptance decision: Project Recovery is accepted for the current stage as of 2026-06-30. This does not mark M5 Workshop/Proposal/Review as implemented or accepted.
+- Current planning line: `M5` Workshop, Proposal, and Review. Detailed planning and acceptance scaffolding exist; implementation has not started.
+- Current decision: the previous recovery warning not to start `NS-410` is superseded for the completed NS-410 task. NS-410 command verification must not be reported as separate user visual acceptance for future M5 work.
 - Do not mechanically follow the old milestone order or old `NS-409` assets. M2/M3 foundations may be revised for this block-document and field-progression change.
-- Project recovery remains not accepted and should resume unless the user redirects again.
 - Fast reading path for the next contributor:
   - `README.md`
   - `HANDOFF.md`
   - `TASKS.md`
   - `docs/README.md`
+  - `docs/tasks/M5.md`
+  - `docs/testing/M5_ACCEPTANCE.md`
+  - `docs/design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`
+  - `docs/design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
   - `docs/tasks/NS-410.md`
   - `docs/testing/NS-410_ACCEPTANCE.md`
   - `docs/adr/0012-scene-block-documents-and-codex-field-progression.md`
@@ -37,9 +42,9 @@ This file is the current project-status authority. Earlier Chinese records were 
 - `packages/storage` still has an oversized `src/index.ts`; domain behavior should keep moving out instead of growing it.
 - `packages/ai` contains the provider registry, mock provider, OpenAI-compatible path, DeepSeek/OpenAI/OpenRouter/Ollama paths, the Anthropic Messages API path, the Google Gemini GenerateContent API path, credential abstractions, and error classification.
 
-## Active Work: NS-410 Block Write Editor and Unified Codex Progression
+## Completed Work: NS-410 Block Write Editor and Unified Codex Progression
 
-The active line is now NS-410 by explicit user direction. Project recovery remains not accepted and must not be described as complete.
+NS-410 is command-verified through post-Slice 11 audit repair. Project Recovery is accepted for the current stage by user decision on 2026-06-30. M5 remains a planned next line, not implemented.
 
 NS-410 product decisions now recorded:
 
@@ -56,7 +61,7 @@ NS-410 product decisions now recorded:
 - Context Builder must use projected Codex fields at the current scene/block position.
 - AI/Proposal paths may use the API shape later, but must not directly write authoritative files without explicit author action/proposal flow.
 
-Current NS-410 implementation order:
+NS-410 implementation order:
 
 The task now uses controlled vertical slices in `docs/tasks/NS-410.md`:
 
@@ -79,9 +84,9 @@ The task now uses controlled vertical slices in `docs/tasks/NS-410.md`:
 
 Each slice must leave the app buildable and must not proceed until its exit checks are recorded in `docs/testing/NS-410_ACCEPTANCE.md`.
 
-Current blockers:
+Current boundaries before M5 implementation:
 
-- The visual design is rejected by the user.
+- M5 Workshop/Proposal/Review design and implementation are not accepted yet.
 - Codex core is now command-verified for Release A entry work: it can list/search loaded entries, create/open/close entries, rename, edit canon description/research/aliases/reusable details/tracking/context policy, change category, save with revision protection, recover from visible conflicts by reload, and archive/restore through real APIs. Codex entry `tags` were removed from contracts, storage, server routes, API client, and UI because they have no valid Codex product role. Details now use category-scoped reusable detail types stored under `codex/detail-types/`, exposed through real list/create/update/delete APIs, guarded from deletion while any same-category entry uses them, managed in a large modal instead of an inline form, and edited through the shared `EditorSurface` used by Canon Description and Write. Detail types can belong to built-in or custom categories and carry an NSFW flag; each entry detail row has its own switch controlling whether that detail is sent with the entry into AI context. Custom categories can be created from a compact category Add menu, renamed by double-click, rejected on exact duplicate names, and deleted without deleting their entries by moving those entries to `Uncategorized`. Codex entries can also be deleted from the entry detail lifecycle area. The Codex detail tabs were tightened after user screenshot review: custom Details are collapsed until needed, empty Details no longer create a large blank region, Tracking controls no longer stretch vertically, index row descriptions remain visible when detail is open, and the category/index lists now use bounded scrolling instead of stretching the page. A later 2026-06-26 user screenshot follow-up replaced the ineffective width-only adjustment with an explicit focused entry-editing mode: selecting or creating an entry defaults to Browse Entries with the category rail and Entry Index still visible, while `Focus Edit` hides those panels so the editor can take the whole Codex workbench. The Details tab typography, input sizing, Canon editor height, and per-detail row layout were enlarged for author editing. The 2026-06-30 Codex editor repair makes Canon and Detail text editors bounded internal-scroll surfaces and changes autosave to run without disabling active editing fields or overwriting newer in-flight draft edits.
 - Current backend Codex routes cover categories, entries, mentions, relations, progressions, knowledge, effective state, context preview, and search. Current frontend Codex API wrapper exposes categories plus entry list/create/get/update/archive/restore/delete, entry mentions, relation list/create/remove, progression list/create/update/delete, scene progression-block create/delete, scene mentions, and context preview. Write loads active Codex entries for scene-body name/alias matching, derives matched hits from `SceneBlockDocument` projection, renders matched hits as dashed underlined scene mention buttons, and toggles a scroll-bounded Canon description preview from the same hit without duplicating the scene text. The post-Slice 9 Write editor refactor supersedes the Slice 7 native block form with a continuous Tiptap-backed manuscript editor for paragraph prose while preserving `SceneBlockDocument` authority; heading/quote/scene-break blocks remain mapping compatibility, not author-facing type-conversion controls. Repaired NS-410 Slice 8 Codex progression behavior remains available through resizable inline manuscript components: Codex progressions create/update linked field Progression records, default collapsed in the manuscript, expand explicitly for editing, move by drag handle to the release target position, confirm before deletion, and synchronize create/delete through scene-level atomic commands without writing UI-only collapse state to authority. The top Write toolbar hides Codex progression insertion inside an Insert menu and does not expose redundant paragraph/delete commands. The Write author UI no longer renders a duplicated Scene Brief progression list or constant before/after preview; effective-at-scene review remains in the Codex Progressions tab and projection/API tests. Write scene edits, inline Codex progression edits, and Codex entry edits autosave; normal editor Save buttons and normal save-status pills are removed while failure/conflict feedback remains visible. Codex canon descriptions still use CodeMirror 6 through shared `EditorSurface`; editor state drives transactions, selection, word/character status, paste cleanup, undo/redo, and pure-text saves there. The redundant Write `Codex in scene` panel was removed; Scene Brief can be hidden and restored through an icon-only control. Codex canon descriptions use realtime name/alias matching for other active Codex entries, and their previews use a custom application-level absolute portal so they render above editor borders and following detail fields without being clipped by the scrollable input area. The 2026-06-26 preview follow-up closes an open Canon preview when the user clicks any non-mention position inside the same editor, clamps preview positioning to the editor/scroll-container visible bounds so the card sticks to the editor top or bottom instead of disappearing with scrolled-away text, and keeps the preview card vertically scrollable only with horizontal overflow hidden. Codex details now include real Relations, Mentions, Progressions, and Tracking tabs: Relations can create/remove active connections; Mentions separates manuscript and Codex-content hits, and clicked dashed-underlined hits open Canon description previews instead of jumping; Progressions separates saved initial state from scene-effective projected state and field-grouped history without displaying Progression IDs/revisions. The detail header mention count only counts manuscript/scene mentions. Knowledge UI, Plan rework, and search-result integration remain later work and must not be shown as fake editable tabs.
 - Write hierarchy UX still needs product-level repair:
@@ -122,7 +127,7 @@ Current recovery slices:
 - M2: complete. File storage, API, conflict protection, index rebuild, and search had automated tests.
 - M3: complete. `NS-301` through `NS-307` were implemented and validated.
 - M3 -> M4 preparation: complete through `NS-400`. Architecture refresh, split baselines, repeatable smoke tests, and M4 minimum contracts were recorded.
-- M4: partially complete. `NS-401` through `NS-407` are complete. `NS-408` now has DeepSeek, OpenAI, OpenRouter, Ollama, Anthropic, Google Gemini, and generic OpenAI-compatible protocol paths, but real external non-writing call validation remains unfinished. The old `NS-409` line is historical; active work is now project recovery.
+- M4: partially complete. `NS-401` through `NS-407` are complete. `NS-408` now has DeepSeek, OpenAI, OpenRouter, Ollama, Anthropic, Google Gemini, and generic OpenAI-compatible protocol paths, but real external non-writing call validation remains unfinished. The old `NS-409` line is historical; Project Recovery is accepted for the current stage, and M5 planning is the next line.
 
 ## Historical Implementation Record
 
@@ -233,8 +238,8 @@ Current recovery slices:
 - `NS-409C`: web typecheck passed; multiple E2E runs passed; latest recorded run ID was `2026-06-21T13-07-51-086Z`; key screenshots included `NS-409C-plan-implemented-v1.png` and `NS-409C-write-implemented-v1.png`.
 - `NS-409D`: web typecheck passed; E2E passed; latest run ID was `2026-06-21T13-50-37-338Z`; key screenshots included wide writing, Codex detail, Codex progressions, and Workshop screenshots.
 - `NS-409E`: web typecheck passed; E2E passed; latest run ID was `2026-06-21T14-47-28-769Z`; board, outline, matrix, and timeline current/target/implemented screenshots were saved. This was recorded as only a wide-screen transition, not UI acceptance.
-- Current project recovery working draft after Slice E: `npm.cmd run test -w @novel-studio/server -- ai-routes.test.ts model-calls.test.ts` passed 9 tests across 2 files; `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed 37 tests; `npm.cmd run typecheck -w @novel-studio/server` passed; `npm.cmd run typecheck -w @novel-studio/web` passed. D2 layer repair validation also passed `EditorSurface.test.tsx` with 6 tests and was visually confirmed by the user. Overall recovery visual/product acceptance remains incomplete until later recovery slices are accepted.
-- Slice F Review/Workshop honesty validation: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed 38 tests; `npm.cmd run typecheck -w @novel-studio/web` passed. Overall recovery visual/product acceptance remains incomplete until later recovery slices are accepted by the user.
+- Current project recovery working draft after Slice E: `npm.cmd run test -w @novel-studio/server -- ai-routes.test.ts model-calls.test.ts` passed 9 tests across 2 files; `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed 37 tests; `npm.cmd run typecheck -w @novel-studio/server` passed; `npm.cmd run typecheck -w @novel-studio/web` passed. D2 layer repair validation also passed `EditorSurface.test.tsx` with 6 tests and was visually confirmed by the user. This historical record is superseded by the 2026-06-30 user acceptance of the current Project Recovery stage.
+- Slice F Review/Workshop honesty validation: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed 38 tests; `npm.cmd run typecheck -w @novel-studio/web` passed. This historical record is superseded by the 2026-06-30 user acceptance of the current Project Recovery stage; full Review/Workshop workflows remain M5 scope.
 - 2026-06-26 Codex layout / Canon preview bounds follow-up: `npm.cmd run test -w @novel-studio/web -- EditorSurface.test.tsx` passed 8 tests; `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed 38 tests; `npm.cmd run typecheck -w @novel-studio/web` passed; `npm.cmd run build` passed with the existing Vite large-chunk warning; `npm.cmd run test` passed with server 20, web 46, AI 20, and storage 48 tests; `git diff --check` passed with line-ending warnings only. Screenshot validation was skipped by user instruction; user visual acceptance remains separate.
 - 2026-06-29 NS-410 Slice 9 validation: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx` passed 42/42 after fixing initial assertions, `npm.cmd run build -w @novel-studio/web` passed, `npm.cmd run build` passed, `npm.cmd run test` passed with server 25/25, web 50/50, AI 20/20, and storage 67/67 tests, and `git diff --check` passed with line-ending warnings only. User visual acceptance remains separate.
 - 2026-06-30 NS-410 Write editor refactor plus inline Codex progression/autosave/default-collapse/top-menu/drag repair: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx sceneBlockMapping.test.ts` passed 50/50, `npm.cmd run build -w @novel-studio/web` passed with no Vite large-chunk warning, `npm.cmd run test` passed with server 25/25, web 58/58, AI 20/20, and storage 67/67 tests, `npm.cmd run build` passed with no Vite large-chunk warning, and `git diff --check` passed with line-ending warnings only. Browser visual self-check was not completed because the in-app browser plugin reported no available browser; user visual acceptance remains separate.
@@ -278,4 +283,4 @@ Acceptance evidence files:
 
 ## Next Work
 
-NS-410 is command-verified through post-Slice 11 audit repair. Return to project recovery visual/product acceptance unless the user redirects again. The overall UI remains rejected, and command/browser checks must not be described as user visual acceptance.
+NS-410 is command-verified through post-Slice 11 audit repair. Project Recovery is accepted for the current stage. Continue with M5 Workshop, Proposal, and Review planning/implementation only through `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`; Figma/user visual acceptance for M5 remains separate from command/browser checks.

@@ -8,9 +8,9 @@ This file is the short operational handoff. The older Chinese handoff was fully 
 
 - Branch: `codex/ns-410-json-authority`.
 - Latest committed baseline before Slice 11: `fb77e6d NS-410 fix(authority): complete JSON migration and codex editor` on this branch.
-- Current active task state: `NS-410` Block Write Editor and Unified Codex Progression is command-verified through post-Slice 11 audit repair.
-- Current acceptance state: NS-410 automated/command acceptance is closed through post-Slice 11 audit repair, user visual acceptance remains separate, and project recovery remains not visually/product accepted.
-- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and unified Progression change. Slices 1-11, the Slice 7A/Slice 8 review repairs, the user-requested project lifecycle repair for Trash/Restore/permanent delete, the post-Slice 9 continuous Write editor refactor, and the post-Slice 10 Codex editor bounded-scroll/background-autosave repair are implemented and command-verified on the NS-410 branch. The local `docs/testing/NS-410_SLICE_1_11_AUDIT.md` file is retained but must not be committed unless the user later says otherwise. Return to project recovery visual/product acceptance next unless the user redirects.
+- Current completed task state: `NS-410` Block Write Editor and Unified Codex Progression is command-verified through post-Slice 11 audit repair.
+- Current acceptance state: Project Recovery is accepted for the current stage by user decision on 2026-06-30. NS-410 automated/command acceptance is closed through post-Slice 11 audit repair. M5 Workshop/Proposal/Review is planned but not implemented or accepted.
+- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and unified Progression change. Slices 1-11, the Slice 7A/Slice 8 review repairs, the user-requested project lifecycle repair for Trash/Restore/permanent delete, the post-Slice 9 continuous Write editor refactor, and the post-Slice 10 Codex editor bounded-scroll/background-autosave repair are implemented and command-verified on the NS-410 branch. The local `docs/testing/NS-410_SLICE_1_11_AUDIT.md` file is retained but must not be committed unless the user later says otherwise. Continue through the M5 plan unless the user redirects.
 
 ## Start Here
 
@@ -20,18 +20,22 @@ Read these files in order:
 2. `STATUS.md`
 3. `TASKS.md`
 4. `docs/README.md`
-5. `docs/tasks/NS-410.md`
-6. `docs/testing/NS-410_ACCEPTANCE.md`
-7. `docs/adr/0012-scene-block-documents-and-codex-field-progression.md`
-8. `docs/tasks/PROJECT_RECOVERY.md`
-9. `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`
+5. `docs/tasks/M5.md`
+6. `docs/testing/M5_ACCEPTANCE.md`
+7. `docs/design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`
+8. `docs/design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
+9. `docs/tasks/NS-410.md`
+10. `docs/testing/NS-410_ACCEPTANCE.md`
+11. `docs/adr/0012-scene-block-documents-and-codex-field-progression.md`
+12. `docs/tasks/PROJECT_RECOVERY.md`
+13. `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`
 
 Do not begin from old `NS-409A` through `NS-409F` screenshots as if they are current guidance. Current truth is the task and acceptance record above.
 
 ## Do Not Break These Rules
 
-- Do not mark project recovery complete until the user accepts the visual/product result.
-- Do not mark NS-410 complete until all NS-410 acceptance IDs are mapped to passing tests or explicit manual/user validation.
+- Project Recovery is accepted for the current stage as of 2026-06-30; do not reinterpret that as M5 completion.
+- NS-410 is command-verified through post-Slice 11 audit repair; do not reinterpret that as M5 implementation or future UI acceptance.
 - Do not assume M2/M3 APIs are sufficient just because older tasks passed. Audit before implementation.
 - Do not add new routine status or handoff files. Update the existing authority files.
 - Do not delete `docs/design/**/backups/` unless the user explicitly names the backup to delete.
@@ -44,7 +48,7 @@ Do not begin from old `NS-409A` through `NS-409F` screenshots as if they are cur
 - Do not reintroduce the floating formatting panel or a current-text type dropdown. Heading, quote, and scene-break nodes are legacy mapping compatibility, not author-facing Scene-body format controls.
 - Do not save Tiptap/ProseMirror JSON as project authority; `SceneBlockDocument` remains the saved manuscript format.
 
-## Current NS-410 Work
+## Completed NS-410 Work
 
 NS-410 changes the writing and Codex foundations:
 
@@ -70,9 +74,9 @@ Current JSON authority boundary:
 
 ## Current Recovery Work
 
-The current React frontend has a reorganized shell and partial API wiring, but it is not a usable accepted UI. The work has been reframed as project-level recovery.
+Project Recovery is accepted for the current stage as of 2026-06-30. The following describes the accepted baseline and remaining future-work boundaries.
 
-Working draft pieces:
+Accepted baseline pieces:
 
 - Library/project creation and no-project handling exist. Library also has Trash, Restore, and permanent project-directory deletion after exact project-name confirmation, enforced through the server/storage path.
 - Write has real project/scene API wiring and partial hierarchy controls.
@@ -82,9 +86,9 @@ Working draft pieces:
 - Settings has API-backed model profile, service key, connection test, model list, and project cloud policy behavior.
 - Workshop and Review are incomplete.
 
-Critical blockers:
+Current boundaries:
 
-- Visual design is rejected.
+- M5 Workshop/Proposal/Review is not implemented or accepted yet.
 - Codex connections and the NS-410 Progressions tab are complete for the current Codex scope. Existing backend routes cover relations, progressions, knowledge, mentions, effective state, context preview, and search. The current Release A frontend wrapper covers categories, entry list/create/get/update/archive/restore/delete, entry mentions, relations, progression history/effective-entry reads, scene mentions, and context preview. Plan still needs a full product review/rework before it should be connected further; knowledge UI and search-result integration remain later UI work.
 - Write hierarchy must follow `Volume -> Chapter -> Act -> Scene` and support compact add menu, default names, later rename, double-click rename where appropriate, selected delete with confirmation, sane collapse, and scroll.
 - Slice B has started: empty-library creation is tested, create/open only leaves Library on success, selected Volume is tracked, Add Chapter targets the selected Volume, selected Chapter/Act/Scene deletion is covered, Scene creation inside the selected Act is covered, and Focus enter/exit behavior is covered.
@@ -92,14 +96,14 @@ Critical blockers:
 - Settings is only partially product-complete.
 - Review and Workshop need either real scoped workflows or honest unavailable states.
 
-Current recovery order:
+Recovery history and current-stage disposition:
 
 1. Slice A: baseline triage recorded on 2026-06-24.
 2. Slice B: Start-to-Write vertical slice, command-verified; user visual validation remains separate.
 3. Slice C: Codex core vertical slice, command-verified; user visual validation remains separate.
 4. Slice D: Codex connections, command-verified for current Codex scope; Plan review/rework remains deferred.
 5. Slice D2: Editor Foundation, command-verified on 2026-06-24. CodeMirror 6 backed Write scene content and Codex Canon descriptions through shared `EditorSurface` at that time; NS-410 Slice 7 supersedes that for Write scene content with a native block editor, while Codex Canon descriptions still use `EditorSurface`. Old contentEditable mark helpers and unused Milkdown runtime dependencies were removed. Real Chinese IME validation remains user/manual. A 2026-06-25 follow-up fixed Canon preview layer order using a custom application-level absolute portal, not fixed positioning. A 2026-06-26 follow-up closes previews from non-mention editor clicks and clamps them to visible editor bounds.
-6. Codex Details follow-up: command-verified on 2026-06-26; screenshot self-check for the modal follow-up was skipped by user instruction. Same-day UI follow-ups added focused entry editing, enlarged the Details tab editing layout, and fixed Canon preview close/bounds behavior; this is still not user visual acceptance.
+6. Codex Details follow-up: command-verified on 2026-06-26; screenshot self-check for the modal follow-up was skipped by user instruction. Same-day UI follow-ups added focused entry editing, enlarged the Details tab editing layout, and fixed Canon preview close/bounds behavior. Current-stage recovery acceptance was later recorded by user decision on 2026-06-30.
 7. Slice E: permanently skipped by user decision on 2026-06-25. Existing Settings/provider changes are a working draft, not acceptance evidence.
 8. Slice F: Review, Workshop, and navigation honesty, command-verified on 2026-06-25. Review and Workshop remain visible but are honest unavailable shells; future functionality must be rebuilt from scratch.
 9. Slice G: visual system and responsive acceptance.
@@ -325,7 +329,7 @@ Current recovery order:
 
 ## Known Risks
 
-- UI is not accepted.
+- M5 UI is not implemented or accepted. Any M5 UI implementation must follow the Figma/user visual acceptance flow.
 - Codex is not product-complete.
 - Settings Slice E is permanently skipped and must not be treated as accepted recovery work; broader call-log, preset, and role editing polish remains later work.
 - Review and Workshop are not complete. Slice F keeps their UI visible as honest unavailable shells, removes fake counts/actions, and records that future product workflows must be made from scratch rather than expanded from the placeholder shells.
@@ -337,4 +341,4 @@ Current recovery order:
 
 ## Immediate Next Step
 
-Return to project recovery visual/product acceptance unless the user redirects. Do not skip to provider expansion or fake Proposal integration. NS-410 closed the runtime YAML/Markdown authority inventory; Markdown/Word remain boundary formats, and remaining YAML mentions are historical docs or third-party optional peer metadata, not runtime authority paths. Routine handoff must stay in the existing files.
+Continue with M5 Workshop, Proposal, and Review through `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`. Do not skip to provider expansion or fake Proposal integration. NS-410 closed the runtime YAML/Markdown authority inventory; Markdown/Word remain boundary formats, and remaining YAML mentions are historical docs or third-party optional peer metadata, not runtime authority paths. Routine handoff must stay in the existing files.

@@ -4,16 +4,20 @@ This directory is for durable project knowledge. Temporary browser notes, failed
 
 ## Fast Reading Path
 
-For the current NS-410 implementation state, read:
+For the current M5 planning state and accepted recovery baseline, read:
 
 1. `../STATUS.md`
 2. `../HANDOFF.md`
 3. `../TASKS.md`
-4. `tasks/NS-410.md`
-5. `testing/NS-410_ACCEPTANCE.md`
-6. `adr/0012-scene-block-documents-and-codex-field-progression.md`
-7. `tasks/PROJECT_RECOVERY.md`
-8. `testing/PROJECT_RECOVERY_ACCEPTANCE.md`
+4. `tasks/M5.md`
+5. `testing/M5_ACCEPTANCE.md`
+6. `design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`
+7. `design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
+8. `tasks/NS-410.md`
+9. `testing/NS-410_ACCEPTANCE.md`
+10. `adr/0012-scene-block-documents-and-codex-field-progression.md`
+11. `tasks/PROJECT_RECOVERY.md`
+12. `testing/PROJECT_RECOVERY_ACCEPTANCE.md`
 
 Only read older milestone documents when the current task depends on that area.
 
@@ -22,8 +26,8 @@ Only read older milestone documents when the current task depends on that area.
 - `product/`: product scope, UX rules, AI editorial model, feature matrix, reference library, import/export/versioning. Highest authority for product intent.
 - `architecture/`: API, data model, security, and target architecture. Highest authority for technical boundaries.
 - `adr/`: accepted architectural decisions. Read the relevant ADR before changing a governed subsystem.
-- `tasks/`: milestone and task specs. Current active recovery plan is `tasks/PROJECT_RECOVERY.md`.
-- `testing/`: acceptance records and test strategy. Current recovery truth is `testing/PROJECT_RECOVERY_ACCEPTANCE.md`.
+- `tasks/`: milestone and task specs. Current active planning line is `tasks/M5.md`; accepted recovery baseline remains in `tasks/PROJECT_RECOVERY.md`.
+- `testing/`: acceptance records and test strategy. Current M5 scaffold is `testing/M5_ACCEPTANCE.md`; accepted recovery baseline is `testing/PROJECT_RECOVERY_ACCEPTANCE.md`.
 - `design/ui-redesign/`: historical UI baselines, current design evidence, and protected backups.
 
 ## Cleanup Rules
@@ -35,4 +39,4 @@ Only read older milestone documents when the current task depends on that area.
 
 ## Current Warning
 
-The current product is not visually accepted. By explicit user direction on 2026-06-26, the active planning line is `NS-410` JSON Authority, Block Write Editor, and Unified Codex Progression. Project recovery is paused but still not accepted; automated NS-410 checks must not be reported as user visual acceptance. NS-410 implementation is active on `codex/ns-410-json-authority`; continue only through the controlled slice plan in `docs/tasks/NS-410.md`.
+Project Recovery is accepted for the current stage by user decision on 2026-06-30. `NS-410` JSON Authority, Block Write Editor, and Unified Codex Progression is command-verified through post-Slice 11 audit repair; do not treat that as separate future M5 visual acceptance. The active planning line is `M5` Workshop, Proposal, and Review through `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`; M5 implementation and user visual acceptance have not started.

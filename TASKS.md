@@ -7,24 +7,31 @@ This index keeps the original milestone/task history translated from the earlier
 ## Current Active Work
 
 - [x] `NS-410` Block Write Editor and Unified Codex Progression. Command-verified through post-Slice 11 audit repair; user visual acceptance remains separate.
-- [!] `PROJECT-RECOVERY` Project-level recovery roadmap, not visually/product accepted; resume next unless the user redirects.
+- [ ] `M5` Workshop, Proposal, and Review. Detailed plan and acceptance scaffold created; implementation has not started, and Figma/user visual acceptance remains required before UI implementation.
+- [x] `PROJECT-RECOVERY` Project-level recovery roadmap. Accepted for the current stage by user decision on 2026-06-30; future Workshop/Proposal/Review work belongs to M5.
 
 Current decision:
 
 - The active work is not an `NS-409` continuation.
-- The current product is not accepted.
+- Project Recovery is accepted for the current stage; M5 Workshop/Proposal/Review is not implemented or accepted.
 - The previous “do not continue to NS-410” instruction is superseded by explicit user direction on 2026-06-26 for this JSON authority / block document / field progression task.
 - Implementation is active on branch `codex/ns-410-json-authority`; the user has allowed commits on this branch while earlier project data remains disposable test data.
 - Do not treat old `NS-409A` through `NS-409F` assets as current guidance.
 - M2/M3 completion does not make their contracts untouchable. Hierarchy, Codex API, storage, and index behavior may be revised if the rebuilt frontend requires it.
 - Current source files:
+  - `docs/tasks/M5.md`
+  - `docs/testing/M5_ACCEPTANCE.md`
+  - `docs/design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`
+  - `docs/design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
   - `docs/tasks/NS-410.md`
   - `docs/testing/NS-410_ACCEPTANCE.md`
   - `docs/adr/0012-scene-block-documents-and-codex-field-progression.md`
   - `docs/tasks/PROJECT_RECOVERY.md`
   - `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`
 
-Immediate task requirements:
+Accepted recovery baseline and M5 guardrails:
+
+- Project Recovery current-stage acceptance is recorded; continue from the M5 plan unless the user redirects.
 
 - Slice A is recorded in `docs/tasks/PROJECT_RECOVERY.md`.
 - Slice B and Slice C are command-verified; browser/visual validation remains user-owned.
@@ -113,7 +120,8 @@ Immediate task requirements:
 - [-] `NS-408` DeepSeek and OpenAI-compatible provider foundation.
   - Done: DeepSeek provider path, generic OpenAI-compatible foundation, OpenAI/OpenRouter/Ollama provider paths, Anthropic Messages API provider path, Google Gemini GenerateContent provider path, settings credential controls, connection test, model-list flow, selectable fetched provider models, and user-confirmed DeepSeek connection/model-list retrieval.
   - Not finished from original scope: real external non-writing call validation for DeepSeek/OpenAI/OpenRouter/Ollama/Anthropic/Google Gemini, broader real-provider product polish, and recorded real DeepSeek non-writing call result.
-- [!] `PROJECT-RECOVERY` Project-level recovery roadmap.
+- [x] `PROJECT-RECOVERY` Project-level recovery roadmap.
+  - Current-stage acceptance: accepted by user decision on 2026-06-30. This does not mark M5 Workshop, Proposal, or Review implemented.
   - Historical `NS-409A/NS-409C`: image-model-assisted UI redo and plan/write correction records. Not current acceptance.
   - Historical `NS-409D`: wide-screen review for Write, Codex, and Workshop. Not current acceptance.
   - Historical `NS-409E`: planning board/outline/matrix/timeline wide-screen transition. Not current acceptance.
@@ -126,9 +134,8 @@ Immediate task requirements:
   - Slice E: permanently skipped by user decision on 2026-06-25. Existing Settings/provider changes are working draft only, not acceptance evidence.
   - Lifecycle follow-up: project/series lifecycle now has Trash, Restore, and permanent directory delete with exact-title confirmation. Other archive-capable data must still expose cleanup/permanent-delete paths with reference checks or immutable history snapshots; archive-only removal is not acceptable for long-term use.
   - Slice F: command-verified on 2026-06-25. Review and Workshop remain visible, fake counts/actions are removed, unconnected controls are disabled, and full functionality must be designed and implemented from scratch later.
-  - Slice G: visual system and responsive acceptance.
-  - Slice H: verification and handoff.
-  - Current React working draft is command-verified but visually rejected.
+  - Slice G/H current-stage disposition: superseded by 2026-06-30 user acceptance for the current recovery stage. Future visual redesign and Review/Workshop functionality belong to M5 and require their own Figma/user acceptance.
+  - Current React working draft is accepted only as the current recovery-stage baseline; it is not M5 implementation evidence.
 - [x] `NS-410` Block Write Editor and Unified Codex Progression.
   - Source: `docs/tasks/NS-410.md`.
   - Acceptance: `docs/testing/NS-410_ACCEPTANCE.md`.

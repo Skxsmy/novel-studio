@@ -60,7 +60,7 @@ packages/
 
 - 系列、书、幕、章清单：JSON。
 - 场景、Codex、Progression、角色知识、Snippet、Style、Prompt 和 Research Note：JSON。NS-410 起，场景正文的内部权威是 `SceneBlockDocument`，Markdown/Word 只是导入、导出、镜像和迁移边界格式；旧 `codex/progressions/*.yaml` 退役。
-- Workshop：按对话保存 Markdown/JSONL，并有可读索引。
+- Workshop：M5 起按 `workshop/sessions/<session-id>.json` 和 `workshop/messages/<message-id>.json` 保存结构化 JSON；索引必须可重建，不使用 JSONL 作为权威存储。
 - Proposal、Evidence、调用审计和版本元数据：`.studio` 下可导出的结构化文件。
 - JSON authority 是 Project/File Service 的内部职责；API 层应在可行处继续提供当前前端所需的兼容投影，例如场景 `content`。
 

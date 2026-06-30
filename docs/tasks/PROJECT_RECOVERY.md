@@ -1,15 +1,15 @@
 # Project Recovery Plan
 
-Status: paused by NS-410 user redirect
-Updated: 2026-06-26
+Status: accepted for the current recovery stage
+Updated: 2026-06-30
 
 ## Decision
 
-Project recovery remains not accepted, but it is paused while `NS-410` is active by explicit user direction on 2026-06-26. The active task is `docs/tasks/NS-410.md`. NS-410/ADR-0012 supersedes this recovery document's older Markdown/YAML persistence assumptions with JSON project authority.
+The user accepted the current Project Recovery stage on 2026-06-30. This acceptance covers Recovery Release A as a usable baseline and incorporates the later NS-410 JSON-authority/editor repairs as non-regression boundaries.
 
-The next target is a small accepted product slice: a user can create a project from zero, write in a coherent hierarchy, manage basic story memory in Codex, and configure the minimum AI/provider settings without fake placeholder pages.
+The next target is no longer more Project Recovery acceptance work. The next planned line is M5 Workshop, Proposal, and Review, governed by `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`.
 
-Anything outside that slice must either be explicitly deferred or shown as unavailable. The project should not continue accumulating broad plans, decorative UI, or half-wired pages.
+Anything outside the accepted recovery baseline remains either explicitly deferred or unavailable until a later task implements it. The project should not continue accumulating broad plans, decorative UI, or half-wired pages.
 
 ## Diagnosis
 

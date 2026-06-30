@@ -4,6 +4,11 @@
 
 This changelog retains the historical milestone record from the earlier Chinese log, translated and reorganized in English.
 
+### Current Planning And Acceptance
+
+- **Project Recovery Current-Stage Acceptance**: Recorded the 2026-06-30 user decision that Project Recovery is accepted for the current stage. This acceptance is the baseline for M5 and does not mark Workshop, Proposal, Review, Tool Plan, or Council behavior as implemented.
+- **M5 Workshop, Proposal, And Review Plan**: Added the formal M5 task plan, acceptance scaffold, contract-informed Figma plan, and Figma-to-implementation workflow. M5 is Proposal/Review-first, protects current Write/Codex behavior, and requires separate command, Figma, browser, and user visual acceptance before completion.
+
 ### Active NS-410 Work
 
 - **NS-410 Start**: Recorded the Block Write Editor and Codex Field Progression task in product specs, traceability, architecture docs, ADR-0012, task docs, and acceptance records. The prior project-recovery warning against starting NS-410 is explicitly superseded by user direction for this scope.

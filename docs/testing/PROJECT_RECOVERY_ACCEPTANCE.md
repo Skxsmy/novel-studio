@@ -1,17 +1,17 @@
 # Project Recovery Acceptance Record
 
-Status: paused by NS-410 user redirect, not accepted
-Updated: 2026-06-26
+Status: accepted for the current recovery stage
+Updated: 2026-06-30
 
 ## Conclusion
 
-The project recovery phase is not accepted yet. It is paused while `NS-410` is active by explicit user direction on 2026-06-26. NS-410/ADR-0012 supersedes earlier Markdown/YAML persistence assumptions with JSON project authority.
+The user accepted the current Project Recovery stage on 2026-06-30. This acceptance covers the recovery baseline reached before M5 planning: Library/Write/Codex recovery work, honest unavailable Review/Workshop shells for that stage, and the later NS-410 JSON-authority/editor repairs that must not be regressed.
 
-The current React app is command-verified but failed user visual/product acceptance. The active acceptance target is Recovery Release A, not completion of an `NS-409` task.
+This does not mean Workshop, Proposal, Review, Council, Tool Plans, or full M5 workflows are implemented or accepted. Those are governed by `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`.
 
 ## Recovery Release A Acceptance
 
-Release A is accepted only when the following slices pass.
+Release A/current-stage recovery is accepted. The following slice records remain the command evidence and historical implementation notes for that accepted stage.
 
 ### Slice A: Baseline Triage
 
@@ -24,7 +24,7 @@ Status: recorded on 2026-06-24 in `docs/tasks/PROJECT_RECOVERY.md`.
 
 ### Slice B: Start-to-Write
 
-Status: command-verified, not visually accepted.
+Status: command-verified; accepted for the current recovery stage on 2026-06-30.
 
 - Current evidence: `AppShell.test.tsx` covers empty-library project creation, opening the first scene, and adding a Chapter to the selected Volume.
 - Current evidence: `AppShell.test.tsx` also covers deleting selected Chapter, deleting selected Act, deleting selected Scene, and creating a Scene inside the selected Act.
@@ -47,7 +47,7 @@ Status: command-verified, not visually accepted.
 
 ### Slice C: Codex Core
 
-Status: command-verified, not visually accepted.
+Status: command-verified; accepted for the current recovery stage on 2026-06-30.
 
 - Codex API/contract/storage gap audit is recorded in `docs/tasks/PROJECT_RECOVERY.md`.
 - Current evidence: `AppShell.test.tsx` covers creating a Codex entry and opening/closing detail by clicking the same entry.
@@ -65,7 +65,7 @@ Status: command-verified, not visually accepted.
 
 ### Slice D: Codex Connections
 
-Status: command-verified for the current Codex scope, not visually accepted. Plan review/rework remains deferred.
+Status: command-verified for the current Codex scope; accepted for the current recovery stage on 2026-06-30. Plan review/rework remains deferred.
 
 - Current evidence: `AppShell.test.tsx` covers Write loading real active Codex entries for inline matching. It also covers realtime scene-body alias matching, absence of the old duplicate preview block, removal of the redundant `Codex in scene` panel, Scene Brief hide/restore through an icon-only control, and click-again toggling of the Canon description preview.
 - Current evidence: `AppShell.test.tsx` covers Enter in the Write editor preserving consecutive blank lines in the saved scene content.
@@ -138,7 +138,7 @@ Acceptance mapping:
 
 ### Codex Details Follow-up
 
-Status: command-verified on 2026-06-26. Screenshot self-check for the modal follow-up was skipped by user instruction; user visual acceptance remains separate.
+Status: command-verified on 2026-06-26; accepted for the current recovery stage on 2026-06-30. Screenshot self-check for the modal follow-up was skipped by user instruction at the time and is not a separate screenshot evidence claim.
 
 Scope covered:
 
@@ -215,7 +215,7 @@ Acceptance mapping:
 
 ### Slice F: Review, Workshop, and Navigation Honesty
 
-Status: command-verified on 2026-06-25, not visually accepted.
+Status: command-verified on 2026-06-25; accepted for the current recovery stage on 2026-06-30.
 
 - Review and Workshop remain visible in the UI.
 - Review and Workshop are honest unavailable shells, with no implied backend-connected workflow.

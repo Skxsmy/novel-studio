@@ -75,9 +75,13 @@
 
 ## M5 编辑团队与 Proposal
 
+执行规格：`docs/tasks/M5.md`。验收记录：`docs/testing/M5_ACCEPTANCE.md`。设计配套：`docs/design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`。
+
 覆盖：全部角色、单角色调用、独立会审、Workshop、Proposal、Review、正文候选和后台分析策略。
 
-完成标准：两个编辑独立评审产生可见分歧；候选应用前磁盘不变；过期 Proposal 被拒；事实提取进入收件箱而非 Canon。
+完成标准：Proposal/Review 闭环先可用，Workshop 作为可靠 Proposal 来源进入闭环；两个编辑独立评审产生可见分歧；候选应用前磁盘不变；过期 Proposal 被拒；事实提取进入收件箱而非 Canon；Tool Plan 只有在用户明确授权后才能通过共享命令适配器操作 Write/Codex，或退回 Proposal。
+
+验收 ID：`M5-A01` 至 `M5-A45`，详见 `docs/testing/M5_ACCEPTANCE.md`。
 
 ## M6 资料分析库
 
