@@ -355,7 +355,7 @@ export function WriteWorkspace({
       }));
       setCollapsedProgressionBlocks((current) => {
         const next = new Set(current);
-        next.delete(result.block.id);
+        next.add(result.block.id);
         return next;
       });
       setSelectedProgressionBlockId(result.block.id);
@@ -506,6 +506,11 @@ export function WriteWorkspace({
     setActiveBlockMention(null);
     setProgressionError(null);
     setSelectedProgressionBlockId(null);
+    setCollapsedProgressionBlocks(new Set(
+      draft?.document.blocks
+        .filter((block) => block.kind === "codexProgression")
+        .map((block) => block.id) ?? [],
+    ));
   }, [draft?.sceneId]);
 
   useEffect(() => {
@@ -689,7 +694,7 @@ export function WriteWorkspace({
               title="Show scene brief"
               type="button"
             >
-              <span aria-hidden="true">▦</span>
+              <span aria-hidden="true">&lt;</span>
             </button>
           ) : null}
         </div>

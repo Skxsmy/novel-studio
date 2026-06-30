@@ -2835,6 +2835,10 @@ describe("App shell", () => {
       expect(JSON.stringify(body)).not.toContain("effectiveFromSceneId");
       expect(JSON.stringify(body)).not.toContain("\"source\"");
     });
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Codex progression text")).toBeNull();
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Expand Codex progression" }, { timeout: 3000 }));
     expect(await screen.findByLabelText("Codex progression entry", {}, { timeout: 3000 })).toBeTruthy();
     expect(fetchMock.mock.calls.some(([url, init]) => (
       url === `/api/v1/series/${seriesId}/codex/progressions` && init?.method === "POST"
@@ -2867,10 +2871,10 @@ describe("App shell", () => {
       }));
     }, { timeout: 3000 });
 
-    fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Codex progression" }));
     expect(screen.queryByLabelText("Codex progression text")).toBeNull();
     expect(screen.getAllByText("Lock state changes.").length).toBeGreaterThanOrEqual(1);
-    fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+    fireEvent.click(screen.getByRole("button", { name: "Expand Codex progression" }));
     expect(screen.getByLabelText("Codex progression text")).toBeTruthy();
 
     setManuscriptBlocks([
@@ -2883,7 +2887,7 @@ describe("App shell", () => {
         updatedAt: "2026-06-24T00:00:00.000Z",
       },
     ]);
-    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Codex progression" }));
     await waitFor(() => {
       const dirtySaveCallIndex = fetchMock.mock.calls.findIndex(([url, init]) => (
         url === `/api/v1/series/${seriesId}/scenes/${sceneId}/document` &&
@@ -2973,6 +2977,9 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
     fireEvent.click(await screen.findByRole("button", { name: /^Second Scene/i }));
 
+    expect(await screen.findByText("Current change.")).toBeTruthy();
+    expect(screen.queryByLabelText("Codex progression text")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Expand Codex progression" }));
     expect(await screen.findByDisplayValue("Current scene truth.")).toBeTruthy();
     expect(screen.queryByLabelText("Codex progression preview")).toBeNull();
     expect(screen.queryByText("Codex progressions")).toBeNull();

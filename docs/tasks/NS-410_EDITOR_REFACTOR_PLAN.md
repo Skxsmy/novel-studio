@@ -24,6 +24,7 @@ Implemented:
 - Replaced the author-facing Write scene body with a continuous manuscript editor. The old repeated card/textarea row UI is no longer rendered.
 - Preserved paragraph insertion, paragraph deletion, Focus mode, Scene Brief hiding/restoring, Codex progression creation/edit/delete/collapse, and Codex Progressions tab regressions. Heading/quote/scene-break nodes remain adapter compatibility, not visible current-text conversion controls.
 - Current product decision after user visual review: Codex progression editing happens only in a resizable inline manuscript component; Scene Brief must not duplicate current-scene progressions or show a read-only progression overview.
+- Current follow-up after later user visual review: Codex progression components default to a compact collapsed inline row, and expansion is an explicit action before editing the entry, field, operation, summary, or body.
 - Write scene edits, inline Codex progression edits, and Codex entry edits autosave. Normal editor Save buttons and normal save-status noise are removed; failure/conflict feedback remains.
 - Removed the floating formatting panel and destructive current-text type selector after user visual review showed it was still behaving like a form panel and could erase active prose by converting it to a scene break.
 - Kept `SceneBlockDocument` as the saved authority. Tiptap JSON remains runtime state only and is converted back to the authority document before saving.
@@ -185,6 +186,7 @@ Required behavior after user visual review:
 
 - Codex progression blocks appear inline at their manuscript position as an independent component.
 - The inline component owns target entry/field/operation/summary/body editing, collapse/delete, and UI-only width/height resizing by dragging component edges.
+- The default visible state is collapsed so the manuscript remains readable; expanded editing state must not behave like a duplicated side panel or constant preview form.
 - Scene Brief must not list current-scene Codex progressions or show a duplicated read-only selected overview.
 - Add Codex progression is a compact command at the cursor/selected block.
 - Delete Codex progression uses the existing repaired scene-level delete command and must preserve dirty draft content first.
@@ -373,6 +375,7 @@ Component tests:
 - Codex progression create uses the existing scene-level API.
 - Codex progression delete saves dirty draft content before deletion.
 - Codex progression edits autosave without a normal Save button.
+- Codex progression creation and scene load show the component collapsed by default; expansion reveals editing controls without adding a side panel or before/after preview.
 - Effective-state behavior remains correct through Codex Progressions and projection/API tests.
 - UI does not render block numbers, block type dropdowns, or raw IDs in the main writing surface.
 

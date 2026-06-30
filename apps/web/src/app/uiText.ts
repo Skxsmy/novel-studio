@@ -56,25 +56,21 @@ export const uiText = {
     title: "Codex progression",
     missingRecord: "Missing record",
     missingRecordBody: "The linked Codex progression could not be loaded.",
-    chooseEntry: "Choose an entry",
-    targetPrefix: "Add to:",
     fieldDescription: "Canon description",
     fieldFallback: "Detail",
-    labels: {
-      change: "Change",
-      summary: "Summary",
-    },
     operations: {
-      add: "Add before current text",
-      replace: "Replace current text",
+      add: "Add before",
+      replace: "Replace",
     },
+    emptyCollapsed: "No text yet",
     placeholders: {
       summary: "Short note for this change",
       text: "What becomes true from this point",
     },
     actions: {
-      collapse: "Collapse",
-      expand: "Expand",
+      collapse: "Collapse Codex progression",
+      delete: "Delete Codex progression",
+      expand: "Expand Codex progression",
       selectEntry: "Select",
     },
     aria: {

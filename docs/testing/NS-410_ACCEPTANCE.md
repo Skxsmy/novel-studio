@@ -471,6 +471,7 @@ Changes verified:
 - Added `apps/web/src/features/write/editor/sceneBlockMapping.ts` and tests for round-trip mapping, mark stripping, empty editor recovery, duplicate ID regeneration, and trailing cursor paragraph cleanup.
 - Added a continuous `NovelEditor` for the Write manuscript surface and removed the old repeated block-card/textarea render path from `WriteWorkspace.tsx`.
 - Added resizable inline Codex progression components so progression editing happens in the manuscript at the authored position; Scene Brief no longer lists current-scene progressions or shows a duplicated read-only overview.
+- Codex progression components now default to a compact collapsed inline row after creation and scene load; authors explicitly expand the component before editing entry, field, operation, summary, or body.
 - Removed the author-facing stored block count from the Write toolbar and stopped rendering the old `.scene-block` card UI.
 - Removed the duplicated Scene Brief Codex progression panel, removed the constant Write before/after preview grid, and kept effective-at-scene review in the Codex Progressions tab.
 - Removed the hard-coded 780 px manuscript shell limit and 680 px Codex progression default width. Prose now follows the current Write panel width, while each progression's UI-only dragged width is clamped to the editor container.
@@ -483,10 +484,11 @@ Commands:
 | Command | Result |
 | --- | --- |
 | `npm.cmd run build -w @novel-studio/contracts` | Passed. |
-| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx sceneBlockMapping.test.ts` | Passed with 50/50 tests after removing the duplicated Write progression panel/preview, repairing manuscript/progression width caps, and keeping inline Codex progression autosave assertions. |
-| `npm.cmd run build -w @novel-studio/web` | Passed with no Vite large-chunk warning after the width repair; largest emitted chunks were `editor-codemirror` at 494.48 kB and `editor-tiptap` at 439.56 kB. |
-| `npm.cmd run build` | Passed with no Vite large-chunk warning after inline Codex progression/autosave repair. |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx sceneBlockMapping.test.ts` | Passed with 50/50 tests after defaulting inline Codex progression components to collapsed, requiring explicit expand before edit, removing the duplicated Write progression panel/preview, repairing manuscript/progression width caps, and keeping inline Codex progression autosave assertions. |
+| `npm.cmd run build -w @novel-studio/web` | Passed with no Vite large-chunk warning after the default-collapse repair; largest emitted chunks were `editor-codemirror` at 494.48 kB and `editor-tiptap` at 439.56 kB. |
 | `npm.cmd run test` | Passed with server 25/25, web 58/58, AI 20/20, and storage 67/67 tests. |
+| `npm.cmd run build` | Passed with no Vite large-chunk warning after inline Codex progression/autosave/default-collapse repair. |
+| In-app browser self-check | Not completed: the Browser plugin reported no available browser instances (`agent.browsers.list()` returned `[]`). This is not user visual acceptance. |
 | `git diff --check` | Passed with line-ending warnings only. |
 
 ## Invariant Checklist

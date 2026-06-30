@@ -225,10 +225,10 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
     );
   }
 
-  const collapsedText = draft.summary.trim() || draft.body.trim() || view.fieldLabel;
+  const collapsedText = draft.summary.trim() || draft.body.trim();
 
   const sizeStyle: CSSProperties = {
-    height: size.height ? `${size.height}px` : undefined,
+    height: !view.isCollapsed && size.height ? `${size.height}px` : undefined,
     width: size.width ? `${size.width}px` : undefined,
   };
 
@@ -254,33 +254,63 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
         >
           ::
         </button>
-        <div className="codex-progression-target">
-          <span>{progressionText.targetPrefix}</span>
-          <select
-            aria-label={progressionText.aria.selectedField}
-            className="codex-progression-target-select"
+        {view.isCollapsed ? (
+          <button
+            className="codex-progression-collapsed-line"
             disabled={view.isBusy}
-            onChange={(event) => patchDraft({ fieldSelection: event.target.value as ProgressionFieldSelection })}
+            onClick={() => options.onToggleCollapse(blockId)}
             onMouseDown={stopEditorEvent}
-            value={draft.fieldSelection}
+            title={progressionText.actions.expand}
+            type="button"
           >
-            {view.fieldOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </div>
-        <select
-          aria-label={progressionText.aria.selectedEntry}
-          className="codex-progression-entry-select"
-          disabled={view.isBusy}
-          onChange={(event) => patchDraft({ entryId: event.target.value, fieldSelection: "description" })}
-          onMouseDown={stopEditorEvent}
-          value={draft.entryId}
-        >
-          {view.entryOptions.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
+            <span className="codex-progression-chip">{progressionText.title}</span>
+            <span>{view.entryLabel}</span>
+            <span>{view.fieldLabel}</span>
+            <strong className={collapsedText ? undefined : "is-empty"}>
+              {collapsedText || progressionText.emptyCollapsed}
+            </strong>
+          </button>
+        ) : (
+          <>
+            <span className="codex-progression-chip">{progressionText.title}</span>
+            <select
+              aria-label={progressionText.aria.selectedEntry}
+              className="codex-progression-entry-select"
+              disabled={view.isBusy}
+              onChange={(event) => patchDraft({ entryId: event.target.value, fieldSelection: "description" })}
+              onMouseDown={stopEditorEvent}
+              value={draft.entryId}
+            >
+              {view.entryOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <select
+              aria-label={progressionText.aria.selectedField}
+              className="codex-progression-target-select"
+              disabled={view.isBusy}
+              onChange={(event) => patchDraft({ fieldSelection: event.target.value as ProgressionFieldSelection })}
+              onMouseDown={stopEditorEvent}
+              value={draft.fieldSelection}
+            >
+              {view.fieldOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <select
+              aria-label={progressionText.aria.selectedOperation}
+              className="codex-progression-operation-select"
+              disabled={view.isBusy}
+              onChange={(event) => patchDraft({ operation: event.target.value as ProgressionDraft["operation"] })}
+              onMouseDown={stopEditorEvent}
+              value={draft.operation}
+            >
+              {view.operationOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </>
+        )}
         <button
           aria-label={view.isCollapsed ? progressionText.actions.expand : progressionText.actions.collapse}
           className="icon-btn"
@@ -293,51 +323,29 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
           {view.isCollapsed ? "+" : "-"}
         </button>
         <button
-          aria-label={uiText.actions.delete}
+          aria-label={progressionText.actions.delete}
           className="icon-btn"
           disabled={view.isBusy}
           onClick={() => options.onDelete(blockId)}
           onMouseDown={stopEditorEvent}
-          title={uiText.actions.delete}
+          title={progressionText.actions.delete}
           type="button"
         >
           x
         </button>
       </div>
 
-      {view.isCollapsed ? (
-        <p className="codex-progression-collapsed">{collapsedText}</p>
-      ) : (
+      {!view.isCollapsed ? (
         <>
-          <div className="codex-progression-meta">
-            <label>
-              <span>{progressionText.labels.change}</span>
-              <select
-                aria-label={progressionText.aria.selectedOperation}
-                className="input"
-                disabled={view.isBusy}
-                onChange={(event) => patchDraft({ operation: event.target.value as ProgressionDraft["operation"] })}
-                onMouseDown={stopEditorEvent}
-                value={draft.operation}
-              >
-                {view.operationOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>{progressionText.labels.summary}</span>
-              <input
-                aria-label={progressionText.aria.selectedSummary}
-                className="input"
-                disabled={view.isBusy}
-                onChange={(event) => patchDraft({ summary: event.target.value })}
-                onMouseDown={stopEditorEvent}
-                placeholder={progressionText.placeholders.summary}
-                value={draft.summary}
-              />
-            </label>
-          </div>
+          <input
+            aria-label={progressionText.aria.selectedSummary}
+            className="codex-progression-summary-input"
+            disabled={view.isBusy}
+            onChange={(event) => patchDraft({ summary: event.target.value })}
+            onMouseDown={stopEditorEvent}
+            placeholder={progressionText.placeholders.summary}
+            value={draft.summary}
+          />
           <label className="codex-progression-writing-area">
             <textarea
               aria-label={progressionText.aria.selectedText}
@@ -350,7 +358,7 @@ export function CodexProgressionNodeView(props: NodeViewProps) {
             />
           </label>
         </>
-      )}
+      ) : null}
       <span
         aria-hidden="true"
         className="codex-progression-resize-edge is-right"
