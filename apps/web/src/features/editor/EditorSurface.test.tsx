@@ -44,7 +44,7 @@ function codexEntryDocument(
       thumbnail: null,
       updatedAt: "2026-06-23T00:00:00.000Z",
     },
-    relativePath: `codex/custom/location/${codexEntryId}.md`,
+    relativePath: `codex/custom/location/${codexEntryId}.json`,
     research: {
       content: "",
       metadata: {
@@ -53,7 +53,7 @@ function codexEntryDocument(
         schemaVersion: 1,
         updatedAt: "2026-06-23T00:00:00.000Z",
       },
-      relativePath: `codex/entry-research/${codexEntryId}.md`,
+      relativePath: `codex/entry-research/${codexEntryId}.json`,
       revision,
     },
     revision,

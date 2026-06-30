@@ -29,6 +29,7 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **NS-410 Write Toolbar And Drag Repair**: Removed the redundant `Insert paragraph` and `Delete selection` toolbar commands. Codex progression insertion now lives behind the top Insert menu, and inline Codex progression movement uses a vertical drag handle instead of Up/Down buttons. The expanded progression panel now wraps entry/field/operation controls into a separate row so narrow component widths do not clip the editor controls.
 - **NS-410 Slice 10**: Migrated the remaining runtime authority files to schema-versioned JSON: story structure, planning timeline/events, sections, review anchors, Codex categories/detail types/entries/research/relations, and M4 AI/prompt files. Current storage/server/web APIs remain compatible, Codex features remain covered by regression tests, Markdown remains an import/export/projection boundary, and the direct storage `yaml` dependency was removed.
 - **NS-410 Codex Editor Repair**: Bounded Codex Canon Description and Detail value editors to internal scrolling surfaces instead of letting long text stretch the page. Codex entry autosave now runs without disabling active editing fields, and in-flight save responses preserve newer local draft edits while carrying forward updated revisions for the next autosave.
+- **NS-410 Slice 11**: Closed final regression, rollback, and handoff for the command-verified NS-410 scope. Runtime authority searches found no YAML/frontmatter path and no stale `.md` Codex/scene authority fixture; the remaining Markdown code is the documented import/projection/export boundary. Focused and full build/test commands passed, and user visual acceptance remains separate.
 
 ### Project Foundation
 
@@ -102,13 +103,13 @@ This changelog retains the historical milestone record from the earlier Chinese 
 
 ### Current Validation Snapshot
 
-- Focused NS-410 Write editor refactor validation passed: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx sceneBlockMapping.test.ts` passed 50/50 after adding inline resizable/default-collapsed Codex progression components, autosave assertions, top Insert menu placement, drag-handle progression movement, and wrapped progression controls. `npm.cmd run test` passed with server 25/25, web 58/58, AI 20/20, and storage 67/67 tests. `npm.cmd run build` passed with no Vite large-chunk warning. Earlier Slice 8/Slice 9/project lifecycle focused validations remain recorded in `docs/testing/NS-410_ACCEPTANCE.md`.
 - `npm.cmd run build -w @novel-studio/contracts`: passed.
-- `npm.cmd run build -w @novel-studio/web`: passed with no Vite large-chunk warning; largest emitted chunks were `editor-codemirror` at 494.48 kB and `editor-tiptap` at 439.56 kB.
-- `npm.cmd run build`: passed with no Vite large-chunk warning after the top-menu/drag Write repair.
-- `npm.cmd run test`: passed in the latest validation; server 25, web 58, AI 20, and storage 67 tests.
-- Focused Codex Details checks also passed: storage `repository.test.ts` 43 tests, server `app.test.ts context-routes.test.ts` 8 tests, and web `AppShell.test.tsx EditorSurface.test.tsx` 44 tests.
-- Focused Codex layout / preview bounds checks passed: `EditorSurface.test.tsx` 8 tests, `AppShell.test.tsx` 38 tests, and web typecheck.
+- `npm.cmd run test -w @novel-studio/storage -- repository.test.ts`: passed 56/56.
+- `npm.cmd run test -w @novel-studio/server -- app.test.ts context-routes.test.ts`: passed 13/13.
+- `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx`: passed 54/54.
+- `npm.cmd run build`: passed with no Vite large-chunk warning; largest emitted chunks were `editor-codemirror` at 494.48 kB and `editor-tiptap` at 439.56 kB.
+- `npm.cmd run test`: passed in the latest validation; server 25, web 59, AI 20, and storage 67 tests.
+- Runtime authority searches passed: no YAML/frontmatter runtime path, no stale `.md` Codex/scene authority fixture, and remaining Markdown matches are import/projection/export or editor syntax support.
 - `git diff --check` passed with line-ending warnings only.
 - Screenshot self-check for the Codex Details modal follow-up was skipped by user instruction and is not user visual acceptance.
 - User visual acceptance: D2 preview layer repair accepted. Overall project recovery remains open.

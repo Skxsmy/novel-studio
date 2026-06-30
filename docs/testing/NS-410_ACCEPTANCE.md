@@ -1,6 +1,6 @@
 # NS-410 Acceptance Record
 
-Status: in progress  
+Status: command-verified; user visual acceptance remains separate
 Started: 2026-06-26
 
 ## Scope
@@ -45,7 +45,7 @@ Each slice must update this section with actual command output before the next s
 | Slice 5 Projection Engine | Baseline/add/replace/empty replace/same-scene/future isolation/baseline edit projection tests and effective-entry API tests pass. | A07, A08, A09, A10, A11, A13 |
 | Slice 6 Context Builder Projection | Context route tests prove projected Codex fields, detail AI switches, hidden empty fields, and future isolation. | A10, A12, A13, A16 |
 | Slice 7 Write Ordinary Block MVP | Write loads/saves ordinary blocks through a native block editor, not the old single-document text editor path; projection powers counts/search/mentions; no UI-only markup saved. | A14 partial, A16, A17 regression |
-| Slice 8 Write Progression Blocks | Embedded progression block and panel create/edit/delete synchronize with field progression records. | A05, A06, A09, A14 |
+| Slice 8 Write Progression Blocks | Embedded Codex progression component commands create/edit/delete linked field Progression records from the manuscript flow. | A05, A06, A09, A14 |
 | Slice 9 Codex Effective UI | Codex baseline/history/effective-at-scene UI is tested without future leakage or fake data. | A10, A13, A15 |
 | Write Editor Refactor Follow-up | Continuous Write manuscript editor replaces the visible repeated block-card UI while preserving old Write functions and JSON authority. | A14, A13/A15/A16/A17 regression |
 | Slice 10 Remaining JSON Authority Migration | Remaining YAML/Markdown runtime authority paths migrate to schema-versioned JSON or are explicitly narrowed to import/export/migration boundaries. | A01, A04, A13, A16, A17 |
@@ -394,7 +394,7 @@ Status: passed for project-lifecycle scope on 2026-06-29. This was added by expl
 
 Logic closure boundary verified:
 
-- Authority source: each project directory and its `series.yaml` manifest.
+- Authority source: each project directory and its `series.json` manifest.
 - Read paths: Library project list includes archived state and splits active projects from Trash in the UI.
 - Write paths: `POST /api/v1/series/:seriesId/trash` sets `archivedAt`; `POST /api/v1/series/:seriesId/restore` clears `archivedAt`; `DELETE /api/v1/series/:seriesId` deletes the series directory.
 - User-visible entries: Library active project cards expose `Move to Trash`; Trash cards expose `Restore` and `Delete permanently`.
@@ -564,6 +564,46 @@ Commands:
 | `npm.cmd run build` | Passed. Vite produced split chunks and no large-chunk warning; largest emitted chunks were `editor-codemirror` at 494.48 kB and `editor-tiptap` at 439.56 kB. |
 | `npm.cmd run test` | First run failed because the new delayed-autosave regression exceeded Vitest's default 5s test timeout; after shortening the mock network delay while preserving the in-flight-save case, rerun passed with server 25/25, web 59/59, AI 20/20, and storage 67/67 tests. |
 | `git diff --check` | Passed with line-ending warnings only. |
+
+### Slice 11: Final Regression, Rollback, And Handoff
+
+Status: command-verified on 2026-06-30. User visual acceptance remains separate.
+
+Logic closure boundary rechecked:
+
+- Authority source: scene manuscripts, story structure, planning, sections, review anchors, Codex baseline/supporting files, unified Progression records, character knowledge, and M4 AI/prompt files remain schema-versioned JSON authority.
+- Read paths: storage/server/web focused regressions still cover scene `content` compatibility, scene document/export routes, Codex Progression CRUD/effective reads, Context Builder projection, Codex entry editing, and Write document editing.
+- Write paths: scene document writes, legacy `content` writes, scene-level Codex progression commands, Codex entry/detail/research writes, project lifecycle delete/restore, and AI/prompt storage writes remain covered by focused and full regression runs.
+- Derived paths: search, mentions, counts, planning projections, context preview, effective entry/state, and Markdown export remain derived from JSON authority/plain-text or Markdown projection rather than editor runtime JSON.
+- Delete/archive/restore paths: project Trash/Restore/permanent delete, scene/block delete, Codex entry/category/detail type/relation lifecycle, Progression/Knowledge blockers, and timeline/structure deletes remain within existing regression coverage.
+- Migration/rollback boundary: Markdown/Word remain import/export/projection boundaries. No silent startup migration is introduced. Rollback for manuscript text remains deterministic Markdown export plus preserved JSON authority backups; Tiptap/ProseMirror runtime JSON is not saved as authority.
+- Test fixtures: the remaining stale Web test Codex `relativePath` fixture was updated from `.md` to `.json` so current tests no longer model Codex entry/research files as Markdown authority.
+
+Search results:
+
+| Search | Result |
+| --- | --- |
+| `rg -n "\.ya?ml|yaml|YAML|frontmatter" packages\storage\src apps\server\src packages\ai\src packages\contracts\src apps\web\src` | No matches. |
+| `rg -n "relativePath: .*\.md|codex/.+\.md|entry-research/.+\.md|manuscript/.+\.md" packages\storage\test apps\server\test apps\web\src -g "*.ts" -g "*.tsx"` | No matches after updating the stale `EditorSurface.test.tsx` fixture. |
+| `rg -n "\.md|Markdown|markdown|frontmatter" packages\storage\src apps\server\src packages\ai\src packages\contracts\src apps\web\src` | Matches are limited to scene Markdown import/projection/export compatibility and CodeMirror Markdown syntax support. |
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `npm.cmd run build -w @novel-studio/contracts` | Passed. |
+| `npm.cmd run test -w @novel-studio/storage -- repository.test.ts` | Passed with 56/56 tests. |
+| `npm.cmd run test -w @novel-studio/server -- app.test.ts context-routes.test.ts` | Passed with 13/13 tests. |
+| `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx` | Passed with 54/54 tests. |
+| `npm.cmd run build` | Passed. Vite produced split chunks and no large-chunk warning; largest emitted chunks were `editor-codemirror` at 494.48 kB and `editor-tiptap` at 439.56 kB. |
+| `npm.cmd run test` | Passed with server 25/25, web 59/59, AI 20/20, and storage 67/67 tests. |
+| `git diff --check` | Passed with line-ending warnings only. |
+
+Worktree note:
+
+- Tracked changes for Slice 11 are limited to NS-410 fixture/doc updates.
+- `docs/design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md` is an unrelated untracked file and was not included in this NS-410 handoff.
+- `docs/testing/NS-410_SLICE_1_11_AUDIT.md` is an untracked local audit file retained in the workspace at user request and was not included in this commit.
 
 ## Invariant Checklist
 

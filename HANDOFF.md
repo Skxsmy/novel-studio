@@ -7,10 +7,10 @@ This file is the short operational handoff. The older Chinese handoff was fully 
 ## Current Repository State
 
 - Branch: `codex/ns-410-json-authority`.
-- Latest committed baseline before this toolbar/drag UI repair pass: `28ac405 NS-410 fix(write): default collapse progression widgets` on this branch.
-- Current active task: `NS-410` Block Write Editor and Unified Codex Progression.
-- Current acceptance state: NS-410 is in progress; project recovery remains not visually/product accepted.
-- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and unified Progression change. Slices 1-10, the Slice 7A/Slice 8 review repairs, the user-requested project lifecycle repair for Trash/Restore/permanent delete, the post-Slice 9 continuous Write editor refactor, and the post-Slice 10 Codex editor bounded-scroll/background-autosave repair are implemented and command-verified on the NS-410 branch; continue with Slice 11 final regression/rollback/handoff unless the user redirects.
+- Latest committed baseline before Slice 11: `fb77e6d NS-410 fix(authority): complete JSON migration and codex editor` on this branch.
+- Current active task state: `NS-410` Block Write Editor and Unified Codex Progression is command-verified through Slice 11.
+- Current acceptance state: NS-410 automated/command acceptance is closed; user visual acceptance remains separate, and project recovery remains not visually/product accepted.
+- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and unified Progression change. Slices 1-11, the Slice 7A/Slice 8 review repairs, the user-requested project lifecycle repair for Trash/Restore/permanent delete, the post-Slice 9 continuous Write editor refactor, and the post-Slice 10 Codex editor bounded-scroll/background-autosave repair are implemented and command-verified on the NS-410 branch. Return to project recovery visual/product acceptance next unless the user redirects.
 
 ## Start Here
 
@@ -59,7 +59,7 @@ NS-410 changes the writing and Codex foundations:
 - The Write manuscript shell no longer has a hard-coded 780 px max width, and Codex progression nodes no longer default to a hard-coded 680 px width. Prose follows the current Write panel; each progression's UI-only dragged width is clamped to the editor container.
 - Codex now has a command-verified Progressions tab that separates saved initial state from selected-scene effective field state and field-grouped Progression history without rendering Progression IDs/revisions in the author workflow. Canon Description and Detail value editors are bounded CodeMirror surfaces with internal scrolling, not unbounded page-growth areas. Codex entry autosave runs in the background without disabling active editing fields, and in-flight save responses do not overwrite newer local draft edits. User visual acceptance is not claimed.
 
-Implementation order is now the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Slice 1 passed for its scope on 2026-06-26; Slices 2, 3, 4, 5, 6, 7, 7A audit repair, repaired Slice 8, and Slice 9 automated UI scope passed on 2026-06-29. The post-Slice 9 Write editor refactor is a user-directed, command-verified follow-up before Slice 10. Slice 10 remaining JSON authority migration passed on 2026-06-30. Continue with Slice 11 final regression, rollback, and handoff next.
+Implementation order is the controlled vertical slice plan in `docs/tasks/NS-410.md`; acceptance evidence and slice exits are in `docs/testing/NS-410_ACCEPTANCE.md`. Slice 1 passed for its scope on 2026-06-26; Slices 2, 3, 4, 5, 6, 7, 7A audit repair, repaired Slice 8, and Slice 9 automated UI scope passed on 2026-06-29. The post-Slice 9 Write editor refactor is a user-directed, command-verified follow-up before Slice 10. Slice 10 remaining JSON authority migration and the post-Slice 10 Codex editor repair passed on 2026-06-30. Slice 11 final regression, rollback, and handoff also passed on 2026-06-30.
 
 Current JSON authority boundary:
 
@@ -337,4 +337,4 @@ Current recovery order:
 
 ## Immediate Next Step
 
-Continue with Slice 11: final regression, rollback, and handoff. Each slice must leave the app buildable and record its exit checks before the next slice starts. Do not skip to provider expansion or fake Proposal integration. Slice 10 closed the remaining YAML/Markdown runtime authority inventory; routine handoff must stay in the existing files.
+Return to project recovery visual/product acceptance unless the user redirects. Do not skip to provider expansion or fake Proposal integration. NS-410 closed the runtime YAML/Markdown authority inventory; Markdown/Word remain boundary formats, and remaining YAML mentions are historical docs or third-party optional peer metadata, not runtime authority paths. Routine handoff must stay in the existing files.

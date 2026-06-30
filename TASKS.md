@@ -6,8 +6,8 @@ This index keeps the original milestone/task history translated from the earlier
 
 ## Current Active Work
 
-- [-] `NS-410` Block Write Editor and Unified Codex Progression.
-- [!] `PROJECT-RECOVERY` Project-level recovery roadmap, paused while NS-410 is in progress by explicit user direction.
+- [x] `NS-410` Block Write Editor and Unified Codex Progression. Command-verified through Slice 11; user visual acceptance remains separate.
+- [!] `PROJECT-RECOVERY` Project-level recovery roadmap, not visually/product accepted; resume next unless the user redirects.
 
 Current decision:
 
@@ -129,14 +129,14 @@ Immediate task requirements:
   - Slice G: visual system and responsive acceptance.
   - Slice H: verification and handoff.
   - Current React working draft is command-verified but visually rejected.
-- [-] `NS-410` Block Write Editor and Unified Codex Progression.
+- [x] `NS-410` Block Write Editor and Unified Codex Progression.
   - Source: `docs/tasks/NS-410.md`.
   - Acceptance: `docs/testing/NS-410_ACCEPTANCE.md`.
   - ADR: `docs/adr/0012-scene-block-documents-and-codex-field-progression.md`.
   - Scope: JSON project authority, Scene block document authority, Markdown projection/export/import boundary, compatibility adapters for existing scene APIs, unified Codex Progression for Canon Description, Details, world facts, and relationship changes, scene/block-position projection, Context Builder projection, Write embedded progression blocks, Codex baseline/history/effective UI.
   - Execution control: `docs/tasks/NS-410.md` now breaks implementation into controlled vertical slices 0-11; every slice must record exit evidence in `docs/testing/NS-410_ACCEPTANCE.md` before the next slice starts.
-  - Current slice state: Slice 1 passed for contracts and JSON file foundation; Slice 2 passed for scene JSON authority with legacy `content` API compatibility; Slice 3 passed for scene document API and Markdown export; Slice 4 passed for unified Progression JSON storage and CRUD API; Slice 5 passed for projection engine and effective entry API; Slice 6 passed for Context Builder and preview projection; Slice 7 passed for the native Write ordinary block editor; Slice 7A audit repair passed for backend/storage/context gaps recorded in `docs/testing/NS-410_ACCEPTANCE.md`; repaired Slice 8 passed for Write embedded progression block commands; Slice 9 passed for automated Codex baseline/history/effective-at-scene UI scope; the post-Slice 9 continuous Write editor refactor plus inline Codex progression/autosave/width/default-collapse/top-menu/drag repair has automated command checks passing and no longer renders a duplicated Scene Brief progression panel; Slice 10 remaining JSON authority migration passed on 2026-06-30; the post-Slice 10 Codex editor repair bounds Canon/Detail editor height and keeps autosave from locking active text input; next is Slice 11 final regression, rollback, and handoff.
+  - Current slice state: Slice 1 passed for contracts and JSON file foundation; Slice 2 passed for scene JSON authority with legacy `content` API compatibility; Slice 3 passed for scene document API and Markdown export; Slice 4 passed for unified Progression JSON storage and CRUD API; Slice 5 passed for projection engine and effective entry API; Slice 6 passed for Context Builder and preview projection; Slice 7 passed for the native Write ordinary block editor; Slice 7A audit repair passed for backend/storage/context gaps recorded in `docs/testing/NS-410_ACCEPTANCE.md`; repaired Slice 8 passed for Write embedded progression block commands; Slice 9 passed for automated Codex baseline/history/effective-at-scene UI scope; the post-Slice 9 continuous Write editor refactor plus inline Codex progression/autosave/width/default-collapse/top-menu/drag repair has automated command checks passing and no longer renders a duplicated Scene Brief progression panel; Slice 10 remaining JSON authority migration passed on 2026-06-30; the post-Slice 10 Codex editor repair bounds Canon/Detail editor height and keeps autosave from locking active text input; Slice 11 final regression, rollback, and handoff passed on 2026-06-30.
   - Current JSON authority truth: scene manuscripts, story structure, planning, sections, review anchors, Codex baseline/support files, unified Progression records, character knowledge, and M4 AI/prompt files are JSON authority. Markdown/Word remain import/export/projection boundaries; remaining YAML mentions are historical docs or third-party optional peer metadata, not runtime authority paths.
-  - Current status: project/spec/ADR records created; implementation in progress.
+  - Current status: command-verified through Slice 11; user visual acceptance remains separate.
 
 M4 detailed planning remains in `docs/tasks/M4.md`. Throughout M4 and NS-410, AI must not directly modify prose, canon, summaries, character state, Progression, or character knowledge without explicit author action/proposal flow.

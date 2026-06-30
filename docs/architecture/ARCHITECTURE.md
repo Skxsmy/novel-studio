@@ -78,11 +78,11 @@ codex/knowledge/<id>.json
 
 ### 规划
 
-规划工作区使用同一个 `PlanningBoard` 投影生成 Grid、Outline、Matrix、叙事时间线和故事时间线。故事事件保存在独立 YAML 中；未放置场景不会被读取操作自动写入时间线。
+规划工作区使用同一个 `PlanningBoard` 投影生成 Grid、Outline、Matrix、叙事时间线和故事时间线。故事时间线事件保存在独立 JSON 文件中；未放置场景不会被读取操作自动写入时间线。
 
 ### 正文与附属文档
 
-正文使用 JSON `SceneBlockDocument` 文件；当前 Write 场景正文与 Codex Canon 描述编辑器采用 CodeMirror 6 运行时，详见 ADR-0010 和 ADR-0012。Markdown 只作为导入导出/镜像格式。Sections、候选资料和敏感资料保存为独立 JSON 文件，并拥有独立 revision 与 AI 权限。审阅锚点保存为独立 JSON，查询时只返回定位状态，不写回。
+正文使用 JSON `SceneBlockDocument` 文件；当前 Write 场景正文采用 Tiptap/ProseMirror 运行时并在保存边界转换回 `SceneBlockDocument`，Codex Canon/Detail 文本编辑仍可使用 CodeMirror 6 `EditorSurface`，详见 ADR-0010 和 ADR-0012。Markdown 只作为导入导出/镜像格式。Sections、候选资料和敏感资料保存为独立 JSON 文件，并拥有独立 revision 与 AI 权限。审阅锚点保存为独立 JSON，查询时只返回定位状态，不写回。
 
 ### 设定库与连续性
 
