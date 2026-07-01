@@ -7,7 +7,7 @@ This index keeps the original milestone/task history translated from the earlier
 ## Current Active Work
 
 - [x] `NS-410` Block Write Editor and Unified Codex Progression. Command-verified through post-Slice 11 audit repair; user visual acceptance remains separate.
-- [-] `M5` Workshop, Proposal, and Review. Formally started on 2026-07-01 at `M5.0` Current Feature Protection Lock; current work is tests/docs protection mapping only. Figma/user visual acceptance remains required before later UI implementation.
+- [-] `M5` Workshop, Proposal, and Review. `M5.0` Current Feature Protection Lock passed on 2026-07-01. Next slice: `M5.1` Proposal v2 Contract And State Machine. Figma/user visual acceptance remains required before later UI implementation.
 - [x] `PROJECT-RECOVERY` Project-level recovery roadmap. Accepted for the current stage by user decision on 2026-06-30; future Workshop/Proposal/Review work belongs to M5.
 
 Current decision:
@@ -33,7 +33,7 @@ Current decision:
 Accepted recovery baseline and M5 guardrails:
 
 - Project Recovery current-stage acceptance is recorded; continue from the M5 plan unless the user redirects.
-- Current active M5 slice is M5.0 Current Feature Protection Lock. Do not start Proposal v2, Proposal storage/API, Review UI, Workshop UI, or Tool Plan execution until M5-A01 protection mapping and focused regression command results are recorded.
+- M5.0 Current Feature Protection Lock is recorded and command-verified. Do not start Proposal storage/API, Review UI, Workshop UI, or Tool Plan execution before M5.1 and M5.2 exit checks.
 
 - Slice A is recorded in `docs/tasks/PROJECT_RECOVERY.md`.
 - Slice B and Slice C are command-verified; browser/visual validation remains user-owned.

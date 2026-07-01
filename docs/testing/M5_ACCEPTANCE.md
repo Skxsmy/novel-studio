@@ -1,6 +1,6 @@
 # M5 Acceptance Record
 
-Status: M5.0 current feature protection lock in progress; later M5 slices not started
+Status: M5.0 current feature protection lock passed; M5.1 not started
 Created: 2026-06-30  
 Task: `docs/tasks/M5.md`
 
@@ -16,7 +16,7 @@ Command/browser checks do not equal user visual acceptance. Figma acceptance doe
 
 | ID | Status | Evidence |
 | --- | --- | --- |
-| M5-A01 | in progress | M5.0 started on 2026-07-01. Protection mapping and focused commands are pending for current Write, Codex, Settings, AI provider, context, and JSON authority behavior. |
+| M5-A01 | passed | Added targeted protection tests and ran focused/full verification on 2026-07-01. Current Write, Codex, Settings, AI provider, context, and JSON authority behavior is protected before M5.1 changes. |
 | M5-A02 | not started | Proposal v2 extends the existing Proposal contract and does not introduce a parallel Proposal model. |
 | M5-A03 | not started | Proposal type/source/generator/target/decision schemas support AI, manual, tool, and import origins. |
 | M5-A04 | not started | Proposal state transitions enforce pending, accepted, rejected, edited, stale, superseded, and archived semantics. |
@@ -95,7 +95,24 @@ Visual slices must also produce browser/Playwright screenshots against accepted 
 
 M5 formally started on 2026-07-01 at M5.0 Current Feature Protection Lock after commit `46e5a7c` added the MCP-backed Figma UI review and reading-path links.
 
-No M5 implementation commands have been run yet in this startup record. M5.0 still needs the protection mapping and focused regression command results before M5-A01 can pass.
+M5.0 added real regression coverage rather than relying only on pre-existing test counts:
+
+- `apps/web/src/app/AppShell.test.tsx`: strengthened the honest Review/Workshop unavailable-shell test so M5 cannot expose Proposal action controls, `/review/proposals/` deep links, proposal API calls, or Workshop session API calls before the backing workflows exist.
+- `packages/storage/test/repository.test.ts`: strengthened unified Progression coverage by creating a stale peer `.yaml` file and proving runtime listing still reads the JSON authority record.
+
+One first run of `npm.cmd run test -w @novel-studio/storage -- repository.test.ts` failed because the new assertion used a mojibake literal instead of the created Progression summary. The source behavior was checked, the test assertion was corrected, and the command then passed.
+
+Command results after the added protection tests:
+
+- `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx`: passed, 1 file / 46 tests.
+- `npm.cmd run test -w @novel-studio/storage -- repository.test.ts`: passed after correcting the new assertion, 1 file / 57 tests.
+- `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx EditorSurface.test.tsx sceneBlockMapping.test.ts`: passed, 3 files / 59 tests.
+- `npm.cmd run test -w @novel-studio/storage -- repository.test.ts json-authority.test.ts smoke.test.ts`: passed, 3 files / 66 tests.
+- `npm.cmd run test -w @novel-studio/server -- app.test.ts context-routes.test.ts ai-routes.test.ts model-calls.test.ts`: passed, 4 files / 24 tests.
+- `npm.cmd run test -w @novel-studio/ai`: passed, 1 file / 20 tests.
+- `npm.cmd run build`: passed.
+- `npm.cmd run test`: passed; server 5 files / 25 tests, web 3 files / 59 tests, AI 1 file / 20 tests, storage 4 files / 68 tests.
+- `git diff --check`: passed with Windows line-ending warnings only.
 
 ## M5.0 Startup Protection Mapping
 

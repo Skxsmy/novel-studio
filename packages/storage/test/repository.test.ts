@@ -1738,11 +1738,20 @@ describe("ProjectRepository", () => {
       operation: "add",
     });
     await expect(readFile(oldYamlPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await writeFile(oldYamlPath, [
+      `id: ${progression.progression.id}`,
+      "kind: field",
+      "operation: replace",
+      "summary: stale YAML must not be runtime authority",
+      "body: stale YAML must not be runtime authority",
+    ].join("\n"));
 
-    expect(await store.listCodexProgressions(series.manifest.id, {
+    const listedProgressions = await store.listCodexProgressions(series.manifest.id, {
       kind: "field",
       entryId: character.metadata.id,
-    })).toHaveLength(1);
+    });
+    expect(listedProgressions).toHaveLength(1);
+    expect(listedProgressions[0]?.progression.summary).toBe(progression.progression.summary);
 
     const updated = await store.updateCodexProgression(series.manifest.id, progression.progression.id, {
       baseRevision: progression.revision,

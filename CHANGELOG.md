@@ -9,6 +9,7 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **Project Recovery Current-Stage Acceptance**: Recorded the 2026-06-30 user decision that Project Recovery is accepted for the current stage. This acceptance is the baseline for M5 and does not mark Workshop, Proposal, Review, Tool Plan, or Council behavior as implemented.
 - **M5 Workshop, Proposal, And Review Plan**: Added the formal M5 task plan, acceptance scaffold, contract-informed Figma plan, and Figma-to-implementation workflow. M5 is Proposal/Review-first, protects current Write/Codex behavior, and requires separate command, Figma, browser, and user visual acceptance before completion.
 - **M5 Formal Start**: M5 formally started on 2026-07-01 at M5.0 Current Feature Protection Lock. The active scope is tests/docs protection mapping for current Write, Codex, Settings, AI provider, context, and JSON authority behavior; Proposal v2, Proposal storage/API, Review UI, Workshop UI, and Tool Plan execution remain not started.
+- **M5.0 Feature Protection Lock**: Added targeted regression guards so M5 cannot silently fake Review/Workshop proposal behavior before backend workflows exist, and stale YAML Codex Progression files cannot re-enter runtime authority. Focused checks, full build, full test, and `git diff --check` passed.
 
 ### Active NS-410 Work
 

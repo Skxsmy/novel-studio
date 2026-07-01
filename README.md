@@ -7,13 +7,13 @@ Novel Studio is a local-first writing workspace for long-form fiction. The repos
 - Current date recorded for this pass: 2026-07-01.
 - Project Recovery is accepted for the current stage by user decision on 2026-06-30. This is the baseline for M5, not M5 completion.
 - `NS-410` JSON authority, Block Write Editor, and Unified Codex Progression is command-verified through post-Slice 11 audit repair.
-- The active plan is `M5` Workshop, Proposal, and Review. Current slice is `M5.0` Current Feature Protection Lock: tests and documentation only unless a protection test exposes a current breakage.
+- The active plan is `M5` Workshop, Proposal, and Review. `M5.0` Current Feature Protection Lock passed on 2026-07-01; the next slice is `M5.1` Proposal v2 Contract And State Machine, not started.
 - Project files now use schema-versioned JSON authority for the completed NS-410 scope. Markdown/Word are import, export, mirror, and migration boundary formats; old `codex/progressions/*.yaml` is retired as a runtime authority path.
 - Current working draft includes Library, Write, Plan, Codex, Workshop, Review, and Settings shells.
 - Write has real project/scene API wiring and partial hierarchy controls.
 - Codex has real current-scope entry, category, reusable detail type, relation, mention, progression, tracking, context preview, archive/restore, and delete workflows. Plan integration, knowledge UI, and search-result integration remain later work.
 - Settings is no longer a static shell: model profile, service key, connection test, model list, and project cloud policy are API-backed, but the page still needs product-level completion.
-- Workshop and Review are not complete product workflows. Do not implement their UI before the M5.0 protection lock and the planned Proposal/Review slices.
+- Workshop and Review are not complete product workflows. Do not implement their UI before the planned Proposal/Review contract and storage/API slices.
 
 ## Start Here
 

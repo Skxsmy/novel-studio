@@ -3148,7 +3148,7 @@ describe("App shell", () => {
   });
 
   it("keeps review and workshop visible but honest about missing backend workflows", async () => {
-    mockFetch();
+    const fetchMock = mockFetch();
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
@@ -3175,6 +3175,12 @@ describe("App shell", () => {
     expect(screen.getByRole("button", { name: "Send" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Insert" })).toHaveProperty("disabled", true);
     expect(screen.getByText("Workshop will be rebuilt")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open Proposal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
+    expect(document.body.textContent).not.toContain("/review/proposals/");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/proposals"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/workshop/sessions"))).toBe(false);
   });
 
   it("loads and reorders the planning board after a project is selected", async () => {
