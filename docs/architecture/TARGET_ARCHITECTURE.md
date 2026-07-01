@@ -108,7 +108,7 @@ User Task
   → Context Builder
       → narrative position
       → effective Codex/knowledge
-      → cloud/source permissions
+      → source permissions
       → token budget
   → Preview/Confirm
   → ProviderAdapter
@@ -140,7 +140,8 @@ Untrusted file
 ## 9. 配置与凭据
 
 - 应用级配置保存作品库、备份目录、UI 状态和连接配置 ID。
-- 作品级配置保存语言、云端策略、自动分析策略和默认角色路由。
+- 作品级配置保存语言、自动分析策略和默认角色路由。
+- 作品库级 Settings 保存全局模型连接配置 ID；所有 project/series 共享同一组模型设置和凭据引用。
 - 资料源保存进一步收紧的权限。
 - API 密钥只在 Windows Credential Manager；进程内按调用短暂获取。
 - 导出项目默认不包含任何凭据或设备私有路径。

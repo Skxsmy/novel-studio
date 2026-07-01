@@ -10,20 +10,17 @@ import {
   SaveModelProfileCredentialInputSchema,
   SaveModelProfileCredentialResultSchema,
   UpdateModelProfileInputSchema,
-  UpdateSeriesCloudPolicyInputSchema,
   type AiProvider,
   type ModelCapability,
   type ModelProfile,
 } from "@novel-studio/contracts";
 import {
-  assertSafeCredentialRef,
   CredentialStoreError,
   type CredentialStore,
   type ProviderRegistry,
 } from "@novel-studio/ai";
 import type { ProjectRepository } from "@novel-studio/storage";
 import {
-  ensureCloudAllowed,
   ensureCredentialBoundary,
   modelError,
   providerErrorStatus,
@@ -34,8 +31,8 @@ interface AiRouteOptions {
   credentialStore: CredentialStore;
 }
 
-function modelCredentialRef(seriesId: string, profileId: string): string {
-  return `novel-studio/model-profile/${seriesId}/${profileId}`;
+function modelCredentialRef(profileId: string): string {
+  return `novel-studio/model-profile/${profileId}`;
 }
 
 function defaultCapabilities(registry: ProviderRegistry, provider: AiProvider, model: string): ModelCapability {
@@ -69,19 +66,18 @@ export function registerAiRoutes(
 ): void {
   const { credentialStore, providerRegistry } = options;
 
-  app.get<{ Params: { seriesId: string } }>(
-    "/api/v1/series/:seriesId/ai/model-profiles",
-    async (request) => {
-      const profiles = await repository.listModelProfiles(request.params.seriesId);
+  app.get(
+    "/api/v1/ai/model-profiles",
+    async () => {
+      const profiles = await repository.listModelProfiles();
       return profiles.filter((profile) => profile.archivedAt === null);
     },
   );
 
-  app.post<{ Params: { seriesId: string } }>(
-    "/api/v1/series/:seriesId/ai/model-profiles",
+  app.post(
+    "/api/v1/ai/model-profiles",
     async (request, reply) => {
       const input = CreateModelProfileInputSchema.parse(request.body);
-      assertSafeCredentialRef(input.credentialRef);
       const now = new Date().toISOString();
       const profileCapabilities = !Object.values(input.capabilities).some(Boolean)
         ? defaultCapabilities(providerRegistry, input.provider, input.model)
@@ -93,8 +89,7 @@ export function registerAiRoutes(
         provider: input.provider,
         baseUrl: input.baseUrl,
         model: input.model,
-        cloudPolicy: input.cloudPolicy,
-        credentialRef: input.credentialRef,
+        credentialRef: null,
         defaultParameters: input.defaultParameters,
         capabilities: profileCapabilities,
         contextWindowTokens:
@@ -105,35 +100,35 @@ export function registerAiRoutes(
         updatedAt: now,
         archivedAt: null,
       });
-      return reply.status(201).send(await repository.saveModelProfile(request.params.seriesId, profile));
+      return reply.status(201).send(await repository.saveModelProfile(profile));
     },
   );
 
-  app.put<{ Params: { seriesId: string; profileId: string } }>(
-    "/api/v1/series/:seriesId/ai/model-profiles/:profileId",
+  app.put<{ Params: { profileId: string } }>(
+    "/api/v1/ai/model-profiles/:profileId",
     async (request) => {
       const input = UpdateModelProfileInputSchema.parse(request.body);
-      assertSafeCredentialRef(input.credentialRef);
-      const current = await repository.getModelProfile(request.params.seriesId, request.params.profileId);
+      const current = await repository.getModelProfile(request.params.profileId);
       const updated = ModelProfileSchema.parse({
         ...current,
         ...input,
         baseUrl: input.baseUrl ?? current.baseUrl,
         capabilities: input.capabilities ?? current.capabilities,
+        credentialRef: current.credentialRef,
         defaultParameters: input.defaultParameters ?? current.defaultParameters,
         updatedAt: new Date().toISOString(),
       });
-      return repository.saveModelProfile(request.params.seriesId, updated);
+      return repository.saveModelProfile(updated);
     },
   );
 
-  app.delete<{ Params: { seriesId: string; profileId: string } }>(
-    "/api/v1/series/:seriesId/ai/model-profiles/:profileId",
+  app.delete<{ Params: { profileId: string } }>(
+    "/api/v1/ai/model-profiles/:profileId",
     async (request, reply) => {
-      const current = await repository.getModelProfile(request.params.seriesId, request.params.profileId);
+      const current = await repository.getModelProfile(request.params.profileId);
       const credentialRef = current.credentialRef;
       if (credentialRef) {
-        const profiles = await repository.listModelProfiles(request.params.seriesId);
+        const profiles = await repository.listModelProfiles();
         const shared = profiles.some((profile) => profile.id !== current.id && profile.credentialRef === credentialRef);
         if (!shared) {
           try {
@@ -151,7 +146,7 @@ export function registerAiRoutes(
       }
 
       const now = new Date().toISOString();
-      return repository.saveModelProfile(request.params.seriesId, ModelProfileSchema.parse({
+      return repository.saveModelProfile(ModelProfileSchema.parse({
         ...current,
         archivedAt: current.archivedAt ?? now,
         credentialRef: null,
@@ -160,14 +155,26 @@ export function registerAiRoutes(
     },
   );
 
-  app.post<{ Params: { seriesId: string; profileId: string } }>(
-    "/api/v1/series/:seriesId/ai/model-profiles/:profileId/credential",
+  app.post<{ Params: { profileId: string } }>(
+    "/api/v1/ai/model-profiles/:profileId/credential",
     async (request, reply) => {
       const input = SaveModelProfileCredentialInputSchema.parse(request.body);
-      const current = await repository.getModelProfile(request.params.seriesId, request.params.profileId);
-      const credentialRef = modelCredentialRef(request.params.seriesId, current.id);
+      const current = await repository.getModelProfile(request.params.profileId);
+      const credentialRef = modelCredentialRef(current.id);
       try {
         await credentialStore.writeSecret(credentialRef, input.secret);
+        const storedSecret = await credentialStore.readSecret(credentialRef);
+        if (storedSecret !== input.secret) {
+          try {
+            await credentialStore.deleteSecret(credentialRef);
+          } catch {
+            // Best-effort cleanup after a failed verification.
+          }
+          return reply.status(503).send({
+            code: "CREDENTIAL_WRITE_FAILED",
+            message: "Credential store verification failed after saving the service key.",
+          });
+        }
       } catch (error) {
         if (error instanceof CredentialStoreError) {
           return reply.status(503).send({
@@ -177,7 +184,7 @@ export function registerAiRoutes(
         }
         throw error;
       }
-      const updated = await repository.saveModelProfile(request.params.seriesId, ModelProfileSchema.parse({
+      const updated = await repository.saveModelProfile(ModelProfileSchema.parse({
         ...current,
         credentialRef,
         updatedAt: new Date().toISOString(),
@@ -190,10 +197,10 @@ export function registerAiRoutes(
     },
   );
 
-  app.get<{ Params: { seriesId: string; profileId: string } }>(
-    "/api/v1/series/:seriesId/ai/model-profiles/:profileId/credential",
+  app.get<{ Params: { profileId: string } }>(
+    "/api/v1/ai/model-profiles/:profileId/credential",
     async (request) => {
-      const current = await repository.getModelProfile(request.params.seriesId, request.params.profileId);
+      const current = await repository.getModelProfile(request.params.profileId);
       let exists = false;
       if (current.credentialRef) {
         try {
@@ -212,10 +219,10 @@ export function registerAiRoutes(
     },
   );
 
-  app.delete<{ Params: { seriesId: string; profileId: string } }>(
-    "/api/v1/series/:seriesId/ai/model-profiles/:profileId/credential",
+  app.delete<{ Params: { profileId: string } }>(
+    "/api/v1/ai/model-profiles/:profileId/credential",
     async (request, reply) => {
-      const current = await repository.getModelProfile(request.params.seriesId, request.params.profileId);
+      const current = await repository.getModelProfile(request.params.profileId);
       let deleted = false;
       const credentialRef = current.credentialRef;
       if (credentialRef) {
@@ -232,12 +239,12 @@ export function registerAiRoutes(
         }
       }
       const updatedAt = new Date().toISOString();
-      const profiles = await repository.listModelProfiles(request.params.seriesId);
+      const profiles = await repository.listModelProfiles();
       let updated = current;
       await Promise.all(profiles
         .filter((profile) => credentialRef && profile.credentialRef === credentialRef)
         .map(async (profile) => {
-          const saved = await repository.saveModelProfile(request.params.seriesId, ModelProfileSchema.parse({
+          const saved = await repository.saveModelProfile(ModelProfileSchema.parse({
             ...profile,
             credentialRef: null,
             updatedAt,
@@ -245,7 +252,7 @@ export function registerAiRoutes(
           if (saved.id === current.id) updated = saved;
         }));
       if (!credentialRef) {
-        updated = await repository.saveModelProfile(request.params.seriesId, ModelProfileSchema.parse({
+        updated = await repository.saveModelProfile(ModelProfileSchema.parse({
           ...current,
           credentialRef: null,
           updatedAt,
@@ -259,22 +266,11 @@ export function registerAiRoutes(
     },
   );
 
-  app.put<{ Params: { seriesId: string } }>(
-    "/api/v1/series/:seriesId/ai/cloud-policy",
-    async (request) => {
-      const input = UpdateSeriesCloudPolicyInputSchema.parse(request.body);
-      return repository.updateSeriesCloudPolicy(request.params.seriesId, input);
-    },
-  );
-
-  app.post<{ Params: { seriesId: string; profileId: string } }>(
-    "/api/v1/series/:seriesId/ai/model-profiles/:profileId/test",
+  app.post<{ Params: { profileId: string } }>(
+    "/api/v1/ai/model-profiles/:profileId/test",
     async (request, reply) => {
-      const [series, profile] = await Promise.all([
-        repository.getSeries(request.params.seriesId),
-        repository.getModelProfile(request.params.seriesId, request.params.profileId),
-      ]);
-      const blocked = ensureCloudAllowed(series.manifest, profile) ?? ensureCredentialBoundary(profile);
+      const profile = await repository.getModelProfile(request.params.profileId);
+      const blocked = ensureCredentialBoundary(profile);
       if (blocked) {
         return reply.status(providerErrorStatus(blocked)).send({
           code: blocked.code.toUpperCase().replace(/-/gu, "_"),
@@ -307,14 +303,11 @@ export function registerAiRoutes(
     },
   );
 
-  app.get<{ Params: { seriesId: string; profileId: string } }>(
-    "/api/v1/series/:seriesId/ai/model-profiles/:profileId/models",
+  app.get<{ Params: { profileId: string } }>(
+    "/api/v1/ai/model-profiles/:profileId/models",
     async (request, reply) => {
-      const [series, profile] = await Promise.all([
-        repository.getSeries(request.params.seriesId),
-        repository.getModelProfile(request.params.seriesId, request.params.profileId),
-      ]);
-      const blocked = ensureCloudAllowed(series.manifest, profile) ?? ensureCredentialBoundary(profile);
+      const profile = await repository.getModelProfile(request.params.profileId);
+      const blocked = ensureCredentialBoundary(profile);
       if (blocked) {
         return reply.status(providerErrorStatus(blocked)).send({
           code: blocked.code.toUpperCase().replace(/-/gu, "_"),

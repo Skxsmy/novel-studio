@@ -188,7 +188,7 @@ export function App() {
     }
 
     if (activeWorkspace === "settings") {
-      return <SettingsWorkspace onUpdateCloudPolicy={session.updateCloudPolicy} series={session.activeSeries} />;
+      return <SettingsWorkspace />;
     }
 
     if (!session.activeSeries) return null;

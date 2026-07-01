@@ -251,7 +251,7 @@ describe("M4 context preview API", () => {
 
     const profile = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
         title: "本地上下文测试模型",
         provider: "mock",

@@ -549,7 +549,6 @@ describe("ProjectRepository", () => {
     const local = await store.createSceneSection(series.manifest.id, scene.metadata.id, {
       title: "本地资料",
       kind: "research",
-      aiPolicy: "local-only",
       content: "仅供本地模型。",
     });
     const sensitive = await store.createSceneSection(series.manifest.id, scene.metadata.id, {
@@ -560,10 +559,8 @@ describe("ProjectRepository", () => {
 
     expect(sensitive.metadata.aiPolicy).toBe("never");
     expect((await store.getScene(series.manifest.id, scene.metadata.id)).content).toBe("");
-    expect((await store.listSceneSectionsForContext(series.manifest.id, scene.metadata.id, "local"))
+    expect((await store.listSceneSectionsForContext(series.manifest.id, scene.metadata.id))
       .map((section) => section.metadata.id)).toEqual([note.metadata.id, local.metadata.id]);
-    expect((await store.listSceneSectionsForContext(series.manifest.id, scene.metadata.id, "cloud"))
-      .map((section) => section.metadata.id)).toEqual([note.metadata.id]);
 
     const updated = await store.updateSceneSection(series.manifest.id, note.metadata.id, {
       baseRevision: note.revision,
@@ -580,13 +577,13 @@ describe("ProjectRepository", () => {
       baseRevision: updated.revision,
     });
     expect(archived.metadata.archivedAt).not.toBeNull();
-    expect((await store.listSceneSectionsForContext(series.manifest.id, scene.metadata.id, "local"))
+    expect((await store.listSceneSectionsForContext(series.manifest.id, scene.metadata.id))
       .map((section) => section.metadata.id)).not.toContain(note.metadata.id);
     const restored = await store.restoreSceneSection(series.manifest.id, archived.metadata.id, {
       baseRevision: archived.revision,
     });
     expect(restored.metadata.archivedAt).toBeNull();
-    expect((await store.listSceneSectionsForContext(series.manifest.id, scene.metadata.id, "local"))
+    expect((await store.listSceneSectionsForContext(series.manifest.id, scene.metadata.id))
       .map((section) => section.metadata.id)).toContain(note.metadata.id);
   });
 
@@ -648,8 +645,8 @@ describe("ProjectRepository", () => {
       updatedAt: "2026-01-01T00:00:00.000Z",
     };
     expect(resolveReviewAnchor(anchor, `${quote}\n\n${quote}`).status).toBe("orphaned");
-    expect(isSceneSectionEligibleForContext("never", "local")).toBe(false);
-    expect(isSceneSectionEligibleForContext("local-only", "cloud")).toBe(false);
+    expect(isSceneSectionEligibleForContext("never")).toBe(false);
+    expect(isSceneSectionEligibleForContext("inherit")).toBe(true);
   });
 
   it("stores Codex Canon and Research separately with revision-protected custom categories", async () => {

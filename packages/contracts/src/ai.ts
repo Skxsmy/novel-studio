@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CloudPolicySchema, RevisionHashSchema } from "./common.js";
+import { RevisionHashSchema } from "./common.js";
 
 export const AiTaskKindSchema = z.enum([
   "analysis",
@@ -77,7 +77,6 @@ export const ProviderProfileSchema = z.object({
   title: z.string().min(1).max(160),
   provider: AiProviderSchema,
   baseUrl: z.string().url().nullable().default(null),
-  cloudPolicy: CloudPolicySchema.default("local-only"),
   credentialRef: CredentialRefSchema.nullable().default(null),
   defaultModel: z.string().max(200).nullable().default(null),
   capabilities: ModelCapabilitySchema,
@@ -94,7 +93,6 @@ export const ModelProfileSchema = z.object({
   provider: AiProviderSchema,
   baseUrl: z.string().url().nullable().default(null),
   model: z.string().min(1).max(200),
-  cloudPolicy: CloudPolicySchema.default("local-only"),
   credentialRef: CredentialRefSchema.nullable().default(null),
   defaultParameters: ModelParametersSchema.default({}),
   capabilities: ModelCapabilitySchema,
@@ -105,13 +103,11 @@ export const ModelProfileSchema = z.object({
 });
 export type ModelProfile = z.infer<typeof ModelProfileSchema>;
 
-export const CreateModelProfileInputSchema = z.object({
+const ModelProfileEditableInputSchema = z.object({
   title: z.string().trim().min(1).max(160),
   provider: AiProviderSchema,
   baseUrl: z.string().trim().url().nullable().default(null),
   model: z.string().trim().min(1).max(200),
-  cloudPolicy: CloudPolicySchema.default("local-only"),
-  credentialRef: CredentialRefSchema.nullable().default(null),
   defaultParameters: ModelParametersSchema.default({}),
   capabilities: ModelCapabilitySchema.default({
     streamText: false,
@@ -121,10 +117,12 @@ export const CreateModelProfileInputSchema = z.object({
     modelList: false,
   }),
   contextWindowTokens: z.number().int().positive().default(8192),
-});
+}).strict();
+
+export const CreateModelProfileInputSchema = ModelProfileEditableInputSchema;
 export type CreateModelProfileInput = z.input<typeof CreateModelProfileInputSchema>;
 
-export const UpdateModelProfileInputSchema = CreateModelProfileInputSchema.partial().superRefine(
+export const UpdateModelProfileInputSchema = ModelProfileEditableInputSchema.partial().superRefine(
   (input, context) => {
     if (Object.keys(input).length === 0) {
       context.addIssue({ code: "custom", message: "至少提供一个模型配置字段" });
@@ -168,13 +166,6 @@ export type DeleteModelProfileCredentialResult = z.infer<
   typeof DeleteModelProfileCredentialResultSchema
 >;
 
-export const UpdateSeriesCloudPolicyInputSchema = z.object({
-  cloudPolicy: CloudPolicySchema,
-});
-export type UpdateSeriesCloudPolicyInput = z.infer<
-  typeof UpdateSeriesCloudPolicyInputSchema
->;
-
 export const ModelCallStatusSchema = z.enum([
   "pending",
   "streaming",
@@ -187,7 +178,6 @@ export type ModelCallStatus = z.infer<typeof ModelCallStatusSchema>;
 export const ModelCallErrorCodeSchema = z.enum([
   "provider-auth-failed",
   "provider-billing-required",
-  "cloud-disabled",
   "provider-rate-limited",
   "provider-unavailable",
   "provider-error",
@@ -239,7 +229,6 @@ export const ModelCallLogSchema = z.object({
   taskKind: AiTaskKindSchema,
   provider: AiProviderSchema,
   model: z.string().min(1).max(200),
-  cloudPolicy: CloudPolicySchema,
   contextBundleId: z.string().uuid(),
   promptTemplateId: z.string().uuid(),
   promptTemplateVersion: z.number().int().positive(),

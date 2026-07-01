@@ -38,7 +38,6 @@ function modelProfile(overrides: Partial<ModelProfile> = {}): ModelProfile {
     title: "Mock 连续性模型",
     provider: "mock",
     model: "mock-continuity-v1",
-    cloudPolicy: "local-only",
     credentialRef: null,
     defaultParameters: { temperature: 0.2 },
     capabilities: CAPABILITIES,
@@ -78,7 +77,6 @@ function contextBundle(content = "当前场景：雨夜，主角发现信件。"
         content,
         inclusion: "required",
         inclusionReason: "当前写作场景",
-        access: "local-only",
         contextPolicy: "always",
         tokenEstimate: 40,
         manuallySelected: false,
@@ -385,7 +383,6 @@ describe("ProviderAdapter core and MockProvider", () => {
       provider: "deepseek",
       baseUrl: "https://api.deepseek.com",
       model: "deepseek-v4-flash",
-      cloudPolicy: "cloud-allowed",
       credentialRef: "novel-studio/model-profile/test",
       capabilities: {
         streamText: true,
@@ -481,7 +478,6 @@ describe("ProviderAdapter core and MockProvider", () => {
       provider: "openai",
       baseUrl: null,
       model: "gpt-test",
-      cloudPolicy: "cloud-allowed",
       credentialRef: "novel-studio/model-profile/openai",
     });
 
@@ -544,7 +540,6 @@ describe("ProviderAdapter core and MockProvider", () => {
       provider: "openrouter",
       baseUrl: null,
       model: "openai/gpt-test",
-      cloudPolicy: "cloud-allowed",
       credentialRef: "novel-studio/model-profile/openrouter",
     });
 
@@ -606,7 +601,6 @@ describe("ProviderAdapter core and MockProvider", () => {
       provider: "ollama",
       baseUrl: null,
       model: "gpt-oss:20b",
-      cloudPolicy: "local-only",
       credentialRef: null,
     });
 
@@ -691,7 +685,6 @@ describe("ProviderAdapter core and MockProvider", () => {
       provider: "anthropic",
       baseUrl: null,
       model: "claude-test",
-      cloudPolicy: "cloud-allowed",
       credentialRef: "novel-studio/model-profile/anthropic",
       contextWindowTokens: 200000,
     });
@@ -788,7 +781,6 @@ describe("ProviderAdapter core and MockProvider", () => {
       provider: "google",
       baseUrl: null,
       model: "gemini-test",
-      cloudPolicy: "cloud-allowed",
       credentialRef: "novel-studio/model-profile/google",
       contextWindowTokens: 1048576,
     });
@@ -880,7 +872,6 @@ describe("ProviderAdapter core and MockProvider", () => {
       provider: "deepseek",
       baseUrl: "https://api.deepseek.com",
       model: "deepseek-v4-flash",
-      cloudPolicy: "cloud-allowed",
       credentialRef: "novel-studio/model-profile/test",
     });
 

@@ -136,6 +136,19 @@ describe("M5 Proposal contracts", () => {
     ).toBe("ai");
   });
 
+  it("requires applicable scene-content patches to carry base revisions", () => {
+    const proposal = baseProposal();
+    expect(() =>
+      baseProposal({
+        target: { ...proposal.target, baseRevision: null },
+        patches: proposal.patches.map((patch) => ({
+          ...patch,
+          target: { ...patch.target, baseRevision: null },
+        })),
+      }),
+    ).toThrow(/baseRevision/);
+  });
+
   it("does not allow a durable conflicted status", () => {
     expect(ProposalStatusSchema.options).not.toContain("conflicted");
     expect(() =>

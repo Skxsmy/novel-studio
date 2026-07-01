@@ -22,29 +22,29 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5-A04 | passed | Proposal state transitions enforce pending, accepted, rejected, edited, stale, superseded, and archived semantics. Covered by contract tests. |
 | M5-A05 | passed | Proposal JSON storage round trips valid records and isolates corrupted records from the rest of the inbox. Covered by storage tests. |
 | M5-A06 | passed | Duplicate Proposal IDs are rejected or quarantined with diagnostics. Covered by storage tests. |
-| M5-A07 | passed | Missing source message/model/context references produce recoverable unavailable states. Covered by storage/server/UI tests. |
-| M5-A08 | passed | Stale base revisions cannot be accepted. Covered by storage/server tests. |
-| M5-A09 | passed | Accept creates a snapshot before mutating authority data. Covered by storage/server tests. |
+| M5-A07 | passed | Missing source message/model/context references produce recoverable unavailable states. Covered by storage/server/UI tests, including missing workshop messages, missing context bundles, missing AI model calls, and mismatched model-call context bundles. |
+| M5-A08 | passed | Stale base revisions cannot be accepted, and scene-content Proposal patches must carry base revisions. Covered by contract/storage/server tests. |
+| M5-A09 | passed | Accept writes snapshot, scene authority, and Proposal status through one transaction before reindexing. Covered by storage/server tests. |
 | M5-A10 | passed | Edit-and-accept preserves the original candidate and stores the edited result. Covered by storage/server tests. |
-| M5-A11 | passed | Batch preview excludes stale/conflicted items and explains why. Covered by storage/server tests. |
-| M5-A12 | passed | Batch accept reports completed, skipped, failed, and blocked items if any step fails. Covered by contract/storage/server tests. |
+| M5-A11 | passed | Batch preview excludes stale/conflicted items, same-scene intra-batch conflicts, and explains why. Covered by storage/server tests. |
+| M5-A12 | passed | Batch accept is bound to previewed Proposal revisions and reports completed, skipped, failed, and blocked items if any step fails. Covered by contract/storage/server/web tests. |
 | M5-A13 | passed | Review Inbox lists real Proposal data with filtering and no fake counts. Covered by web tests. |
 | M5-A14 | passed | Review Proposal Detail opens by exact Proposal ID. Covered by web tests. |
-| M5-A15 | passed | Review accept/reject/edit/stale actions call real APIs and update state. Covered by web/API tests. |
+| M5-A15 | passed | Review accept/reject/edit/stale actions call real APIs and update state. Review displays all patches before accepting and shows batch accept results. Covered by web/API tests. |
 | M5-A16 | passed | Review main path hides engineering audit fields while keeping details reachable. Covered by web tests and source review. |
 | M5-A17 | function passed; visual pending | Review implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
 | M5-A18 | passed | Workshop sessions and messages persist as schema-versioned JSON and reload after restart. Covered by storage/server/web tests. |
-| M5-A19 | passed | Workshop Context Basket can add/remove/pin/unpin allowed context references. Covered by storage/server/web tests. |
+| M5-A19 | passed | Workshop Context Basket can add/remove/pin/unpin allowed context references, including available Codex and Proposal-source references exposed by the current UI. Covered by storage/server/web tests. |
 | M5-A20 | passed | Context preview shows included/excluded items and respects permissions, future-story isolation, and per-detail switches. Covered by Workshop route/context tests. |
 | M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog. Covered by server tests. |
 | M5-A22 | passed | Model failure preserves the input and context and does not create an empty Proposal. Covered by server/web tests. |
 | M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Covered by web tests and source review. |
 | M5-A24 | function passed; visual pending | Workshop implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
-| M5-A25 | passed | Workshop message output can create a Proposal linked to that exact source message. Covered by storage/server/web tests. |
+| M5-A25 | passed | Workshop message output can create a Proposal linked to that exact source message. Proposal creation and message `proposalIds` update are written transactionally. Covered by storage/server/web tests. |
 | M5-A26 | passed | Proposal cards deep-link to exact Review Proposal Detail by Proposal ID. Covered by web tests. |
 | M5-A27 | passed | Review Detail links back to the source Workshop message. Covered by server/web tests. |
 | M5-A28 | function passed; visual pending | Workshop Proposal cards read Proposal authority state and reflect accepted, rejected, edited, stale, superseded, and unavailable states. Covered by web state-sync tests and source review; user visual acceptance remains pending. |
-| M5-A29 | passed | Archived/unavailable Proposal links show recoverable unavailable states instead of dead navigation. Covered by storage/server tests and Workshop unavailable-card behavior. |
+| M5-A29 | passed | Archived/unavailable Proposal links and unavailable source-message returns show recoverable states instead of dead navigation. Covered by storage/server tests and Workshop/Review unavailable UI behavior. |
 | M5-A30 | not started | Tool Plans are durable JSON records and cannot execute without a valid Grant. |
 | M5-A31 | not started | Expired or mismatched Grants cannot execute tools. |
 | M5-A32 | not started | Unauthorized tools cannot write authority data. |
@@ -157,6 +157,49 @@ Focused command results during M5.5:
 - `npm.cmd run test -w @novel-studio/storage -- test/proposals.test.ts`: passed, 1 file / 3 tests.
 - `npm.cmd run test -w @novel-studio/server -- test/proposal-routes.test.ts`: passed, 1 file / 2 tests.
 
+Focused command results during post-M5.5 audit repair:
+
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run build -w @novel-studio/storage`: passed.
+- `npm.cmd run build -w @novel-studio/server`: passed.
+- `npm.cmd run build -w @novel-studio/web`: passed.
+- `npm.cmd run test -w @novel-studio/contracts -- test/proposals.test.ts`: passed, 1 file / 7 tests.
+- `npm.cmd run test -w @novel-studio/storage -- test/proposals.test.ts test/workshop.test.ts`: passed, 2 files / 8 tests.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts test/proposal-routes.test.ts`: passed, 2 files / 4 tests.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: passed, 1 file / 49 tests.
+- `git diff --check`: passed with Windows line-ending warnings only.
+
+Post-M5.5 audit repair closed the retained local M5.1-M5.4 and M5.5 audit findings without advancing into M5.6:
+
+- Review exposes stale marking through the real API, displays every Proposal patch before accept/edit, and shows batch accept completed/skipped/blocked/failed results.
+- Scene-content Proposal patches now require base revisions; batch preview/accept is bound to reviewed Proposal revisions and detects same-scene intra-batch conflicts.
+- Proposal acceptance writes snapshot, target scene, and Proposal status through one file transaction before index refresh.
+- Proposal source availability validates workshop-message, context-bundle, and AI model-call references.
+- Workshop message-to-Proposal creation writes the Proposal and source message link through one transaction.
+- Workshop context preview renders excluded items and reasons, and Workshop can add currently exposed Codex/Proposal-source context references.
+- Workshop-created scene-content Proposals target the Workshop basket scene when present instead of blindly using the selected app scene.
+- Review and Workshop feature CSS has been moved to feature-local stylesheets, leaving shared app shell layout rules in `app-shell.css`.
+
+Focused command results during the 2026-07-01 Settings model-profile repair:
+
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: passed, 1 file / 51 tests.
+- `npm.cmd run test -w @novel-studio/contracts -- test/ai.test.ts`: passed, 1 file / 1 test.
+- `npm.cmd run test -w @novel-studio/storage -- test/ai-files.test.ts`: passed, 1 file / 2 tests.
+- `npm.cmd run test -w @novel-studio/server -- test/ai-routes.test.ts test/context-routes.test.ts test/model-calls.test.ts test/workshop-routes.test.ts`: passed, 4 files / 15 tests.
+- `npm.cmd run test -w @novel-studio/ai`: passed, 1 file / 20 tests.
+- `npm.cmd run build -w @novel-studio/contracts`, `npm.cmd run build -w @novel-studio/storage`, `npm.cmd run build -w @novel-studio/ai`, `npm.cmd run build -w @novel-studio/server`, and `npm.cmd run build -w @novel-studio/web`: passed.
+- Runtime/documentation searches for cloud/local policy strings and old series-scoped model-profile routes returned no matches.
+- `npm.cmd run test:e2e`: failed during the rebuild step with a transient EPERM writing contracts dist files; `npm.cmd run build -w @novel-studio/contracts` passed immediately afterward. `npm.cmd run test:e2e:quick` then failed before the Settings path because `tests/e2e/browser-acceptance.spec.ts` still expects the old Chinese homepage heading `小说工作室`, while the current app shell exposes `Novel Studio` and `Library`.
+
+The repair closed these Settings regressions:
+
+- Model settings and service keys are library-global and shared by all projects.
+- The obsolete deployment-policy surface is removed from runtime routes, contracts, UI, tests, and docs searched in this repair.
+- Profile create/update payloads reject `credentialRef`; only the credential endpoint may save, replace, or delete a key.
+- Save Setting preserves an existing key when the key input is empty and saves a newly typed key through the credential endpoint.
+- Settings actions for key save, connection test, and model fetch are available without opening a project.
+- Large fetched provider model lists are collapsed by default and render inside a bounded scroll list when opened.
+
 ## M5.0 Startup Protection Mapping
 
 | Protected behavior | Existing or planned verification |
@@ -165,5 +208,5 @@ Focused command results during M5.5:
 | Codex Canon/Detail editing, mentions, previews, bounded editor behavior, and shared editor surface behavior. | Existing web tests to run: `npm.cmd run test -w @novel-studio/web -- EditorSurface.test.tsx`; existing server/storage Codex coverage below must remain passing. |
 | SceneBlockDocument JSON authority, Markdown projection/export boundary, scene progression-block commands, unified Progression JSON authority, and no stale YAML/Markdown runtime authority path. | Existing storage tests to run: `npm.cmd run test -w @novel-studio/storage -- repository.test.ts json-authority.test.ts`; existing server tests to run: `npm.cmd run test -w @novel-studio/server -- app.test.ts context-routes.test.ts`. |
 | Context Builder and Codex context preview preserve future-story and future-progression isolation. | Existing server tests to run: `npm.cmd run test -w @novel-studio/server -- context-routes.test.ts model-calls.test.ts`; existing storage coverage in `repository.test.ts` and `smoke.test.ts` should be considered for focused runs. |
-| Settings and AI provider behavior does not silently fall back across provider or local/cloud boundaries. | Existing server tests to run: `npm.cmd run test -w @novel-studio/server -- ai-routes.test.ts model-calls.test.ts`; existing AI tests to run if provider registry changes: `npm.cmd run test -w @novel-studio/ai`. |
+| Settings and AI provider behavior uses explicit Provider selection and does not silently fall back to another Provider. | Existing server tests to run: `npm.cmd run test -w @novel-studio/server -- ai-routes.test.ts model-calls.test.ts`; existing AI tests to run if provider registry changes: `npm.cmd run test -w @novel-studio/ai`. |
 | Whole-workspace contract and build health before M5 contract/UI changes. | Required before M5.0 exit: `npm.cmd run build -w @novel-studio/contracts`, `npm.cmd run build`, `npm.cmd run test`, and `git diff --check`. |

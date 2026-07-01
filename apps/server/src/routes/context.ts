@@ -3,7 +3,6 @@ import type { FastifyInstance } from "fastify";
 import {
   ContextBundleSchema,
   ContextPreviewInputSchema,
-  type CloudPolicy,
   type CodexEntryDocument,
   type ContextBundle,
   type ContextExclusion,
@@ -19,10 +18,7 @@ import {
 import type { ProviderRegistry } from "@novel-studio/ai";
 import { StorageError, type ProjectRepository } from "@novel-studio/storage";
 import {
-  ensureCloudAllowed,
   ensureCredentialBoundary,
-  isCloudRouted,
-  providerErrorStatus,
 } from "../ai/policy.js";
 import { ensureBuiltInPrompts } from "../prompts/builtIns.js";
 import { PromptRenderError, renderPromptTemplate } from "../prompts/render.js";
@@ -47,7 +43,6 @@ function contextItem(input: {
   content: string;
   inclusion?: "required" | "selected" | "derived";
   inclusionReason: string;
-  access?: CloudPolicy;
   contextPolicy?: ContextItem["contextPolicy"];
   manuallySelected?: boolean;
   sourceRefs?: ContextSource[];
@@ -65,7 +60,6 @@ function contextItem(input: {
     content: input.content,
     inclusion: input.inclusion ?? "selected",
     inclusionReason: input.inclusionReason,
-    access: input.access ?? "local-only",
     contextPolicy: input.contextPolicy ?? null,
     tokenEstimate: estimateTokens(input.content),
     manuallySelected: input.manuallySelected ?? false,
@@ -188,10 +182,6 @@ function applyBudget(
   return { items: kept, excluded: nextExcluded };
 }
 
-function sectionAccessForModel(profile: ModelProfile | null): "local" | "cloud" {
-  return profile && isCloudRouted(profile) ? "cloud" : "local";
-}
-
 function detailAllowsContext(entry: CodexEntryDocument, key: string, label: string): boolean {
   return entry.metadata.detailAiContext[key] !== false && entry.metadata.detailAiContext[label] !== false;
 }
@@ -236,16 +226,15 @@ export async function buildContextBundle(
   const [series, currentScene, modelProfile, promptTemplate] = await Promise.all([
     repository.getSeries(seriesId),
     repository.getScene(seriesId, input.sceneId),
-    input.modelProfileId ? repository.getModelProfile(seriesId, input.modelProfileId) : Promise.resolve(null),
+    input.modelProfileId ? repository.getModelProfile(input.modelProfileId) : Promise.resolve(null),
     repository.getPromptTemplate(seriesId, input.promptTemplateId, input.promptTemplateVersion),
   ]);
 
   if (modelProfile) {
-    const blocked =
-      ensureCloudAllowed(series.manifest, modelProfile) ?? ensureCredentialBoundary(modelProfile);
+    const blocked = ensureCredentialBoundary(modelProfile);
     if (blocked) {
       const error = new Error(blocked.message);
-      error.name = `MODEL_CONTEXT_BLOCKED:${providerErrorStatus(blocked)}`;
+      error.name = "MODEL_CONTEXT_BLOCKED:403";
       throw error;
     }
   }
@@ -363,7 +352,6 @@ export async function buildContextBundle(
   }
 
   const sections = await repository.listSceneSections(seriesId, currentScene.metadata.id);
-  const sectionTarget = sectionAccessForModel(modelProfile);
   for (const section of sections) {
     if (section.metadata.archivedAt) {
       excluded.push(sectionExclusion(section, "archived", "已归档附属文档不会进入上下文。"));
@@ -372,10 +360,6 @@ export async function buildContextBundle(
     const selected = manualIdMatches(manualIds, "section", section.metadata.id);
     if (section.metadata.aiPolicy === "never") {
       excluded.push(sectionExclusion(section, "hidden-section", "该附属文档被标记为禁止提供给模型，即使主动选择也会排除。"));
-      continue;
-    }
-    if (sectionTarget === "cloud" && section.metadata.aiPolicy === "local-only") {
-      excluded.push(sectionExclusion(section, "policy-local-only", "该附属文档只允许本地模型读取。"));
       continue;
     }
     if (!selected) {
@@ -392,7 +376,6 @@ export async function buildContextBundle(
       content: section.content,
       inclusion: "selected",
       inclusionReason: "作者主动选择的附属文档。",
-      access: section.metadata.aiPolicy === "inherit" ? "cloud-allowed" : "local-only",
       contextPolicy: section.metadata.aiPolicy,
       manuallySelected: true,
     }));
@@ -634,7 +617,7 @@ export function registerContextRoutes(
         if (error instanceof Error && error.name.startsWith("MODEL_CONTEXT_BLOCKED:")) {
           const status = Number(error.name.split(":")[1] ?? 403);
           return reply.status(status).send({
-            code: status === 403 ? "CLOUD_DISABLED" : "PROVIDER_ERROR",
+            code: "PROVIDER_ERROR",
             message: error.message,
           });
         }

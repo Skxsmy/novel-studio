@@ -1,0 +1,324 @@
+.chat {
+  display: grid;
+  grid-template-rows: minmax(460px, 1fr) auto;
+  min-height: 680px;
+}
+
+.workshop-grid.is-unavailable .chat {
+  grid-template-rows: auto auto;
+  min-height: 0;
+}
+
+.message-stack {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 18px;
+}
+
+.workshop-grid.is-unavailable .message-stack {
+  min-height: 220px;
+}
+
+.message {
+  max-width: 78%;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.message.user {
+  justify-self: end;
+  border-color: rgba(47, 100, 214, 0.28);
+  background: #edf2fd;
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.workshop-grid {
+  grid-template-columns: 280px minmax(600px, 1fr) 340px;
+  align-items: stretch;
+  height: calc(100vh - 124px);
+  min-height: 640px;
+}
+
+.workshop-grid > .panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workshop-sessions,
+.workshop-context {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.workshop-sessions .panel-body,
+.workshop-context .panel-body {
+  align-content: start;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.workshop-chat {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+}
+
+.workshop-chat .message-stack {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.workshop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.workshop-actions .btn {
+  flex: 0 0 auto;
+}
+
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--quiet);
+  font-size: 11px;
+}
+
+.message p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.message-error {
+  margin-top: 8px !important;
+  color: var(--red);
+}
+
+.message.is-failed {
+  border-color: rgba(180, 71, 71, 0.35);
+  background: #fff8f5;
+}
+
+.message.is-target {
+  border-color: rgba(25, 128, 94, 0.42);
+  box-shadow: 0 0 0 2px rgba(25, 128, 94, 0.12);
+}
+
+.message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.message-proposals {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.workshop-grid .proposal-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: end;
+  min-height: 0;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.workshop-grid .proposal-row-pills {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workshop-grid .proposal-row strong {
+  display: block;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.workshop-grid .proposal-row span:not(.pill) {
+  display: block;
+  margin-top: 4px;
+  color: var(--quiet);
+  font-size: 11px;
+}
+
+.workshop-proposal-card {
+  max-width: 100%;
+  min-height: 0;
+}
+
+.workshop-proposal-card.is-unavailable {
+  background: #fffefa;
+}
+
+.workshop-composer-input {
+  min-height: 42px;
+  max-height: 110px;
+  resize: vertical;
+  padding-top: 10px;
+  font-family: var(--font-ui);
+}
+
+.workshop-chat .composer {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.workshop-reference {
+  display: grid;
+  gap: 8px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fffefa;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.workshop-reference .pill {
+  justify-self: start;
+}
+
+.workshop-reference strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.workshop-reference p {
+  margin: 0;
+  color: var(--ink);
+}
+
+.context-source-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.context-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.workshop-context .context-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.workshop-context .context-row .btn {
+  grid-row: 2;
+  justify-self: start;
+}
+
+.context-row > span:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.context-row strong,
+.context-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-row small {
+  color: var(--muted);
+}
+
+.context-preview-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.workshop-grid .review-side-block {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.context-excluded-list {
+  display: grid;
+  gap: 6px;
+}
+
+.context-excluded-row {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid rgba(180, 122, 40, 0.28);
+  border-radius: var(--radius);
+  background: #fffefa;
+  color: var(--quiet);
+  font-size: 11px;
+}
+
+.context-excluded-row strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.context-excluded-row small {
+  color: var(--muted);
+}
+
+.permission-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.workshop-grid.is-unavailable {
+  grid-template-columns: 280px minmax(460px, 1fr) 320px;
+  align-items: start;
+}
+
+@media (max-width: 1500px) {
+  .workshop-grid {
+    gap: 12px;
+    grid-template-columns: minmax(200px, 0.68fr) minmax(360px, 1.55fr) minmax(230px, 0.82fr);
+  }
+}

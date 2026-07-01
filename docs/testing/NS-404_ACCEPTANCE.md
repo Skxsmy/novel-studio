@@ -1,8 +1,30 @@
-# NS-404 验收记录：模型设置、凭据边界与云端权限
+# NS-404 验收记录：模型设置、凭据边界与 Provider 选择
+
+## 2026-07-01 Settings Repair Follow-Up
+
+Authoritative behavior after the repair:
+
+- Model profiles and service keys are library-global Settings data shared by all projects.
+- The obsolete deployment-policy surface is removed and must not appear in runtime code, API payloads, UI, or active task/architecture claims.
+- Model profile create/update payloads do not accept `credentialRef`; only `/api/v1/ai/model-profiles/:profileId/credential` may save, replace, or delete a service key.
+- Ordinary Save Setting must preserve an existing key when the key field is empty, and must save a newly typed key by calling the credential endpoint after the profile fields are saved.
+- Settings is usable without an open project. Key save/replace, connection test, and model fetch are not project-gated.
+- Large provider model lists are collapsed by default and expand into a bounded scroll list.
+
+Focused verification:
+
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: passed, 1 file / 51 tests.
+- `npm.cmd run test -w @novel-studio/contracts -- test/ai.test.ts`: passed, 1 file / 1 test.
+- `npm.cmd run test -w @novel-studio/storage -- test/ai-files.test.ts`: passed, 1 file / 2 tests.
+- `npm.cmd run test -w @novel-studio/server -- test/ai-routes.test.ts test/context-routes.test.ts test/model-calls.test.ts test/workshop-routes.test.ts`: passed, 4 files / 15 tests.
+- `npm.cmd run test -w @novel-studio/ai`: passed, 1 file / 20 tests.
+- Builds passed for contracts, storage, AI, server, and web.
+- Residual searches found no cloud/local policy strings and no old series-scoped model-profile route.
+- Full e2e was not a Settings pass: `npm.cmd run test:e2e` hit a transient contracts dist EPERM during rebuild; after contracts rebuilt successfully, `npm.cmd run test:e2e:quick` failed before reaching Settings because the browser acceptance script still asserts the old Chinese homepage heading `小说工作室` against the current English app shell.
 
 日期：2026-06-21
 
-> 后续调整：NS-408 已移除主界面的全局“只允许本机模型 / 云端模型开关”路径。当前安全边界以 Provider 显式选择、系统凭据引用、资料级 `local-only/never` 过滤和禁止静默回退为准。本页保留 NS-404 当时的历史验收记录。
+> 后续调整：当前安全边界以 Provider 显式选择、系统凭据引用、资料级 `never` 排除和禁止静默回退为准。
 
 ## 自动化覆盖
 
@@ -30,7 +52,7 @@ npm.cmd run test -w @novel-studio/ai
 
 - MockProvider 正常连接、模型列表、能力描述、流式输出、结构化输出、embedding 和 token 估算。
 - 统一错误分类覆盖认证失败、限流、模型不可用、结构化输出失败、上下文过长和未知错误。
-- `credentialRef` 与疑似明文密钥区分；明显密钥字符串会被拒绝。
+- Profile create/update payload 不接收 `credentialRef`；服务密钥只能通过 credential 专用端点保存、替换和删除。
 
 ### Server API
 
@@ -48,9 +70,9 @@ npm.cmd run test -w @novel-studio/server
 - 可创建本机验收模型，并由 MockProvider 自动补齐能力描述。
 - 本机验收模型连接测试返回成功。
 - 模型列表接口返回 MockProvider 模型。
-- `credentialRef: sk-...` 被拒绝，不进入持久化文件。
-- 作品处于 `local-only` 时，云端模型连接测试返回 `403 / CLOUD_DISABLED`。
-- 打开作品级云端权限后，未实现 Provider 返回 `provider-unavailable`，不会退回 MockProvider。
+- profile payload 中的 `credentialRef` 被拒绝；明文服务密钥不进入持久化文件。
+- 缺少所需凭据时 Provider 调用在发送前被拒绝。
+- Provider 不可用时返回 `provider-unavailable`，不会退回 MockProvider。
 
 ### Web
 
@@ -66,7 +88,7 @@ npm.cmd run test -w @novel-studio/web
 覆盖要点：
 
 - 设置页类型通过。
-- API 客户端已暴露模型配置、云端权限和连接测试接口。
+- API 客户端已暴露模型配置、凭据状态和连接测试接口。
 
 ### 浏览器验收
 

@@ -13,7 +13,6 @@ import {
 import type { ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
 import type { ProjectRepository } from "@novel-studio/storage";
 import {
-  ensureCloudAllowed,
   ensureCredentialBoundary,
   modelError,
   providerErrorStatus,
@@ -99,9 +98,8 @@ export function registerModelCallRoutes(
     "/api/v1/series/:seriesId/ai/calls",
     async (request, reply) => {
       const input = CreateModelCallInputSchema.parse(request.body);
-      const [series, modelProfile, contextBundle] = await Promise.all([
-        repository.getSeries(request.params.seriesId),
-        repository.getModelProfile(request.params.seriesId, input.modelProfileId),
+      const [modelProfile, contextBundle] = await Promise.all([
+        repository.getModelProfile(input.modelProfileId),
         repository.getContextBundle(request.params.seriesId, input.contextBundleId),
       ]);
       const mismatch = sameCallBoundary({
@@ -114,8 +112,7 @@ export function registerModelCallRoutes(
       if (mismatch) {
         return reply.status(400).send({ code: "CALL_CONTEXT_MISMATCH", message: mismatch });
       }
-      const blocked =
-        ensureCloudAllowed(series.manifest, modelProfile) ?? ensureCredentialBoundary(modelProfile);
+      const blocked = ensureCredentialBoundary(modelProfile);
       if (blocked) {
         return reply.status(providerErrorStatus(blocked)).send({
           code: blocked.code.toUpperCase().replace(/-/gu, "_"),
@@ -155,7 +152,6 @@ export function registerModelCallRoutes(
         taskKind: input.taskKind,
         provider: modelProfile.provider,
         model: modelProfile.model,
-        cloudPolicy: modelProfile.cloudPolicy,
         contextBundleId: contextBundle.id,
         promptTemplateId: contextBundle.promptTemplateId,
         promptTemplateVersion: contextBundle.promptTemplateVersion,

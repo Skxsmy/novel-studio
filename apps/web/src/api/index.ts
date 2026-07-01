@@ -15,7 +15,6 @@ export type {
   SaveModelProfileCredentialInput,
   SaveModelProfileCredentialResult,
   UpdateModelProfileInput,
-  UpdateSeriesCloudPolicyInput,
 } from "./ai";
 export type {
   ArchiveCodexDocumentInput,
@@ -39,6 +38,7 @@ export type {
 } from "./codex";
 export type {
   EditAndAcceptProposalInput,
+  MarkProposalStaleInput,
   ProposalApplyResult,
   ProposalBatchAcceptInput,
   ProposalBatchAcceptResult,

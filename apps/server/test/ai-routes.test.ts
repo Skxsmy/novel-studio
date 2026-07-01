@@ -45,14 +45,14 @@ describe("M4 model settings API", () => {
 
     const initialProfiles = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
     });
     expect(initialProfiles.statusCode).toBe(200);
     expect(initialProfiles.json()).toEqual([]);
 
     const mockProfileResponse = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
         title: "本地测试模型",
         provider: "mock",
@@ -66,7 +66,7 @@ describe("M4 model settings API", () => {
 
     const testConnection = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${mockProfile.id}/test`,
+      url: `/api/v1/ai/model-profiles/${mockProfile.id}/test`,
     });
     expect(testConnection.statusCode).toBe(200);
     expect(testConnection.json()).toMatchObject({
@@ -78,14 +78,14 @@ describe("M4 model settings API", () => {
 
     const models = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${mockProfile.id}/models`,
+      url: `/api/v1/ai/model-profiles/${mockProfile.id}/models`,
     });
     expect(models.statusCode).toBe(200);
     expect(models.json().map((item: { id: string }) => item.id)).toContain("mock-continuity-v1");
 
     const rejectedSecret = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
         title: "错误密钥",
         provider: "mock",
@@ -102,9 +102,10 @@ describe("M4 model settings API", () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-ai-api-"));
     roots.push(root);
     const requests: Array<{ url: string; xGoogApiKey: string | null }> = [];
+    const secrets = new Map<string, string>();
     const app = await buildApp({
       libraryRoot: root,
-      credentialStore: memoryCredentialStore(new Map([["novel-studio:google:test", "gemini-failure-key"]])),
+      credentialStore: memoryCredentialStore(secrets),
       providerFetch: async (input, init) => {
         const url = String(input);
         requests.push({
@@ -119,39 +120,38 @@ describe("M4 model settings API", () => {
     const created = await app.inject({
       method: "POST",
       url: "/api/v1/series",
-      payload: { title: "云端权限接口" },
+      payload: { title: "Provider 接口" },
     });
     const series = created.json();
 
-    await app.inject({
-      method: "PUT",
-      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
-      payload: { cloudPolicy: "cloud-allowed" },
-    });
-
-    const cloudProfileResponse = await app.inject({
+    const googleProfileResponse = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
-        title: "云端测试模型",
+        title: "Google 测试模型",
         provider: "google",
         model: "gemini-test",
-        cloudPolicy: "cloud-allowed",
-        credentialRef: "novel-studio:google:test",
       },
     });
-    expect(cloudProfileResponse.statusCode).toBe(201);
-    const cloudProfile = cloudProfileResponse.json();
+    expect(googleProfileResponse.statusCode).toBe(201);
+    const googleProfile = googleProfileResponse.json();
+
+    const credential = await app.inject({
+      method: "POST",
+      url: `/api/v1/ai/model-profiles/${googleProfile.id}/credential`,
+      payload: { secret: "gemini-failure-key" },
+    });
+    expect(credential.statusCode).toBe(200);
 
     const unavailable = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${cloudProfile.id}/test`,
+      url: `/api/v1/ai/model-profiles/${googleProfile.id}/test`,
     });
     expect(unavailable.statusCode).toBe(503);
     expect(unavailable.json()).toMatchObject({
       ok: false,
       provider: "google",
-      modelProfileId: cloudProfile.id,
+      modelProfileId: googleProfile.id,
       error: { code: "provider-unavailable" },
     });
     expect(JSON.stringify(unavailable.json())).not.toContain("mock-continuity-v1");
@@ -159,6 +159,92 @@ describe("M4 model settings API", () => {
       url: "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
       xGoogApiKey: "gemini-failure-key",
     });
+
+    await app.close();
+  });
+
+  it("stores model settings and service keys globally across projects", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-global-ai-api-"));
+    roots.push(root);
+    const secrets = new Map<string, string>();
+    const app = await buildApp({
+      libraryRoot: root,
+      credentialStore: memoryCredentialStore(secrets),
+    });
+    const firstSeries = (await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "First Project" },
+    })).json();
+    const secondSeries = (await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Second Project" },
+    })).json();
+
+    const profileResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/ai/model-profiles",
+      payload: {
+        title: "Shared DeepSeek",
+        provider: "deepseek",
+        baseUrl: "https://api.deepseek.com",
+        model: "deepseek-v4-flash",
+      },
+    });
+    expect(profileResponse.statusCode).toBe(201);
+    const profile = profileResponse.json();
+
+    const secret = "sk-realistic-global-key-1234567890";
+    const credential = await app.inject({
+      method: "POST",
+      url: `/api/v1/ai/model-profiles/${profile.id}/credential`,
+      payload: { secret },
+    });
+    expect(credential.statusCode).toBe(200);
+    expect(credential.json().credentialRef).toBe(`novel-studio/model-profile/${profile.id}`);
+    expect(credential.json().credentialRef).not.toContain(firstSeries.manifest.id);
+    expect(credential.json().credentialRef).not.toContain(secondSeries.manifest.id);
+    expect(secrets.get(credential.json().credentialRef)).toBe(secret);
+    expect(JSON.stringify(credential.json())).not.toContain(secret);
+
+    const updatedProfile = await app.inject({
+      method: "PUT",
+      url: `/api/v1/ai/model-profiles/${profile.id}`,
+      payload: {
+        title: "Shared DeepSeek Updated",
+        provider: "deepseek",
+        baseUrl: "https://api.deepseek.com",
+        model: "deepseek-v4-flash",
+        capabilities: profile.capabilities,
+        contextWindowTokens: profile.contextWindowTokens,
+      },
+    });
+    expect(updatedProfile.statusCode).toBe(200);
+    expect(updatedProfile.json()).toMatchObject({
+      id: profile.id,
+      title: "Shared DeepSeek Updated",
+      credentialRef: `novel-studio/model-profile/${profile.id}`,
+    });
+    expect(secrets.get(credential.json().credentialRef)).toBe(secret);
+
+    const status = await app.inject({
+      method: "GET",
+      url: `/api/v1/ai/model-profiles/${profile.id}/credential`,
+    });
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toMatchObject({
+      credentialRef: `novel-studio/model-profile/${profile.id}`,
+      exists: true,
+      modelProfile: { id: profile.id, title: "Shared DeepSeek Updated" },
+    });
+
+    const profiles = await app.inject({
+      method: "GET",
+      url: "/api/v1/ai/model-profiles",
+    });
+    expect(profiles.statusCode).toBe(200);
+    expect(profiles.json().map((item: { id: string }) => item.id)).toContain(profile.id);
 
     await app.close();
   });
@@ -210,21 +296,14 @@ describe("M4 model settings API", () => {
     });
     const series = created.json();
 
-    await app.inject({
-      method: "PUT",
-      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
-      payload: { cloudPolicy: "cloud-allowed" },
-    });
-
     const profileResponse = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
         title: "Anthropic 写作模型",
         provider: "anthropic",
         baseUrl: null,
         model: "claude-test",
-        cloudPolicy: "cloud-allowed",
       },
     });
     expect(profileResponse.statusCode).toBe(201);
@@ -232,7 +311,7 @@ describe("M4 model settings API", () => {
 
     const credential = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/credential`,
       payload: { secret: "anthropic-test-key" },
     });
     expect(credential.statusCode).toBe(200);
@@ -240,7 +319,7 @@ describe("M4 model settings API", () => {
 
     const models = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/models`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/models`,
     });
     expect(models.statusCode).toBe(200);
     expect(models.json()).toEqual([
@@ -313,21 +392,14 @@ describe("M4 model settings API", () => {
     });
     const series = created.json();
 
-    await app.inject({
-      method: "PUT",
-      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
-      payload: { cloudPolicy: "cloud-allowed" },
-    });
-
     const profileResponse = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
         title: "Gemini 写作模型",
         provider: "google",
         baseUrl: null,
         model: "gemini-test",
-        cloudPolicy: "cloud-allowed",
       },
     });
     expect(profileResponse.statusCode).toBe(201);
@@ -335,7 +407,7 @@ describe("M4 model settings API", () => {
 
     const credential = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/credential`,
       payload: { secret: "gemini-test-key" },
     });
     expect(credential.statusCode).toBe(200);
@@ -343,7 +415,7 @@ describe("M4 model settings API", () => {
 
     const models = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/models`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/models`,
     });
     expect(models.statusCode).toBe(200);
     expect(models.json()).toEqual([
@@ -362,12 +434,14 @@ describe("M4 model settings API", () => {
     await app.close();
   });
 
-  it("blocks cloud providers until both project and model policies allow them", async () => {
+  it("does not gate providers behind project or model policy switches", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-ai-api-"));
     roots.push(root);
     let providerFetchCount = 0;
+    const secrets = new Map<string, string>();
     const app = await buildApp({
       libraryRoot: root,
+      credentialStore: memoryCredentialStore(secrets),
       providerFetch: async () => {
         providerFetchCount += 1;
         return new Response("{}", { status: 500 });
@@ -376,58 +450,43 @@ describe("M4 model settings API", () => {
     const created = await app.inject({
       method: "POST",
       url: "/api/v1/series",
-      payload: { title: "Cloud policy gates" },
+      payload: { title: "Provider gate removal" },
     });
     const series = created.json();
 
     const profileResponse = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
         title: "DeepSeek blocked",
         provider: "deepseek",
         baseUrl: "https://api.deepseek.com",
         model: "deepseek-v4-flash",
-        cloudPolicy: "cloud-allowed",
-        credentialRef: "novel-studio:model:test",
       },
     });
     expect(profileResponse.statusCode).toBe(201);
     const profile = profileResponse.json();
 
-    const projectBlocked = await app.inject({
+    const credential = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/test`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/credential`,
+      payload: { secret: "deepseek-gate-key" },
     });
-    expect(projectBlocked.statusCode).toBe(403);
-    expect(projectBlocked.json()).toMatchObject({
-      code: "CLOUD_DISABLED",
-      error: { code: "cloud-disabled" },
-    });
-    expect(providerFetchCount).toBe(0);
+    expect(credential.statusCode).toBe(200);
 
-    await app.inject({
-      method: "PUT",
-      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
-      payload: { cloudPolicy: "cloud-allowed" },
+    const tested = await app.inject({
+      method: "POST",
+      url: `/api/v1/ai/model-profiles/${profile.id}/test`,
     });
-    const localProfile = await app.inject({
-      method: "PUT",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}`,
-      payload: { cloudPolicy: "local-only" },
-    });
-    expect(localProfile.statusCode).toBe(200);
+    expect(tested.statusCode).not.toBe(403);
+    expect(providerFetchCount).toBe(1);
 
-    const profileBlocked = await app.inject({
+    const models = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/models`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/models`,
     });
-    expect(profileBlocked.statusCode).toBe(403);
-    expect(profileBlocked.json()).toMatchObject({
-      code: "CLOUD_DISABLED",
-      error: { code: "cloud-disabled" },
-    });
-    expect(providerFetchCount).toBe(0);
+    expect(models.statusCode).not.toBe(403);
+    expect(providerFetchCount).toBe(2);
 
     await app.close();
   });
@@ -465,21 +524,14 @@ describe("M4 model settings API", () => {
     });
     const series = created.json();
 
-    await app.inject({
-      method: "PUT",
-      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
-      payload: { cloudPolicy: "cloud-allowed" },
-    });
-
     const profileResponse = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
         title: "OpenAI 写作模型",
         provider: "openai",
         baseUrl: null,
         model: "gpt-test",
-        cloudPolicy: "cloud-allowed",
       },
     });
     expect(profileResponse.statusCode).toBe(201);
@@ -487,7 +539,7 @@ describe("M4 model settings API", () => {
 
     const credential = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/credential`,
       payload: { secret: "openai-test-key" },
     });
     expect(credential.statusCode).toBe(200);
@@ -495,7 +547,7 @@ describe("M4 model settings API", () => {
 
     const tested = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/test`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/test`,
     });
     expect(tested.statusCode).toBe(200);
     expect(tested.json()).toMatchObject({
@@ -549,13 +601,12 @@ describe("M4 model settings API", () => {
 
     const profileResponse = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
         title: "DeepSeek 写作模型",
         provider: "deepseek",
         baseUrl: "https://api.deepseek.com",
         model: "deepseek-v4-flash",
-        cloudPolicy: "cloud-allowed",
       },
     });
     expect(profileResponse.statusCode).toBe(201);
@@ -565,7 +616,7 @@ describe("M4 model settings API", () => {
 
     const credential = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/credential`,
       payload: { secret: "deepseek-test-key" },
     });
     expect(credential.statusCode).toBe(200);
@@ -574,7 +625,7 @@ describe("M4 model settings API", () => {
 
     const status = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/credential`,
     });
     expect(status.statusCode).toBe(200);
     expect(status.json()).toMatchObject({
@@ -583,15 +634,9 @@ describe("M4 model settings API", () => {
     });
     expect(JSON.stringify(status.json())).not.toContain("deepseek-test-key");
 
-    await app.inject({
-      method: "PUT",
-      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
-      payload: { cloudPolicy: "cloud-allowed" },
-    });
-
     const tested = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/test`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/test`,
     });
     expect(tested.statusCode).toBe(200);
     expect(tested.json()).toMatchObject({
@@ -609,7 +654,7 @@ describe("M4 model settings API", () => {
 
     const deleted = await app.inject({
       method: "DELETE",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/credential`,
     });
     expect(deleted.statusCode).toBe(200);
     expect(deleted.json()).toMatchObject({ deleted: true });
@@ -636,12 +681,11 @@ describe("M4 model settings API", () => {
 
     const profileResponse = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
         title: "OpenAI archive target",
         provider: "openai",
         model: "gpt-test",
-        cloudPolicy: "cloud-allowed",
       },
     });
     expect(profileResponse.statusCode).toBe(201);
@@ -649,7 +693,7 @@ describe("M4 model settings API", () => {
 
     const credential = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}/credential`,
+      url: `/api/v1/ai/model-profiles/${profile.id}/credential`,
       payload: { secret: "archive-test-key" },
     });
     expect(credential.statusCode).toBe(200);
@@ -657,7 +701,7 @@ describe("M4 model settings API", () => {
 
     const archived = await app.inject({
       method: "DELETE",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles/${profile.id}`,
+      url: `/api/v1/ai/model-profiles/${profile.id}`,
     });
     expect(archived.statusCode).toBe(200);
     expect(archived.json()).toMatchObject({
@@ -670,7 +714,7 @@ describe("M4 model settings API", () => {
 
     const activeProfiles = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
     });
     expect(activeProfiles.statusCode).toBe(200);
     expect(activeProfiles.json()).toEqual([]);

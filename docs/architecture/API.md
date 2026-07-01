@@ -8,7 +8,6 @@
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | 请求形状、UUID 或数值范围不合法 |
 | 401 | `PROVIDER_AUTH_FAILED` | Provider 凭据无效、过期或被拒绝 |
-| 403 | `CLOUD_DISABLED` | 作品或资料源禁止云端模型调用 |
 | 404 | `NOT_FOUND` | 查询目标不存在或未被权威父链引用 |
 | 409 | `CONFLICT` | `baseRevision` 过期 |
 | 422 | `INVALID_DATA` | 作品层级损坏或结构命令违反不变量 |
@@ -77,7 +76,7 @@ TimelineEvent 更新与删除要求 `baseRevision`；重排要求当前事件 ID
 - `PUT /series/:seriesId/sections/:sectionId`
 - `POST /series/:seriesId/sections/:sectionId/archive`
 - `POST /series/:seriesId/sections/:sectionId/restore`
-- `GET /series/:seriesId/scenes/:sceneId/sections/context?target=local|cloud`
+- `GET /series/:seriesId/scenes/:sceneId/sections/context`
 - `GET|POST /series/:seriesId/scenes/:sceneId/anchors`
 
 Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revision 相互独立。上下文资格接口只返回当前目标允许读取且未归档的 Section，不调用模型。创建锚点要求当前场景 revision、精确引用和字符范围；服务端验证正文切片，不接受客户端单方面声明。锚点查询只计算 `attached/relocated/orphaned`，不得在读取时改写文件。
@@ -121,35 +120,34 @@ Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复�
 
 ## M4 AI 基础设施
 
-`NS-404` 至 `NS-408` 已实现模型配置、权限边界、上下文预览、角色与提示词模板版本、MockProvider 流式调用、真实 Provider 协议路径和调用日志。DeepSeek、OpenAI、OpenRouter、Ollama、Anthropic、Google Gemini 与通用 OpenAI-compatible 路径已接入协议层；真实外部非写入调用验收和完整调用记录 UI 仍在后续 M4 任务中完成。M4 的第一条纵向闭环已使用 MockProvider 完成“上下文预览 → 流式调用 → 调用日志 → 写作页结果展示”。
+`NS-404` 至 `NS-408` 已实现模型配置、凭据边界、上下文预览、角色与提示词模板版本、MockProvider 流式调用、真实 Provider 协议路径和调用日志。DeepSeek、OpenAI、OpenRouter、Ollama、Anthropic、Google Gemini 与通用 OpenAI-compatible 路径已接入协议层；真实外部非写入调用验收和完整调用记录 UI 仍在后续 M4 任务中完成。M4 的第一条纵向闭环已使用 MockProvider 完成“上下文预览 → 流式调用 → 调用日志 → 写作页结果展示”。
 
 所有 M4 AI 接口必须满足：
 
 - 调用前可预览 `ContextBundle` 和用量估算。
 - 调用后必须保存 `ModelCallLog`，包含模型、提示词版本、上下文包 ID、请求 / 响应哈希、状态和用量。
 - AI 输出不得未经作者确认直接写正文、已确认设定、摘要、故事进展或角色所知。正文类任务可以生成候选文本；候选必须在编辑器内选中，并由作者保留后才保存。
-- Provider 必须显式选择；调用失败时不得从本地模型静默回退到云端模型，也不得从当前 Provider 静默换用其它 Provider。资料级 `local-only/never` 内容必须按上下文目标过滤。
+- Provider 必须显式选择；调用失败时不得静默换用其它 Provider。资料级 `never` 内容必须排除。
 - 错误必须分类为认证失败、权限禁止、模型不可用、网络失败、上下文过长、限流、结构化输出失败或未知错误。
 
 ### 模型配置与 Provider
 
-- `GET /series/:seriesId/ai/model-profiles`
-- `POST /series/:seriesId/ai/model-profiles`
-- `PUT /series/:seriesId/ai/model-profiles/:profileId`
-- `POST /series/:seriesId/ai/model-profiles/:profileId/credential`
-- `PUT /series/:seriesId/ai/cloud-policy`
-- `POST /series/:seriesId/ai/model-profiles/:profileId/test`
-- `GET /series/:seriesId/ai/model-profiles/:profileId/models`
+- `GET /ai/model-profiles`
+- `POST /ai/model-profiles`
+- `PUT /ai/model-profiles/:profileId`
+- `POST /ai/model-profiles/:profileId/credential`
+- `GET /ai/model-profiles/:profileId/credential`
+- `DELETE /ai/model-profiles/:profileId/credential`
+- `POST /ai/model-profiles/:profileId/test`
+- `GET /ai/model-profiles/:profileId/models`
 
-`ModelProfile` 描述一个可选模型配置，包括 Provider、模型名、服务地址、能力、默认参数和凭据引用。API 不返回明文 API key。`cloudPolicy` 字段暂时保留用于旧文件兼容和调用日志审计，但不作为主界面上的全局“只允许本机模型”开关。
+`ModelProfile` 描述一个全局模型配置，包括 Provider、模型名、服务地址、能力、默认参数和凭据引用。模型配置和服务密钥独立于 project/series，保存在作品库级 Settings 中，所有项目共享。Create/Update profile payload 不接收 `credentialRef`；普通保存设置必须保留已有凭据引用。API 不返回明文 API key。
 
-`POST /model-profiles/:profileId/credential` 接收一次性密钥输入并写入 `CredentialStore`，随后把模型配置更新为凭据引用。服务端不得把明文密钥写入作品目录、调用日志、错误响应或 Git 可追踪文件。
+`POST /ai/model-profiles/:profileId/credential` 接收一次性密钥输入并写入 `CredentialStore`，随后把模型配置更新为凭据引用。设置页的 `Save Setting` 若密码框有新密钥，必须在保存 profile 后调用该 credential 端点；若密码框为空，则只保存 profile 字段并保留已有 key。服务端不得把明文密钥写入作品目录、调用日志、错误响应或 Git 可追踪文件。
 
-`PUT /ai/cloud-policy` 是历史接口，当前不作为用户主路径。M4 当前的安全边界改由模型凭据、Provider 显式选择、资料级 `local-only/never` 规则和“禁止静默回退”共同保证。
+`POST /ai/model-profiles/:profileId/test` 只做连接测试和能力读取。Provider 认证失败、余额不足、限流、模型不可用和服务不可达会返回对应错误分类；不会自动换用其它 Provider。
 
-`POST /model-profiles/:profileId/test` 只做连接测试和能力读取。Provider 认证失败、余额不足、限流、模型不可用和服务不可达会返回对应错误分类；不会自动换用其它 Provider。
-
-`GET /model-profiles/:profileId/models` 返回 Provider 可见模型列表。若 Provider 不支持模型列表，返回能力声明中的静态模型或明确的“不支持”，不能伪造动态列表。
+`GET /ai/model-profiles/:profileId/models` 返回 Provider 可见模型列表。若 Provider 不支持模型列表，返回能力声明中的静态模型或明确的“不支持”，不能伪造动态列表。
 
 ### 提示词、角色与版本
 
@@ -195,7 +193,7 @@ Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复�
 - 估算 token。
 - 是否来自用户主动选择。
 
-每个排除项必须说明排除原因，例如 `future-information`、`context-policy-never`、`hidden-section`、`cloud-disabled`、`over-budget`。`never` 资料即使出现在 `manualContextIds` 中也必须排除。
+每个排除项必须说明排除原因，例如 `future-information`、`context-policy-never`、`hidden-section`、`over-budget`。`never` 资料即使出现在 `manualContextIds` 中也必须排除。
 
 `GET /context/:contextBundleId` 读取调用时上下文快照。它是审计记录，不随后续正文或设定变化重写。
 

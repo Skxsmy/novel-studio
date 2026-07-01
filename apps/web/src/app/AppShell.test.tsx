@@ -21,6 +21,7 @@ if (typeof Range !== "undefined") {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.history.replaceState(null, "", "/");
 });
 
 const seriesId = "11111111-1111-4111-8111-111111111111";
@@ -36,6 +37,7 @@ const newBookActId = "99999999-9999-4999-8999-111111111111";
 const newBookChapterId = "99999999-9999-4999-8999-222222222222";
 const codexEntryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const modelProfileId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const secondModelProfileId = "bbbbbbbb-bbbb-4bbb-8bbb-cccccccccccc";
 const customCategoryId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const relatedCodexEntryId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const relationId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
@@ -282,7 +284,6 @@ function seriesDetail(content = "", nextRevision = revision) {
     manifest: {
       archivedAt: null as string | null,
       bookIds: [bookId],
-      cloudPolicy: "local-only",
       createdAt: "2026-06-23T00:00:00.000Z",
       description: "A harbor mystery",
       id: seriesId,
@@ -637,7 +638,6 @@ function modelProfile(overrides: Partial<{
     structuredOutput: boolean;
     tokenEstimate: boolean;
   };
-  cloudPolicy: "local-only" | "cloud-allowed";
   contextWindowTokens: number;
   credentialRef: string | null;
   id: string;
@@ -655,7 +655,6 @@ function modelProfile(overrides: Partial<{
       structuredOutput: false,
       tokenEstimate: true,
     },
-    cloudPolicy: "local-only" as const,
     contextWindowTokens: 8192,
     createdAt: "2026-06-23T00:00:00.000Z",
     credentialRef: null,
@@ -671,7 +670,7 @@ function modelProfile(overrides: Partial<{
 }
 
 function proposalDocument(
-  status: "pending" | "accepted" | "rejected" | "edited" = "pending",
+  status: "pending" | "accepted" | "rejected" | "edited" | "stale" | "superseded" | "archived" = "pending",
   overrides: Partial<{
     contextBundleId: string | null;
     evidence: Array<Record<string, unknown>>;
@@ -718,8 +717,8 @@ function proposalDocument(
       riskLevel: "medium" as const,
       confidence: 0.82,
       reason: overrides.reason ?? "Captain Veyr should not know the route before the city clock breaks.",
-      staleReason: "",
-      supersededBy: null,
+      staleReason: status === "stale" ? "Marked stale during Review." : "",
+      supersededBy: status === "superseded" ? "99999999-9999-4999-9999-999999999999" : null,
       originalCandidate: null,
       decision: status === "pending" ? null : {
         kind: status,
@@ -755,7 +754,7 @@ function proposalDocument(
 
 function proposalDocumentWithStatus(
   document: ReturnType<typeof proposalDocument>,
-  status: "pending" | "accepted" | "rejected" | "edited",
+  status: "pending" | "accepted" | "rejected" | "edited" | "stale" | "superseded" | "archived",
 ) {
   return proposalDocument(status, {
     contextBundleId: document.proposal.contextBundleId,
@@ -829,7 +828,6 @@ function workshopContextBundle() {
         content: "Check continuity.",
         inclusion: "required",
         inclusionReason: "Role instruction.",
-        access: "local-only",
         contextPolicy: null,
         tokenEstimate: 12,
         manuallySelected: false,
@@ -871,9 +869,12 @@ function mockFetch(options: {
   initialCodexProgressions?: ReturnType<typeof codexProgressionDocument>[];
   initialCodexRelations?: ReturnType<typeof codexRelationDocument>[];
   initialModelProfiles?: ReturnType<typeof modelProfile>[];
+  initialProposals?: ReturnType<typeof proposalDocument>[];
+  initialWorkshopMessages?: Array<Record<string, unknown>>;
   initialWorkshopSessions?: ReturnType<typeof workshopSession>[];
   initialSeriesDetail?: ReturnType<typeof seriesDetail>;
   initialSeriesList?: ReturnType<typeof seriesSummary>[];
+  providerModelCount?: number;
 } = {}) {
   let detailOverride: ReturnType<typeof seriesDetail> | null = options.initialSeriesDetail ?? null;
   let seriesSummaries = options.initialSeriesList ?? [seriesSummary()];
@@ -884,9 +885,9 @@ function mockFetch(options: {
   let codexRelations: ReturnType<typeof codexRelationDocument>[] = options.initialCodexRelations ?? [];
   let conflictCodexUpdate = options.conflictCodexUpdate ?? false;
   let modelProfiles: ReturnType<typeof modelProfile>[] = options.initialModelProfiles ?? [];
-  let proposals = [proposalDocument()];
+  let proposals = options.initialProposals ?? [proposalDocument()];
   let workshopSessions = options.initialWorkshopSessions ?? [];
-  let workshopMessages: Array<Record<string, unknown>> = [];
+  let workshopMessages: Array<Record<string, unknown>> = options.initialWorkshopMessages ?? [];
   let currentWorkshopBasket = workshopBasket();
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -1183,6 +1184,7 @@ function mockFetch(options: {
         items: body.proposalIds.map((id: string) => ({
           eligible: proposals.some((document) => document.proposal.id === id && document.proposal.status === "pending"),
           proposalId: id,
+          revision: proposals.find((document) => document.proposal.id === id)?.revision ?? null,
           reason: "",
         })),
       });
@@ -1190,15 +1192,21 @@ function mockFetch(options: {
 
     if (url === `/api/v1/series/${seriesId}/review/proposals/batch-accept` && method === "POST") {
       const body = JSON.parse(String(init?.body));
-      const completed = body.proposalIds
-        .filter((id: string) => proposals.some((document) => document.proposal.id === id && document.proposal.status === "pending"))
-        .map((id: string) => {
-          const current = proposals.find((document) => document.proposal.id === id)!;
+      const completed = body.items
+        .filter((item: { proposalId: string; baseRevision: string }) =>
+          proposals.some((document) =>
+            document.proposal.id === item.proposalId &&
+            document.proposal.status === "pending" &&
+            document.revision === item.baseRevision,
+          ),
+        )
+        .map((item: { proposalId: string }) => {
+          const current = proposals.find((document) => document.proposal.id === item.proposalId)!;
           const updated = proposalDocumentWithStatus(current, "accepted");
-          proposals = proposals.map((document) => document.proposal.id === id ? updated : document);
-          return { proposal: updated, snapshot: { schemaVersion: 1, id: snapshotId, seriesId, proposalId: id, target: updated.proposal.target, createdAt: "2026-06-24T00:00:00.000Z", targetRevision: revision, data: {} } };
+          proposals = proposals.map((document) => document.proposal.id === item.proposalId ? updated : document);
+          return { proposal: updated, snapshot: { schemaVersion: 1, id: snapshotId, seriesId, proposalId: item.proposalId, target: updated.proposal.target, createdAt: "2026-06-24T00:00:00.000Z", targetRevision: revision, data: {} } };
         });
-      return jsonResponse({ completed, skipped: [], failed: [] });
+      return jsonResponse({ completed, skipped: [], blocked: [], failed: [] });
     }
 
     const proposalMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/review/proposals/([^/]+)(?:/([^/]+))?$`));
@@ -1243,6 +1251,11 @@ function mockFetch(options: {
       }
       if (action === "reject" && method === "POST") {
         const updated = proposalDocumentWithStatus(current, "rejected");
+        proposals = proposals.map((document) => document.proposal.id === requestedProposalId ? updated : document);
+        return jsonResponse(updated);
+      }
+      if ((action === "mark-stale" || action === "stale") && method === "POST") {
+        const updated = proposalDocumentWithStatus(current, "stale");
         proposals = proposals.map((document) => document.proposal.id === requestedProposalId ? updated : document);
         return jsonResponse(updated);
       }
@@ -1665,14 +1678,6 @@ function mockFetch(options: {
       return jsonResponse({ deletedId: codexEntryId });
     }
 
-    if (url === `/api/v1/series/${seriesId}/ai/cloud-policy` && method === "PUT") {
-      const body = JSON.parse(String(init?.body));
-      const current = detailOverride ?? seriesDetail();
-      const manifest = { ...current.manifest, cloudPolicy: body.cloudPolicy };
-      detailOverride = { ...current, manifest };
-      return jsonResponse(manifest);
-    }
-
     if (url === `/api/v1/series/${seriesId}/ai/roles` && method === "GET") {
       return jsonResponse([{
         schemaVersion: 1,
@@ -1697,51 +1702,59 @@ function mockFetch(options: {
       return jsonResponse([promptTemplate()]);
     }
 
-    if (url === `/api/v1/series/${seriesId}/ai/model-profiles` && method === "GET") {
+    if (url === "/api/v1/ai/model-profiles" && method === "GET") {
       return jsonResponse(modelProfiles);
     }
 
-    if (url === `/api/v1/series/${seriesId}/ai/model-profiles` && method === "POST") {
+    if (url === "/api/v1/ai/model-profiles" && method === "POST") {
       const body = JSON.parse(String(init?.body));
+      const nextId = modelProfiles.some((profile) => profile.id === modelProfileId)
+        ? secondModelProfileId
+        : modelProfileId;
       const profile = modelProfile({
+        id: nextId,
         baseUrl: body.baseUrl,
         capabilities: body.capabilities,
-        cloudPolicy: body.cloudPolicy,
         contextWindowTokens: body.contextWindowTokens,
         model: body.model,
         provider: body.provider,
         title: body.title,
       });
-      modelProfiles = [profile];
+      modelProfiles = [profile, ...modelProfiles];
       return jsonResponse(profile, 201);
     }
 
-    if (url === `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}` && method === "PUT") {
+    const modelProfileMatch = url.match(/^\/api\/v1\/ai\/model-profiles\/([^/]+)$/u);
+    if (modelProfileMatch && method === "PUT") {
+      const requestedProfileId = modelProfileMatch[1]!;
       const body = JSON.parse(String(init?.body));
-      const current = modelProfiles.find((profile) => profile.id === modelProfileId) ?? modelProfile();
-      const updated = modelProfile({ ...current, ...body });
-      modelProfiles = modelProfiles.map((profile) => (profile.id === modelProfileId ? updated : profile));
+      const current = modelProfiles.find((profile) => profile.id === requestedProfileId) ?? modelProfile({ id: requestedProfileId });
+      const updated = modelProfile({ ...current, ...body, id: requestedProfileId });
+      modelProfiles = modelProfiles.map((profile) => (profile.id === requestedProfileId ? updated : profile));
       return jsonResponse(updated);
     }
 
-    if (url === `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}` && method === "DELETE") {
-      const current = modelProfiles.find((profile) => profile.id === modelProfileId) ?? modelProfile();
+    if (modelProfileMatch && method === "DELETE") {
+      const requestedProfileId = modelProfileMatch[1]!;
+      const current = modelProfiles.find((profile) => profile.id === requestedProfileId) ?? modelProfile({ id: requestedProfileId });
       const archived = modelProfile({
         ...current,
         archivedAt: "2026-06-25T00:00:00.000Z",
         credentialRef: null,
       });
-      modelProfiles = modelProfiles.filter((profile) => profile.id !== modelProfileId);
+      modelProfiles = modelProfiles.filter((profile) => profile.id !== requestedProfileId);
       return jsonResponse(archived);
     }
 
-    if (url === `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential` && method === "POST") {
-      const current = modelProfiles.find((profile) => profile.id === modelProfileId) ?? modelProfile();
+    const modelCredentialMatch = url.match(/^\/api\/v1\/ai\/model-profiles\/([^/]+)\/credential$/u);
+    if (modelCredentialMatch && method === "POST") {
+      const requestedProfileId = modelCredentialMatch[1]!;
+      const current = modelProfiles.find((profile) => profile.id === requestedProfileId) ?? modelProfile({ id: requestedProfileId });
       const updated = modelProfile({
         ...current,
-        credentialRef: `novel-studio/model-profile/${seriesId}/${modelProfileId}`,
+        credentialRef: `novel-studio/model-profile/${requestedProfileId}`,
       });
-      modelProfiles = modelProfiles.map((profile) => (profile.id === modelProfileId ? updated : profile));
+      modelProfiles = modelProfiles.map((profile) => (profile.id === requestedProfileId ? updated : profile));
       return jsonResponse({
         credentialRef: updated.credentialRef,
         modelProfile: updated,
@@ -1749,8 +1762,9 @@ function mockFetch(options: {
       });
     }
 
-    if (url === `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential` && method === "GET") {
-      const current = modelProfiles.find((profile) => profile.id === modelProfileId) ?? modelProfile();
+    if (modelCredentialMatch && method === "GET") {
+      const requestedProfileId = modelCredentialMatch[1]!;
+      const current = modelProfiles.find((profile) => profile.id === requestedProfileId) ?? modelProfile({ id: requestedProfileId });
       return jsonResponse({
         credentialRef: current.credentialRef,
         exists: Boolean(current.credentialRef),
@@ -1759,10 +1773,11 @@ function mockFetch(options: {
       });
     }
 
-    if (url === `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential` && method === "DELETE") {
-      const current = modelProfiles.find((profile) => profile.id === modelProfileId) ?? modelProfile();
+    if (modelCredentialMatch && method === "DELETE") {
+      const requestedProfileId = modelCredentialMatch[1]!;
+      const current = modelProfiles.find((profile) => profile.id === requestedProfileId) ?? modelProfile({ id: requestedProfileId });
       const updated = modelProfile({ ...current, credentialRef: null });
-      modelProfiles = modelProfiles.map((profile) => (profile.id === modelProfileId ? updated : profile));
+      modelProfiles = modelProfiles.map((profile) => (profile.id === requestedProfileId ? updated : profile));
       return jsonResponse({
         deleted: Boolean(current.credentialRef),
         modelProfile: updated,
@@ -1770,12 +1785,14 @@ function mockFetch(options: {
       });
     }
 
-    if (url === `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/test` && method === "POST") {
-      const profile = modelProfiles.find((candidate) => candidate.id === modelProfileId) ?? modelProfile();
+    const modelTestMatch = url.match(/^\/api\/v1\/ai\/model-profiles\/([^/]+)\/test$/u);
+    if (modelTestMatch && method === "POST") {
+      const requestedProfileId = modelTestMatch[1]!;
+      const profile = modelProfiles.find((candidate) => candidate.id === requestedProfileId) ?? modelProfile({ id: requestedProfileId });
       return jsonResponse({
         capabilities: profile.capabilities,
         error: null,
-        modelProfileId,
+        modelProfileId: requestedProfileId,
         models: [
           {
             capabilities: profile.capabilities,
@@ -1789,8 +1806,18 @@ function mockFetch(options: {
       });
     }
 
-    if (url === `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/models` && method === "GET") {
-      const profile = modelProfiles.find((candidate) => candidate.id === modelProfileId) ?? modelProfile();
+    const modelListMatch = url.match(/^\/api\/v1\/ai\/model-profiles\/([^/]+)\/models$/u);
+    if (modelListMatch && method === "GET") {
+      const requestedProfileId = modelListMatch[1]!;
+      const profile = modelProfiles.find((candidate) => candidate.id === requestedProfileId) ?? modelProfile({ id: requestedProfileId });
+      if (options.providerModelCount && options.providerModelCount > 2) {
+        return jsonResponse(Array.from({ length: options.providerModelCount }, (_unused, index) => ({
+          capabilities: profile.capabilities,
+          contextWindowTokens: 128000 + index,
+          id: `provider-model-${index + 1}`,
+          title: `Provider Model ${index + 1}`,
+        })));
+      }
       return jsonResponse([
         {
           capabilities: profile.capabilities,
@@ -3568,7 +3595,7 @@ describe("App shell", () => {
     });
   });
 
-  it("creates a model profile and saves project policy from settings", async () => {
+  it("manages multiple real model settings and service keys from settings", async () => {
     const fetchMock = mockFetch();
     render(<App />);
 
@@ -3576,38 +3603,80 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Project" }));
-    fireEvent.change(await screen.findByLabelText("Project cloud policy"), { target: { value: "cloud-allowed" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Policy" }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/ai/cloud-policy`,
-        expect.objectContaining({ method: "PUT" }),
-      );
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
-    expect(await screen.findByText("No model profiles yet")).toBeTruthy();
+    expect(screen.getByText("Connections")).toBeTruthy();
+    expect(screen.getByText("Key And Connection")).toBeTruthy();
+    expect(await screen.findByText("No model settings yet")).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Mock" })).toBeNull();
     expect(screen.getByRole("option", { name: "Anthropic" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Google Gemini" })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Model title"), { target: { value: "Mock Continuity" } });
-    fireEvent.change(screen.getByLabelText("Model id"), { target: { value: "mock-continuity-v1" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Model" }));
+
+    fireEvent.change(screen.getByLabelText("Setting name"), { target: { value: "DeepSeek Writing" } });
+    fireEvent.change(screen.getByLabelText("Service key"), { target: { value: "deepseek-key-one" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Setting" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/ai/model-profiles`,
+        "/api/v1/ai/model-profiles",
         expect.objectContaining({ method: "POST" }),
       );
     });
-    expect(await screen.findByText("Model saved.")).toBeTruthy();
-    expect(await screen.findByText("No service key saved for this model.")).toBeTruthy();
+    const createCalls = fetchMock.mock.calls.filter(([url, init]) => (
+      url === "/api/v1/ai/model-profiles" && init?.method === "POST"
+    ));
+    const firstCreateBody = JSON.parse(String(createCalls[0]![1]?.body));
+    expect(firstCreateBody).toMatchObject({
+      provider: "deepseek",
+      title: "DeepSeek Writing",
+    });
+    expect(Object.keys(firstCreateBody).sort()).toEqual([
+      "baseUrl",
+      "capabilities",
+      "contextWindowTokens",
+      "model",
+      "provider",
+      "title",
+    ]);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/ai/model-profiles/${modelProfileId}/credential`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByText("Model setting saved. Service key stored and verified.")).toBeTruthy();
+    expect((await screen.findAllByText("Saved in the system credential store.")).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain("deepseek-key-one");
+
+    fireEvent.click(screen.getByRole("button", { name: "New Connection" }));
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "openai" } });
+    fireEvent.change(screen.getByLabelText("Setting name"), { target: { value: "OpenAI Drafting" } });
+    fireEvent.change(screen.getByLabelText("Service key"), { target: { value: "openai-key-one" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Setting" }));
+    await waitFor(() => {
+      expect(screen.getByText("DeepSeek Writing")).toBeTruthy();
+      expect(screen.getByText("OpenAI Drafting")).toBeTruthy();
+    });
+    const secondCreateCalls = fetchMock.mock.calls.filter(([url, init]) => (
+      url === "/api/v1/ai/model-profiles" && init?.method === "POST"
+    ));
+    expect(secondCreateCalls).toHaveLength(2);
+    const secondCreateBody = JSON.parse(String(secondCreateCalls[1]![1]?.body));
+    expect(secondCreateBody).toMatchObject({
+      provider: "openai",
+      title: "OpenAI Drafting",
+    });
+    expect(Object.keys(secondCreateBody).sort()).toEqual([
+      "baseUrl",
+      "capabilities",
+      "contextWindowTokens",
+      "model",
+      "provider",
+      "title",
+    ]);
 
     fireEvent.click(screen.getByRole("button", { name: "Test Connection" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/test`,
+        `/api/v1/ai/model-profiles/${secondModelProfileId}/test`,
         expect.objectContaining({ method: "POST" }),
       );
     });
@@ -3616,47 +3685,139 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fetch Models" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/models`,
+        `/api/v1/ai/model-profiles/${secondModelProfileId}/models`,
         expect.objectContaining({ method: "GET" }),
       );
     });
     fireEvent.click(await screen.findByRole("button", { name: /Fetched Long Context/i }));
     expect(screen.getByLabelText("Model id")).toHaveProperty("value", "fetched-long-context-model");
-    expect(await screen.findByText("Model selected. Save the profile to use it.")).toBeTruthy();
+    expect(await screen.findByText("Model selected. Save the setting to use it.")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Service key"), { target: { value: "settings-test-key" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Model" }));
+    fireEvent.change(screen.getByLabelText("Service key"), { target: { value: "openai-key-two" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save / Replace Key" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential`,
+        `/api/v1/ai/model-profiles/${secondModelProfileId}/credential`,
         expect.objectContaining({ method: "POST" }),
       );
     });
-    expect(await screen.findByText("Model and key saved.")).toBeTruthy();
-    expect(await screen.findByText("Saved in the system credential store.")).toBeTruthy();
-    expect(document.body.textContent).not.toContain("settings-test-key");
+    expect(await screen.findByText("Service key stored and verified.")).toBeTruthy();
+    expect((await screen.findAllByText("Saved in the system credential store.")).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain("openai-key-two");
+
+    fireEvent.change(screen.getByLabelText("Setting name"), { target: { value: "OpenAI Drafting Updated" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Setting" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/ai/model-profiles/${secondModelProfileId}`,
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
+    const updateCalls = fetchMock.mock.calls.filter(([url, init]) => (
+      url === `/api/v1/ai/model-profiles/${secondModelProfileId}` && init?.method === "PUT"
+    ));
+    const updateBody = JSON.parse(String(updateCalls.at(-1)?.[1]?.body));
+    expect(updateBody).toMatchObject({ title: "OpenAI Drafting Updated" });
+    expect(updateBody).not.toHaveProperty("credentialRef");
+    expect(await screen.findByText("Model setting saved.")).toBeTruthy();
+    expect((await screen.findAllByText("Saved in the system credential store.")).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Key" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}/credential`,
+        `/api/v1/ai/model-profiles/${secondModelProfileId}/credential`,
         expect.objectContaining({ method: "DELETE" }),
       );
     });
     expect(await screen.findByText("Service key removed.")).toBeTruthy();
-    expect(await screen.findByText("No service key saved for this model.")).toBeTruthy();
+    expect((await screen.findAllByText("No service key saved for this model.")).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Archive Model" }));
-    expect(screen.getByText("Archive this model?")).toBeTruthy();
-    fireEvent.click(screen.getAllByRole("button", { name: "Archive Model" }).at(-1)!);
+    fireEvent.click(screen.getByRole("button", { name: "Archive Setting" }));
+    expect(screen.getByText("Archive this setting?")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Archive Setting" }).at(-1)!);
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/ai/model-profiles/${modelProfileId}`,
+        `/api/v1/ai/model-profiles/${secondModelProfileId}`,
         expect.objectContaining({ method: "DELETE" }),
       );
     });
-    expect(await screen.findByText("Model archived.")).toBeTruthy();
-    expect(await screen.findByText("No model profiles yet")).toBeTruthy();
+    expect(await screen.findByText("Model setting archived.")).toBeTruthy();
+    expect(screen.getByText("DeepSeek Writing")).toBeTruthy();
+  });
+
+  it("saves a global model setting and service key without opening a project", async () => {
+    const fetchMock = mockFetch();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
+    expect(await screen.findByText("Shared across all projects")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Test Connection" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "Fetch Models" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "Save / Replace Key" })).toHaveProperty("disabled", false);
+
+    fireEvent.change(screen.getByLabelText("Setting name"), { target: { value: "DeepSeek Global" } });
+    fireEvent.input(screen.getByLabelText("Service key"), { target: { value: "sk-global-real-key-1234567890" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save / Replace Key" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/ai/model-profiles",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/ai/model-profiles/${modelProfileId}/credential`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    const createCalls = fetchMock.mock.calls.filter(([url, init]) => (
+      url === "/api/v1/ai/model-profiles" && init?.method === "POST"
+    ));
+    expect(JSON.parse(String(createCalls.at(-1)?.[1]?.body))).toMatchObject({
+      provider: "deepseek",
+      title: "DeepSeek Global",
+    });
+    const oldSeriesScopedModelRouteCalled = fetchMock.mock.calls.some(([url]) => {
+      const value = String(url);
+      return value.includes(`/api/v1/series/${seriesId}/ai/`) && value.includes(["model", "profiles"].join("-"));
+    });
+    expect(oldSeriesScopedModelRouteCalled).toBe(false);
+    expect(await screen.findByText("Service key stored and verified.")).toBeTruthy();
+    expect((await screen.findAllByText("Saved in the system credential store.")).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain("sk-global-real-key-1234567890");
+  });
+
+  it("keeps large provider model lists collapsed until the user opens them", async () => {
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile({
+        baseUrl: "https://api.deepseek.com",
+        credentialRef: `novel-studio/model-profile/${modelProfileId}`,
+        model: "deepseek-v4-flash",
+        provider: "deepseek",
+        title: "DeepSeek Saved",
+      })],
+      providerModelCount: 20,
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect((await screen.findAllByText("Saved in the system credential store.")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Fetch Models" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/ai/model-profiles/${modelProfileId}/models`,
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    expect(await screen.findByText("20 models available.")).toBeTruthy();
+    expect(screen.queryByText("Provider Model 20")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show Models" }));
+    expect(await screen.findByLabelText("Provider model list")).toBeTruthy();
+    expect(await screen.findByText("Provider Model 20")).toBeTruthy();
   });
 
   it("connects Review to the Proposal inbox and opens exact Proposal links", async () => {
@@ -3687,6 +3848,7 @@ describe("App shell", () => {
     expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Edit and Accept" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reject" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mark Stale" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Preview Batch" }));
     await waitFor(() => {
@@ -3695,6 +3857,40 @@ describe("App shell", () => {
         expect.objectContaining({ method: "POST" }),
       );
     });
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark Stale" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/review/proposals/${proposalId}/mark-stale`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByText("Marked stale during Review.")).toBeTruthy();
+  });
+
+  it("shows a recoverable Review state when a Workshop source message is unavailable", async () => {
+    const unavailableProposal = proposalDocument("pending", {
+      source: {
+        kind: "workshop-message" as const,
+        sourceId: "98989898-9898-4898-9898-989898989898",
+        label: "Missing source thread",
+        detail: "",
+      },
+      sourceAvailability: {
+        available: false,
+        reason: "Workshop message does not exist",
+      },
+    });
+    mockFetch({ initialProposals: [unavailableProposal] });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(await screen.findByText("Workshop message does not exist")).toBeTruthy();
+    const unavailableButton = screen.getByRole("button", { name: "Source unavailable" });
+    expect(unavailableButton).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: "Go to Chat" })).toBeNull();
   });
 
   it("connects Workshop sessions, context basket, and single-role calls without exposing audit IDs", async () => {
@@ -3785,6 +3981,59 @@ describe("App shell", () => {
     });
     fireEvent.click(await screen.findByRole("button", { name: "Go to Chat" }));
     expect(await screen.findByText("Accepted")).toBeTruthy();
+  });
+
+  it("shows Workshop proposal card states from Proposal authority", async () => {
+    const stateProposalIds = {
+      rejected: "11111111-2222-4333-8444-555555555555",
+      edited: "11111111-2222-4333-8444-666666666666",
+      stale: "11111111-2222-4333-8444-777777777777",
+      superseded: "11111111-2222-4333-8444-888888888888",
+      archived: "11111111-2222-4333-8444-999999999999",
+      missing: "11111111-2222-4333-8444-000000000000",
+    };
+    mockFetch({
+      initialProposals: [
+        proposalDocument("rejected", { id: stateProposalIds.rejected, title: "Rejected proposal" }),
+        proposalDocument("edited", { id: stateProposalIds.edited, title: "Edited proposal" }),
+        proposalDocument("stale", { id: stateProposalIds.stale, title: "Stale proposal" }),
+        proposalDocument("superseded", { id: stateProposalIds.superseded, title: "Superseded proposal" }),
+        proposalDocument("archived", { id: stateProposalIds.archived, title: "Archived proposal" }),
+      ],
+      initialWorkshopMessages: [{
+        schemaVersion: 1,
+        id: "98989898-9898-4898-9898-989898989898",
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "assistant",
+        status: "succeeded",
+        content: "Workshop message with linked proposals.",
+        contextBundleId: null,
+        modelCallId: null,
+        proposalIds: Object.values(stateProposalIds),
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:20:00.000Z",
+      }],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, title: "Linked proposal states" })],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+
+    expect(await screen.findByText("Rejected proposal")).toBeTruthy();
+    expect(screen.getByText("Edited proposal")).toBeTruthy();
+    expect(screen.getByText("Stale proposal")).toBeTruthy();
+    expect(screen.getByText("Superseded proposal")).toBeTruthy();
+    expect(screen.getByText("Archived proposal")).toBeTruthy();
+    expect(screen.getByText("Proposal unavailable")).toBeTruthy();
+    expect(screen.getAllByText("Rejected").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Edited").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Stale").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Superseded").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Archived").length).toBeGreaterThan(0);
   });
 
   it("loads and reorders the planning board after a project is selected", async () => {

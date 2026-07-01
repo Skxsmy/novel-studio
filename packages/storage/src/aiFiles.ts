@@ -99,8 +99,8 @@ async function listDirectories(directory: string): Promise<string[]> {
     .sort();
 }
 
-function modelProfilesRoot(seriesRoot: string): string {
-  return assertInside(seriesRoot, path.join(seriesRoot, STUDIO_DIR, MODEL_PROFILES_DIR));
+function modelProfilesRoot(libraryRoot: string): string {
+  return assertInside(libraryRoot, path.join(libraryRoot, STUDIO_DIR, MODEL_PROFILES_DIR));
 }
 
 function contextBundlesRoot(seriesRoot: string): string {
@@ -123,8 +123,8 @@ function promptPresetsRoot(seriesRoot: string): string {
   return assertInside(seriesRoot, path.join(seriesRoot, PROMPTS_DIR, PROMPT_PRESETS_DIR));
 }
 
-function modelProfilePath(seriesRoot: string, profileId: string): string {
-  return assertInside(seriesRoot, path.join(modelProfilesRoot(seriesRoot), `${profileId}.json`));
+function modelProfilePath(libraryRoot: string, profileId: string): string {
+  return assertInside(libraryRoot, path.join(modelProfilesRoot(libraryRoot), `${profileId}.json`));
 }
 
 function contextBundlePath(seriesRoot: string, contextBundleId: string): string {
@@ -193,20 +193,20 @@ export function ensureAiIndexTables(database: Database.Database): void {
   `);
 }
 
-export async function saveModelProfile(seriesRoot: string, rawProfile: ModelProfile): Promise<ModelProfile> {
+export async function saveModelProfile(libraryRoot: string, rawProfile: ModelProfile): Promise<ModelProfile> {
   const profile = ModelProfileSchema.parse(rawProfile);
-  await mkdir(modelProfilesRoot(seriesRoot), { recursive: true });
-  return writeJson(modelProfilePath(seriesRoot, profile.id), profile, (value) =>
+  await mkdir(modelProfilesRoot(libraryRoot), { recursive: true });
+  return writeJson(modelProfilePath(libraryRoot, profile.id), profile, (value) =>
     ModelProfileSchema.parse(value),
   );
 }
 
-export async function getModelProfile(seriesRoot: string, profileId: string): Promise<ModelProfile> {
-  return readJson(modelProfilePath(seriesRoot, profileId), (value) => ModelProfileSchema.parse(value));
+export async function getModelProfile(libraryRoot: string, profileId: string): Promise<ModelProfile> {
+  return readJson(modelProfilePath(libraryRoot, profileId), (value) => ModelProfileSchema.parse(value));
 }
 
-export async function listModelProfiles(seriesRoot: string): Promise<ModelProfile[]> {
-  const files = await listJsonFiles(modelProfilesRoot(seriesRoot));
+export async function listModelProfiles(libraryRoot: string): Promise<ModelProfile[]> {
+  const files = await listJsonFiles(modelProfilesRoot(libraryRoot));
   const profiles: ModelProfile[] = [];
   for (const filePath of files) {
     const profile = await readJson(filePath, (value) => ModelProfileSchema.parse(value));

@@ -25,7 +25,6 @@ import {
   MoveSceneInputSchema,
   ReorderInputSchema,
   RestoreSceneSectionInputSchema,
-  SectionContextTargetSchema,
   UpdateActInputSchema,
   UpdateBookInputSchema,
   UpdateChapterInputSchema,
@@ -345,15 +344,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   app.get<{
     Params: { seriesId: string; sceneId: string };
-    Querystring: { target?: string };
   }>(
     "/api/v1/series/:seriesId/scenes/:sceneId/sections/context",
     async (request) => {
-      const target = SectionContextTargetSchema.parse(request.query.target ?? "local");
       return repository.listSceneSectionsForContext(
         request.params.seriesId,
         request.params.sceneId,
-        target,
       );
     },
   );

@@ -1,24 +1,9 @@
 import {
   ModelCallErrorSchema,
-  type AiProvider,
   type ModelCallError,
   type ModelProfile,
-  type SeriesManifest,
 } from "@novel-studio/contracts";
 import { assertSafeCredentialRef } from "@novel-studio/ai";
-
-const CLOUD_PROVIDERS = new Set<AiProvider>([
-  "openai",
-  "anthropic",
-  "google",
-  "openrouter",
-  "deepseek",
-  "openai-compatible",
-]);
-
-export function isCloudRouted(profile: ModelProfile): boolean {
-  return CLOUD_PROVIDERS.has(profile.provider);
-}
 
 export function providerErrorStatus(error: ModelCallError): number {
   switch (error.code) {
@@ -26,7 +11,6 @@ export function providerErrorStatus(error: ModelCallError): number {
       return 401;
     case "provider-billing-required":
       return 402;
-    case "cloud-disabled":
     case "permission-denied":
       return 403;
     case "provider-rate-limited":
@@ -54,26 +38,6 @@ export function modelError(
     providerStatus: null,
     rawErrorHash: null,
   });
-}
-
-export function ensureCloudAllowed(
-  series: SeriesManifest,
-  profile: ModelProfile,
-): ModelCallError | null {
-  if (!isCloudRouted(profile)) return null;
-  if (series.cloudPolicy !== "cloud-allowed") {
-    return modelError(
-      "cloud-disabled",
-      "Project cloud policy is Local only. Enable Cloud allowed in Settings before using a cloud provider.",
-    );
-  }
-  if (profile.cloudPolicy !== "cloud-allowed") {
-    return modelError(
-      "cloud-disabled",
-      "Model profile cloud policy is Local only. Set this profile to Cloud allowed before using a cloud provider.",
-    );
-  }
-  return null;
 }
 
 export function ensureCredentialBoundary(profile: ModelProfile): ModelCallError | null {

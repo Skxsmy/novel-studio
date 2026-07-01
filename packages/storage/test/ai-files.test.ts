@@ -55,7 +55,6 @@ describe("M4 AI file persistence", () => {
       title: "Mock 连续性编辑",
       provider: "mock",
       model: "mock-continuity-v1",
-      cloudPolicy: "local-only",
       credentialRef: "novel-studio:test:credential-ref",
       defaultParameters: { temperature: 0.2, maxOutputTokens: 800 },
       capabilities: {
@@ -146,7 +145,6 @@ describe("M4 AI file persistence", () => {
           content: scene.content,
           inclusion: "required",
           inclusionReason: "当前写作场景",
-          access: "local-only",
           contextPolicy: "always",
           tokenEstimate: 120,
           manuallySelected: false,
@@ -173,7 +171,6 @@ describe("M4 AI file persistence", () => {
       taskKind: "continuity-check",
       provider: "mock",
       model: profile.model,
-      cloudPolicy: "local-only",
       contextBundleId,
       promptTemplateId,
       promptTemplateVersion: 2,
@@ -189,7 +186,7 @@ describe("M4 AI file persistence", () => {
       completedAt: now,
     };
 
-    await store.saveModelProfile(series.manifest.id, profile);
+    await store.saveModelProfile(profile);
     await store.saveAgentRole(series.manifest.id, role);
     await store.savePromptTemplate(series.manifest.id, templateV1);
     await store.savePromptTemplate(series.manifest.id, templateV2);
@@ -197,7 +194,7 @@ describe("M4 AI file persistence", () => {
     await store.saveContextBundle(series.manifest.id, bundle);
     await store.saveModelCallLog(series.manifest.id, callLog);
 
-    expect(await store.getModelProfile(series.manifest.id, modelProfileId)).toMatchObject({
+    expect(await store.getModelProfile(modelProfileId)).toMatchObject({
       id: modelProfileId,
       credentialRef: "novel-studio:test:credential-ref",
     });
@@ -215,7 +212,7 @@ describe("M4 AI file persistence", () => {
 
     const root = await seriesRoot(store, series.manifest.id);
     const profileFile = await readFile(
-      path.join(root, ".studio", "model-profiles", `${modelProfileId}.json`),
+      path.join(store.libraryRoot, ".studio", "model-profiles", `${modelProfileId}.json`),
       "utf8",
     );
     expect(JSON.parse(profileFile)).toMatchObject({
@@ -255,7 +252,6 @@ describe("M4 AI file persistence", () => {
       title: "未知 Provider",
       provider: "not-real",
       model: "x",
-      cloudPolicy: "local-only",
       capabilities: {
         streamText: false,
         structuredOutput: false,
@@ -274,7 +270,7 @@ describe("M4 AI file persistence", () => {
       title: "坏权限",
       provider: "mock",
       model: "x",
-      cloudPolicy: "secret-cloud",
+      credentialRef: "sk-this-should-not-be-saved",
       capabilities: {
         streamText: false,
         structuredOutput: false,
@@ -287,11 +283,11 @@ describe("M4 AI file persistence", () => {
       updatedAt: new Date().toISOString(),
     }).success).toBe(false);
 
-    const directory = path.join(root, ".studio", "model-profiles");
+    const directory = path.join(store.libraryRoot, ".studio", "model-profiles");
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, `${profileId}.json`), "not: valid: JSON", "utf8");
 
-    await expect(store.listModelProfiles(series.manifest.id)).rejects.toMatchObject<Partial<StorageError>>({
+    await expect(store.listModelProfiles()).rejects.toMatchObject<Partial<StorageError>>({
       code: "INVALID_DATA",
     });
   });

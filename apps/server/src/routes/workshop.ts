@@ -23,7 +23,6 @@ import {
 import type { ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
 import { StorageError, type ProjectRepository } from "@novel-studio/storage";
 import {
-  ensureCloudAllowed,
   ensureCredentialBoundary,
   modelError,
 } from "../ai/policy.js";
@@ -110,7 +109,6 @@ function baseModelCallLog(input: {
     taskKind: input.contextBundle.taskKind,
     provider: input.modelProfile.provider,
     model: input.modelProfile.model,
-    cloudPolicy: input.modelProfile.cloudPolicy,
     contextBundleId: input.contextBundle.id,
     promptTemplateId: input.contextBundle.promptTemplateId,
     promptTemplateVersion: input.contextBundle.promptTemplateVersion,
@@ -193,12 +191,8 @@ async function executeWorkshopCall(input: {
     startedAt: new Date().toISOString(),
   });
 
-  const [series] = await Promise.all([
-    repository.getSeries(seriesId),
-    repository.saveModelCallLog(seriesId, baseLog),
-  ]);
-  const blocked =
-    ensureCloudAllowed(series.manifest, modelProfile) ?? ensureCredentialBoundary(modelProfile);
+  await repository.saveModelCallLog(seriesId, baseLog);
+  const blocked = ensureCredentialBoundary(modelProfile);
   if (blocked) {
     const log = failedLog(baseLog, blocked);
     await repository.saveModelCallLog(seriesId, log);
@@ -243,7 +237,7 @@ function sendContextError(reply: FastifyReply, error: unknown): boolean {
   if (error instanceof Error && error.name.startsWith("MODEL_CONTEXT_BLOCKED:")) {
     const status = Number(error.name.split(":")[1] ?? 403);
     void reply.status(status).send({
-      code: status === 403 ? "CLOUD_DISABLED" : "PROVIDER_ERROR",
+      code: "PROVIDER_ERROR",
       message: error.message,
     });
     return true;
@@ -433,10 +427,7 @@ export function registerWorkshopRoutes(
         if (sendContextError(reply, error)) return reply;
         throw error;
       }
-      const modelProfile = await repository.getModelProfile(
-        request.params.seriesId,
-        input.modelProfileId,
-      );
+      const modelProfile = await repository.getModelProfile(input.modelProfileId);
       const { log, responseText } = await executeWorkshopCall({
         repository,
         providerRegistry,

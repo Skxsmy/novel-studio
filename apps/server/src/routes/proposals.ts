@@ -86,16 +86,26 @@ export function registerProposalRoutes(
     },
   );
 
-  app.post<{ Params: { seriesId: string; proposalId: string } }>(
-    "/api/v1/series/:seriesId/review/proposals/:proposalId/stale",
-    async (request) => {
+  const markStale = async (request: {
+    body: unknown;
+    params: { seriesId: string; proposalId: string };
+  }) => {
       const input = MarkProposalStaleInputSchema.parse(request.body);
       return repository.markProposalStale(
         request.params.seriesId,
         request.params.proposalId,
         input,
       );
-    },
+  };
+
+  app.post<{ Params: { seriesId: string; proposalId: string } }>(
+    "/api/v1/series/:seriesId/review/proposals/:proposalId/mark-stale",
+    markStale,
+  );
+
+  app.post<{ Params: { seriesId: string; proposalId: string } }>(
+    "/api/v1/series/:seriesId/review/proposals/:proposalId/stale",
+    markStale,
   );
 
   app.post<{ Params: { seriesId: string; proposalId: string } }>(

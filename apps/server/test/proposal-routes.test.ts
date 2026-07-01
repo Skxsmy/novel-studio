@@ -181,7 +181,16 @@ describe("M5 Proposal API routes", () => {
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/review/proposals/batch-accept`,
       payload: {
-        proposalIds: [firstProposal.json().proposal.id, blockedProposal.json().proposal.id],
+        items: [
+          {
+            proposalId: firstProposal.json().proposal.id,
+            baseRevision: firstProposal.json().revision,
+          },
+          {
+            proposalId: blockedProposal.json().proposal.id,
+            baseRevision: blockedProposal.json().revision,
+          },
+        ],
         actor: "user",
         note: "Batch accept route test.",
       },

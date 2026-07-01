@@ -55,7 +55,7 @@ It excludes:
 | Overview | Mostly static status panels. `Continue Scene`, warnings, and review queues are not clearly wired as real workflows. | Keep minimal, repair only where it supports Release A. | Either wire `Continue Scene` to the active editable scene or make it unavailable. Remove fake live status. |
 | Plan | `PlanWorkspace` consumes real planning-board data and has filters, sort, outline/storyboard/tracking/timeline, and reorder commands. It still needs product review but is not the first broken path. | Keep, smoke after hierarchy changes. | Do not redesign first. Verify it survives hierarchy terminology fixes and does not display fake state. |
 | Codex | Backend routes cover categories, entries, mentions, relations, progressions, knowledge, effective state, context, and search. Slice C expanded the frontend wrapper for entry list/create/get/update/archive/restore and replaced the read-only detail shell with a persistent entry editor. | Keep and continue through real connections. | Slice D should connect mentions, ambiguity, relations, context, and planning surfaces through existing APIs or record backend gaps. No fake tabs. |
-| Settings | Current UI uses real APIs for model profile list/create/update, service-key save, connection test, model list, and cloud policy. It lacks a fully coherent product path, including status/delete coverage in the frontend wrapper. | Keep and repair minimum only. | Finish one supported provider/profile/credential path, including safe status/replace/delete behavior where supported. Defer provider expansion. |
+| Settings | Current UI uses real APIs for global model profile list/create/update, service-key save/status/replace/delete, connection test, and provider model list. It must stay independent of any project. | Keep and repair minimum only. | Finish supported provider/profile/credential paths, including safe status/replace/delete behavior. |
 | Review | Current page is a placeholder dashboard without a real scoped workflow. | Mark unavailable for Release A unless explicitly pulled in. | Replace fake dashboard with an unavailable state or remove from active navigation until a real workflow is defined. |
 | Workshop | Current page is a placeholder with non-functional session/composer affordances. | Mark unavailable for Release A unless explicitly pulled in. | Replace fake dashboard with an unavailable state or remove from active navigation until a real workflow is defined. |
 | API / storage / contracts | `packages/storage/src/index.ts` is still very large. `apps/server/src/app.ts` still owns many series/hierarchy routes. Codex backend capability is much broader than the frontend wrapper. | Audit while repairing touched flows. | Do not grow large dumping-ground files. Split route/storage helpers when touching affected logic. Verify contracts match the UI projection. |
@@ -368,14 +368,14 @@ Forbidden:
 
 ### Slice E: Settings and AI Safety Minimum
 
-Purpose: finish the settings path required for safe local/cloud AI use.
+Purpose: finish the settings path required for explicit Provider use and safe credential handling.
 
 Tasks:
 
 - Model profile list/create/update/delete or explicitly scoped equivalent.
 - Service key save/replace/delete/reuse status.
 - Provider connection test and model list where supported.
-- Project cloud/provider policy is explicit.
+- Provider selection and credential state are explicit.
 - Secrets never enter project files, logs, console, screenshots, or Git.
 - Decide whether unfinished providers stay deferred.
 

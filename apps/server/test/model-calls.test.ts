@@ -53,12 +53,11 @@ describe("NS-407 model call API", () => {
     const scene = series.scenes[0];
     const profile = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
         title: "本地调用测试模型",
         provider: "mock",
         model: "mock-continuity-v1",
-        cloudPolicy: "local-only",
       },
     });
     expect(profile.statusCode).toBe(201);
@@ -196,7 +195,7 @@ describe("NS-407 model call API", () => {
     const scene = series.scenes[0];
     const profile = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
         title: "失败模型",
         provider: "mock",
@@ -286,21 +285,14 @@ describe("NS-407 model call API", () => {
     });
     const series = created.json();
     const scene = series.scenes[0];
-    await app.inject({
-      method: "PUT",
-      url: `/api/v1/series/${series.manifest.id}/ai/cloud-policy`,
-      payload: { cloudPolicy: "cloud-allowed" },
-    });
     const profile = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+      url: `/api/v1/ai/model-profiles`,
       payload: {
         title: "DeepSeek 写作模型",
         provider: "deepseek",
         baseUrl: "https://api.deepseek.com",
         model: "deepseek-v4-flash",
-        cloudPolicy: "cloud-allowed",
-        credentialRef: "novel-studio/model-profile/test",
         capabilities: {
           streamText: true,
           structuredOutput: true,
@@ -312,6 +304,12 @@ describe("NS-407 model call API", () => {
       },
     });
     expect(profile.statusCode).toBe(201);
+    const credential = await app.inject({
+      method: "POST",
+      url: `/api/v1/ai/model-profiles/${profile.json().id}/credential`,
+      payload: { secret: "deepseek-test-key" },
+    });
+    expect(credential.statusCode).toBe(200);
     const context = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/context/preview`,

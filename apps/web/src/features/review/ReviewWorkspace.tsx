@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
+  ProposalBatchAcceptResult,
   ProposalBatchPreviewResult,
   ProposalDocument,
-  ProposalPatch,
   SeriesDetail,
 } from "@novel-studio/contracts";
 import { api } from "../../api";
 import { uiText } from "../../app/uiText";
+import "./review-workspace.css";
 
 interface ReviewWorkspaceProps {
   onOpenWorkshopMessage: (sessionId: string, messageId: string) => void;
@@ -20,10 +21,6 @@ function statusClass(status: ProposalDocument["proposal"]["status"]) {
   if (status === "accepted" || status === "edited") return "pill green";
   if (status === "stale") return "pill amber";
   return "pill muted";
-}
-
-function firstEditablePatch(document: ProposalDocument | null): ProposalPatch | null {
-  return document?.proposal.patches.find((patch) => patch.after !== null) ?? null;
 }
 
 function formatConfidence(value: number | null) {
@@ -48,13 +45,14 @@ export function ReviewWorkspace({
   const [items, setItems] = useState<ProposalDocument[]>([]);
   const [diagnosticCount, setDiagnosticCount] = useState(0);
   const [localSelectedId, setLocalSelectedId] = useState<string | null>(selectedProposalId);
-  const [editedText, setEditedText] = useState("");
+  const [editedTextByPatchId, setEditedTextByPatchId] = useState<Record<string, string>>({});
   const [batchPreview, setBatchPreview] = useState<ProposalBatchPreviewResult | null>(null);
+  const [batchResult, setBatchResult] = useState<ProposalBatchAcceptResult | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
-  async function loadInbox(nextSelectedId = selectedProposalId) {
+  async function loadInbox(nextSelectedId = selectedProposalId, keepBatchState = false) {
     setIsLoading(true);
     setErrorMessage("");
     try {
@@ -65,7 +63,10 @@ export function ReviewWorkspace({
       const firstPending = inbox.items.find((item) => item.proposal.status === "pending");
       const fallback = firstPending ?? inbox.items[0] ?? null;
       setLocalSelectedId(currentExists ? nextSelectedId : fallback?.proposal.id ?? null);
-      setBatchPreview(null);
+      if (!keepBatchState) {
+        setBatchPreview(null);
+        setBatchResult(null);
+      }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to load proposals.");
     } finally {
@@ -86,16 +87,21 @@ export function ReviewWorkspace({
     [items, localSelectedId],
   );
   const pendingItems = items.filter((item) => item.proposal.status === "pending");
-  const selectedPatch = firstEditablePatch(selected);
+  const editablePatches = selected?.proposal.patches.filter((patch) => patch.after !== null) ?? [];
   const sourceAvailable = selected?.sourceAvailability.available ?? true;
   const targetAvailable = selected?.targetAvailability.available ?? true;
   const canDecide = Boolean(selected && selected.proposal.status === "pending" && sourceAvailable && targetAvailable);
+  const canMarkStale = Boolean(selected && selected.proposal.status === "pending");
 
   useEffect(() => {
-    setEditedText(selectedPatch?.after ?? "");
-  }, [selected?.proposal.id, selectedPatch?.id]);
+    setEditedTextByPatchId(Object.fromEntries(
+      (selected?.proposal.patches ?? [])
+        .filter((patch) => patch.after !== null)
+        .map((patch) => [patch.id, patch.after ?? ""]),
+    ));
+  }, [selected?.proposal.id]);
 
-  async function runDecision(action: "accept" | "edit" | "reject") {
+  async function runDecision(action: "accept" | "edit" | "reject" | "stale") {
     if (!selected) return;
     setBusyAction(action);
     setErrorMessage("");
@@ -106,19 +112,28 @@ export function ReviewWorkspace({
           actor: "user",
           note: "",
         });
+      } else if (action === "stale") {
+        await api.proposals.markStale(series.manifest.id, selected.proposal.id, {
+          baseRevision: selected.revision,
+          actor: "user",
+          note: "",
+          staleReason: text.labels.staleReasonDefault,
+        });
       } else if (action === "reject") {
         await api.proposals.reject(series.manifest.id, selected.proposal.id, {
           baseRevision: selected.revision,
           actor: "user",
           note: "",
         });
-      } else if (selectedPatch) {
+      } else if (editablePatches.length > 0) {
         await api.proposals.editAndAccept(series.manifest.id, selected.proposal.id, {
           baseRevision: selected.revision,
           actor: "user",
           note: "",
           patches: selected.proposal.patches.map((patch) =>
-            patch.id === selectedPatch.id ? { ...patch, after: editedText } : patch,
+            patch.after !== null
+              ? { ...patch, after: editedTextByPatchId[patch.id] ?? patch.after }
+              : patch,
           ),
         });
       }
@@ -133,6 +148,7 @@ export function ReviewWorkspace({
   async function runBatchPreview() {
     setBusyAction("batch-preview");
     setErrorMessage("");
+    setBatchResult(null);
     try {
       const preview = await api.proposals.batchPreview(series.manifest.id, {
         proposalIds: pendingItems.map((item) => item.proposal.id),
@@ -146,15 +162,21 @@ export function ReviewWorkspace({
   }
 
   async function runBatchAccept() {
+    const reviewedItems = batchPreview?.items
+      .filter((item) => item.eligible && item.revision)
+      .map((item) => ({ proposalId: item.proposalId, baseRevision: item.revision! })) ?? [];
+    if (reviewedItems.length === 0) return;
     setBusyAction("batch-accept");
     setErrorMessage("");
     try {
-      await api.proposals.batchAccept(series.manifest.id, {
-        proposalIds: pendingItems.map((item) => item.proposal.id),
+      const result = await api.proposals.batchAccept(series.manifest.id, {
+        items: reviewedItems,
         actor: "user",
         note: "",
       });
-      await loadInbox(localSelectedId);
+      setBatchResult(result);
+      setBatchPreview(null);
+      await loadInbox(localSelectedId, true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Batch accept failed.");
     } finally {
@@ -178,6 +200,9 @@ export function ReviewWorkspace({
 
   const previewEligible = batchPreview?.items.filter((item) => item.eligible).length ?? 0;
   const previewSkipped = batchPreview ? batchPreview.items.length - previewEligible : 0;
+  const batchBlocked = batchResult?.blocked.length ?? 0;
+  const batchFailed = batchResult?.failed.length ?? 0;
+  const batchSkipped = batchResult?.skipped.length ?? 0;
 
   return (
     <>
@@ -302,26 +327,39 @@ export function ReviewWorkspace({
                   </p>
                 ) : null}
                 {selected.proposal.staleReason ? <p className="alert">{selected.proposal.staleReason}</p> : null}
-                <div className="diff" aria-label="Proposal diff">
-                  <div className="diff-block">
-                    <span className="brief-label">{text.labels.before}</span>
-                    <p>{selectedPatch?.before ?? ""}</p>
-                  </div>
-                  <div className="diff-block">
-                    <span className="brief-label">{text.labels.after}</span>
-                    <p>{selectedPatch?.after ?? ""}</p>
-                  </div>
+                <div className="review-patch-list" aria-label="Proposal patches">
+                  {selected.proposal.patches.map((patch, index) => (
+                    <div className="review-patch" key={patch.id}>
+                      <div className="proposal-row-pills">
+                        <span className="pill muted">{text.labels.patch} {index + 1}</span>
+                        <span className="pill blue">{targetKindLabel(patch.target.kind)}</span>
+                      </div>
+                      <div className="diff" aria-label={`${text.labels.patch} ${index + 1}`}>
+                        <div className="diff-block">
+                          <span className="brief-label">{text.labels.before}</span>
+                          <p>{patch.before ?? ""}</p>
+                        </div>
+                        <div className="diff-block">
+                          <span className="brief-label">{text.labels.after}</span>
+                          <p>{patch.after ?? ""}</p>
+                        </div>
+                      </div>
+                      {patch.after !== null ? (
+                        <label className="field">
+                          <span>{text.labels.editText} {index + 1}</span>
+                          <textarea
+                            className="textarea review-edit-textarea"
+                            onChange={(event) => setEditedTextByPatchId((current) => ({
+                              ...current,
+                              [patch.id]: event.target.value,
+                            }))}
+                            value={editedTextByPatchId[patch.id] ?? patch.after}
+                          />
+                        </label>
+                      ) : null}
+                    </div>
+                  ))}
                 </div>
-                {selectedPatch ? (
-                  <label className="field">
-                    <span>{text.labels.editText}</span>
-                    <textarea
-                      className="textarea review-edit-textarea"
-                      onChange={(event) => setEditedText(event.target.value)}
-                      value={editedText}
-                    />
-                  </label>
-                ) : null}
               </>
             )}
           </div>
@@ -336,7 +374,7 @@ export function ReviewWorkspace({
             </button>
             <button
               className="btn"
-              disabled={!canDecide || !selectedPatch || busyAction !== null}
+              disabled={!canDecide || editablePatches.length === 0 || busyAction !== null}
               onClick={() => void runDecision("edit")}
               type="button"
             >
@@ -349,6 +387,14 @@ export function ReviewWorkspace({
               type="button"
             >
               {text.actions.reject}
+            </button>
+            <button
+              className="btn"
+              disabled={!canMarkStale || busyAction !== null}
+              onClick={() => void runDecision("stale")}
+              type="button"
+            >
+              {text.actions.markStale}
             </button>
           </div>
         </section>
@@ -369,11 +415,13 @@ export function ReviewWorkspace({
                   {selected.proposal.source.kind === "workshop-message" ? (
                     <button
                       className="btn compact"
-                      disabled={busyAction !== null}
+                      disabled={busyAction !== null || !selected.sourceAvailability.available}
                       onClick={() => void openSourceMessage()}
                       type="button"
                     >
-                      {text.actions.openSource}
+                      {selected.sourceAvailability.available
+                        ? text.actions.openSource
+                        : text.actions.sourceUnavailable}
                     </button>
                   ) : null}
                 </div>
@@ -418,12 +466,37 @@ export function ReviewWorkspace({
                   <th>{text.labels.batchSkipped}</th>
                   <td>{batchPreview ? previewSkipped : "-"}</td>
                 </tr>
+                <tr>
+                  <th>{text.labels.batchCompleted}</th>
+                  <td>{batchResult ? batchResult.completed.length : "-"}</td>
+                </tr>
+                <tr>
+                  <th>{text.labels.batchBlocked}</th>
+                  <td>{batchResult ? batchBlocked : "-"}</td>
+                </tr>
+                <tr>
+                  <th>{text.labels.batchFailed}</th>
+                  <td>{batchResult ? batchFailed : "-"}</td>
+                </tr>
+                <tr>
+                  <th>{text.labels.batchResultSkipped}</th>
+                  <td>{batchResult ? batchSkipped : "-"}</td>
+                </tr>
               </tbody>
             </table>
             {batchPreview?.items.filter((item) => !item.eligible).map((item) => (
               <p className="alert" key={item.proposalId}>{item.reason}</p>
             ))}
-            {!batchPreview ? <p className="brief-text">{text.impactBody}</p> : null}
+            {batchResult?.blocked.map((item) => (
+              <p className="alert" key={`blocked:${item.proposalId}`}>{item.reason}</p>
+            ))}
+            {batchResult?.failed.map((item) => (
+              <p className="alert" key={`failed:${item.proposalId}`}>{item.reason}</p>
+            ))}
+            {batchResult?.skipped.map((item) => (
+              <p className="alert" key={`skipped:${item.proposalId}`}>{item.reason}</p>
+            ))}
+            {!batchPreview && !batchResult ? <p className="brief-text">{text.impactBody}</p> : null}
           </div>
         </aside>
       </div>

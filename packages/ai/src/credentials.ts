@@ -143,7 +143,7 @@ function Read-Secret($targetName) {
     if ($credential.CredentialBlobSize -eq 0) { return "" }
     $bytes = New-Object byte[] $credential.CredentialBlobSize
     [Runtime.InteropServices.Marshal]::Copy($credential.CredentialBlob, $bytes, 0, $credential.CredentialBlobSize)
-    return [System.Text.Encoding]::UTF8.GetString($bytes)
+    return [Convert]::ToBase64String($bytes)
   } finally {
     if ($ptr -ne [IntPtr]::Zero) {
       [NovelStudioCredMan]::CredFree($ptr)
@@ -183,7 +183,8 @@ export class WindowsCredentialStore implements CredentialStore {
   }
 
   async readSecret(targetName: string): Promise<string> {
-    return this.run({ action: "read", targetName });
+    const encoded = await this.run({ action: "read", targetName });
+    return Buffer.from(encoded, "base64").toString("utf8");
   }
 
   async deleteSecret(targetName: string): Promise<void> {

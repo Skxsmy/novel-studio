@@ -16,7 +16,7 @@ Note: ADR-0010 supersedes the Milkdown runtime choice for the current web Write 
 3. 审阅锚点保存为 `review/anchors/<anchor-id>.yaml`，不写进正文。锚点组合使用稳定逻辑块 ID、精确引用、前后文和原字符范围。
 4. 锚点解析是只读纯计算：原位匹配优先，其次唯一精确引用，再以上下文消歧；无法唯一证明时返回 `orphaned`。
 5. localStorage 只保存崩溃恢复草稿，必须记录基础 revision；恢复不改变服务器的乐观并发规则。
-6. Section AI 权限为 `inherit`、`local-only`、`never`。敏感资料默认 `never`；资格查询默认拒绝未知值。
+6. Section AI 权限为 `inherit`、`never`。敏感资料默认 `never`；资格查询默认拒绝未知值。
 7. Web 编辑器使用 `@milkdown/kit` 与 `@milkdown/react` 7.21.2；两者采用 MIT 许可证。引入它们只为 Markdown/ProseMirror 编辑与 React 生命周期集成，不把其运行时状态作为持久格式。
 8. 编辑器组件测试使用 `@testing-library/react`（MIT）与 `jsdom`（MIT）；二者仅属于开发依赖，不进入生产运行时。
 

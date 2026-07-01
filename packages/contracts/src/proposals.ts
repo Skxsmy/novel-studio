@@ -165,14 +165,34 @@ export const ProposalEvidenceSchema = z.object({
 });
 export type ProposalEvidence = z.infer<typeof ProposalEvidenceSchema>;
 
-export const ProposalPatchSchema = z.object({
-  id: z.string().uuid(),
-  target: ProposalTargetSchema,
-  action: ProposalPatchActionSchema,
-  before: z.string().max(400000).nullable().default(null),
-  after: z.string().max(400000).nullable().default(null),
-  unifiedDiff: z.string().max(400000).default(""),
-});
+const SceneContentPatchActions = new Set<z.infer<typeof ProposalPatchActionSchema>>([
+  "insert-text",
+  "replace-content",
+  "replace-text",
+]);
+
+export const ProposalPatchSchema = z
+  .object({
+    id: z.string().uuid(),
+    target: ProposalTargetSchema,
+    action: ProposalPatchActionSchema,
+    before: z.string().max(400000).nullable().default(null),
+    after: z.string().max(400000).nullable().default(null),
+    unifiedDiff: z.string().max(400000).default(""),
+  })
+  .superRefine((patch, context) => {
+    if (
+      patch.target.kind === "scene-content" &&
+      SceneContentPatchActions.has(patch.action) &&
+      !patch.target.baseRevision
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Scene content Proposal patches require baseRevision",
+        path: ["target", "baseRevision"],
+      });
+    }
+  });
 export type ProposalPatch = z.infer<typeof ProposalPatchSchema>;
 
 export const AiProposalGeneratorSchema = z.object({
@@ -431,11 +451,19 @@ export type ProposalBatchPreviewInput = z.infer<
   typeof ProposalBatchPreviewInputSchema
 >;
 
-export const ProposalBatchAcceptInputSchema =
-  ProposalBatchPreviewInputSchema.extend({
-    actor: z.string().trim().min(1).max(160).default("user"),
-    note: z.string().max(4000).default(""),
-  });
+export const ProposalBatchAcceptItemSchema = z.object({
+  proposalId: z.string().uuid(),
+  baseRevision: RevisionHashSchema,
+});
+export type ProposalBatchAcceptItem = z.infer<
+  typeof ProposalBatchAcceptItemSchema
+>;
+
+export const ProposalBatchAcceptInputSchema = z.object({
+  items: z.array(ProposalBatchAcceptItemSchema).min(1),
+  actor: z.string().trim().min(1).max(160).default("user"),
+  note: z.string().max(4000).default(""),
+});
 export type ProposalBatchAcceptInput = z.infer<
   typeof ProposalBatchAcceptInputSchema
 >;
@@ -448,6 +476,7 @@ export type ProposalApplyResult = z.infer<typeof ProposalApplyResultSchema>;
 
 export const ProposalBatchPreviewItemSchema = z.object({
   proposalId: z.string().uuid(),
+  revision: RevisionHashSchema.nullable().default(null),
   eligible: z.boolean(),
   reason: z.string().max(4000).default(""),
 });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
+  CodexEntryDocument,
   ContextBundle,
   ModelProfile,
   ProposalDocument,
@@ -13,6 +14,7 @@ import type {
 } from "@novel-studio/contracts";
 import { ApiError, api } from "../../api";
 import { uiText } from "../../app/uiText";
+import "./workshop-workspace.css";
 
 export interface WorkshopWorkspaceProps {
   onOpenProposal: (proposalId: string) => void;
@@ -91,8 +93,10 @@ export function WorkshopWorkspace({
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<WorkshopMessage[]>([]);
   const [proposalDocuments, setProposalDocuments] = useState<ProposalDocument[]>([]);
+  const [codexEntries, setCodexEntries] = useState<CodexEntryDocument[]>([]);
   const [basket, setBasket] = useState<WorkshopContextBasket | null>(null);
   const [contextPreview, setContextPreview] = useState<ContextBundle | null>(null);
+  const [contextSourceValue, setContextSourceValue] = useState("");
   const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [composer, setComposer] = useState("");
@@ -122,6 +126,30 @@ export function WorkshopWorkspace({
       null,
     [promptTemplates],
   );
+  const contextScene = useMemo(
+    () => (
+      basket?.sceneId
+        ? series.scenes.find((scene) => scene.metadata.id === basket.sceneId) ?? defaultScene
+        : defaultScene
+    ),
+    [basket?.sceneId, defaultScene, series.scenes],
+  );
+  const contextSourceOptions = useMemo(() => [
+    ...codexEntries
+      .filter((entry) => !entry.metadata.archivedAt)
+      .map((entry) => ({
+        kind: "codex-entry" as const,
+        label: `${text.labels.sourceCodex}: ${entry.metadata.name}`,
+        sourceId: entry.metadata.id,
+        value: `codex-entry:${entry.metadata.id}`,
+      })),
+    ...proposalDocuments.map((document) => ({
+      kind: "proposal-source" as const,
+      label: `${text.labels.sourceProposal}: ${document.proposal.title}`,
+      sourceId: document.proposal.id,
+      value: `proposal-source:${document.proposal.id}`,
+    })),
+  ], [codexEntries, proposalDocuments, text.labels.sourceCodex, text.labels.sourceProposal]);
   const canCall = Boolean(
     activeSession &&
     activeSession.status === "active" &&
@@ -140,7 +168,7 @@ export function WorkshopWorkspace({
     try {
       const [nextSessions, nextProfiles, nextTemplates] = await Promise.all([
         api.workshop.listSessions(seriesId),
-        api.ai.listModelProfiles(seriesId),
+        api.ai.listModelProfiles(),
         api.ai.listPromptTemplates(seriesId),
       ]);
       setSessions(nextSessions);
@@ -163,13 +191,22 @@ export function WorkshopWorkspace({
     setIsDetailLoading(true);
     setError(null);
     try {
-      const [detail, inbox] = await Promise.all([
+      const [detail, inbox, nextCodexEntries] = await Promise.all([
         api.workshop.getSession(seriesId, sessionId),
         api.proposals.list(seriesId),
+        api.codex.listEntries(seriesId, { includeArchived: false }),
       ]);
       setBasket(detail.basket);
       setMessages(detail.messages);
       setProposalDocuments(inbox.items);
+      setCodexEntries(nextCodexEntries);
+      setContextSourceValue((current) => current || (
+        nextCodexEntries.find((entry) => !entry.metadata.archivedAt)
+          ? `codex-entry:${nextCodexEntries.find((entry) => !entry.metadata.archivedAt)!.metadata.id}`
+          : inbox.items[0]
+            ? `proposal-source:${inbox.items[0].proposal.id}`
+            : ""
+      ));
       setContextPreview(null);
     } catch (caught) {
       setError(apiErrorMessage(caught));
@@ -281,6 +318,35 @@ export function WorkshopWorkspace({
     }
   }
 
+  async function addSelectedContextSource() {
+    if (!activeSession || !basket || !contextSourceValue) return;
+    const option = contextSourceOptions.find((item) => item.value === contextSourceValue);
+    if (!option) return;
+    setError(null);
+    const existing = basket.items.some((item) =>
+      item.kind === option.kind && item.sourceId === option.sourceId,
+    );
+    const nextItems = existing
+      ? basket.items
+      : [
+        ...basket.items,
+        {
+          id: randomId(),
+          kind: option.kind,
+          sourceId: option.sourceId,
+          label: option.label.replace(/^[^:]+:\s*/u, ""),
+          pinned: option.kind === "codex-entry",
+          note: "",
+          createdAt: new Date().toISOString(),
+        },
+      ];
+    try {
+      await updateBasket({ items: nextItems });
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    }
+  }
+
   async function togglePin(itemId: string) {
     if (!basket) return;
     try {
@@ -357,13 +423,14 @@ export function WorkshopWorkspace({
   }
 
   function proposalInputFromMessage(message: WorkshopMessage) {
-    if (!defaultScene) throw new Error(text.labels.noScene);
+    const targetScene = contextScene;
+    if (!targetScene) throw new Error(text.labels.noScene);
     const candidateText = message.content.trim();
     const target = {
       kind: "scene-content" as const,
-      targetId: defaultScene.metadata.id,
-      label: defaultScene.metadata.title,
-      baseRevision: defaultScene.revision,
+      targetId: targetScene.metadata.id,
+      label: targetScene.metadata.title,
+      baseRevision: targetScene.revision,
       fieldPath: [],
       blockId: null,
       range: null,
@@ -553,6 +620,14 @@ export function WorkshopWorkspace({
                             <button className="btn compact" disabled type="button">
                               {text.proposals.open}
                             </button>
+                            <button
+                              className="btn compact"
+                              disabled={!activeSessionId || isDetailLoading}
+                              onClick={() => activeSessionId ? void loadSession(activeSessionId) : undefined}
+                              type="button"
+                            >
+                              {text.refresh}
+                            </button>
                           </div>
                         );
                       }
@@ -644,6 +719,28 @@ export function WorkshopWorkspace({
                 {pinnedCount} {text.labels.contextPinned}
               </span>
             </div>
+            {contextSourceOptions.length ? (
+              <div className="context-source-picker">
+                <select
+                  aria-label={text.labels.contextSource}
+                  className="input"
+                  onChange={(event) => setContextSourceValue(event.target.value)}
+                  value={contextSourceValue}
+                >
+                  {contextSourceOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <button
+                  className="btn compact"
+                  disabled={!activeSession || !basket || !contextSourceValue}
+                  onClick={() => void addSelectedContextSource()}
+                  type="button"
+                >
+                  {text.insert}
+                </button>
+              </div>
+            ) : null}
             {!basket || basket.items.length === 0 ? (
               <div className="unavailable-note">
                 <h2>{text.basketEmptyTitle}</h2>
@@ -685,6 +782,17 @@ export function WorkshopWorkspace({
                       <span className="pill muted" key={item.id}>{item.title}</span>
                     ))}
                   </div>
+                  {contextPreview.excluded.length ? (
+                    <div className="context-excluded-list" aria-label={text.labels.contextExcludedList}>
+                      {contextPreview.excluded.slice(0, 6).map((item) => (
+                        <div className="context-excluded-row" key={`${item.source.type}:${item.source.id}:${item.reason}`}>
+                          <strong>{item.title || item.source.label || item.source.type}</strong>
+                          <span>{item.reason}</span>
+                          {item.note ? <small>{item.note}</small> : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <p className="brief-text">{text.basketEmptyBody}</p>

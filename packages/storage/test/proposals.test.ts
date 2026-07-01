@@ -3,11 +3,13 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
+import type { ContextBundle, ModelCallLog } from "@novel-studio/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProjectRepository, StorageError } from "../src/index.js";
 import { proposalSnapshotPath } from "../src/proposalFiles.js";
 
 const temporaryDirectories: string[] = [];
+const HASH = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })));
@@ -71,6 +73,72 @@ function replacementProposalInput(input: {
       },
     ],
     evidence: [],
+  };
+}
+
+function contextBundle(seriesId: string, sceneId: string, contextBundleId = randomUUID()): ContextBundle {
+  const now = "2026-07-01T00:00:00.000Z";
+  return {
+    schemaVersion: 1,
+    id: contextBundleId,
+    seriesId,
+    sceneId,
+    roleId: "continuity-editor",
+    taskKind: "continuity-check",
+    userRequest: "Check the scene.",
+    promptTemplateId: randomUUID(),
+    promptTemplateVersion: 1,
+    items: [
+      {
+        id: "user-request",
+        kind: "user-request",
+        source: { type: "user-input", id: null, revision: null, label: "Request" },
+        title: "Request",
+        content: "Check the scene.",
+        inclusion: "required",
+        inclusionReason: "Test request.",
+        contextPolicy: null,
+        tokenEstimate: 4,
+        manuallySelected: false,
+        textHash: HASH,
+        sourceRefs: [],
+      },
+    ],
+    excluded: [],
+    estimatedUsage: { inputTokens: 4, outputTokens: 0, totalTokens: 4 },
+    createdAt: now,
+  };
+}
+
+function modelCallLog(
+  seriesId: string,
+  sceneId: string,
+  bundle: ContextBundle,
+  modelCallId = randomUUID(),
+): ModelCallLog {
+  const now = "2026-07-01T00:00:00.000Z";
+  return {
+    schemaVersion: 1,
+    id: modelCallId,
+    seriesId,
+    sceneId,
+    roleId: bundle.roleId,
+    taskKind: bundle.taskKind,
+    provider: "mock",
+    model: "mock-model",
+    contextBundleId: bundle.id,
+    promptTemplateId: bundle.promptTemplateId,
+    promptTemplateVersion: bundle.promptTemplateVersion,
+    requestHash: HASH,
+    responseHash: HASH,
+    status: "succeeded",
+    estimatedUsage: bundle.estimatedUsage,
+    actualUsage: { inputTokens: 4, outputTokens: 2, totalTokens: 6 },
+    errorCode: null,
+    errorMessage: null,
+    error: null,
+    startedAt: now,
+    completedAt: now,
   };
 }
 
@@ -184,6 +252,83 @@ describe("M5 Proposal storage", () => {
       }),
     ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
 
+    const bundle = contextBundle(series.manifest.id, scene.metadata.id);
+    await store.saveContextBundle(series.manifest.id, bundle);
+    const otherBundle = contextBundle(series.manifest.id, scene.metadata.id);
+    await store.saveContextBundle(series.manifest.id, otherBundle);
+    const mismatchedLog = modelCallLog(series.manifest.id, scene.metadata.id, otherBundle);
+    await store.saveModelCallLog(series.manifest.id, mismatchedLog);
+    await expect(
+      store.createProposal(series.manifest.id, {
+        ...replacementProposalInput({
+          seriesId: series.manifest.id,
+          scene,
+          before: "Original text.",
+          after: "Mismatched AI text.",
+        }),
+        contextBundleId: bundle.id,
+        generator: {
+          kind: "ai" as const,
+          roleId: bundle.roleId,
+          modelCallLogId: mismatchedLog.id,
+          provider: "mock" as const,
+          model: "mock-model",
+          promptTemplateId: bundle.promptTemplateId,
+          promptTemplateVersion: bundle.promptTemplateVersion,
+        },
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    await expect(
+      store.createProposal(series.manifest.id, {
+        ...replacementProposalInput({
+          seriesId: series.manifest.id,
+          scene,
+          before: "Original text.",
+          after: "Workshop text.",
+        }),
+        source: {
+          kind: "workshop-message" as const,
+          sourceId: randomUUID(),
+          label: "Missing Workshop message",
+          detail: "",
+        },
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    await expect(
+      store.createProposal(series.manifest.id, {
+        ...replacementProposalInput({
+          seriesId: series.manifest.id,
+          scene,
+          before: "Original text.",
+          after: "Context text.",
+        }),
+        contextBundleId: randomUUID(),
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    await expect(
+      store.createProposal(series.manifest.id, {
+        ...replacementProposalInput({
+          seriesId: series.manifest.id,
+          scene,
+          before: "Original text.",
+          after: "AI text.",
+        }),
+        contextBundleId: bundle.id,
+        generator: {
+          kind: "ai" as const,
+          roleId: bundle.roleId,
+          modelCallLogId: randomUUID(),
+          provider: "mock" as const,
+          model: "mock-model",
+          promptTemplateId: bundle.promptTemplateId,
+          promptTemplateVersion: bundle.promptTemplateVersion,
+        },
+      }),
+    ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
     await store.updateScene(series.manifest.id, scene.metadata.id, {
       baseRevision: scene.revision,
       title: scene.metadata.title,
@@ -204,5 +349,61 @@ describe("M5 Proposal storage", () => {
         note: "",
       }),
     ).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+  });
+
+  it("blocks intra-batch scene conflicts and accepts only previewed revisions", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "ProposalBatchGuards" });
+    const initial = series.scenes[0]!;
+    const scene = await store.updateScene(series.manifest.id, initial.metadata.id, {
+      baseRevision: initial.revision,
+      title: "Opening",
+      content: "Original text.",
+    });
+    const first = await store.createProposal(
+      series.manifest.id,
+      replacementProposalInput({
+        seriesId: series.manifest.id,
+        scene,
+        before: "Original text.",
+        after: "First text.",
+      }),
+    );
+    const second = await store.createProposal(
+      series.manifest.id,
+      replacementProposalInput({
+        seriesId: series.manifest.id,
+        scene,
+        before: "Original text.",
+        after: "Second text.",
+      }),
+    );
+
+    const preview = await store.previewProposalBatch(series.manifest.id, {
+      proposalIds: [first.proposal.id, second.proposal.id],
+    });
+
+    expect(preview.items[0]).toMatchObject({
+      proposalId: first.proposal.id,
+      revision: first.revision,
+      eligible: true,
+    });
+    expect(preview.items[1]).toMatchObject({
+      proposalId: second.proposal.id,
+      revision: second.revision,
+      eligible: false,
+      reason: "Another Proposal in this batch changes the same scene first",
+    });
+
+    const accepted = await store.acceptProposalBatch(series.manifest.id, {
+      items: [{ proposalId: first.proposal.id, baseRevision: first.revision }],
+      actor: "user",
+      note: "Accept only previewed revision.",
+    });
+
+    expect(accepted.completed).toHaveLength(1);
+    expect(accepted.blocked).toEqual([]);
+    expect(accepted.skipped).toEqual([]);
+    expect(accepted.failed).toEqual([]);
   });
 });

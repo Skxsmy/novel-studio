@@ -79,12 +79,11 @@ test.describe("已实现能力浏览器验收", () => {
       let seriesList = await getJson<SeriesSummary[]>(request, "/api/v1/series");
       expect(seriesList).toHaveLength(1);
       const seriesId = seriesList[0]!.id;
-      const mockProfileResponse = await request.post(`/api/v1/series/${seriesId}/ai/model-profiles`, {
+      const mockProfileResponse = await request.post("/api/v1/ai/model-profiles", {
         data: {
           title: "本机验收模型",
           provider: "mock",
           model: "mock-continuity-v1",
-          cloudPolicy: "cloud-allowed",
         },
       });
       expect(mockProfileResponse.ok()).toBe(true);

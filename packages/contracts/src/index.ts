@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { CloudPolicySchema } from "./common.js";
 import {
   DefaultProjectTitles,
   DefaultStructureTitles,
@@ -63,7 +62,6 @@ export const SeriesManifestSchema = z.object({
   title: z.string().min(1).max(160),
   description: z.string().default(""),
   language: z.literal("zh-CN").default("zh-CN"),
-  cloudPolicy: CloudPolicySchema.default("local-only"),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   archivedAt: z.string().datetime().nullable().default(null),
@@ -654,7 +652,7 @@ export const SceneSectionKindSchema = z.enum([
 ]);
 export type SceneSectionKind = z.infer<typeof SceneSectionKindSchema>;
 
-export const SceneSectionAiPolicySchema = z.enum(["inherit", "local-only", "never"]);
+export const SceneSectionAiPolicySchema = z.enum(["inherit", "never"]);
 export type SceneSectionAiPolicy = z.infer<typeof SceneSectionAiPolicySchema>;
 
 export const SceneSectionMetadataSchema = z.object({
@@ -708,9 +706,6 @@ export const ArchiveSceneSectionInputSchema = z.object({
 export type ArchiveSceneSectionInput = z.infer<typeof ArchiveSceneSectionInputSchema>;
 export const RestoreSceneSectionInputSchema = ArchiveSceneSectionInputSchema;
 export type RestoreSceneSectionInput = z.infer<typeof RestoreSceneSectionInputSchema>;
-
-export const SectionContextTargetSchema = z.enum(["local", "cloud"]);
-export type SectionContextTarget = z.infer<typeof SectionContextTargetSchema>;
 
 export const ReviewAnchorSchema = z.object({
   schemaVersion: z.literal(1),

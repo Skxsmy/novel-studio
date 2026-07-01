@@ -23,12 +23,11 @@ async function createSeriesWithMockProfile(model = "mock-continuity-v1") {
   const series = created.json();
   const profile = await app.inject({
     method: "POST",
-    url: `/api/v1/series/${series.manifest.id}/ai/model-profiles`,
+    url: `/api/v1/ai/model-profiles`,
     payload: {
       title: "Workshop mock model",
       provider: "mock",
       model,
-      cloudPolicy: "local-only",
     },
   });
   expect(profile.statusCode).toBe(201);

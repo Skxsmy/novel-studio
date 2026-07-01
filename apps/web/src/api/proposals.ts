@@ -1,5 +1,6 @@
 import type {
   EditAndAcceptProposalInput,
+  MarkProposalStaleInput,
   ProposalApplyResult,
   ProposalBatchAcceptInput,
   ProposalBatchAcceptResult,
@@ -43,6 +44,12 @@ export function createProposalApi(client: ApiClient) {
         { body: input, method: "POST" },
       );
     },
+    markStale(seriesId: string, proposalId: string, input: MarkProposalStaleInput) {
+      return client.requestJson<ProposalDocument>(
+        `/series/${seriesId}/review/proposals/${proposalId}/mark-stale`,
+        { body: input, method: "POST" },
+      );
+    },
     batchPreview(seriesId: string, input: ProposalBatchPreviewInput) {
       return client.requestJson<ProposalBatchPreviewResult>(
         `/series/${seriesId}/review/proposals/batch-preview`,
@@ -60,6 +67,7 @@ export function createProposalApi(client: ApiClient) {
 
 export type {
   EditAndAcceptProposalInput,
+  MarkProposalStaleInput,
   ProposalApplyResult,
   ProposalBatchAcceptInput,
   ProposalBatchAcceptResult,

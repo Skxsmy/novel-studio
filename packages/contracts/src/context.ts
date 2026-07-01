@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CloudPolicySchema, RevisionHashSchema } from "./common.js";
+import { RevisionHashSchema } from "./common.js";
 import { AiTaskKindSchema, TokenUsageSchema } from "./ai.js";
 
 export const ContextItemKindSchema = z.enum([
@@ -53,9 +53,8 @@ export const ContextItemSchema = z.object({
   content: z.string().max(400000),
   inclusion: z.enum(["required", "selected", "derived"]).default("selected"),
   inclusionReason: z.string().max(1000).default(""),
-  access: CloudPolicySchema.default("local-only"),
   contextPolicy: z
-    .enum(["always", "on-mention", "manual", "never", "inherit", "local-only"])
+    .enum(["always", "on-mention", "manual", "never", "inherit"])
     .nullable()
     .default(null),
   tokenEstimate: z.number().int().nonnegative().default(0),
@@ -71,8 +70,6 @@ export const ContextExclusionReasonSchema = z.enum([
   "hidden-section",
   "policy-never",
   "context-policy-never",
-  "policy-local-only",
-  "cloud-disabled",
   "not-mentioned",
   "archived",
   "not-selected",

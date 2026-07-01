@@ -1,5 +1,4 @@
 import type {
-  CloudPolicy,
   CreateActInput,
   CreateBookInput,
   CreateChapterInput,
@@ -80,7 +79,6 @@ export interface ProjectSessionState {
   updateAct: (actId: string, input: UpdateActInput) => Promise<void>;
   updateVolume: (bookId: string, input: UpdateBookInput) => Promise<void>;
   updateChapter: (chapterId: string, input: UpdateChapterInput) => Promise<void>;
-  updateCloudPolicy: (cloudPolicy: CloudPolicy) => Promise<void>;
   updateDraftDocument: (document: SceneBlockDocument) => void;
   updateDraftTitle: (title: string) => void;
 }
@@ -572,22 +570,6 @@ export function useProjectSession(): ProjectSessionState {
     [activeSeries, isCreatingStructure],
   );
 
-  const updateCloudPolicy = useCallback(
-    async (cloudPolicy: CloudPolicy) => {
-      if (!activeSeries) return;
-
-      setErrorMessage(null);
-      try {
-        const manifest = await api.ai.updateCloudPolicy(activeSeries.manifest.id, { cloudPolicy });
-        setActiveSeries((current) => (current ? { ...current, manifest } : current));
-      } catch (error) {
-        setErrorMessage(formatError(error, "Failed to save project cloud policy"));
-        throw error;
-      }
-    },
-    [activeSeries],
-  );
-
   const deleteScene = useCallback(
     async (sceneId: string) => {
       if (!activeSeries || isCreatingStructure) return;
@@ -791,7 +773,6 @@ export function useProjectSession(): ProjectSessionState {
     updateAct,
     updateVolume,
     updateChapter,
-    updateCloudPolicy,
     updateDraftDocument,
     updateDraftTitle,
   };

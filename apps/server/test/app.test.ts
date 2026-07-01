@@ -780,12 +780,12 @@ describe("local API", () => {
     expect(sensitiveResponse.statusCode).toBe(201);
     expect(sensitiveResponse.json().metadata.aiPolicy).toBe("never");
 
-    const cloudContext = await app.inject({
+    const sectionContext = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/sections/context?target=cloud`,
+      url: `/api/v1/series/${series.manifest.id}/scenes/${scene.metadata.id}/sections/context`,
     });
-    expect(cloudContext.statusCode).toBe(200);
-    expect(cloudContext.json()).toEqual([]);
+    expect(sectionContext.statusCode).toBe(200);
+    expect(sectionContext.json()).toEqual([]);
 
     const text = "林岚推开窗。";
     const updated = await app.inject({

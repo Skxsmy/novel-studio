@@ -38,7 +38,7 @@
 
 覆盖：`FR-AI-02`–`FR-AI-04`、ProviderAdapter、Context Bundle、风格档案。
 
-完成标准：至少一个本地和一个云端适配器通过同一契约；调用前预览上下文和权限；调用后可审计模型、Prompt 版本与用量；local-only 阻断测试通过。
+完成标准：至少一个本地和一个外部 Provider 适配器通过同一契约；调用前预览上下文和权限；调用后可审计模型、Prompt 版本与用量；显式 Provider 不静默回退；明文密钥不写入项目文件或响应。
 
 ## NS-410 Block Write Editor 与 Unified Codex Progression
 

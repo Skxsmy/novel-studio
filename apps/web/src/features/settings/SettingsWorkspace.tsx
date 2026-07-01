@@ -1,36 +1,34 @@
 import type {
-  CloudPolicy,
+  AiProvider,
   ModelProfile,
   ModelProfileCredentialStatus,
   ProviderConnectionResult,
   ProviderModelDescriptor,
-  SeriesDetail,
 } from "@novel-studio/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../../api";
 import {
-  cloudPolicyOptions,
   connectionSummary,
   credentialStatusClass,
   credentialStatusLabel,
   credentialSummary,
+  defaultFormForProvider,
   emptyModelProfileForm,
   formFromProfile,
-  isCloudProvider,
   modelProfileInputFromForm,
   modelsSummary,
   profileStatusClass,
   profileStatusLabel,
+  providerDefaultsForSelection,
+  providerLabel,
   providerOptions,
+  requiresServiceKey,
   updateModelProfileInputFromForm,
+  visibleSettingsProfile,
   type ModelProfileForm,
 } from "./settingsViewModel";
 
-type SettingsSection = "project" | "models";
-
 export interface SettingsWorkspaceProps {
-  onUpdateCloudPolicy: (cloudPolicy: CloudPolicy) => Promise<void>;
-  series: SeriesDetail | null;
 }
 
 function formatError(error: unknown, fallback: string) {
@@ -58,8 +56,12 @@ function replaceProfile(profiles: ModelProfile[], profile: ModelProfile) {
   return profiles.map((candidate) => (candidate.id === profile.id ? profile : candidate));
 }
 
-export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorkspaceProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSection>("models");
+function profileSubtitle(profile: ModelProfile) {
+  return `${providerLabel(profile.provider)} / ${profile.model}`;
+}
+
+export function SettingsWorkspace({}: SettingsWorkspaceProps = {}) {
+  const serviceKeyInputRef = useRef<HTMLInputElement | null>(null);
   const [connectionResult, setConnectionResult] = useState<ProviderConnectionResult | null>(null);
   const [credentialStatus, setCredentialStatus] = useState<ModelProfileCredentialStatus | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -69,14 +71,12 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
   const [isDeletingCredential, setIsDeletingCredential] = useState(false);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
+  const [isModelsExpanded, setIsModelsExpanded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isSavingPolicy, setIsSavingPolicy] = useState(false);
+  const [isSavingCredential, setIsSavingCredential] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [models, setModels] = useState<ProviderModelDescriptor[]>([]);
   const [profiles, setProfiles] = useState<ModelProfile[]>([]);
-  const [projectCloudPolicy, setProjectCloudPolicy] = useState<CloudPolicy>(
-    series?.manifest.cloudPolicy ?? "local-only",
-  );
   const [resultMessage, setResultMessage] = useState<string | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
 
@@ -84,10 +84,7 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
     () => profiles.find((profile) => profile.id === selectedProfileId) ?? null,
     [profiles, selectedProfileId],
   );
-
-  useEffect(() => {
-    setProjectCloudPolicy(series?.manifest.cloudPolicy ?? "local-only");
-  }, [series?.manifest.cloudPolicy]);
+  const credentialProfile = selectedProfile ?? credentialStatus?.modelProfile ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -95,28 +92,23 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
     setCredentialStatus(null);
     setErrorMessage(null);
     setModels([]);
+    setIsModelsExpanded(false);
     setProfiles([]);
     setResultMessage(null);
     setSelectedProfileId(null);
 
-    if (!series) {
-      setForm(emptyModelProfileForm);
-      return () => {
-        cancelled = true;
-      };
-    }
-
     setIsLoadingProfiles(true);
-    void api.ai.listModelProfiles(series.manifest.id)
+    void api.ai.listModelProfiles()
       .then((loadedProfiles) => {
         if (cancelled) return;
-        setProfiles(loadedProfiles);
-        const firstProfile = loadedProfiles[0] ?? null;
+        const visibleProfiles = loadedProfiles.filter(visibleSettingsProfile);
+        setProfiles(visibleProfiles);
+        const firstProfile = visibleProfiles[0] ?? null;
         setSelectedProfileId(firstProfile?.id ?? null);
         setForm(firstProfile ? formFromProfile(firstProfile) : emptyModelProfileForm);
       })
       .catch((error) => {
-        if (!cancelled) setErrorMessage(formatError(error, "Failed to load model profiles"));
+        if (!cancelled) setErrorMessage(formatError(error, "Failed to load model settings"));
       })
       .finally(() => {
         if (!cancelled) setIsLoadingProfiles(false);
@@ -125,25 +117,27 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
     return () => {
       cancelled = true;
     };
-  }, [series]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setCredentialStatus(null);
-    if (!series || !selectedProfileId) {
+    if (!selectedProfileId) {
       return () => {
         cancelled = true;
       };
     }
 
-    void api.ai.getModelCredentialStatus(series.manifest.id, selectedProfileId)
+    void api.ai.getModelCredentialStatus(selectedProfileId)
       .then((status) => {
         if (cancelled) return;
         setCredentialStatus(status);
-        setProfiles((current) => replaceProfile(current, status.modelProfile));
-        setForm((current) => (
-          current.id === status.modelProfile.id ? formFromProfile(status.modelProfile) : current
-        ));
+        if (visibleSettingsProfile(status.modelProfile)) {
+          setProfiles((current) => replaceProfile(current, status.modelProfile));
+          setForm((current) => (
+            current.id === status.modelProfile.id ? formFromProfile(status.modelProfile) : current
+          ));
+        }
       })
       .catch((error) => {
         if (!cancelled) setErrorMessage(formatError(error, "Failed to load service key status"));
@@ -152,20 +146,45 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
     return () => {
       cancelled = true;
     };
-  }, [selectedProfileId, series]);
+  }, [selectedProfileId]);
 
   function updateForm<K extends keyof ModelProfileForm>(field: K, value: ModelProfileForm[K]) {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
+  function currentServiceKeySecret() {
+    return (serviceKeyInputRef.current?.value ?? form.secret).trim();
+  }
+
+  function updateSecretInput(value: string) {
+    updateForm("secret", value);
+  }
+
+  function changeProvider(provider: AiProvider) {
+    const defaults = providerDefaultsForSelection(provider);
+    setConnectionResult(null);
+    setCredentialStatus(null);
+    setModels([]);
+    setResultMessage(null);
+    setForm((current) => ({
+      ...current,
+      baseUrl: defaults.baseUrl,
+      capabilities: defaults.capabilities,
+      contextWindowTokens: defaults.contextWindowTokens,
+      model: defaults.model,
+      provider,
+      title: current.id ? current.title : defaults.title,
+    }));
+  }
+
   function startNewModel() {
-    setActiveSection("models");
     setConnectionResult(null);
     setCredentialStatus(null);
     setErrorMessage(null);
-    setForm(emptyModelProfileForm);
+    setForm(defaultFormForProvider("deepseek"));
     setIsArchiveConfirmOpen(false);
     setModels([]);
+    setIsModelsExpanded(false);
     setResultMessage(null);
     setSelectedProfileId(null);
   }
@@ -177,72 +196,79 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
     setForm(formFromProfile(profile));
     setIsArchiveConfirmOpen(false);
     setModels([]);
+    setIsModelsExpanded(false);
     setResultMessage(null);
     setSelectedProfileId(profile.id);
   }
 
-  async function saveProjectPolicy() {
-    if (!series) return;
-    setIsSavingPolicy(true);
-    setErrorMessage(null);
-    setResultMessage(null);
-    try {
-      await onUpdateCloudPolicy(projectCloudPolicy);
-      setResultMessage("Project cloud policy saved.");
-    } catch (error) {
-      setErrorMessage(formatError(error, "Failed to save project cloud policy"));
-    } finally {
-      setIsSavingPolicy(false);
+  async function persistCurrentProfile(options: { saveSecret: boolean; secret?: string }): Promise<ModelProfile> {
+    let saved = form.id
+      ? await api.ai.updateModelProfile(form.id, updateModelProfileInputFromForm(form))
+      : await api.ai.createModelProfile(modelProfileInputFromForm(form));
+    if (options.saveSecret) {
+      const secret = (options.secret ?? currentServiceKeySecret()).trim();
+      if (secret) {
+        const credential = await api.ai.saveModelCredential(saved.id, {
+          secret,
+        });
+        saved = credential.modelProfile;
+        setCredentialStatus(await api.ai.getModelCredentialStatus(saved.id));
+      }
+    } else if (!saved.credentialRef) {
+      setCredentialStatus(null);
     }
+    setProfiles((current) => replaceProfile(current, saved));
+    setSelectedProfileId(saved.id);
+    setForm(formFromProfile(saved));
+    return saved;
   }
 
   async function saveModelProfile() {
-    if (!series) return;
     setIsSaving(true);
     setConnectionResult(null);
     setErrorMessage(null);
     setResultMessage(null);
     try {
-      let saved = form.id
-        ? await api.ai.updateModelProfile(series.manifest.id, form.id, updateModelProfileInputFromForm(form))
-        : await api.ai.createModelProfile(series.manifest.id, modelProfileInputFromForm(form));
-      if (form.secret.trim()) {
-        const credential = await api.ai.saveModelCredential(series.manifest.id, saved.id, {
-          secret: form.secret.trim(),
-        });
-        saved = credential.modelProfile;
-      }
-      setProfiles((current) => replaceProfile(current, saved));
-      setSelectedProfileId(saved.id);
-      setForm(formFromProfile(saved));
-      setCredentialStatus((current) => {
-        if (!saved.credentialRef) return null;
-        if (form.secret.trim()) {
-          return {
-            credentialRef: saved.credentialRef,
-            exists: true,
-            modelProfile: saved,
-            storeKind: "windows-credential-manager",
-          };
-        }
-        return current?.credentialRef === saved.credentialRef ? { ...current, modelProfile: saved } : null;
-      });
-      setResultMessage(form.secret.trim() ? "Model and key saved." : "Model saved.");
+      const secret = currentServiceKeySecret();
+      await persistCurrentProfile({ saveSecret: true, secret });
+      setResultMessage(secret
+        ? "Model setting saved. Service key stored and verified."
+        : "Model setting saved.");
     } catch (error) {
-      setErrorMessage(formatError(error, "Failed to save model profile"));
+      setErrorMessage(formatError(error, "Failed to save model setting"));
     } finally {
       setIsSaving(false);
     }
   }
 
+  async function saveCredential() {
+    const secret = currentServiceKeySecret();
+    if (!secret) {
+      setErrorMessage("Paste a service key before saving it.");
+      return;
+    }
+    setIsSavingCredential(true);
+    setConnectionResult(null);
+    setErrorMessage(null);
+    setResultMessage(null);
+    try {
+      await persistCurrentProfile({ saveSecret: true, secret });
+      setResultMessage("Service key stored and verified.");
+    } catch (error) {
+      setErrorMessage(formatError(error, "Failed to save service key"));
+    } finally {
+      setIsSavingCredential(false);
+    }
+  }
+
   async function deleteCredential() {
-    if (!series || !form.id) return;
+    if (!form.id) return;
     setIsDeletingCredential(true);
     setConnectionResult(null);
     setErrorMessage(null);
     setResultMessage(null);
     try {
-      const result = await api.ai.deleteModelCredential(series.manifest.id, form.id);
+      const result = await api.ai.deleteModelCredential(form.id);
       setProfiles((current) => replaceProfile(current, result.modelProfile));
       setForm(formFromProfile(result.modelProfile));
       setCredentialStatus({
@@ -260,13 +286,13 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
   }
 
   async function archiveModelProfile() {
-    if (!series || !form.id) return;
+    if (!form.id) return;
     setIsArchiving(true);
     setConnectionResult(null);
     setErrorMessage(null);
     setResultMessage(null);
     try {
-      await api.ai.archiveModelProfile(series.manifest.id, form.id);
+      await api.ai.archiveModelProfile(form.id);
       const nextProfiles = profiles.filter((profile) => profile.id !== form.id);
       const nextProfile = nextProfiles[0] ?? null;
       setProfiles(nextProfiles);
@@ -275,27 +301,32 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
       setCredentialStatus(null);
       setIsArchiveConfirmOpen(false);
       setModels([]);
-      setResultMessage("Model archived.");
+      setResultMessage("Model setting archived.");
     } catch (error) {
-      setErrorMessage(formatError(error, "Failed to archive model profile"));
+      setErrorMessage(formatError(error, "Failed to archive model setting"));
     } finally {
       setIsArchiving(false);
     }
   }
 
   async function testConnection() {
-    if (!series || !form.id) {
-      setErrorMessage("Save the model profile before testing.");
-      return;
-    }
     setIsTesting(true);
     setConnectionResult(null);
     setErrorMessage(null);
     setResultMessage(null);
     try {
-      const result = await api.ai.testModelProfile(series.manifest.id, form.id);
+      const secret = currentServiceKeySecret();
+      if (keyRequired && !secret && !credentialProfile?.credentialRef) {
+        setErrorMessage("Paste or save a service key before testing this provider.");
+        return;
+      }
+      const profileId = form.id && !secret
+        ? form.id
+        : (await persistCurrentProfile({ saveSecret: true, secret })).id;
+      const result = await api.ai.testModelProfile(profileId);
       setConnectionResult(result);
       setModels(result.models);
+      setIsModelsExpanded(result.models.length > 0 && result.models.length <= 12);
       setResultMessage(result.ok ? "Connection ok." : "Connection failed.");
     } catch (error) {
       setErrorMessage(formatError(error, "Connection test failed"));
@@ -305,15 +336,21 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
   }
 
   async function fetchModels() {
-    if (!series || !form.id) {
-      setErrorMessage("Save the model profile before fetching models.");
-      return;
-    }
     setIsFetchingModels(true);
     setErrorMessage(null);
     setResultMessage(null);
     try {
-      setModels(await api.ai.listProviderModels(series.manifest.id, form.id));
+      const secret = currentServiceKeySecret();
+      if (keyRequired && !secret && !credentialProfile?.credentialRef) {
+        setErrorMessage("Paste or save a service key before fetching provider models.");
+        return;
+      }
+      const profileId = form.id && !secret
+        ? form.id
+        : (await persistCurrentProfile({ saveSecret: true, secret })).id;
+      const providerModels = await api.ai.listProviderModels(profileId);
+      setModels(providerModels);
+      setIsModelsExpanded(providerModels.length > 0 && providerModels.length <= 12);
       setResultMessage("Provider model list updated.");
     } catch (error) {
       setErrorMessage(formatError(error, "Failed to fetch provider models"));
@@ -329,269 +366,221 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
       contextWindowTokens: model.contextWindowTokens,
       model: model.id,
     }));
-    setResultMessage("Model selected. Save the profile to use it.");
+    setIsModelsExpanded(false);
+    setResultMessage("Model selected. Save the setting to use it.");
   }
 
-  const formDisabled = !series || isSaving || isArchiving || isDeletingCredential;
-  const savedProfileRequired = !series || !form.id;
-  const policyPreview = isCloudProvider(form.provider)
-    ? projectCloudPolicy === "cloud-allowed" && form.cloudPolicy === "cloud-allowed"
-      ? "Cloud provider allowed by project and model policy."
-      : "Cloud provider blocked until project and model policy are both Cloud allowed."
-    : "Local provider path.";
-  const isPolicyBlocked = isCloudProvider(form.provider) &&
-    (projectCloudPolicy !== "cloud-allowed" || form.cloudPolicy !== "cloud-allowed");
-  const hasCurrentProviderOption = providerOptions.some((option) => option.value === form.provider);
+  const formDisabled = isSaving || isSavingCredential || isArchiving || isDeletingCredential || isTesting || isFetchingModels;
+  const savedProfileRequired = !form.id;
+  const keyRequired = requiresServiceKey(form.provider);
 
   return (
     <>
       <div className="page-head">
         <div>
           <h2 className="page-title">Settings</h2>
-          <p className="page-subtitle">Configure project policy and model connections.</p>
+          <p className="page-subtitle">Model connections and service keys.</p>
         </div>
-        <button className="btn primary" disabled={!series} onClick={startNewModel} type="button">
-          New Model
+        <button className="btn primary" onClick={startNewModel} type="button">
+          New Connection
         </button>
       </div>
 
       <div className="settings-grid">
         <aside className="panel no-shadow">
-          <div className="panel-body settings-nav">
-            <button
-              className={`btn${activeSection === "project" ? " primary" : ""}`}
-              onClick={() => setActiveSection("project")}
-              type="button"
-            >
-              Project
+          <div className="panel-head">
+            <div>
+              <div className="panel-title">Connections</div>
+              <div className="panel-kicker">{profiles.length} saved</div>
+            </div>
+            <button className="btn compact" disabled={isLoadingProfiles} onClick={startNewModel} type="button">
+              Add
             </button>
-            <button
-              className={`btn${activeSection === "models" ? " primary" : ""}`}
-              onClick={() => setActiveSection("models")}
-              type="button"
-            >
-              Models
-            </button>
+          </div>
+          <div className="panel-body stack">
+            {isLoadingProfiles ? <div className="large-note">Loading model settings...</div> : null}
+            {!isLoadingProfiles && profiles.length === 0 ? (
+              <div className="large-note">
+                <strong>No model settings yet</strong>
+                <p>Create a provider connection and save a service key.</p>
+              </div>
+            ) : null}
+            {profiles.map((profile) => (
+              <button
+                aria-pressed={profile.id === selectedProfileId}
+                className={`model-row${profile.id === selectedProfileId ? " is-active" : ""}`}
+                key={profile.id}
+                onClick={() => selectProfile(profile)}
+                type="button"
+              >
+                <div>
+                  <div className="row-title">{profile.title}</div>
+                  <div className="row-meta">{profileSubtitle(profile)}</div>
+                </div>
+                <span className={profileStatusClass(profile)}>{profileStatusLabel(profile)}</span>
+              </button>
+            ))}
           </div>
         </aside>
 
         <section className="panel">
           <div className="panel-head">
             <div>
-              <div className="panel-title">{activeSection === "project" ? "Project Settings" : "Model Connections"}</div>
+              <div className="panel-title">{form.id ? "Edit Model Setting" : "New Model Setting"}</div>
               <div className="panel-kicker">
-                {series ? series.manifest.title : "Open a project before editing settings"}
+                Shared across all projects
               </div>
             </div>
-            {activeSection === "models" ? (
-              <button className="btn" disabled={!series || isLoadingProfiles} onClick={startNewModel} type="button">
-                Add
-              </button>
-            ) : (
-              <button className="btn primary" disabled={!series || isSavingPolicy} onClick={saveProjectPolicy} type="button">
-                Save Policy
-              </button>
-            )}
+            <button className="btn primary" disabled={formDisabled} onClick={saveModelProfile} type="button">
+              Save Setting
+            </button>
           </div>
-
-          {!series ? (
-            <div className="panel-body">
-              <div className="large-note">
-                <strong>No project open</strong>
-                <p>Open or create a project from the library before editing settings.</p>
+          <div className="panel-body stack">
+            <div className="form-grid">
+              <div className="field">
+                <label htmlFor="model-title">Setting name</label>
+                <input
+                  className="input"
+                  disabled={formDisabled}
+                  id="model-title"
+                  onChange={(event) => updateForm("title", event.target.value)}
+                  value={form.title}
+                />
               </div>
-            </div>
-          ) : activeSection === "project" ? (
-            <div className="panel-body stack">
-              <div className="form-grid">
-                <div className="field wide">
-                  <label htmlFor="project-cloud-policy">Project cloud policy</label>
-                  <select
-                    className="select"
-                    disabled={isSavingPolicy}
-                    id="project-cloud-policy"
-                    onChange={(event) => setProjectCloudPolicy(event.target.value as CloudPolicy)}
-                    value={projectCloudPolicy}
-                  >
-                    {cloudPolicyOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="row-list">
-                {cloudPolicyOptions.map((option) => (
-                  <div className="data-row" key={option.value}>
-                    <div>
-                      <div className="row-title">{option.label}</div>
-                      <div className="row-meta">{option.description}</div>
-                    </div>
-                    <span className={option.value === projectCloudPolicy ? "pill green" : "pill"}>{option.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="panel-body stack">
-              {isLoadingProfiles ? <div className="large-note">Loading model profiles...</div> : null}
-              {!isLoadingProfiles && profiles.length === 0 ? (
-                <div className="large-note">
-                  <strong>No model profiles yet</strong>
-                  <p>Create the first model profile, save it, then test the connection.</p>
-                </div>
-              ) : null}
-              {profiles.map((profile) => (
-                <button
-                  aria-pressed={profile.id === selectedProfileId}
-                  className={`model-row${profile.id === selectedProfileId ? " is-active" : ""}`}
-                  key={profile.id}
-                  onClick={() => selectProfile(profile)}
-                  type="button"
+              <div className="field">
+                <label htmlFor="settings-provider">Provider</label>
+                <select
+                  className="select"
+                  disabled={formDisabled}
+                  id="settings-provider"
+                  onChange={(event) => changeProvider(event.target.value as AiProvider)}
+                  value={form.provider}
                 >
-                  <div>
-                    <div className="row-title">{profile.title}</div>
-                    <div className="row-meta">{profile.provider} / {profile.model}</div>
-                  </div>
-                  <span className={profileStatusClass(profile)}>{profileStatusLabel(profile)}</span>
-                </button>
-              ))}
-              <div className="form-grid">
-                <div className="field">
-                  <label htmlFor="model-title">Model title</label>
-                  <input
-                    className="input"
-                    disabled={formDisabled}
-                    id="model-title"
-                    onChange={(event) => updateForm("title", event.target.value)}
-                    value={form.title}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="settings-provider">Provider</label>
-                  <select
-                    className="select"
-                    disabled={formDisabled}
-                    id="settings-provider"
-                    onChange={(event) => updateForm("provider", event.target.value as ModelProfileForm["provider"])}
-                    value={form.provider}
-                  >
-                    {providerOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                    {!hasCurrentProviderOption ? (
-                      <option value={form.provider}>{form.provider} (deferred)</option>
-                    ) : null}
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="model-id">Model id</label>
-                  <input
-                    className="input"
-                    disabled={formDisabled}
-                    id="model-id"
-                    onChange={(event) => updateForm("model", event.target.value)}
-                    value={form.model}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="model-cloud-policy">Model cloud policy</label>
-                  <select
-                    className="select"
-                    disabled={formDisabled}
-                    id="model-cloud-policy"
-                    onChange={(event) => updateForm("cloudPolicy", event.target.value as CloudPolicy)}
-                    value={form.cloudPolicy}
-                  >
-                    {cloudPolicyOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field wide">
-                  <label htmlFor="base-url">Base URL</label>
-                  <input
-                    className="input"
-                    disabled={formDisabled}
-                    id="base-url"
-                    onChange={(event) => updateForm("baseUrl", event.target.value)}
-                    placeholder="Optional provider endpoint"
-                    value={form.baseUrl}
-                  />
-                </div>
-                <div className="field wide">
-                  <label htmlFor="service-key">Service key</label>
-                  <input
-                    className="input"
-                    disabled={formDisabled}
-                    id="service-key"
-                    onChange={(event) => updateForm("secret", event.target.value)}
-                    placeholder={selectedProfile?.credentialRef ? "Leave blank to keep saved key" : "Paste key for this service"}
-                    type="password"
-                    value={form.secret}
-                  />
+                  {providerOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="model-id">Model id</label>
+                <input
+                  className="input"
+                  disabled={formDisabled}
+                  id="model-id"
+                  onChange={(event) => updateForm("model", event.target.value)}
+                  value={form.model}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="context-window">Context window</label>
+                <input
+                  className="input"
+                  disabled={formDisabled}
+                  id="context-window"
+                  min={1}
+                  onChange={(event) => updateForm("contextWindowTokens", Number(event.target.value) || 1)}
+                  type="number"
+                  value={form.contextWindowTokens}
+                />
+              </div>
+              <div className="field wide">
+                <label htmlFor="base-url">Base URL</label>
+                <input
+                  className="input"
+                  disabled={formDisabled}
+                  id="base-url"
+                  onChange={(event) => updateForm("baseUrl", event.target.value)}
+                  placeholder="Provider default"
+                  value={form.baseUrl}
+                />
+              </div>
+              <div className="field wide">
+                <label htmlFor="service-key">Service key</label>
+                <input
+                  className="input"
+                  disabled={formDisabled || !keyRequired}
+                  id="service-key"
+                  onChange={(event) => updateSecretInput(event.target.value)}
+                  onInput={(event) => updateSecretInput(event.currentTarget.value)}
+                  placeholder={credentialProfile?.credentialRef ? "Paste a new key to replace the saved key" : "Paste service key"}
+                  ref={serviceKeyInputRef}
+                  type="password"
+                  value={form.secret}
+                />
+                <div className="field-hint">{credentialSummary(credentialProfile, credentialStatus)}</div>
+              </div>
+            </div>
+            <div className="model-row">
+              <div>
+                <div className="row-title">Provider</div>
+                <div className="row-meta">
+                  {keyRequired ? "This provider uses a saved service key." : "This provider can run without a service key."}
                 </div>
               </div>
-              <div className="model-row">
+              <span className={keyRequired && !credentialProfile?.credentialRef ? "pill amber" : "pill green"}>
+                {providerLabel(form.provider)}
+              </span>
+            </div>
+            <div className="top-actions">
+              <button className="btn" disabled={formDisabled} onClick={testConnection} type="button">
+                Test Connection
+              </button>
+              <button className="btn" disabled={formDisabled} onClick={fetchModels} type="button">
+                Fetch Models
+              </button>
+              <button
+                className="btn"
+                disabled={formDisabled || !keyRequired}
+                onClick={() => void saveCredential()}
+                type="button"
+              >
+                Save / Replace Key
+              </button>
+              {!savedProfileRequired ? (
+                <>
+                  <button
+                    className="btn"
+                    disabled={formDisabled || !credentialProfile?.credentialRef}
+                    onClick={() => void deleteCredential()}
+                    type="button"
+                  >
+                    Delete Key
+                  </button>
+                  <button
+                    className="btn danger"
+                    disabled={formDisabled}
+                    onClick={() => setIsArchiveConfirmOpen(true)}
+                    type="button"
+                  >
+                    Archive Setting
+                  </button>
+                </>
+              ) : null}
+            </div>
+            {isArchiveConfirmOpen ? (
+              <div className="inline-confirm">
                 <div>
-                  <div className="row-title">Policy</div>
-                  <div className="row-meta">{policyPreview}</div>
+                  <div className="confirm-title">Archive this setting?</div>
+                  <div className="confirm-copy">Archived settings leave the active connection list.</div>
                 </div>
-                <span className={isPolicyBlocked ? "pill amber" : "pill green"}>
-                  {isCloudProvider(form.provider) ? "Cloud" : "Local"}
-                </span>
-              </div>
-              <div className="top-actions">
-                <button className="btn" disabled={savedProfileRequired || isTesting || isArchiving} onClick={testConnection} type="button">
-                  Test Connection
-                </button>
-                <button className="btn" disabled={savedProfileRequired || isFetchingModels || isArchiving} onClick={fetchModels} type="button">
-                  Fetch Models
-                </button>
-                <button
-                  className="btn"
-                  disabled={savedProfileRequired || !selectedProfile?.credentialRef || isDeletingCredential}
-                  onClick={() => void deleteCredential()}
-                  type="button"
-                >
-                  Delete Key
-                </button>
-                <button className="btn primary" disabled={!series || isSaving || isArchiving || isDeletingCredential} onClick={saveModelProfile} type="button">
-                  Save Model
-                </button>
-                <button
-                  className="btn danger"
-                  disabled={savedProfileRequired || isArchiving}
-                  onClick={() => setIsArchiveConfirmOpen(true)}
-                  type="button"
-                >
-                  Archive Model
-                </button>
-              </div>
-              {isArchiveConfirmOpen ? (
-                <div className="inline-confirm">
-                  <div>
-                    <div className="confirm-title">Archive this model?</div>
-                    <div className="confirm-copy">Archived profiles leave active settings and cannot be selected for new calls.</div>
-                  </div>
-                  <div className="confirm-actions">
-                    <button className="btn compact" disabled={isArchiving} onClick={() => setIsArchiveConfirmOpen(false)} type="button">
-                      Cancel
-                    </button>
-                    <button className="btn compact danger" disabled={isArchiving} onClick={() => void archiveModelProfile()} type="button">
-                      Archive Model
-                    </button>
-                  </div>
+                <div className="confirm-actions">
+                  <button className="btn compact" disabled={isArchiving} onClick={() => setIsArchiveConfirmOpen(false)} type="button">
+                    Cancel
+                  </button>
+                  <button className="btn compact danger" disabled={isArchiving} onClick={() => void archiveModelProfile()} type="button">
+                    Archive Setting
+                  </button>
                 </div>
-              ) : null}
-            </div>
-          )}
+              </div>
+            ) : null}
+          </div>
         </section>
 
         <aside className="panel no-shadow">
           <div className="panel-head">
             <div>
-              <div className="panel-title">Status</div>
-              <div className="panel-kicker">Last operation</div>
+              <div className="panel-title">Key And Connection</div>
+              <div className="panel-kicker">Current setting</div>
             </div>
           </div>
           <div className="panel-body stack">
@@ -600,10 +589,10 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
             <div className="model-row">
               <div>
                 <div className="row-title">Service key</div>
-                <div className="row-meta">{credentialSummary(selectedProfile, credentialStatus)}</div>
+                <div className="row-meta">{credentialSummary(credentialProfile, credentialStatus)}</div>
               </div>
-              <span className={credentialStatusClass(selectedProfile, credentialStatus)}>
-                {credentialStatusLabel(selectedProfile, credentialStatus)}
+              <span className={credentialStatusClass(credentialProfile, credentialStatus)}>
+                {credentialStatusLabel(credentialProfile, credentialStatus)}
               </span>
             </div>
             <div className="model-row">
@@ -618,23 +607,38 @@ export function SettingsWorkspace({ onUpdateCloudPolicy, series }: SettingsWorks
                 <div className="row-title">Provider models</div>
                 <div className="row-meta">{modelsSummary(models)}</div>
               </div>
-              <span className="pill">{models.length}</span>
+              <div className="row-actions">
+                <span className="pill">{models.length}</span>
+                {models.length > 0 ? (
+                  <button
+                    className="btn compact"
+                    onClick={() => setIsModelsExpanded((value) => !value)}
+                    type="button"
+                  >
+                    {isModelsExpanded ? "Hide Models" : "Show Models"}
+                  </button>
+                ) : null}
+              </div>
             </div>
-            {models.map((model) => (
-              <button
-                className="data-row"
-                disabled={formDisabled}
-                key={model.id}
-                onClick={() => selectProviderModel(model)}
-                type="button"
-              >
-                <div>
-                  <div className="row-title">{model.title}</div>
-                  <div className="row-meta">{model.id}</div>
-                </div>
-                <span className="pill">{model.contextWindowTokens.toLocaleString()}</span>
-              </button>
-            ))}
+            {models.length > 0 && isModelsExpanded ? (
+              <div aria-label="Provider model list" className="provider-models-list">
+                {models.map((model) => (
+                  <button
+                    className="data-row"
+                    disabled={formDisabled}
+                    key={model.id}
+                    onClick={() => selectProviderModel(model)}
+                    type="button"
+                  >
+                    <div>
+                      <div className="row-title">{model.title}</div>
+                      <div className="row-meta">{model.id}</div>
+                    </div>
+                    <span className="pill">{model.contextWindowTokens.toLocaleString()}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         </aside>
       </div>

@@ -20,7 +20,7 @@
   },
   "settingsVerification": {
     "topbar": "Settings",
-    "hasSettingsCloudPolicy": true,
+    "hasSettingsPolicyControl": false,
     "hasProjectTitle": true,
     "horizontalOverflow": false
   },

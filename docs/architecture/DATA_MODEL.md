@@ -90,7 +90,7 @@ NS-410 起，场景是 JSON 权威文件。正文权威是 `document: SceneBlock
 
 Section 是与一个场景关联、但不属于小说正文的独立 JSON 文档。路径为 `sections/<sceneId>/<sectionId>.json`，包含 `id`、`sceneId`、标题、类型、正文内容、AI 权限、创建/更新时间和 `archivedAt`。
 
-类型为 `author-note`、`candidate`、`research`、`sensitive`、`temporary`；AI 权限为 `inherit`、`local-only`、`never`。敏感资料默认 `never`。归档只设置时间，恢复清空时间；不通过删除表达普通生命周期。Section revision 由自身完整文件计算，更新 Section 不改变正文 revision。
+类型为 `author-note`、`candidate`、`research`、`sensitive`、`temporary`；AI 权限为 `inherit`、`never`。敏感资料默认 `never`。归档只设置时间，恢复清空时间；不通过删除表达普通生命周期。Section revision 由自身完整文件计算，更新 Section 不改变正文 revision。
 
 ## 审阅锚点
 
@@ -166,25 +166,28 @@ M4 的 AI 能力以 `packages/contracts` 中的 Zod 契约为先。NS-401 只确
 推荐目录：
 
 ```text
+library-root/
+└─ .studio/
+   └─ model-profiles/<profile-id>.json
+
 series-slug-id/
 ├─ prompts/
 │  ├─ roles/<role-id>.json
 │  ├─ templates/<prompt-template-id>/v<version>.json
 │  └─ presets/<preset-id>.json
 └─ .studio/
-   ├─ model-profiles/<profile-id>.json
    ├─ context-bundles/<context-bundle-id>.json
    ├─ model-calls/<model-call-id>.json
    └─ inbox/proposals/<proposal-id>.json
 ```
 
-这些文件是 AI 配置、审计和候选层，不是正文、设定、故事进展或角色所知的权威来源。接受候选变更前，应用层必须重新读取目标文件并比较 `baseRevision`。
+模型配置是作品库级全局 Settings 数据；ContextBundle、ModelCallLog、Proposal 等审计和候选文件仍属于具体 project/series。它们都不是正文、设定、故事进展或角色所知的权威来源。接受候选变更前，应用层必须重新读取目标文件并比较 `baseRevision`。
 
 ### ModelProfile
 
-位置：`.studio/model-profiles/<profile-id>.json`
+位置：`<library-root>/.studio/model-profiles/<profile-id>.json`
 
-保存模型配置和能力，不保存密钥明文。
+保存所有项目共享的模型配置和能力，不保存密钥明文。
 
 ```json
 {
@@ -193,7 +196,6 @@ series-slug-id/
   "title": "本地 Mock 连续性编辑",
   "provider": "mock",
   "model": "mock-continuity-v1",
-  "cloudPolicy": "local-only",
   "credentialRef": null,
   "defaultParameters": {
     "temperature": 0.2,
@@ -212,9 +214,8 @@ series-slug-id/
 }
 ```
 
-`credentialRef` 是系统凭据引用，例如 `novel-studio:openai:default`。不得把 API key 写入项目 JSON 文件、SQLite、调用日志、浏览器 localStorage 或 Git。模型配置校验会拒绝明显的明文密钥字符串，例如 `sk-...`、`api_key` 或 `bearer ...`。
+`credentialRef` 是系统凭据引用，例如 `novel-studio/model-profile/<profile-id>`。不得把 API key 写入项目 JSON 文件、SQLite、调用日志、浏览器 localStorage 或 Git。模型配置校验会拒绝明显的明文密钥字符串，例如 `sk-...`、`api_key` 或 `bearer ...`。
 
-作品级 `series.json` 可能保存历史 `cloudPolicy` 字段。当前 M4 主界面不再提供“只允许本机模型”的全局开关；模型调用安全边界由 Provider 显式选择、系统凭据引用、资料级 `local-only/never` 规则和“禁止静默回退”共同保证。
 
 ### AgentRole
 
@@ -340,7 +341,6 @@ Preset 只保存默认角色、模板版本、模型配置和输入项，不保�
       "content": "模板 ID、版本和渲染后的提示词……",
       "inclusion": "required",
       "inclusionReason": "用于审计本次上下文预览采用的提示词版本。",
-      "access": "local-only",
       "contextPolicy": null,
       "tokenEstimate": 300,
       "manuallySelected": false,
@@ -369,7 +369,7 @@ Preset 只保存默认角色、模板版本、模型配置和输入项，不保�
 }
 ```
 
-排除原因必须可读且可测试，至少包括：`context-policy-never`、`future-information`、`hidden-section`、`cloud-disabled`、`over-budget`、`permission-denied`。
+排除原因必须可读且可测试，至少包括：`context-policy-never`、`future-information`、`hidden-section`、`over-budget`、`permission-denied`。
 
 ### ModelCallLog
 
@@ -385,7 +385,6 @@ Preset 只保存默认角色、模板版本、模型配置和输入项，不保�
   "taskKind": "continuity-check",
   "provider": "mock",
   "model": "mock-continuity-v1",
-  "cloudPolicy": "local-only",
   "contextBundleId": "00000000-0000-0000-0000-000000000000",
   "promptTemplateId": "00000000-0000-0000-0000-000000000000",
   "promptTemplateVersion": 1,

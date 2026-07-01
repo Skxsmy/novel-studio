@@ -7,7 +7,7 @@ This index keeps the original milestone/task history translated from the earlier
 ## Current Active Work
 
 - [x] `NS-410` Block Write Editor and Unified Codex Progression. Command-verified through post-Slice 11 audit repair; user visual acceptance remains separate.
-- [-] `M5` Workshop, Proposal, and Review. `M5.1-M5.5` are command/function verified on 2026-07-01. Next slice: `M5.6` Tool Plan, Grant, And Command Adapter. User visual acceptance remains pending, and agent-owned screenshot acceptance is prohibited.
+- [-] `M5` Workshop, Proposal, and Review. `M5.1-M5.5` plus post-M5.5 audit repair are command/function verified on 2026-07-01. Next slice: `M5.6` Tool Plan, Grant, And Command Adapter. User visual acceptance remains pending, and agent-owned screenshot acceptance is prohibited.
 - [x] `PROJECT-RECOVERY` Project-level recovery roadmap. Accepted for the current stage by user decision on 2026-06-30; future Workshop/Proposal/Review work belongs to M5.
 
 Current decision:
@@ -33,12 +33,13 @@ Current decision:
 Accepted recovery baseline and M5 guardrails:
 
 - Project Recovery current-stage acceptance is recorded; continue from the M5 plan unless the user redirects.
-- M5.0-M5.5 are recorded and command/function verified. Do not claim Tool Plans, Grants, Council, or final M5 completion before their later slice exit checks and user visual acceptance.
+- M5.0-M5.5 and post-M5.5 audit repair are recorded and command/function verified. Do not claim Tool Plans, Grants, Council, or final M5 completion before their later slice exit checks and user visual acceptance.
 - Done in current M5 code slice: Proposal v2 extends the existing Proposal contract and state machine without introducing a parallel Proposal model.
-- Done in current M5 code slice: Proposal JSON storage and Review/proposal APIs cover create/read/stale/accept/reject/edit/archive/supersede/batch preview/batch accept behavior with snapshot and blocker reporting.
-- Done in current M5 code slice: Review uses real Proposal APIs for inbox, exact Proposal detail, decisions, batch preview, and audit-field hiding in the main path.
+- Done in current M5 code slice: Proposal JSON storage and Review/proposal APIs cover create/read/stale/accept/reject/edit/archive/supersede/batch preview/batch accept behavior with snapshot and blocker reporting. Post-M5.5 audit repair requires scene-content base revisions, validates source/context/model-call references, binds batch accept to reviewed Proposal revisions, detects same-scene intra-batch conflicts, and writes accepted scene-content snapshot/scene/Proposal status through one transaction.
+- Done in current M5 code slice: Review uses real Proposal APIs for inbox, exact Proposal detail, decisions, stale marking, full patch review, batch preview/result display, and audit-field hiding in the main path.
 - Done in current M5 code slice: Workshop persists sessions/messages/context baskets, reloads durable messages, previews context through the existing Context Builder, and runs single-role calls without authority mutation.
-- Done in current M5 code slice: Workshop messages create durable Proposal cards with exact source-message deep links, Review source-message return links, and status sync from Proposal authority.
+- Done in current M5 code slice: Workshop messages create durable Proposal cards with exact source-message deep links, Review source-message return links, and status sync from Proposal authority. Post-M5.5 audit repair makes message-to-Proposal creation transactional across the Proposal and Workshop message files, covers rejected/edited/stale/superseded/archived/missing card states, and targets the Workshop basket scene when creating scene-content Proposals.
+- Done in current Settings repair: model settings and service keys are library-global, not project-bound; cloud/local policy has been removed; ordinary Save Setting preserves existing keys and can save a newly typed key through the credential endpoint; large provider model lists default collapsed.
 - Not done in current M5 code slice: Tool Plans, Grants, internal Codex/Write command adapters, Council, and final responsive/state/user visual acceptance are not implemented.
 
 - Slice A is recorded in `docs/tasks/PROJECT_RECOVERY.md`.
@@ -121,7 +122,7 @@ Accepted recovery baseline and M5 guardrails:
 - [x] `NS-401` M4 execution spec, API draft, file-format draft, and first vertical-slice design.
 - [x] `NS-402` AI contract partition plus minimum persistence for model profiles, prompts, context bundles, and call logs.
 - [x] `NS-403` ProviderAdapter core, capability descriptions, error classification, and MockProvider.
-- [x] `NS-404` Model settings, connection tests, credential storage abstraction, and cloud permission boundaries.
+- [x] `NS-404` Model settings, connection tests, credential storage abstraction, and explicit Provider/credential boundaries.
 - [x] `NS-405` Scene-level context assembler, permission filtering, future-story isolation, and usage estimates.
 - [x] `NS-406` Prompt templates, editorial roles, presets, declarative rendering, and version history.
 - [x] `NS-407` Non-writing AI calls, SSE streaming, and ModelCallLog.

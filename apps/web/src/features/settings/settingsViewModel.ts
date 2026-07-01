@@ -1,6 +1,5 @@
 import type {
   AiProvider,
-  CloudPolicy,
   CreateModelProfileInput,
   ModelCapability,
   ModelProfile,
@@ -18,7 +17,6 @@ export interface SelectOption<T extends string> {
 export interface ModelProfileForm {
   baseUrl: string;
   capabilities: ModelCapability;
-  cloudPolicy: CloudPolicy;
   contextWindowTokens: number;
   id: string | null;
   model: string;
@@ -28,7 +26,6 @@ export interface ModelProfileForm {
 }
 
 export const providerOptions: Array<SelectOption<AiProvider>> = [
-  { label: "Mock", value: "mock" },
   { label: "DeepSeek", value: "deepseek" },
   { label: "OpenAI", value: "openai" },
   { label: "Anthropic", value: "anthropic" },
@@ -38,55 +35,117 @@ export const providerOptions: Array<SelectOption<AiProvider>> = [
   { label: "OpenAI-compatible", value: "openai-compatible" },
 ];
 
-const cloudProviders = new Set<AiProvider>([
-  "anthropic",
-  "deepseek",
-  "google",
-  "openai",
-  "openrouter",
-  "openai-compatible",
-]);
+const commonTextCapabilities: ModelCapability = {
+  embeddings: false,
+  modelList: true,
+  streamText: true,
+  structuredOutput: true,
+  tokenEstimate: true,
+};
 
-export function isCloudProvider(provider: AiProvider) {
-  return cloudProviders.has(provider);
+const providerDefaults: Record<AiProvider, Omit<ModelProfileForm, "id" | "secret">> = {
+  anthropic: {
+    baseUrl: "",
+    capabilities: commonTextCapabilities,
+    contextWindowTokens: 200000,
+    model: "claude-sonnet-4-20250514",
+    provider: "anthropic",
+    title: "Anthropic Claude",
+  },
+  deepseek: {
+    baseUrl: "https://api.deepseek.com",
+    capabilities: commonTextCapabilities,
+    contextWindowTokens: 1000000,
+    model: "deepseek-v4-flash",
+    provider: "deepseek",
+    title: "DeepSeek",
+  },
+  google: {
+    baseUrl: "",
+    capabilities: commonTextCapabilities,
+    contextWindowTokens: 1048576,
+    model: "gemini-2.5-pro",
+    provider: "google",
+    title: "Google Gemini",
+  },
+  mock: {
+    baseUrl: "",
+    capabilities: commonTextCapabilities,
+    contextWindowTokens: 8192,
+    model: "mock-continuity-v1",
+    provider: "mock",
+    title: "Mock",
+  },
+  ollama: {
+    baseUrl: "http://localhost:11434/v1",
+    capabilities: {
+      embeddings: false,
+      modelList: true,
+      streamText: true,
+      structuredOutput: false,
+      tokenEstimate: true,
+    },
+    contextWindowTokens: 8192,
+    model: "llama3.1",
+    provider: "ollama",
+    title: "Ollama",
+  },
+  openai: {
+    baseUrl: "",
+    capabilities: commonTextCapabilities,
+    contextWindowTokens: 128000,
+    model: "gpt-4.1",
+    provider: "openai",
+    title: "OpenAI",
+  },
+  "openai-compatible": {
+    baseUrl: "",
+    capabilities: commonTextCapabilities,
+    contextWindowTokens: 128000,
+    model: "",
+    provider: "openai-compatible",
+    title: "OpenAI-compatible",
+  },
+  openrouter: {
+    baseUrl: "https://openrouter.ai/api/v1",
+    capabilities: commonTextCapabilities,
+    contextWindowTokens: 128000,
+    model: "",
+    provider: "openrouter",
+    title: "OpenRouter",
+  },
+};
+
+export function defaultFormForProvider(provider: AiProvider): ModelProfileForm {
+  return {
+    ...providerDefaults[provider],
+    id: null,
+    secret: "",
+  };
 }
 
-export const cloudPolicyOptions: Array<SelectOption<CloudPolicy>> = [
-  {
-    description: "Cloud providers are blocked unless a model profile explicitly changes this later.",
-    label: "Local only",
-    value: "local-only",
-  },
-  {
-    description: "Cloud calls are allowed for profiles that have a saved credential.",
-    label: "Cloud allowed",
-    value: "cloud-allowed",
-  },
-];
+export const emptyModelProfileForm: ModelProfileForm = defaultFormForProvider("deepseek");
 
-export const emptyModelProfileForm: ModelProfileForm = {
-  baseUrl: "",
-  capabilities: {
-    embeddings: false,
-    modelList: true,
-    streamText: true,
-    structuredOutput: true,
-    tokenEstimate: true,
-  },
-  cloudPolicy: "local-only",
-  contextWindowTokens: 8192,
-  id: null,
-  model: "mock-continuity-v1",
-  provider: "mock",
-  secret: "",
-  title: "Mock Continuity",
-};
+export function requiresServiceKey(provider: AiProvider): boolean {
+  return provider !== "ollama" && provider !== "mock";
+}
+
+export function visibleSettingsProfile(profile: ModelProfile): boolean {
+  return profile.archivedAt === null && profile.provider !== "mock";
+}
+
+export function providerLabel(provider: AiProvider): string {
+  return providerOptions.find((option) => option.value === provider)?.label ?? provider;
+}
+
+export function providerDefaultsForSelection(provider: AiProvider) {
+  return providerDefaults[provider];
+}
 
 export function formFromProfile(profile: ModelProfile): ModelProfileForm {
   return {
     baseUrl: profile.baseUrl ?? "",
     capabilities: profile.capabilities,
-    cloudPolicy: profile.cloudPolicy,
     contextWindowTokens: profile.contextWindowTokens,
     id: profile.id,
     model: profile.model,
@@ -100,7 +159,6 @@ export function modelProfileInputFromForm(form: ModelProfileForm): CreateModelPr
   return {
     baseUrl: form.baseUrl.trim() || null,
     capabilities: form.capabilities,
-    cloudPolicy: form.cloudPolicy,
     contextWindowTokens: form.contextWindowTokens,
     model: form.model.trim() || emptyModelProfileForm.model,
     provider: form.provider,
@@ -112,7 +170,6 @@ export function updateModelProfileInputFromForm(form: ModelProfileForm): UpdateM
   return {
     baseUrl: form.baseUrl.trim() || null,
     capabilities: form.capabilities,
-    cloudPolicy: form.cloudPolicy,
     contextWindowTokens: form.contextWindowTokens,
     model: form.model.trim() || emptyModelProfileForm.model,
     provider: form.provider,
@@ -122,17 +179,17 @@ export function updateModelProfileInputFromForm(form: ModelProfileForm): UpdateM
 
 export function profileStatusLabel(profile: ModelProfile): string {
   if (profile.credentialRef) return "Key saved";
-  if (profile.provider === "mock" || profile.provider === "ollama") return "Ready";
+  if (!requiresServiceKey(profile.provider)) return "Ready";
   return "Needs key";
 }
 
 export function profileStatusClass(profile: ModelProfile): string {
-  if (profile.credentialRef || profile.provider === "mock" || profile.provider === "ollama") return "pill green";
+  if (profile.credentialRef || !requiresServiceKey(profile.provider)) return "pill green";
   return "pill amber";
 }
 
 export function connectionSummary(result: ProviderConnectionResult | null): string {
-  if (!result) return "Run a saved model profile to see the provider result.";
+  if (!result) return "Test a saved model setting to see the provider result.";
   if (result.ok) return `Connection ok. ${result.models.length} model${result.models.length === 1 ? "" : "s"} reported.`;
   return result.error?.message ?? "Connection failed.";
 }

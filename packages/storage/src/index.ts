@@ -106,7 +106,6 @@ import {
   SceneSectionDocumentSchema,
   SceneSectionMetadataSchema,
   SceneCodexMentionsSchema,
-  SectionContextTargetSchema,
   SeriesManifestSchema,
   ResolvedReviewAnchorSchema,
   ReviewAnchorSchema,
@@ -126,7 +125,6 @@ import {
   UpdateScenePlanningInputSchema,
   UpdateSceneInputSchema,
   UpdateSceneSectionInputSchema,
-  UpdateSeriesCloudPolicyInputSchema,
   UpdateTimelineEventInputSchema,
   type ActManifest,
   type ArchiveCodexDocumentInput,
@@ -240,7 +238,6 @@ import {
   type SceneSectionAiPolicy,
   type SceneSectionDocument,
   type SceneSectionMetadata,
-  type SectionContextTarget,
   type ResolvedReviewAnchor,
   type ReviewAnchor,
   type ReviewAnchorResolution,
@@ -264,7 +261,6 @@ import {
   type UpdateScenePlanningInput,
   type UpdateSceneInput,
   type UpdateSceneSectionInput,
-  type UpdateSeriesCloudPolicyInput,
   type UpdateTimelineEventInput,
 } from "@novel-studio/contracts";
 import { StorageError } from "./errors.js";
@@ -305,8 +301,9 @@ import {
 } from "./jsonAuthority.js";
 import {
   createProposalAuthorityFile,
-  createProposalSnapshotFile,
   listProposalAuthorityFiles,
+  proposalAuthorityPath,
+  proposalSnapshotPath,
   readProposalAuthorityFile,
   writeProposalAuthorityFile,
 } from "./proposalFiles.js";
@@ -320,6 +317,7 @@ import {
   readWorkshopContextBasketFile,
   readWorkshopMessageFile,
   readWorkshopSessionFile,
+  workshopMessagePath,
   writeWorkshopContextBasketFile,
   writeWorkshopMessageFile,
   writeWorkshopSessionFile,
@@ -831,13 +829,11 @@ export function codexContextEligibility(
 
 export function isSceneSectionEligibleForContext(
   policy: SceneSectionAiPolicy,
-  target: SectionContextTarget,
 ): boolean {
   const parsedPolicy = SceneSectionMetadataSchema.shape.aiPolicy.safeParse(policy);
-  const parsedTarget = SectionContextTargetSchema.safeParse(target);
-  if (!parsedPolicy.success || !parsedTarget.success) return false;
+  if (!parsedPolicy.success) return false;
   if (parsedPolicy.data === "never") return false;
-  return parsedTarget.data === "local" || parsedPolicy.data === "inherit";
+  return true;
 }
 
 function narrativeIndexForScene(
@@ -1274,6 +1270,15 @@ interface SceneContext extends ChapterContext {
   scenePath: string;
 }
 
+interface PreparedSceneProposalApplication {
+  proposal: Proposal;
+  scene: SceneDocument;
+  sceneId: string;
+  scenePath: string;
+  sceneContent: string;
+  snapshot: ProposalSnapshot;
+}
+
 export class ProjectRepository {
   readonly libraryRoot: string;
 
@@ -1304,7 +1309,6 @@ export class ProjectRepository {
       title: input.title,
       description: input.description,
       language: "zh-CN",
-      cloudPolicy: "local-only",
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -1640,24 +1644,6 @@ export class ProjectRepository {
       }
     }
     return { manifest, books, acts, chapters, scenes };
-  }
-
-  async updateSeriesCloudPolicy(
-    seriesId: string,
-    rawInput: UpdateSeriesCloudPolicyInput,
-  ): Promise<SeriesManifest> {
-    const input = UpdateSeriesCloudPolicyInputSchema.parse(rawInput);
-    const seriesRoot = await this.findSeriesRoot(seriesId);
-    const manifest = await readJson(path.join(seriesRoot, SERIES_FILE), (value) =>
-      SeriesManifestSchema.parse(value),
-    );
-    const updatedManifest = SeriesManifestSchema.parse({
-      ...manifest,
-      cloudPolicy: input.cloudPolicy,
-      updatedAt: new Date().toISOString(),
-    });
-    await atomicWrite(path.join(seriesRoot, SERIES_FILE), serializeJsonAuthority(updatedManifest));
-    return updatedManifest;
   }
 
   async getScene(seriesId: string, sceneId: string): Promise<SceneDocument> {
@@ -2227,14 +2213,12 @@ export class ProjectRepository {
   async listSceneSectionsForContext(
     seriesId: string,
     sceneId: string,
-    rawTarget: SectionContextTarget,
   ): Promise<SceneSectionDocument[]> {
-    const target = SectionContextTargetSchema.parse(rawTarget);
     const sections = await this.listSceneSections(seriesId, sceneId);
     return sections.filter(
       (section) =>
         section.metadata.archivedAt === null &&
-        isSceneSectionEligibleForContext(section.metadata.aiPolicy, target),
+        isSceneSectionEligibleForContext(section.metadata.aiPolicy),
     );
   }
 
@@ -3754,16 +3738,16 @@ export class ProjectRepository {
     });
   }
 
-  async saveModelProfile(seriesId: string, profile: ModelProfile): Promise<ModelProfile> {
-    return saveModelProfile(await this.findSeriesRoot(seriesId), profile);
+  async saveModelProfile(profile: ModelProfile): Promise<ModelProfile> {
+    return saveModelProfile(this.libraryRoot, profile);
   }
 
-  async getModelProfile(seriesId: string, profileId: string): Promise<ModelProfile> {
-    return getModelProfile(await this.findSeriesRoot(seriesId), profileId);
+  async getModelProfile(profileId: string): Promise<ModelProfile> {
+    return getModelProfile(this.libraryRoot, profileId);
   }
 
-  async listModelProfiles(seriesId: string): Promise<ModelProfile[]> {
-    return listModelProfiles(await this.findSeriesRoot(seriesId));
+  async listModelProfiles(): Promise<ModelProfile[]> {
+    return listModelProfiles(this.libraryRoot);
   }
 
   async saveAgentRole(seriesId: string, role: AgentRole): Promise<AgentRole> {
@@ -4079,7 +4063,8 @@ export class ProjectRepository {
     }
 
     const generator = await this.proposalGeneratorForWorkshopMessage(seriesId, message);
-    const created = await this.createProposal(seriesId, {
+    const now = new Date().toISOString();
+    const proposalInput = CreateProposalInputSchema.parse({
       ...input,
       source: {
         kind: "workshop-message",
@@ -4090,17 +4075,62 @@ export class ProjectRepository {
       contextBundleId: message.contextBundleId,
       generator,
     });
-    const nextIds = Array.from(new Set([...message.proposalIds, created.proposal.id]));
-    const updatedMessage = await writeWorkshopMessageFile(
-      seriesRoot,
-      WorkshopMessageSchema.parse({
-        ...message,
-        proposalIds: nextIds,
-      }),
-    );
+    const proposal = ProposalSchema.parse({
+      schemaVersion: 2,
+      id: proposalInput.id ?? randomUUID(),
+      seriesId,
+      type: proposalInput.type,
+      title: proposalInput.title,
+      summary: proposalInput.summary,
+      status: "pending",
+      source: proposalInput.source,
+      target: proposalInput.target,
+      contextBundleId: proposalInput.contextBundleId,
+      generator: proposalInput.generator,
+      riskLevel: proposalInput.riskLevel,
+      confidence: proposalInput.confidence,
+      reason: proposalInput.reason,
+      staleReason: "",
+      supersededBy: null,
+      originalCandidate: null,
+      decision: null,
+      patches: proposalInput.patches,
+      evidence: proposalInput.evidence,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const sourceAvailability = await this.proposalSourceAvailability(seriesId, proposal);
+    if (!sourceAvailability.available) {
+      throw new StorageError("Proposal source is not available", "INVALID_DATA", {
+        proposalId: proposal.id,
+        reason: sourceAvailability.reason,
+      });
+    }
+    const targetAvailability = await this.proposalTargetAvailability(seriesId, seriesRoot, proposal);
+    if (!targetAvailability.available) {
+      throw new StorageError("Proposal target is not available", "INVALID_DATA", {
+        proposalId: proposal.id,
+        reason: targetAvailability.reason,
+      });
+    }
+    const proposalPath = proposalAuthorityPath(seriesRoot, proposal.id);
+    if (await pathExists(proposalPath)) {
+      throw new StorageError("Proposal already exists", "INVALID_DATA", { proposalId: proposal.id });
+    }
+    const nextIds = Array.from(new Set([...message.proposalIds, proposal.id]));
+    const nextMessage = WorkshopMessageSchema.parse({
+      ...message,
+      proposalIds: nextIds,
+    });
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: proposalPath, content: serializeJsonAuthority(proposal) },
+      { targetPath: workshopMessagePath(seriesRoot, message.id), content: serializeJsonAuthority(nextMessage) },
+    ]);
+    const created = await readProposalAuthorityFile(seriesRoot, proposal.id);
+    const updatedMessage = await readWorkshopMessageFile(seriesRoot, message.id);
     return WorkshopMessageProposalResultSchema.parse({
       message: updatedMessage,
-      proposal: created,
+      proposal: await this.proposalDocument(seriesId, seriesRoot, created.proposal, created.revision),
     });
   }
 
@@ -4263,7 +4293,7 @@ export class ProjectRepository {
     const current = await readProposalAuthorityFile(seriesRoot, proposalId);
     this.assertProposalRevision(current.revision, input.baseRevision, current.proposal);
     assertProposalStatusTransition(current.proposal.status, "accepted");
-    const snapshot = await this.applySceneContentProposal(seriesId, current.proposal);
+    const application = await this.prepareSceneContentProposalApplication(seriesId, current.proposal);
     const updated = ProposalSchema.parse({
       ...current.proposal,
       status: "accepted",
@@ -4272,15 +4302,15 @@ export class ProjectRepository {
         actor: input.actor,
         decidedAt: new Date().toISOString(),
         note: input.note,
-        snapshotId: snapshot.id,
+        snapshotId: application.snapshot.id,
         editedCandidate: null,
       },
       updatedAt: new Date().toISOString(),
     });
-    const written = await writeProposalAuthorityFile(seriesRoot, updated);
+    const written = await this.writeAppliedSceneProposalTransaction(seriesRoot, application, updated);
     return ProposalApplyResultSchema.parse({
       proposal: await this.proposalDocument(seriesId, seriesRoot, written.proposal, written.revision),
-      snapshot,
+      snapshot: application.snapshot,
     });
   }
 
@@ -4314,7 +4344,7 @@ export class ProjectRepository {
       patches: editedCandidate.patches,
       updatedAt: new Date().toISOString(),
     });
-    const snapshot = await this.applySceneContentProposal(seriesId, candidate);
+    const application = await this.prepareSceneContentProposalApplication(seriesId, candidate);
     const updated = ProposalSchema.parse({
       ...candidate,
       status: "edited",
@@ -4324,15 +4354,15 @@ export class ProjectRepository {
         actor: input.actor,
         decidedAt: new Date().toISOString(),
         note: input.note,
-        snapshotId: snapshot.id,
+        snapshotId: application.snapshot.id,
         editedCandidate,
       },
       updatedAt: new Date().toISOString(),
     });
-    const written = await writeProposalAuthorityFile(seriesRoot, updated);
+    const written = await this.writeAppliedSceneProposalTransaction(seriesRoot, application, updated);
     return ProposalApplyResultSchema.parse({
       proposal: await this.proposalDocument(seriesId, seriesRoot, written.proposal, written.revision),
-      snapshot,
+      snapshot: application.snapshot,
     });
   }
 
@@ -4342,8 +4372,23 @@ export class ProjectRepository {
   ): Promise<ProposalBatchPreviewResult> {
     const input = ProposalBatchPreviewInputSchema.parse(rawInput);
     const items: ProposalBatchPreviewItem[] = [];
+    const sceneTargets = new Set<string>();
     for (const proposalId of input.proposalIds) {
-      items.push(await this.previewProposal(seriesId, proposalId));
+      const item = await this.previewProposal(seriesId, proposalId);
+      if (item.eligible) {
+        const document = await this.getProposal(seriesId, proposalId);
+        const sceneId = document.proposal.patches[0]?.target.targetId;
+        if (sceneId && sceneTargets.has(sceneId)) {
+          items.push({
+            ...item,
+            eligible: false,
+            reason: "Another Proposal in this batch changes the same scene first",
+          });
+          continue;
+        }
+        if (sceneId) sceneTargets.add(sceneId);
+      }
+      items.push(item);
     }
     return ProposalBatchPreviewResultSchema.parse({ items });
   }
@@ -4353,7 +4398,11 @@ export class ProjectRepository {
     rawInput: ProposalBatchAcceptInput,
   ): Promise<ProposalBatchAcceptResult> {
     const input = ProposalBatchAcceptInputSchema.parse(rawInput);
-    const preview = await this.previewProposalBatch(seriesId, input);
+    const proposalIds = input.items.map((item) => item.proposalId);
+    const preview = await this.previewProposalBatch(seriesId, { proposalIds });
+    const revisionsByProposal = new Map(
+      input.items.map((item) => [item.proposalId, item.baseRevision]),
+    );
     const completed: ProposalApplyResult[] = [];
     const skipped: ProposalBatchPreviewItem[] = [];
     const blocked: ProposalBatchPreviewItem[] = preview.items.filter((item) => !item.eligible);
@@ -4361,10 +4410,19 @@ export class ProjectRepository {
 
     for (const item of preview.items.filter((candidate) => candidate.eligible)) {
       try {
-        const document = await this.getProposal(seriesId, item.proposalId);
+        const reviewedRevision = revisionsByProposal.get(item.proposalId);
+        if (!reviewedRevision || item.revision !== reviewedRevision) {
+          skipped.push({
+            proposalId: item.proposalId,
+            revision: item.revision,
+            eligible: false,
+            reason: "Proposal changed since batch preview",
+          });
+          continue;
+        }
         completed.push(
           await this.acceptProposal(seriesId, item.proposalId, {
-            baseRevision: document.revision,
+            baseRevision: reviewedRevision,
             actor: input.actor,
             note: input.note,
           }),
@@ -4372,6 +4430,7 @@ export class ProjectRepository {
       } catch (error) {
         failed.push({
           proposalId: item.proposalId,
+          revision: item.revision,
           eligible: false,
           reason: error instanceof Error ? error.message : String(error),
         });
@@ -5877,20 +5936,31 @@ export class ProjectRepository {
   ): Promise<{ available: boolean; reason: string }> {
     try {
       const source = proposal.source;
-      if (source.kind === "manual" || source.kind === "import" || source.kind === "tool-plan") {
-        return { available: true, reason: "" };
+      if (source.kind !== "manual" && source.kind !== "import" && source.kind !== "tool-plan") {
+        if (!source.sourceId) return { available: false, reason: "Source id is missing" };
+        if (source.kind === "model-call") {
+          await this.getModelCallLog(seriesId, source.sourceId);
+        } else if (source.kind === "write-selection") {
+          await this.getScene(seriesId, source.sourceId);
+        } else if (source.kind === "codex-entry") {
+          await this.getCodexEntry(seriesId, source.sourceId);
+        } else if (source.kind === "workshop-message") {
+          const { session } = await this.getWorkshopMessageSource(seriesId, source.sourceId);
+          if (session.status === "archived") {
+            return { available: false, reason: "Source Workshop session is archived" };
+          }
+        }
       }
-      if (!source.sourceId) return { available: false, reason: "Source id is missing" };
-      if (source.kind === "model-call") {
-        await this.getModelCallLog(seriesId, source.sourceId);
-      } else if (source.kind === "write-selection") {
-        await this.getScene(seriesId, source.sourceId);
-      } else if (source.kind === "codex-entry") {
-        await this.getCodexEntry(seriesId, source.sourceId);
-      } else if (source.kind === "workshop-message") {
-        const { session } = await this.getWorkshopMessageSource(seriesId, source.sourceId);
-        if (session.status === "archived") {
-          return { available: false, reason: "Source Workshop session is archived" };
+      if (proposal.contextBundleId) {
+        await this.getContextBundle(seriesId, proposal.contextBundleId);
+      }
+      if (proposal.generator.kind === "ai") {
+        const log = await this.getModelCallLog(seriesId, proposal.generator.modelCallLogId);
+        if (proposal.contextBundleId && log.contextBundleId !== proposal.contextBundleId) {
+          return {
+            available: false,
+            reason: "AI model call does not match the Proposal context bundle",
+          };
         }
       }
       return { available: true, reason: "" };
@@ -5939,6 +6009,9 @@ export class ProjectRepository {
       if (!["replace-content", "replace-text", "insert-text"].includes(patch.action)) {
         return "Only scene text replacement and insertion patches can be applied in this milestone";
       }
+      if (!patch.target.baseRevision) {
+        return "Applicable scene content patches require a base revision";
+      }
       if (patch.after === null) {
         return "Applicable Proposal patches require after text";
       }
@@ -5950,19 +6023,20 @@ export class ProjectRepository {
     return "";
   }
 
-  private async applySceneContentProposal(
+  private async prepareSceneContentProposalApplication(
     seriesId: string,
     proposal: Proposal,
-  ): Promise<ProposalSnapshot> {
+  ): Promise<PreparedSceneProposalApplication> {
     const supportIssue = this.proposalPatchSupportIssue(proposal);
     if (supportIssue) {
       throw new StorageError(supportIssue, "INVALID_DATA", { proposalId: proposal.id });
     }
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const sceneId = proposal.patches[0]!.target.targetId;
-    const scene = await this.getScene(seriesId, sceneId);
+    const scenePath = await this.findScenePath(seriesRoot, sceneId);
+    const scene = parseSceneText(await readFile(scenePath, "utf8"), path.relative(seriesRoot, scenePath));
     for (const patch of proposal.patches) {
-      if (patch.target.baseRevision && patch.target.baseRevision !== scene.revision) {
+      if (patch.target.baseRevision !== scene.revision) {
         throw new StorageError("Proposal target has changed since it was generated", "CONFLICT", {
           proposalId: proposal.id,
           sceneId,
@@ -5985,16 +6059,47 @@ export class ProjectRepository {
       targetRevision: scene.revision,
       data: { scene },
     });
-    await createProposalSnapshotFile(seriesRoot, snapshot);
-    await this.updateScene(seriesId, sceneId, {
-      baseRevision: scene.revision,
-      title: scene.metadata.title,
-      content,
-      status: scene.metadata.status,
-      goal: scene.metadata.goal,
-      summary: scene.metadata.summary,
+    const metadata = SceneFrontmatterSchema.parse({
+      ...scene.metadata,
+      updatedAt: new Date().toISOString(),
     });
-    return snapshot;
+    return {
+      proposal,
+      scene,
+      sceneId,
+      scenePath,
+      sceneContent: serializeScene(metadata, content),
+      snapshot,
+    };
+  }
+
+  private async writeAppliedSceneProposalTransaction(
+    seriesRoot: string,
+    application: PreparedSceneProposalApplication,
+    updatedProposal: Proposal,
+  ): Promise<{ proposal: Proposal; revision: string }> {
+    const parsedProposal = ProposalSchema.parse(updatedProposal);
+    const parsedSnapshot = ProposalSnapshotSchema.parse(application.snapshot);
+    const proposalPath = proposalAuthorityPath(seriesRoot, parsedProposal.id);
+    const snapshotPath = proposalSnapshotPath(seriesRoot, parsedSnapshot.id);
+    if (await pathExists(snapshotPath)) {
+      throw new StorageError("Proposal snapshot already exists", "INVALID_DATA", {
+        snapshotId: parsedSnapshot.id,
+      });
+    }
+    const proposalRaw = serializeJsonAuthority(parsedProposal);
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: snapshotPath, content: serializeJsonAuthority(parsedSnapshot) },
+      { targetPath: application.scenePath, content: application.sceneContent },
+      { targetPath: proposalPath, content: proposalRaw },
+    ]);
+    const written = await readProposalAuthorityFile(seriesRoot, parsedProposal.id);
+    const updatedScene = parseSceneText(
+      await readFile(application.scenePath, "utf8"),
+      path.relative(seriesRoot, application.scenePath),
+    );
+    await this.indexScene(seriesRoot, updatedScene);
+    return { proposal: written.proposal, revision: written.revision };
   }
 
   private applySceneTextPatch(content: string, patch: ProposalPatch): string {
@@ -6054,27 +6159,54 @@ export class ProjectRepository {
     try {
       const document = await this.getProposal(seriesId, proposalId);
       if (document.proposal.status !== "pending") {
-        return { proposalId, eligible: false, reason: `Proposal is ${document.proposal.status}` };
+        return {
+          proposalId,
+          revision: document.revision,
+          eligible: false,
+          reason: `Proposal is ${document.proposal.status}`,
+        };
       }
       if (!document.sourceAvailability.available) {
-        return { proposalId, eligible: false, reason: document.sourceAvailability.reason };
+        return {
+          proposalId,
+          revision: document.revision,
+          eligible: false,
+          reason: document.sourceAvailability.reason,
+        };
       }
       if (!document.targetAvailability.available) {
-        return { proposalId, eligible: false, reason: document.targetAvailability.reason };
+        return {
+          proposalId,
+          revision: document.revision,
+          eligible: false,
+          reason: document.targetAvailability.reason,
+        };
       }
       const supportIssue = this.proposalPatchSupportIssue(document.proposal);
-      if (supportIssue) return { proposalId, eligible: false, reason: supportIssue };
+      if (supportIssue) {
+        return {
+          proposalId,
+          revision: document.revision,
+          eligible: false,
+          reason: supportIssue,
+        };
+      }
       const sceneId = document.proposal.patches[0]!.target.targetId;
       const scene = await this.getScene(seriesId, sceneId);
       for (const patch of document.proposal.patches) {
-        if (patch.target.baseRevision && patch.target.baseRevision !== scene.revision) {
-          return { proposalId, eligible: false, reason: "Target changed since Proposal creation" };
+        if (patch.target.baseRevision !== scene.revision) {
+          return {
+            proposalId,
+            revision: document.revision,
+            eligible: false,
+            reason: "Target changed since Proposal creation",
+          };
         }
       }
-      return { proposalId, eligible: true, reason: "" };
+      return { proposalId, revision: document.revision, eligible: true, reason: "" };
     } catch (error) {
       if (error instanceof StorageError && error.code === "NOT_FOUND") {
-        return { proposalId, eligible: false, reason: error.message };
+        return { proposalId, revision: null, eligible: false, reason: error.message };
       }
       throw error;
     }
