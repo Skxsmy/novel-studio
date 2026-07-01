@@ -1,6 +1,6 @@
 # Handoff
 
-Updated: 2026-06-30
+Updated: 2026-07-01
 
 This file is the short operational handoff. The older Chinese handoff was fully read before this rewrite; its task history, verification facts, and warnings have been translated and reorganized here.
 
@@ -9,8 +9,8 @@ This file is the short operational handoff. The older Chinese handoff was fully 
 - Branch: `codex/ns-410-json-authority`.
 - Latest committed baseline before Slice 11: `fb77e6d NS-410 fix(authority): complete JSON migration and codex editor` on this branch.
 - Current completed task state: `NS-410` Block Write Editor and Unified Codex Progression is command-verified through post-Slice 11 audit repair.
-- Current acceptance state: Project Recovery is accepted for the current stage by user decision on 2026-06-30. NS-410 automated/command acceptance is closed through post-Slice 11 audit repair. M5 Workshop/Proposal/Review is planned but not implemented or accepted.
-- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and unified Progression change. Slices 1-11, the Slice 7A/Slice 8 review repairs, the user-requested project lifecycle repair for Trash/Restore/permanent delete, the post-Slice 9 continuous Write editor refactor, and the post-Slice 10 Codex editor bounded-scroll/background-autosave repair are implemented and command-verified on the NS-410 branch. The local `docs/testing/NS-410_SLICE_1_11_AUDIT.md` file is retained but must not be committed unless the user later says otherwise. Continue through the M5 plan unless the user redirects.
+- Current acceptance state: Project Recovery is accepted for the current stage by user decision on 2026-06-30. NS-410 automated/command acceptance is closed through post-Slice 11 audit repair. M5 formally started on 2026-07-01 at M5.0 Current Feature Protection Lock; M5 Workshop/Proposal/Review behavior is not implemented or accepted.
+- Current planning decision: the prior "do not start NS-410" warning is superseded by explicit user direction on 2026-06-26. M2/M3 foundations can be modified for the JSON authority, block document, and unified Progression change. Slices 1-11, the Slice 7A/Slice 8 review repairs, the user-requested project lifecycle repair for Trash/Restore/permanent delete, the post-Slice 9 continuous Write editor refactor, and the post-Slice 10 Codex editor bounded-scroll/background-autosave repair are implemented and command-verified on the NS-410 branch. The local `docs/testing/NS-410_SLICE_1_11_AUDIT.md` file is retained but must not be committed unless the user later says otherwise. Continue through M5.0 before any Proposal/Review/Workshop implementation unless the user redirects.
 
 ## Start Here
 
@@ -23,12 +23,13 @@ Read these files in order:
 5. `docs/tasks/M5.md`
 6. `docs/testing/M5_ACCEPTANCE.md`
 7. `docs/design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`
-8. `docs/design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
-9. `docs/tasks/NS-410.md`
-10. `docs/testing/NS-410_ACCEPTANCE.md`
-11. `docs/adr/0012-scene-block-documents-and-codex-field-progression.md`
-12. `docs/tasks/PROJECT_RECOVERY.md`
-13. `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`
+8. `docs/design/ui-redesign/M5_FIGMA_UI_REVIEW.md`
+9. `docs/design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
+10. `docs/tasks/NS-410.md`
+11. `docs/testing/NS-410_ACCEPTANCE.md`
+12. `docs/adr/0012-scene-block-documents-and-codex-field-progression.md`
+13. `docs/tasks/PROJECT_RECOVERY.md`
+14. `docs/testing/PROJECT_RECOVERY_ACCEPTANCE.md`
 
 Do not begin from old `NS-409A` through `NS-409F` screenshots as if they are current guidance. Current truth is the task and acceptance record above.
 
@@ -88,7 +89,7 @@ Accepted baseline pieces:
 
 Current boundaries:
 
-- M5 Workshop/Proposal/Review is not implemented or accepted yet.
+- M5.0 Current Feature Protection Lock is active. M5 Workshop/Proposal/Review is not implemented or accepted yet.
 - Codex connections and the NS-410 Progressions tab are complete for the current Codex scope. Existing backend routes cover relations, progressions, knowledge, mentions, effective state, context preview, and search. The current Release A frontend wrapper covers categories, entry list/create/get/update/archive/restore/delete, entry mentions, relations, progression history/effective-entry reads, scene mentions, and context preview. Plan still needs a full product review/rework before it should be connected further; knowledge UI and search-result integration remain later UI work.
 - Write hierarchy must follow `Volume -> Chapter -> Act -> Scene` and support compact add menu, default names, later rename, double-click rename where appropriate, selected delete with confirmation, sane collapse, and scroll.
 - Slice B has started: empty-library creation is tested, create/open only leaves Library on success, selected Volume is tracked, Add Chapter targets the selected Volume, selected Chapter/Act/Scene deletion is covered, Scene creation inside the selected Act is covered, and Focus enter/exit behavior is covered.
@@ -341,4 +342,4 @@ Recovery history and current-stage disposition:
 
 ## Immediate Next Step
 
-Continue with M5 Workshop, Proposal, and Review through `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`. Do not skip to provider expansion or fake Proposal integration. NS-410 closed the runtime YAML/Markdown authority inventory; Markdown/Word remain boundary formats, and remaining YAML mentions are historical docs or third-party optional peer metadata, not runtime authority paths. Routine handoff must stay in the existing files.
+Continue with M5.0 Current Feature Protection Lock through `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`. Do not skip to provider expansion, fake Proposal integration, Proposal schema replacement, or Workshop/Review UI implementation before the protection mapping and focused regression commands are recorded. NS-410 closed the runtime YAML/Markdown authority inventory; Markdown/Word remain boundary formats, and remaining YAML mentions are historical docs or third-party optional peer metadata, not runtime authority paths. Routine handoff must stay in the existing files.

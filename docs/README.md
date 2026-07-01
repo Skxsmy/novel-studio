@@ -4,7 +4,7 @@ This directory is for durable project knowledge. Temporary browser notes, failed
 
 ## Fast Reading Path
 
-For the current M5 planning state and accepted recovery baseline, read:
+For the current M5 startup state and accepted recovery baseline, read:
 
 1. `../STATUS.md`
 2. `../HANDOFF.md`
@@ -27,8 +27,8 @@ Only read older milestone documents when the current task depends on that area.
 - `product/`: product scope, UX rules, AI editorial model, feature matrix, reference library, import/export/versioning. Highest authority for product intent.
 - `architecture/`: API, data model, security, and target architecture. Highest authority for technical boundaries.
 - `adr/`: accepted architectural decisions. Read the relevant ADR before changing a governed subsystem.
-- `tasks/`: milestone and task specs. Current active planning line is `tasks/M5.md`; accepted recovery baseline remains in `tasks/PROJECT_RECOVERY.md`.
-- `testing/`: acceptance records and test strategy. Current M5 scaffold is `testing/M5_ACCEPTANCE.md`; accepted recovery baseline is `testing/PROJECT_RECOVERY_ACCEPTANCE.md`.
+- `tasks/`: milestone and task specs. Current active implementation line is `tasks/M5.md`; accepted recovery baseline remains in `tasks/PROJECT_RECOVERY.md`.
+- `testing/`: acceptance records and test strategy. Current M5 acceptance record is `testing/M5_ACCEPTANCE.md`; accepted recovery baseline is `testing/PROJECT_RECOVERY_ACCEPTANCE.md`.
 - `design/ui-redesign/`: historical UI baselines, current design evidence, and protected backups.
 
 ## Cleanup Rules
@@ -40,4 +40,4 @@ Only read older milestone documents when the current task depends on that area.
 
 ## Current Warning
 
-Project Recovery is accepted for the current stage by user decision on 2026-06-30. `NS-410` JSON Authority, Block Write Editor, and Unified Codex Progression is command-verified through post-Slice 11 audit repair; do not treat that as separate future M5 visual acceptance. The active planning line is `M5` Workshop, Proposal, and Review through `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`; M5 implementation and user visual acceptance have not started.
+Project Recovery is accepted for the current stage by user decision on 2026-06-30. `NS-410` JSON Authority, Block Write Editor, and Unified Codex Progression is command-verified through post-Slice 11 audit repair; do not treat that as separate future M5 visual acceptance. The active line is `M5` Workshop, Proposal, and Review through `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`; M5.0 Current Feature Protection Lock is in progress, while Workshop/Review UI implementation and user visual acceptance have not started.

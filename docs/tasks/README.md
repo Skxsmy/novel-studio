@@ -25,7 +25,7 @@ Older task files are historical context. Do not start from them unless the curre
 - `M4.md`: model/context/prompt/call-log milestone.
 - `NS-401.md` through `NS-408.md`: M4 slices.
 - `PROJECT_RECOVERY.md`: accepted current-stage project recovery baseline.
-- `M5.md`: current Workshop, Proposal, and Review planning line.
+- `M5.md`: current active Workshop, Proposal, and Review line.
 
 ## Rule
 

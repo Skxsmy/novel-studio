@@ -1,6 +1,6 @@
 # M5 Acceptance Record
 
-Status: planning; implementation not started  
+Status: M5.0 current feature protection lock in progress; later M5 slices not started
 Created: 2026-06-30  
 Task: `docs/tasks/M5.md`
 
@@ -16,7 +16,7 @@ Command/browser checks do not equal user visual acceptance. Figma acceptance doe
 
 | ID | Status | Evidence |
 | --- | --- | --- |
-| M5-A01 | not started | M5 changes do not regress current Write, Codex, Settings, AI provider, context, or JSON authority behavior. |
+| M5-A01 | in progress | M5.0 started on 2026-07-01. Protection mapping and focused commands are pending for current Write, Codex, Settings, AI provider, context, and JSON authority behavior. |
 | M5-A02 | not started | Proposal v2 extends the existing Proposal contract and does not introduce a parallel Proposal model. |
 | M5-A03 | not started | Proposal type/source/generator/target/decision schemas support AI, manual, tool, and import origins. |
 | M5-A04 | not started | Proposal state transitions enforce pending, accepted, rejected, edited, stale, superseded, and archived semantics. |
@@ -93,4 +93,17 @@ Visual slices must also produce browser/Playwright screenshots against accepted 
 
 ## Results
 
-No implementation commands have been run for M5 yet. This file is an acceptance scaffold created with the M5 task plan.
+M5 formally started on 2026-07-01 at M5.0 Current Feature Protection Lock after commit `46e5a7c` added the MCP-backed Figma UI review and reading-path links.
+
+No M5 implementation commands have been run yet in this startup record. M5.0 still needs the protection mapping and focused regression command results before M5-A01 can pass.
+
+## M5.0 Startup Protection Mapping
+
+| Protected behavior | Existing or planned verification |
+| --- | --- |
+| Current Write app shell, continuous manuscript editor entry, Focus behavior, and no return to repeated block-card/textarea editing. | Existing web tests to run: `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx`; existing editor mapping tests to include if touched: `npm.cmd run test -w @novel-studio/web -- sceneBlockMapping.test.ts`. |
+| Codex Canon/Detail editing, mentions, previews, bounded editor behavior, and shared editor surface behavior. | Existing web tests to run: `npm.cmd run test -w @novel-studio/web -- EditorSurface.test.tsx`; existing server/storage Codex coverage below must remain passing. |
+| SceneBlockDocument JSON authority, Markdown projection/export boundary, scene progression-block commands, unified Progression JSON authority, and no stale YAML/Markdown runtime authority path. | Existing storage tests to run: `npm.cmd run test -w @novel-studio/storage -- repository.test.ts json-authority.test.ts`; existing server tests to run: `npm.cmd run test -w @novel-studio/server -- app.test.ts context-routes.test.ts`. |
+| Context Builder and Codex context preview preserve future-story and future-progression isolation. | Existing server tests to run: `npm.cmd run test -w @novel-studio/server -- context-routes.test.ts model-calls.test.ts`; existing storage coverage in `repository.test.ts` and `smoke.test.ts` should be considered for focused runs. |
+| Settings and AI provider behavior does not silently fall back across provider or local/cloud boundaries. | Existing server tests to run: `npm.cmd run test -w @novel-studio/server -- ai-routes.test.ts model-calls.test.ts`; existing AI tests to run if provider registry changes: `npm.cmd run test -w @novel-studio/ai`. |
+| Whole-workspace contract and build health before M5 contract/UI changes. | Required before M5.0 exit: `npm.cmd run build -w @novel-studio/contracts`, `npm.cmd run build`, `npm.cmd run test`, and `git diff --check`. |
