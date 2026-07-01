@@ -1,6 +1,6 @@
 # M5 Acceptance Record
 
-Status: M5.1-M5.4 command/function verified; M5.5 not started; user visual acceptance pending
+Status: M5.1-M5.5 command/function verified; M5.6 next; user visual acceptance pending
 Created: 2026-06-30  
 Task: `docs/tasks/M5.md`
 
@@ -40,11 +40,11 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5-A22 | passed | Model failure preserves the input and context and does not create an empty Proposal. Covered by server/web tests. |
 | M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Covered by web tests and source review. |
 | M5-A24 | function passed; visual pending | Workshop implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
-| M5-A25 | not started | Workshop message output can create a Proposal linked to that exact source message. |
-| M5-A26 | not started | Proposal cards deep-link to exact Review Proposal Detail. |
-| M5-A27 | not started | Review Detail links back to the source Workshop message. |
-| M5-A28 | not started | Workshop Proposal cards reflect accepted, rejected, edited, stale, superseded, and unavailable states. |
-| M5-A29 | not started | Archived/unavailable Proposal links show recoverable unavailable states instead of dead navigation. |
+| M5-A25 | passed | Workshop message output can create a Proposal linked to that exact source message. Covered by storage/server/web tests. |
+| M5-A26 | passed | Proposal cards deep-link to exact Review Proposal Detail by Proposal ID. Covered by web tests. |
+| M5-A27 | passed | Review Detail links back to the source Workshop message. Covered by server/web tests. |
+| M5-A28 | function passed; visual pending | Workshop Proposal cards read Proposal authority state and reflect accepted, rejected, edited, stale, superseded, and unavailable states. Covered by web state-sync tests and source review; user visual acceptance remains pending. |
+| M5-A29 | passed | Archived/unavailable Proposal links show recoverable unavailable states instead of dead navigation. Covered by storage/server tests and Workshop unavailable-card behavior. |
 | M5-A30 | not started | Tool Plans are durable JSON records and cannot execute without a valid Grant. |
 | M5-A31 | not started | Expired or mismatched Grants cannot execute tools. |
 | M5-A32 | not started | Unauthorized tools cannot write authority data. |
@@ -114,7 +114,7 @@ Command results after the added protection tests:
 - `npm.cmd run test`: passed; server 5 files / 25 tests, web 3 files / 59 tests, AI 1 file / 20 tests, storage 4 files / 68 tests.
 - `git diff --check`: passed with Windows line-ending warnings only.
 
-M5.1-M5.4 implementation continued on 2026-07-01.
+M5.1-M5.5 implementation continued on 2026-07-01.
 
 Implemented scope:
 
@@ -122,10 +122,10 @@ Implemented scope:
 - M5.2 added Proposal JSON storage, Review/proposal API routes, stale/decision behavior, snapshot creation, batch preview, and batch accept reporting.
 - M5.3 replaced the unavailable Review shell with a real Proposal inbox/detail/decision UI backed by Proposal APIs.
 - M5.4 added Workshop session/message/context-basket storage and APIs, Context Builder preview integration, and single-role call handling without authority mutation.
+- M5.5 added durable Workshop-message-to-Proposal creation, Workshop Proposal cards, exact Review Proposal Detail links, Review source-message return links, Proposal authority status sync back into Workshop cards, and recoverable source unavailable states for missing messages or archived source sessions.
 
 Important boundary:
 
-- M5.5 is not implemented. Workshop messages do not yet create durable Proposal cards with exact source-message deep links and Review status sync.
 - M5.6 is not implemented. Tool Plans, Grants, internal command adapters, Codex tools, and Write tools are not available.
 - M5.7 is not implemented. Council, final responsive/state sweep, and final user visual acceptance are not complete.
 - Agent-owned screenshot acceptance is now prohibited by `AGENTS.md`. Review and Workshop visual acceptance remains a user gate, not a command result.
@@ -144,6 +144,18 @@ Full M5.4 close command results before documentation-only updates:
 - `npm.cmd run build`: passed.
 - `npm.cmd run test`: passed; server 7 files / 29 tests, web 3 files / 60 tests, AI 1 file / 20 tests, contracts 2 files / 9 tests, storage 6 files / 74 tests.
 - `git diff --check`: passed with Windows line-ending warnings only.
+
+Focused command results during M5.5:
+
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run build -w @novel-studio/storage`: passed.
+- `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts`: first parallel run raced with the contracts build and saw the new schema as undefined; after the contracts build completed, passed, 1 file / 4 tests.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts`: first run failed because server used stale storage dist; after `npm.cmd run build -w @novel-studio/storage`, passed, 1 file / 2 tests.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: first run exposed an over-specific assertion for repeated Review text; after correcting the assertion, passed, 1 file / 47 tests.
+- `npm.cmd run build -w @novel-studio/web`: first run exposed a test mock type narrowing issue; after typing the updated message record, passed.
+- `npm.cmd run build -w @novel-studio/server`: passed.
+- `npm.cmd run test -w @novel-studio/storage -- test/proposals.test.ts`: passed, 1 file / 3 tests.
+- `npm.cmd run test -w @novel-studio/server -- test/proposal-routes.test.ts`: passed, 1 file / 2 tests.
 
 ## M5.0 Startup Protection Mapping
 

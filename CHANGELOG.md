@@ -10,6 +10,7 @@ This changelog retains the historical milestone record from the earlier Chinese 
 - **M5 Workshop, Proposal, And Review Plan**: Added the formal M5 task plan, acceptance scaffold, contract-informed Figma plan, and Figma-to-implementation workflow. M5 is Proposal/Review-first, protects current Write/Codex behavior, and requires separate command, Figma, browser, and user visual acceptance before completion.
 - **M5 Formal Start**: M5 formally started on 2026-07-01 at M5.0 Current Feature Protection Lock. The active scope is tests/docs protection mapping for current Write, Codex, Settings, AI provider, context, and JSON authority behavior; Proposal v2, Proposal storage/API, Review UI, Workshop UI, and Tool Plan execution remain not started.
 - **M5.0 Feature Protection Lock**: Added targeted regression guards so M5 cannot silently fake Review/Workshop proposal behavior before backend workflows exist, and stale YAML Codex Progression files cannot re-enter runtime authority. Focused checks, full build, full test, and `git diff --check` passed.
+- **M5.5 Workshop Message To Proposal Deep Link**: Workshop messages can create durable Proposal records linked to the exact source message, show Proposal cards that open exact Review detail routes, return from Review to the source Workshop message, and reflect Proposal authority status including recoverable missing/archived source states. Tool Plans, Grants, Council, and user visual acceptance remain pending.
 
 ### Active NS-410 Work
 

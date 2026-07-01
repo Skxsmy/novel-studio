@@ -2,6 +2,7 @@ import type {
   AgentRole,
   ContextBundle,
   CreateWorkshopBranchInput,
+  CreateWorkshopMessageProposalInput,
   CreateWorkshopMessageInput,
   CreateWorkshopSessionInput,
   PromptTemplate,
@@ -13,6 +14,8 @@ import type {
   WorkshopContextBasket,
   WorkshopContextPreviewInput,
   WorkshopMessage,
+  WorkshopMessageProposalResult,
+  WorkshopMessageSource,
   WorkshopSession,
 } from "@novel-studio/contracts";
 import type { ApiClient } from "./client";
@@ -61,11 +64,28 @@ export function createWorkshopApi(client: ApiClient) {
     listMessages(seriesId: string, sessionId: string) {
       return client.requestJson<WorkshopMessage[]>(`/series/${seriesId}/workshop/sessions/${sessionId}/messages`);
     },
+    getMessageSource(seriesId: string, messageId: string) {
+      return client.requestJson<WorkshopMessageSource>(`/series/${seriesId}/workshop/messages/${messageId}/source`);
+    },
     createMessage(seriesId: string, sessionId: string, input: CreateWorkshopMessageInput) {
       return client.requestJson<WorkshopMessage>(`/series/${seriesId}/workshop/sessions/${sessionId}/messages`, {
         body: input,
         method: "POST",
       });
+    },
+    createMessageProposal(
+      seriesId: string,
+      sessionId: string,
+      messageId: string,
+      input: CreateWorkshopMessageProposalInput,
+    ) {
+      return client.requestJson<WorkshopMessageProposalResult>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/messages/${messageId}/proposals`,
+        {
+          body: input,
+          method: "POST",
+        },
+      );
     },
     branchSession(seriesId: string, sessionId: string, input: CreateWorkshopBranchInput) {
       return client.requestJson<WorkshopBranchResult>(`/series/${seriesId}/workshop/sessions/${sessionId}/branch`, {
@@ -112,6 +132,7 @@ export type {
   AgentRole,
   ContextBundle,
   CreateWorkshopBranchInput,
+  CreateWorkshopMessageProposalInput,
   CreateWorkshopMessageInput,
   CreateWorkshopSessionInput,
   PromptTemplate,
@@ -123,5 +144,7 @@ export type {
   WorkshopContextBasket,
   WorkshopContextPreviewInput,
   WorkshopMessage,
+  WorkshopMessageProposalResult,
+  WorkshopMessageSource,
   WorkshopSession,
 };

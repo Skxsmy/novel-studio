@@ -83,6 +83,7 @@ import {
   ProposalRevisionInputSchema,
   SupersedeProposalInputSchema,
   CreateWorkshopBranchInputSchema,
+  CreateWorkshopMessageProposalInputSchema,
   CreateWorkshopMessageInputSchema,
   CreateWorkshopSessionInputSchema,
   UpdateWorkshopContextBasketInputSchema,
@@ -90,6 +91,8 @@ import {
   WorkshopBranchSchema,
   WorkshopContextBasketSchema,
   WorkshopContextItemRefSchema,
+  WorkshopMessageProposalResultSchema,
+  WorkshopMessageSourceSchema,
   WorkshopMessageSchema,
   WorkshopSessionSchema,
   ReorderInputSchema,
@@ -204,12 +207,14 @@ import {
   type ProposalBatchPreviewResult,
   type ProposalCandidateSnapshot,
   type ProposalDocument,
+  type ProposalGenerator,
   type ProposalInbox,
   type ProposalPatch,
   type ProposalRevisionInput,
   type ProposalSnapshot,
   type SupersedeProposalInput,
   type CreateWorkshopBranchInput,
+  type CreateWorkshopMessageProposalInput,
   type CreateWorkshopMessageInput,
   type CreateWorkshopSessionInput,
   type UpdateWorkshopContextBasketInput,
@@ -218,6 +223,8 @@ import {
   type WorkshopContextBasket,
   type WorkshopContextItemRef,
   type WorkshopMessage,
+  type WorkshopMessageProposalResult,
+  type WorkshopMessageSource,
   type WorkshopSession,
   type PromptPreset,
   type PromptTemplate,
@@ -314,6 +321,7 @@ import {
   readWorkshopMessageFile,
   readWorkshopSessionFile,
   writeWorkshopContextBasketFile,
+  writeWorkshopMessageFile,
   writeWorkshopSessionFile,
 } from "./workshopFiles.js";
 export * from "./jsonAuthority.js";
@@ -3977,6 +3985,26 @@ export class ProjectRepository {
     return listWorkshopMessageFiles(await this.findSeriesRoot(seriesId), sessionId);
   }
 
+  async getWorkshopMessageSource(
+    seriesId: string,
+    messageId: string,
+  ): Promise<WorkshopMessageSource> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const message = await readWorkshopMessageFile(seriesRoot, messageId);
+    if (message.seriesId !== seriesId) {
+      throw new StorageError("Workshop message belongs to another series", "INVALID_DATA", {
+        messageId,
+      });
+    }
+    const session = await readWorkshopSessionFile(seriesRoot, message.sessionId);
+    if (session.seriesId !== seriesId) {
+      throw new StorageError("Workshop source session belongs to another series", "INVALID_DATA", {
+        sessionId: session.id,
+      });
+    }
+    return WorkshopMessageSourceSchema.parse({ session, message });
+  }
+
   async createWorkshopMessage(
     seriesId: string,
     sessionId: string,
@@ -4022,6 +4050,58 @@ export class ProjectRepository {
       updatedAt: created.createdAt,
     });
     return created;
+  }
+
+  async createProposalFromWorkshopMessage(
+    seriesId: string,
+    sessionId: string,
+    messageId: string,
+    rawInput: CreateWorkshopMessageProposalInput,
+  ): Promise<WorkshopMessageProposalResult> {
+    const input = CreateWorkshopMessageProposalInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const { session, message } = await this.getWorkshopMessageSource(seriesId, messageId);
+    if (session.id !== sessionId || message.sessionId !== sessionId) {
+      throw new StorageError("Workshop message does not belong to the requested session", "INVALID_DATA", {
+        sessionId,
+        messageId,
+      });
+    }
+    if (session.status === "archived") {
+      throw new StorageError("Archived Workshop session cannot create Proposals", "INVALID_DATA", {
+        sessionId,
+      });
+    }
+    if (message.status !== "succeeded" || !message.content.trim()) {
+      throw new StorageError("Only successful Workshop messages can create Proposals", "INVALID_DATA", {
+        messageId,
+      });
+    }
+
+    const generator = await this.proposalGeneratorForWorkshopMessage(seriesId, message);
+    const created = await this.createProposal(seriesId, {
+      ...input,
+      source: {
+        kind: "workshop-message",
+        sourceId: message.id,
+        label: session.title,
+        detail: message.content.slice(0, 4000),
+      },
+      contextBundleId: message.contextBundleId,
+      generator,
+    });
+    const nextIds = Array.from(new Set([...message.proposalIds, created.proposal.id]));
+    const updatedMessage = await writeWorkshopMessageFile(
+      seriesRoot,
+      WorkshopMessageSchema.parse({
+        ...message,
+        proposalIds: nextIds,
+      }),
+    );
+    return WorkshopMessageProposalResultSchema.parse({
+      message: updatedMessage,
+      proposal: created,
+    });
   }
 
   async getWorkshopContextBasket(
@@ -5761,6 +5841,36 @@ export class ProjectRepository {
     return this.proposalDocument(seriesId, seriesRoot, written.proposal, written.revision);
   }
 
+  private async proposalGeneratorForWorkshopMessage(
+    seriesId: string,
+    message: WorkshopMessage,
+  ): Promise<ProposalGenerator> {
+    if (!message.modelCallId && !message.contextBundleId) {
+      return { kind: "manual", actor: "workshop" };
+    }
+    if (!message.modelCallId || !message.contextBundleId) {
+      throw new StorageError("Workshop message is missing AI generation metadata", "INVALID_DATA", {
+        messageId: message.id,
+      });
+    }
+    const log = await this.getModelCallLog(seriesId, message.modelCallId);
+    if (log.contextBundleId !== message.contextBundleId) {
+      throw new StorageError("Workshop message AI metadata does not match the model call log", "INVALID_DATA", {
+        messageId: message.id,
+        modelCallId: log.id,
+      });
+    }
+    return {
+      kind: "ai",
+      roleId: log.roleId,
+      provider: log.provider,
+      model: log.model,
+      promptTemplateId: log.promptTemplateId,
+      promptTemplateVersion: log.promptTemplateVersion,
+      modelCallLogId: log.id,
+    };
+  }
+
   private async proposalSourceAvailability(
     seriesId: string,
     proposal: Proposal,
@@ -5778,7 +5888,10 @@ export class ProjectRepository {
       } else if (source.kind === "codex-entry") {
         await this.getCodexEntry(seriesId, source.sourceId);
       } else if (source.kind === "workshop-message") {
-        return { available: true, reason: "" };
+        const { session } = await this.getWorkshopMessageSource(seriesId, source.sourceId);
+        if (session.status === "archived") {
+          return { available: false, reason: "Source Workshop session is archived" };
+        }
       }
       return { available: true, reason: "" };
     } catch (error) {

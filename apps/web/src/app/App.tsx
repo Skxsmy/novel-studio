@@ -42,26 +42,60 @@ function proposalIdFromLocation(): string | null {
   return null;
 }
 
+interface WorkshopRoute {
+  sessionId: string;
+  messageId: string;
+}
+
+function workshopRouteFromLocation(): WorkshopRoute | null {
+  const hashMatch = window.location.hash.match(/^#\/workshop\/sessions\/([^/]+)\/messages\/([^/]+)$/u);
+  if (hashMatch?.[1] && hashMatch[2]) {
+    return {
+      sessionId: decodeURIComponent(hashMatch[1]),
+      messageId: decodeURIComponent(hashMatch[2]),
+    };
+  }
+  const pathMatch = window.location.pathname.match(/\/workshop\/sessions\/([^/]+)\/messages\/([^/]+)$/u);
+  if (pathMatch?.[1] && pathMatch[2]) {
+    return {
+      sessionId: decodeURIComponent(pathMatch[1]),
+      messageId: decodeURIComponent(pathMatch[2]),
+    };
+  }
+  return null;
+}
+
 export function App() {
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>("write");
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [activeProposalId, setActiveProposalId] = useState<string | null>(null);
+  const [activeWorkshopRoute, setActiveWorkshopRoute] = useState<WorkshopRoute | null>(null);
   const session = useProjectSession();
 
   useEffect(() => {
-    function syncProposalRoute() {
+    function syncWorkspaceRoute() {
       const proposalId = proposalIdFromLocation();
-      if (!proposalId) return;
-      setActiveProposalId(proposalId);
-      setActiveWorkspace("review");
-      setIsLibraryOpen(false);
-      setIsFocusMode(false);
+      if (proposalId) {
+        setActiveProposalId(proposalId);
+        setActiveWorkshopRoute(null);
+        setActiveWorkspace("review");
+        setIsLibraryOpen(false);
+        setIsFocusMode(false);
+        return;
+      }
+      const workshopRoute = workshopRouteFromLocation();
+      if (workshopRoute) {
+        setActiveWorkshopRoute(workshopRoute);
+        setActiveWorkspace("workshop");
+        setIsLibraryOpen(false);
+        setIsFocusMode(false);
+      }
     }
-    syncProposalRoute();
-    window.addEventListener("hashchange", syncProposalRoute);
-    return () => window.removeEventListener("hashchange", syncProposalRoute);
+    syncWorkspaceRoute();
+    window.addEventListener("hashchange", syncWorkspaceRoute);
+    return () => window.removeEventListener("hashchange", syncWorkspaceRoute);
   }, []);
 
   const activeDefinition = workspaces.find((workspace) => workspace.id === activeWorkspace) ?? workspaces.find((w) => w.id === "write")!;
@@ -91,14 +125,28 @@ export function App() {
     setActiveWorkspace(workspaceId);
     setIsLibraryOpen(false);
     if (workspaceId !== "write") setIsFocusMode(false);
+    setActiveWorkshopRoute(null);
   }
 
   function openProposal(proposalId: string) {
     setActiveProposalId(proposalId);
+    setActiveWorkshopRoute(null);
     setActiveWorkspace("review");
     setIsLibraryOpen(false);
     setIsFocusMode(false);
     window.history.replaceState(null, "", `#/review/proposals/${encodeURIComponent(proposalId)}`);
+  }
+
+  function openWorkshopMessage(sessionId: string, messageId: string) {
+    setActiveWorkshopRoute({ sessionId, messageId });
+    setActiveWorkspace("workshop");
+    setIsLibraryOpen(false);
+    setIsFocusMode(false);
+    window.history.replaceState(
+      null,
+      "",
+      `#/workshop/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}`,
+    );
   }
 
   function openLibrary() {
@@ -198,10 +246,19 @@ export function App() {
       );
     }
     if (activeWorkspace === "workshop") {
-      return <WorkshopWorkspace selectedScene={session.selectedScene} series={session.activeSeries} />;
+      return (
+        <WorkshopWorkspace
+          onOpenProposal={openProposal}
+          selectedMessageId={activeWorkshopRoute?.messageId ?? null}
+          selectedScene={session.selectedScene}
+          selectedSessionId={activeWorkshopRoute?.sessionId ?? null}
+          series={session.activeSeries}
+        />
+      );
     }
     return (
       <ReviewWorkspace
+        onOpenWorkshopMessage={openWorkshopMessage}
         onOpenProposal={openProposal}
         selectedProposalId={activeProposalId}
         series={session.activeSeries}

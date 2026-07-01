@@ -3029,6 +3029,33 @@ details.disclosure summary::-webkit-details-marker { display: none; }
   background: #fff8f5;
 }
 
+.message.is-target {
+  border-color: rgba(25, 128, 94, 0.42);
+  box-shadow: 0 0 0 2px rgba(25, 128, 94, 0.12);
+}
+
+.message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.message-proposals {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.workshop-proposal-card {
+  max-width: 100%;
+  min-height: 0;
+}
+
+.workshop-proposal-card.is-unavailable {
+  background: #fffefa;
+}
+
 .workshop-composer-input {
   min-height: 42px;
   max-height: 110px;

@@ -47,6 +47,7 @@ const secondProgressionId = "45454545-4545-4454-8545-454545454545";
 const proposalId = "56565656-5656-4656-8656-565656565656";
 const snapshotId = "67676767-6767-4676-8676-676767676767";
 const workshopSessionId = "89898989-8989-4989-8989-898989898989";
+const workshopProposalId = "79797979-7979-4797-8797-797979797979";
 const workshopBasketItemId = "90909090-9090-4090-9090-909090909090";
 const workshopContextBundleId = "91919191-9191-4191-9191-919191919191";
 const workshopModelCallId = "92929292-9292-4292-9292-929292929292";
@@ -669,8 +670,25 @@ function modelProfile(overrides: Partial<{
   };
 }
 
-function proposalDocument(status: "pending" | "accepted" | "rejected" | "edited" = "pending") {
-  const target = {
+function proposalDocument(
+  status: "pending" | "accepted" | "rejected" | "edited" = "pending",
+  overrides: Partial<{
+    contextBundleId: string | null;
+    evidence: Array<Record<string, unknown>>;
+    generator: Record<string, unknown>;
+    id: string;
+    patches: Array<Record<string, unknown>>;
+    reason: string;
+    source: Record<string, unknown>;
+    sourceAvailability: { available: boolean; reason: string };
+    summary: string;
+    target: Record<string, unknown>;
+    targetAvailability: { available: boolean; reason: string };
+    title: string;
+    type: "text-replacement" | "text-insertion";
+  }> = {},
+) {
+  const target = overrides.target ?? {
     kind: "scene-content" as const,
     targetId: sceneId,
     label: "Opening Scene",
@@ -682,24 +700,24 @@ function proposalDocument(status: "pending" | "accepted" | "rejected" | "edited"
   return {
     proposal: {
       schemaVersion: 2 as const,
-      id: proposalId,
+      id: overrides.id ?? proposalId,
       seriesId,
-      type: "text-replacement" as const,
-      title: "Replace chase beat with continuity-safe escalation",
-      summary: "Keeps the chase consistent with Codex constraints.",
+      type: overrides.type ?? "text-replacement" as const,
+      title: overrides.title ?? "Replace chase beat with continuity-safe escalation",
+      summary: overrides.summary ?? "Keeps the chase consistent with Codex constraints.",
       status,
-      source: {
+      source: overrides.source ?? {
         kind: "manual" as const,
         sourceId: null,
         label: "Workshop continuity pass",
         detail: "",
       },
       target,
-      contextBundleId: null,
-      generator: { kind: "manual" as const, actor: "user" },
+      contextBundleId: overrides.contextBundleId ?? null,
+      generator: overrides.generator ?? { kind: "manual" as const, actor: "user" },
       riskLevel: "medium" as const,
       confidence: 0.82,
-      reason: "Captain Veyr should not know the route before the city clock breaks.",
+      reason: overrides.reason ?? "Captain Veyr should not know the route before the city clock breaks.",
       staleReason: "",
       supersededBy: null,
       originalCandidate: null,
@@ -711,7 +729,7 @@ function proposalDocument(status: "pending" | "accepted" | "rejected" | "edited"
         snapshotId: status === "accepted" || status === "edited" ? snapshotId : null,
         editedCandidate: null,
       },
-      patches: [{
+      patches: overrides.patches ?? [{
         id: "78787878-7878-4787-8787-787878787878",
         target,
         action: "replace-text" as const,
@@ -719,7 +737,7 @@ function proposalDocument(status: "pending" | "accepted" | "rejected" | "edited"
         after: "Captain Veyr was not in the arcade. That mattered.",
         unifiedDiff: "-Captain Veyr shouted from the far arch, already knowing her name.\n+Captain Veyr was not in the arcade. That mattered.",
       }],
-      evidence: [{
+      evidence: overrides.evidence ?? [{
         sourceType: "codex-entry" as const,
         sourceId: codexEntryId,
         revision,
@@ -730,9 +748,30 @@ function proposalDocument(status: "pending" | "accepted" | "rejected" | "edited"
       updatedAt: "2026-06-24T00:00:00.000Z",
     },
     revision,
-    sourceAvailability: { available: true, reason: "" },
-    targetAvailability: { available: true, reason: "" },
+    sourceAvailability: overrides.sourceAvailability ?? { available: true, reason: "" },
+    targetAvailability: overrides.targetAvailability ?? { available: true, reason: "" },
   };
+}
+
+function proposalDocumentWithStatus(
+  document: ReturnType<typeof proposalDocument>,
+  status: "pending" | "accepted" | "rejected" | "edited",
+) {
+  return proposalDocument(status, {
+    contextBundleId: document.proposal.contextBundleId,
+    evidence: document.proposal.evidence,
+    generator: document.proposal.generator,
+    id: document.proposal.id,
+    patches: document.proposal.patches,
+    reason: document.proposal.reason,
+    source: document.proposal.source,
+    sourceAvailability: document.sourceAvailability,
+    summary: document.proposal.summary,
+    target: document.proposal.target,
+    targetAvailability: document.targetAvailability,
+    title: document.proposal.title,
+    type: document.proposal.type,
+  });
 }
 
 function workshopSession(overrides: Partial<{
@@ -943,9 +982,18 @@ function mockFetch(options: {
       return jsonResponse(created, 201);
     }
 
-    const workshopSessionMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/workshop/sessions/([^/]+)(?:/([^/]+))?(?:/([^/]+))?$`));
+    const workshopMessageSourceMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/workshop/messages/([^/]+)/source$`));
+    if (workshopMessageSourceMatch && method === "GET") {
+      const [, requestedMessageId] = workshopMessageSourceMatch;
+      const message = workshopMessages.find((item) => item.id === requestedMessageId);
+      if (!message) return jsonResponse({ message: "Workshop message does not exist" }, 404);
+      const session = workshopSessions.find((item) => item.id === message.sessionId) ?? workshopSession();
+      return jsonResponse({ session, message });
+    }
+
+    const workshopSessionMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/workshop/sessions/([^/]+)(?:/([^/]+))?(?:/([^/]+))?(?:/([^/]+))?$`));
     if (workshopSessionMatch) {
-      const [, requestedSessionId, segment, action] = workshopSessionMatch;
+      const [, requestedSessionId, segment, action, subaction] = workshopSessionMatch;
       if (!requestedSessionId) {
         return jsonResponse({ code: "NOT_FOUND", message: "Workshop session not found" }, 404);
       }
@@ -995,6 +1043,50 @@ function mockFetch(options: {
         };
         workshopMessages = [...workshopMessages, message];
         return jsonResponse(message, 201);
+      }
+      if (segment === "messages" && action && subaction === "proposals" && method === "POST") {
+        const requestedMessageId = action;
+        const body = JSON.parse(String(init?.body));
+        const sourceMessage = workshopMessages.find((message) => message.id === requestedMessageId);
+        if (!sourceMessage) return jsonResponse({ message: "Workshop message does not exist" }, 404);
+        const created = proposalDocument("pending", {
+          contextBundleId: sourceMessage.contextBundleId as string | null,
+          evidence: body.evidence,
+          generator: sourceMessage.modelCallId
+            ? {
+              kind: "ai",
+              roleId: "continuity-editor",
+              provider: "mock",
+              model: "mock-continuity-v1",
+              promptTemplateId,
+              promptTemplateVersion: 1,
+              modelCallLogId: sourceMessage.modelCallId,
+            }
+            : { kind: "manual", actor: "workshop" },
+          id: workshopProposalId,
+          patches: body.patches,
+          reason: body.reason,
+          source: {
+            kind: "workshop-message",
+            sourceId: sourceMessage.id,
+            label: session.title,
+            detail: sourceMessage.content,
+          },
+          summary: body.summary,
+          target: body.target,
+          title: body.title,
+          type: body.type,
+        });
+        proposals = [created, ...proposals.filter((document) => document.proposal.id !== created.proposal.id)];
+        const sourceMessageId = String(sourceMessage.id);
+        const updatedMessage = {
+          ...sourceMessage,
+          proposalIds: Array.from(new Set([...(sourceMessage.proposalIds as string[]), created.proposal.id])),
+        } as Record<string, unknown> & { id: string; proposalIds: string[] };
+        workshopMessages = workshopMessages.map((message) =>
+          message.id === sourceMessageId ? updatedMessage : message,
+        );
+        return jsonResponse({ message: updatedMessage, proposal: created }, 201);
       }
       if (segment === "branch" && method === "POST") {
         const branchSession = workshopSession({
@@ -1101,7 +1193,8 @@ function mockFetch(options: {
       const completed = body.proposalIds
         .filter((id: string) => proposals.some((document) => document.proposal.id === id && document.proposal.status === "pending"))
         .map((id: string) => {
-          const updated = proposalDocument("accepted");
+          const current = proposals.find((document) => document.proposal.id === id)!;
+          const updated = proposalDocumentWithStatus(current, "accepted");
           proposals = proposals.map((document) => document.proposal.id === id ? updated : document);
           return { proposal: updated, snapshot: { schemaVersion: 1, id: snapshotId, seriesId, proposalId: id, target: updated.proposal.target, createdAt: "2026-06-24T00:00:00.000Z", targetRevision: revision, data: {} } };
         });
@@ -1115,7 +1208,7 @@ function mockFetch(options: {
       if (!current) return jsonResponse({ message: "Proposal does not exist" }, 404);
       if (!action && method === "GET") return jsonResponse(current);
       if (action === "accept" && method === "POST") {
-        const updated = proposalDocument("accepted");
+        const updated = proposalDocumentWithStatus(current, "accepted");
         proposals = proposals.map((document) => document.proposal.id === requestedProposalId ? updated : document);
         return jsonResponse({
           proposal: updated,
@@ -1132,7 +1225,7 @@ function mockFetch(options: {
         });
       }
       if (action === "edit-and-accept" && method === "POST") {
-        const updated = proposalDocument("accepted");
+        const updated = proposalDocumentWithStatus(current, "accepted");
         proposals = proposals.map((document) => document.proposal.id === requestedProposalId ? updated : document);
         return jsonResponse({
           proposal: updated,
@@ -1149,7 +1242,7 @@ function mockFetch(options: {
         });
       }
       if (action === "reject" && method === "POST") {
-        const updated = proposalDocument("rejected");
+        const updated = proposalDocumentWithStatus(current, "rejected");
         proposals = proposals.map((document) => document.proposal.id === requestedProposalId ? updated : document);
         return jsonResponse(updated);
       }
@@ -3661,9 +3754,37 @@ describe("App shell", () => {
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
     expect(screen.queryByText(workshopModelCallId)).toBeNull();
     expect(screen.queryByText(workshopContextBundleId)).toBeNull();
-    expect(fetchMock.mock.calls.some(([url]) =>
-      String(url).includes(`/api/v1/series/${seriesId}/review/proposals`),
-    )).toBe(false);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create Proposal" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/98989898-9898-4898-9898-989898989898/proposals`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Open Proposal" }));
+    expect(window.location.hash).toBe(`#/review/proposals/${workshopProposalId}`);
+    expect(await screen.findByRole("heading", { name: "Review" })).toBeTruthy();
+    expect(screen.getAllByText("Workshop model response.").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Go to Chat" }));
+    await waitFor(() => {
+      expect(window.location.hash).toBe(
+        `#/workshop/sessions/${workshopSessionId}/messages/98989898-9898-4898-9898-989898989898`,
+      );
+    });
+    expect(await screen.findByText("Pending")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Proposal" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/review/proposals/${workshopProposalId}/accept`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Go to Chat" }));
+    expect(await screen.findByText("Accepted")).toBeTruthy();
   });
 
   it("loads and reorders the planning board after a project is selected", async () => {

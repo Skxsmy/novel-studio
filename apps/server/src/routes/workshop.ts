@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   CreateWorkshopBranchInputSchema,
+  CreateWorkshopMessageProposalInputSchema,
   CreateWorkshopMessageInputSchema,
   CreateWorkshopSessionInputSchema,
   ModelCallLogSchema,
@@ -316,6 +317,12 @@ export function registerWorkshopRoutes(
       repository.listWorkshopMessages(request.params.seriesId, request.params.sessionId),
   );
 
+  app.get<{ Params: { seriesId: string; messageId: string } }>(
+    "/api/v1/series/:seriesId/workshop/messages/:messageId/source",
+    async (request) =>
+      repository.getWorkshopMessageSource(request.params.seriesId, request.params.messageId),
+  );
+
   app.post<{ Params: { seriesId: string; sessionId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages",
     async (request, reply) => {
@@ -324,6 +331,21 @@ export function registerWorkshopRoutes(
         await repository.createWorkshopMessage(
           request.params.seriesId,
           request.params.sessionId,
+          input,
+        ),
+      );
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/proposals",
+    async (request, reply) => {
+      const input = CreateWorkshopMessageProposalInputSchema.parse(request.body);
+      return reply.status(201).send(
+        await repository.createProposalFromWorkshopMessage(
+          request.params.seriesId,
+          request.params.sessionId,
+          request.params.messageId,
           input,
         ),
       );

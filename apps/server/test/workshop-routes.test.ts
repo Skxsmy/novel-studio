@@ -121,6 +121,81 @@ describe("M5 Workshop API routes", () => {
     expect(proposals.statusCode).toBe(200);
     expect(proposals.json().items).toEqual([]);
 
+    const assistantMessage = messages.json().find((message: { role: string }) => message.role === "assistant");
+    const target = {
+      kind: "scene-content",
+      targetId: scene.metadata.id,
+      label: scene.metadata.title,
+      baseRevision: scene.revision,
+      fieldPath: [],
+      blockId: null,
+      range: null,
+    };
+    const createdProposal = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${assistantMessage.id}/proposals`,
+      payload: {
+        type: "text-insertion",
+        title: "Insert Workshop response",
+        summary: "Workshop candidate",
+        target,
+        riskLevel: "medium",
+        confidence: null,
+        reason: "Review before applying.",
+        patches: [{
+          id: "11111111-1111-4111-8111-111111111111",
+          target,
+          action: "insert-text",
+          before: null,
+          after: assistantMessage.content,
+          unifiedDiff: `+${assistantMessage.content}`,
+        }],
+        evidence: [{
+          sourceType: "workshop-message",
+          sourceId: assistantMessage.id,
+          revision: null,
+          quote: "",
+          note: "Workshop source message.",
+        }],
+      },
+    });
+    expect(createdProposal.statusCode).toBe(201);
+    expect(createdProposal.json().proposal.proposal.source).toMatchObject({
+      kind: "workshop-message",
+      sourceId: assistantMessage.id,
+      label: "Continuity pass",
+    });
+    expect(createdProposal.json().message.proposalIds).toEqual([createdProposal.json().proposal.proposal.id]);
+
+    const sourceMessage = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/messages/${assistantMessage.id}/source`,
+    });
+    expect(sourceMessage.statusCode).toBe(200);
+    expect(sourceMessage.json().session.id).toBe(session.id);
+    expect(sourceMessage.json().message.id).toBe(assistantMessage.id);
+
+    const linkedMessages = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+    });
+    expect(linkedMessages.json().find((message: { id: string }) => message.id === assistantMessage.id).proposalIds)
+      .toEqual([createdProposal.json().proposal.proposal.id]);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/archive`,
+    });
+    const archivedSourceProposal = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/review/proposals/${createdProposal.json().proposal.proposal.id}`,
+    });
+    expect(archivedSourceProposal.statusCode).toBe(200);
+    expect(archivedSourceProposal.json().sourceAvailability).toMatchObject({
+      available: false,
+      reason: "Source Workshop session is archived",
+    });
+
     await app.close();
   });
 

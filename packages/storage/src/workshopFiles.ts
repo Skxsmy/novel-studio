@@ -215,6 +215,19 @@ export async function createWorkshopMessageFile(
   return document.data;
 }
 
+export async function writeWorkshopMessageFile(
+  seriesRoot: string,
+  message: WorkshopMessage,
+): Promise<WorkshopMessage> {
+  const document = await writeJsonAuthorityFile(
+    seriesRoot,
+    workshopMessagePath(seriesRoot, message.id),
+    message,
+    (value) => WorkshopMessageSchema.parse(value),
+  );
+  return document.data;
+}
+
 export async function readWorkshopContextBasketFile(
   seriesRoot: string,
   sessionId: string,

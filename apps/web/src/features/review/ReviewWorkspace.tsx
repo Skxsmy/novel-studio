@@ -9,6 +9,7 @@ import { api } from "../../api";
 import { uiText } from "../../app/uiText";
 
 interface ReviewWorkspaceProps {
+  onOpenWorkshopMessage: (sessionId: string, messageId: string) => void;
   onOpenProposal: (proposalId: string) => void;
   selectedProposalId: string | null;
   series: SeriesDetail;
@@ -38,6 +39,7 @@ function targetKindLabel(kind: ProposalDocument["proposal"]["target"]["kind"]) {
 }
 
 export function ReviewWorkspace({
+  onOpenWorkshopMessage,
   onOpenProposal,
   selectedProposalId,
   series,
@@ -155,6 +157,20 @@ export function ReviewWorkspace({
       await loadInbox(localSelectedId);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Batch accept failed.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function openSourceMessage() {
+    if (!selected?.proposal.source.sourceId || selected.proposal.source.kind !== "workshop-message") return;
+    setBusyAction("source-message");
+    setErrorMessage("");
+    try {
+      const source = await api.workshop.getMessageSource(series.manifest.id, selected.proposal.source.sourceId);
+      onOpenWorkshopMessage(source.session.id, source.message.id);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Source message is unavailable.");
     } finally {
       setBusyAction(null);
     }
@@ -350,6 +366,16 @@ export function ReviewWorkspace({
                 <div className="review-side-block">
                   <span className="brief-label">{text.labels.source}</span>
                   <p className="brief-text">{selected.proposal.source.label}</p>
+                  {selected.proposal.source.kind === "workshop-message" ? (
+                    <button
+                      className="btn compact"
+                      disabled={busyAction !== null}
+                      onClick={() => void openSourceMessage()}
+                      type="button"
+                    >
+                      {text.actions.openSource}
+                    </button>
+                  ) : null}
                 </div>
                 <div className="review-side-block">
                   <span className="brief-label">{text.labels.reason}</span>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   ContextBundle,
   ModelProfile,
+  ProposalDocument,
   PromptTemplate,
   SceneDocument,
   SeriesDetail,
@@ -14,7 +15,10 @@ import { ApiError, api } from "../../api";
 import { uiText } from "../../app/uiText";
 
 export interface WorkshopWorkspaceProps {
+  onOpenProposal: (proposalId: string) => void;
+  selectedMessageId: string | null;
   selectedScene: SceneDocument | null;
+  selectedSessionId: string | null;
   series: SeriesDetail;
 }
 
@@ -52,6 +56,20 @@ function contextKindLabel(kind: WorkshopContextItemRef["kind"]): string {
   return labels.sourceNote;
 }
 
+function statusClass(status: ProposalDocument["proposal"]["status"]) {
+  if (status === "pending") return "pill blue";
+  if (status === "accepted" || status === "edited") return "pill green";
+  if (status === "stale") return "pill amber";
+  return "pill muted";
+}
+
+function targetKindLabel(kind: ProposalDocument["proposal"]["target"]["kind"]) {
+  if (kind.startsWith("scene")) return "Manuscript";
+  if (kind.startsWith("codex") || kind === "detail-type") return "Codex";
+  if (kind === "planning") return "Planning";
+  return "Research";
+}
+
 function newestTemplateForRole(templates: PromptTemplate[], roleId: string): PromptTemplate | null {
   const candidates = templates
     .filter((template) => template.roleId === roleId && template.archivedAt === null)
@@ -59,13 +77,20 @@ function newestTemplateForRole(templates: PromptTemplate[], roleId: string): Pro
   return candidates.find((template) => template.status === "active") ?? candidates[0] ?? null;
 }
 
-export function WorkshopWorkspace({ selectedScene, series }: WorkshopWorkspaceProps) {
+export function WorkshopWorkspace({
+  onOpenProposal,
+  selectedMessageId,
+  selectedScene,
+  selectedSessionId,
+  series,
+}: WorkshopWorkspaceProps) {
   const text = uiText.workshop;
   const seriesId = series.manifest.id;
   const defaultScene = selectedScene ?? series.scenes[0] ?? null;
   const [sessions, setSessions] = useState<WorkshopSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<WorkshopMessage[]>([]);
+  const [proposalDocuments, setProposalDocuments] = useState<ProposalDocument[]>([]);
   const [basket, setBasket] = useState<WorkshopContextBasket | null>(null);
   const [contextPreview, setContextPreview] = useState<ContextBundle | null>(null);
   const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
@@ -74,12 +99,17 @@ export function WorkshopWorkspace({ selectedScene, series }: WorkshopWorkspacePr
   const [isLoading, setIsLoading] = useState(true);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isCalling, setIsCalling] = useState(false);
+  const [creatingProposalMessageId, setCreatingProposalMessageId] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeSessionId, sessions],
+  );
+  const proposalMap = useMemo(
+    () => new Map(proposalDocuments.map((document) => [document.proposal.id, document])),
+    [proposalDocuments],
   );
   const selectedModelProfile = useMemo(
     () => modelProfiles.find((profile) => profile.archivedAt === null) ?? null,
@@ -133,9 +163,13 @@ export function WorkshopWorkspace({ selectedScene, series }: WorkshopWorkspacePr
     setIsDetailLoading(true);
     setError(null);
     try {
-      const detail = await api.workshop.getSession(seriesId, sessionId);
+      const [detail, inbox] = await Promise.all([
+        api.workshop.getSession(seriesId, sessionId),
+        api.proposals.list(seriesId),
+      ]);
       setBasket(detail.basket);
       setMessages(detail.messages);
+      setProposalDocuments(inbox.items);
       setContextPreview(null);
     } catch (caught) {
       setError(apiErrorMessage(caught));
@@ -145,9 +179,15 @@ export function WorkshopWorkspace({ selectedScene, series }: WorkshopWorkspacePr
   }
 
   useEffect(() => {
-    void loadShell();
+    void loadShell(selectedSessionId ?? undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seriesId]);
+
+  useEffect(() => {
+    if (selectedSessionId && selectedSessionId !== activeSessionId) {
+      setActiveSessionId(selectedSessionId);
+    }
+  }, [activeSessionId, selectedSessionId]);
 
   useEffect(() => {
     if (!activeSessionId) {
@@ -316,6 +356,70 @@ export function WorkshopWorkspace({ selectedScene, series }: WorkshopWorkspacePr
     }
   }
 
+  function proposalInputFromMessage(message: WorkshopMessage) {
+    if (!defaultScene) throw new Error(text.labels.noScene);
+    const candidateText = message.content.trim();
+    const target = {
+      kind: "scene-content" as const,
+      targetId: defaultScene.metadata.id,
+      label: defaultScene.metadata.title,
+      baseRevision: defaultScene.revision,
+      fieldPath: [],
+      blockId: null,
+      range: null,
+    };
+    const title = candidateText.split(/\n/u).find((line) => line.trim())?.trim().slice(0, 120) ||
+      text.proposals.defaultTitle;
+    const summary = candidateText.length > 220 ? `${candidateText.slice(0, 217)}...` : candidateText;
+    return {
+      type: "text-insertion" as const,
+      title,
+      summary,
+      target,
+      riskLevel: "medium" as const,
+      confidence: null,
+      reason: text.proposals.defaultReason,
+      patches: [{
+        id: randomId(),
+        target,
+        action: "insert-text" as const,
+        before: null,
+        after: candidateText,
+        unifiedDiff: `+${candidateText.slice(0, 399999)}`,
+      }],
+      evidence: [{
+        sourceType: "workshop-message" as const,
+        sourceId: message.id,
+        revision: null,
+        quote: "",
+        note: text.proposals.evidenceNote,
+      }],
+    };
+  }
+
+  async function createProposalFromMessage(message: WorkshopMessage) {
+    if (!activeSession) return;
+    setCreatingProposalMessageId(message.id);
+    setError(null);
+    try {
+      const result = await api.workshop.createMessageProposal(
+        seriesId,
+        activeSession.id,
+        message.id,
+        proposalInputFromMessage(message),
+      );
+      setMessages((current) => current.map((item) => item.id === result.message.id ? result.message : item));
+      setProposalDocuments((current) => [
+        result.proposal,
+        ...current.filter((item) => item.proposal.id !== result.proposal.proposal.id),
+      ]);
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setCreatingProposalMessageId(null);
+    }
+  }
+
   const includedCount = basket?.items.length ?? 0;
   const pinnedCount = basket?.items.filter((item) => item.pinned).length ?? 0;
 
@@ -419,7 +523,7 @@ export function WorkshopWorkspace({ selectedScene, series }: WorkshopWorkspacePr
             ) : null}
             {messages.map((message) => (
               <article
-                className={`message${message.role === "author" ? " user" : ""}${message.status === "failed" ? " is-failed" : ""}`}
+                className={`message${message.role === "author" ? " user" : ""}${message.status === "failed" ? " is-failed" : ""}${message.id === selectedMessageId ? " is-target" : ""}`}
                 key={message.id}
               >
                 <div className="message-meta">
@@ -431,6 +535,71 @@ export function WorkshopWorkspace({ selectedScene, series }: WorkshopWorkspacePr
                 <p>{message.content}</p>
                 {message.status === "failed" ? (
                   <p className="message-error">{message.errorMessage ?? text.labels.assistantFailed}</p>
+                ) : null}
+                {message.proposalIds.length ? (
+                  <div className="message-proposals" aria-label={text.proposals.cardsLabel}>
+                    {message.proposalIds.map((proposalId) => {
+                      const document = proposalMap.get(proposalId);
+                      if (!document) {
+                        return (
+                          <div className="proposal-row workshop-proposal-card is-unavailable" key={proposalId}>
+                            <div className="proposal-row-pills">
+                              <span className="pill amber">{text.proposals.unavailable}</span>
+                            </div>
+                            <div>
+                              <strong>{text.proposals.unavailableTitle}</strong>
+                              <span>{text.proposals.unavailableBody}</span>
+                            </div>
+                            <button className="btn compact" disabled type="button">
+                              {text.proposals.open}
+                            </button>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="proposal-row workshop-proposal-card" key={document.proposal.id}>
+                          <div className="proposal-row-pills">
+                            <span className={statusClass(document.proposal.status)}>
+                              {uiText.review.statusLabels[document.proposal.status]}
+                            </span>
+                            <span className="pill blue">{targetKindLabel(document.proposal.target.kind)}</span>
+                            {!document.sourceAvailability.available || !document.targetAvailability.available ? (
+                              <span className="pill amber">{text.proposals.unavailable}</span>
+                            ) : null}
+                          </div>
+                          <div>
+                            <strong>{document.proposal.title}</strong>
+                            <span>{document.proposal.summary}</span>
+                          </div>
+                          <button
+                            className="btn primary compact"
+                            onClick={() => onOpenProposal(document.proposal.id)}
+                            type="button"
+                          >
+                            {text.proposals.open}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {activeSession?.status === "active" &&
+                message.role !== "author" &&
+                message.status === "succeeded" &&
+                message.content.trim() &&
+                message.proposalIds.length === 0 ? (
+                  <div className="message-actions">
+                    <button
+                      className="btn compact"
+                      disabled={creatingProposalMessageId !== null}
+                      onClick={() => void createProposalFromMessage(message)}
+                      type="button"
+                    >
+                      {creatingProposalMessageId === message.id
+                        ? text.proposals.creating
+                        : text.proposals.create}
+                    </button>
+                  </div>
                 ) : null}
               </article>
             ))}

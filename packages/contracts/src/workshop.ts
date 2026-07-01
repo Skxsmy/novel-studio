@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AiTaskKindSchema, ModelParametersSchema, TokenUsageSchema } from "./ai.js";
 import { ContextPreviewSelectionSchema } from "./context.js";
+import { CreateProposalInputSchema, ProposalDocumentSchema } from "./proposals.js";
 
 export const WorkshopSessionStatusSchema = z.enum(["active", "archived"]);
 export type WorkshopSessionStatus = z.infer<typeof WorkshopSessionStatusSchema>;
@@ -132,6 +133,29 @@ export const CreateWorkshopMessageInputSchema = z.object({
   content: z.string().trim().min(1).max(400000),
 });
 export type CreateWorkshopMessageInput = z.input<typeof CreateWorkshopMessageInputSchema>;
+
+export const CreateWorkshopMessageProposalInputSchema = CreateProposalInputSchema.omit({
+  contextBundleId: true,
+  generator: true,
+  source: true,
+});
+export type CreateWorkshopMessageProposalInput = z.input<
+  typeof CreateWorkshopMessageProposalInputSchema
+>;
+
+export const WorkshopMessageSourceSchema = z.object({
+  session: WorkshopSessionSchema,
+  message: WorkshopMessageSchema,
+});
+export type WorkshopMessageSource = z.infer<typeof WorkshopMessageSourceSchema>;
+
+export const WorkshopMessageProposalResultSchema = z.object({
+  message: WorkshopMessageSchema,
+  proposal: ProposalDocumentSchema,
+});
+export type WorkshopMessageProposalResult = z.infer<
+  typeof WorkshopMessageProposalResultSchema
+>;
 
 export const CreateWorkshopBranchInputSchema = z.object({
   sourceMessageId: z.string().uuid(),
