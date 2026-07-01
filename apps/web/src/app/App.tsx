@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CodexWorkspace } from "../features/codex";
 import { LibraryWorkspace } from "../features/library";
 import { OverviewWorkspace } from "../features/overview";
@@ -34,12 +34,35 @@ function formatCount(value: number) {
   return `${value}`;
 }
 
+function proposalIdFromLocation(): string | null {
+  const hashMatch = window.location.hash.match(/^#\/review\/proposals\/([^/]+)$/u);
+  if (hashMatch?.[1]) return decodeURIComponent(hashMatch[1]);
+  const pathMatch = window.location.pathname.match(/\/review\/proposals\/([^/]+)$/u);
+  if (pathMatch?.[1]) return decodeURIComponent(pathMatch[1]);
+  return null;
+}
+
 export function App() {
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>("write");
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [activeProposalId, setActiveProposalId] = useState<string | null>(null);
   const session = useProjectSession();
+
+  useEffect(() => {
+    function syncProposalRoute() {
+      const proposalId = proposalIdFromLocation();
+      if (!proposalId) return;
+      setActiveProposalId(proposalId);
+      setActiveWorkspace("review");
+      setIsLibraryOpen(false);
+      setIsFocusMode(false);
+    }
+    syncProposalRoute();
+    window.addEventListener("hashchange", syncProposalRoute);
+    return () => window.removeEventListener("hashchange", syncProposalRoute);
+  }, []);
 
   const activeDefinition = workspaces.find((workspace) => workspace.id === activeWorkspace) ?? workspaces.find((w) => w.id === "write")!;
   const projectTitle = session.activeSeries?.manifest.title ?? "Novel Studio";
@@ -68,6 +91,14 @@ export function App() {
     setActiveWorkspace(workspaceId);
     setIsLibraryOpen(false);
     if (workspaceId !== "write") setIsFocusMode(false);
+  }
+
+  function openProposal(proposalId: string) {
+    setActiveProposalId(proposalId);
+    setActiveWorkspace("review");
+    setIsLibraryOpen(false);
+    setIsFocusMode(false);
+    window.history.replaceState(null, "", `#/review/proposals/${encodeURIComponent(proposalId)}`);
   }
 
   function openLibrary() {
@@ -166,8 +197,16 @@ export function App() {
         />
       );
     }
-    if (activeWorkspace === "workshop") return <WorkshopWorkspace />;
-    return <ReviewWorkspace />;
+    if (activeWorkspace === "workshop") {
+      return <WorkshopWorkspace selectedScene={session.selectedScene} series={session.activeSeries} />;
+    }
+    return (
+      <ReviewWorkspace
+        onOpenProposal={openProposal}
+        selectedProposalId={activeProposalId}
+        series={session.activeSeries}
+      />
+    );
   }
 
   const pageId = isLibraryOpen ? "library-page" : `${activeWorkspace}-page`;
@@ -215,7 +254,7 @@ export function App() {
                   .filter((workspace) => workspace.id !== "settings")
                   .map((workspace) => {
                     const isActive = workspace.id === activeWorkspace && !isLibraryOpen;
-                    const isUnavailableShell = workspace.id === "workshop" || workspace.id === "review";
+                    const isUnavailableShell = false;
                     const pillClass = workspace.id === "write" && saveState ? saveState.className : "pill muted";
                     const pillLabel = workspace.id === "write" ? saveState?.label ?? ""
                       : isUnavailableShell ? uiText.navigation.notConnected
@@ -232,7 +271,9 @@ export function App() {
                       >
                         <span>
                           <span className="row-title">{workspace.label}</span>
-                          {isUnavailableShell ? <span className="row-meta">{uiText.navigation.notConnected}</span> : null}
+                          <span className="row-meta">
+                            {isUnavailableShell ? uiText.navigation.notConnected : workspace.description}
+                          </span>
                         </span>
                         {pillLabel ? <span className={pillClass}>{pillLabel}</span> : <span aria-hidden="true" />}
                       </button>

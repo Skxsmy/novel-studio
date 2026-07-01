@@ -40,7 +40,9 @@ import { registerAiRoutes } from "./routes/ai.js";
 import { registerCodexRoutes } from "./routes/codex.js";
 import { registerContextRoutes } from "./routes/context.js";
 import { registerModelCallRoutes } from "./routes/modelCalls.js";
+import { registerProposalRoutes } from "./routes/proposals.js";
 import { registerPromptRoutes } from "./routes/prompts.js";
+import { registerWorkshopRoutes } from "./routes/workshop.js";
 
 export interface BuildAppOptions {
   libraryRoot: string;
@@ -381,6 +383,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   registerPromptRoutes(app, repository);
   registerModelCallRoutes(app, repository, { providerRegistry });
   registerContextRoutes(app, repository, { providerRegistry });
+  registerProposalRoutes(app, repository);
+  registerWorkshopRoutes(app, repository, { providerRegistry });
 
   app.post<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/timeline/events",

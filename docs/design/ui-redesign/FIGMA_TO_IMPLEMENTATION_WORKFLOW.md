@@ -11,7 +11,7 @@ This document defines how a Figma design becomes a real Novel Studio page withou
 
 The core rule is:
 
-> Figma metadata, variables, component mappings, and design context are the implementation source. Screenshots are visual QA evidence, not the implementation source.
+> Figma metadata, variables, component mappings, design context, and a written Figma structure checklist are the implementation source. Screenshots are not an agent-owned acceptance mechanism for this project.
 
 This workflow exists because Project Recovery is accepted only for the current stage, while M5 Workshop/Review UI is not implemented or accepted. It must prevent these recurring failures:
 
@@ -46,7 +46,7 @@ Project authority:
 ## Non-Negotiable Project Constraints
 
 - Do not start implementation before the user accepts the Figma direction for the target scope.
-- Do not treat any screenshot, browser check, or automated diff as user visual acceptance.
+- Do not perform agent-owned screenshot-based UI acceptance. Do not treat any screenshot, browser check, automated diff, DOM measurement, or test count as user visual acceptance.
 - Do not expose internal IDs, hashes, revisions, prompt versions, or audit fields in author-facing main paths unless the product spec explicitly requires it.
 - Do not create a separate visual language for Workshop or Review. They must reuse the current app shell, tokens, and component grammar unless the whole application UI is deliberately revised.
 - Do not create standalone routes for state views. Permission gates, failures, stale proposals, conflicts, and delete impact previews are modal, drawer, banner, or Review-state surfaces.
@@ -82,7 +82,7 @@ For each page or component selected from Figma, gather these inputs before editi
 6. Figma variable definitions for colors, spacing, radius, typography, and effects.
 7. Code Connect mappings, if available.
 8. Asset exports through Figma asset tools when real assets are needed.
-9. One final Figma screenshot for visual QA.
+9. A Figma structure checklist or user-provided visual artifact when available.
 10. Current project component and token mapping.
 
 Do not start from a full-page screenshot alone.
@@ -156,9 +156,9 @@ For each Figma component or repeated pattern, create an implementation mapping:
 | State mapping | default, disabled, loading, error, selected, etc. |
 | Data source | mock, current API, new API, or deferred |
 | Accessibility | label, focus behavior, keyboard behavior |
-| Visual QA screenshot | final Figma screenshot path |
-| Implementation screenshot | Playwright/browser screenshot path |
-| Diff result | pass/fail and threshold |
+| Figma checklist | Node/structure/control checklist path or section |
+| User visual artifact | Optional user-provided or user-requested artifact |
+| Alignment result | checklist pass/fail and unresolved deviations |
 
 This table must exist before a page is considered ready for implementation.
 
@@ -232,49 +232,33 @@ Add Codex and Write automation surfaces after Review routing is real:
 - Keep honest unavailable states where implementation is not ready.
 - Do not replace missing behavior with static counts, fake proposals, or dead buttons.
 
-## Visual QA Workflow
+## Visual Alignment Workflow
 
-Every implemented page must have a final screenshot pair:
+Agents must not run screenshot acceptance loops for this project. The implementation check for each Figma-backed page is a written checklist:
 
-1. Final Figma screenshot.
-2. Final implementation screenshot from the local app.
+1. Target Figma node ID and route.
+2. Entry and return paths.
+3. Column/grid structure, region order, scroll regions, row heights, and control sizes.
+4. Shared component and token mapping.
+5. Real API/data backing for each enabled control.
+6. Disabled/deferred behavior for controls outside the current slice.
+7. Explicit deviations that need user approval.
 
-For each page, keep only the final screenshot for the page in the active QA set. Failed intermediate screenshots should be deleted or moved outside the durable design record.
-
-Suggested current temporary working location:
-
-```text
-D:\tmp\novel-studio-figma-screenshots
-```
-
-Do not commit temporary screenshot runs unless the user approves a durable screenshot evidence set.
-
-## Automated Visual Comparison
-
-Use Playwright visual comparisons when implementation begins:
-
-- Run in a fixed browser/OS/font environment.
-- Capture the same viewport as the Figma baseline where possible.
-- Use stable test data, not empty states unless the Figma page is an empty state.
-- Hide or stabilize volatile timestamps, cursors, animations, and streaming indicators.
-- Use `toHaveScreenshot()` or a dedicated pixel comparison path.
-- Record the threshold and the reason for any allowed diff.
-
-Visual comparison can prove regression stability. It cannot replace user acceptance.
+Screenshots may be captured only when the user explicitly requests a screenshot artifact. Such artifacts are references for user review, not agent-owned acceptance evidence.
 
 ## Acceptance Gates
 
 A Figma-driven implementation page is not complete until all gates pass:
 
 1. Product route and entry point are documented.
-2. Figma node IDs and final screenshot are recorded.
+2. Figma node IDs and structure checklist are recorded.
 3. Figma variables are mapped to project tokens.
 4. Figma components are mapped to existing or new shared components.
 5. User-facing copy is centralized.
 6. API data source is real or explicitly deferred.
 7. Disabled/unavailable controls are honest and non-misleading.
-8. Implementation screenshot is captured.
-9. Visual diff or manual screenshot review is recorded.
+8. Implementation is checked against the Figma structure checklist.
+9. User visual review is recorded before any visual acceptance claim.
 10. Automated tests pass for navigation, states, and data behavior.
 11. User visual acceptance is explicitly obtained before marking the visual/product scope accepted.
 
@@ -290,21 +274,15 @@ At minimum, the implementation plan should map pages to tests like this:
 | Proposal deep link from chat | web route/state test plus server/API test if backed |
 | Write insertion return path | Write workspace/editor tests |
 | Codex tool return path | Codex workspace tests |
-| Visual baseline | Playwright screenshot test or browser screenshot artifact |
+| Visual baseline | Figma structure checklist and user visual review |
 | API contracts | server route tests and contract build |
 
-## Screenshot Management Rules
+## Visual Artifact Management Rules
 
-- One page keeps one final Figma screenshot in the active QA set.
-- One page keeps one final implementation screenshot in the active QA set.
-- Failed intermediate screenshots do not become durable design guidance.
-- Screenshot filenames should be stable and page-scoped, for example:
-  - `02-workshop-main.png`
-  - `06-review-inbox.png`
-  - `07-review-proposal-detail.png`
-  - `10-entry-points-routing.png`
-- If a screenshot is replaced, overwrite the old final file instead of accumulating near-duplicates.
-- If a screenshot is user-accepted as a durable baseline, record its path and checksum in an evidence manifest.
+- Do not create agent-owned screenshot acceptance artifacts.
+- If the user explicitly requests screenshots, keep artifacts page-scoped and avoid accumulating failed intermediate captures.
+- Failed intermediate artifacts do not become durable design guidance.
+- If the user accepts a visual artifact as a durable baseline, record its path and checksum in an evidence manifest.
 
 ## Code Connect Plan
 
@@ -329,10 +307,10 @@ Code Connect is not a substitute for implementation review. It helps the MCP out
 - Do not infer missing behavior from a pretty static frame.
 - Do not implement design-document pages as product routes.
 - Do not make Workshop or Review independent dashboards outside the app shell.
-- Do not rely on one screenshot to decide spacing, state, or component behavior.
+- Do not rely on screenshots to decide spacing, state, or component behavior when Figma metadata, design context, and structure checklists are available.
 - Do not add page-local button/card/input styles when a shared component exists.
 - Do not leave controls without entry points, backing data, or honest disabled states.
-- Do not claim a screenshot self-check is user visual acceptance.
+- Do not claim a screenshot self-check, DOM check, or automated test is user visual acceptance.
 
 ## Current M5 Implication
 

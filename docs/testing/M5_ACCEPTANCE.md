@@ -1,6 +1,6 @@
 # M5 Acceptance Record
 
-Status: M5.0 current feature protection lock passed; M5.1 not started
+Status: M5.1-M5.4 command/function verified; M5.5 not started; user visual acceptance pending
 Created: 2026-06-30  
 Task: `docs/tasks/M5.md`
 
@@ -10,36 +10,36 @@ This record will verify M5 Workshop, Proposal, and Review work.
 
 Project Recovery is accepted for the current stage by user decision on 2026-06-30. That acceptance is the baseline before M5 and is not M5 implementation evidence.
 
-Command/browser checks do not equal user visual acceptance. Figma acceptance does not equal implementation acceptance. User visual acceptance remains a separate explicit gate.
+Command checks do not equal user visual acceptance. Figma acceptance does not equal implementation acceptance. Agents must not perform screenshot-based UI acceptance for this project. User visual acceptance remains a separate explicit gate.
 
 ## Acceptance IDs
 
 | ID | Status | Evidence |
 | --- | --- | --- |
 | M5-A01 | passed | Added targeted protection tests and ran focused/full verification on 2026-07-01. Current Write, Codex, Settings, AI provider, context, and JSON authority behavior is protected before M5.1 changes. |
-| M5-A02 | not started | Proposal v2 extends the existing Proposal contract and does not introduce a parallel Proposal model. |
-| M5-A03 | not started | Proposal type/source/generator/target/decision schemas support AI, manual, tool, and import origins. |
-| M5-A04 | not started | Proposal state transitions enforce pending, accepted, rejected, edited, stale, superseded, and archived semantics. |
-| M5-A05 | not started | Proposal JSON storage round trips valid records and isolates corrupted records from the rest of the inbox. |
-| M5-A06 | not started | Duplicate Proposal IDs are rejected or quarantined with diagnostics. |
-| M5-A07 | not started | Missing source message/model/context references produce recoverable unavailable states. |
-| M5-A08 | not started | Stale base revisions cannot be accepted. |
-| M5-A09 | not started | Accept creates a snapshot before mutating authority data. |
-| M5-A10 | not started | Edit-and-accept preserves the original candidate and stores the edited result. |
-| M5-A11 | not started | Batch preview excludes stale/conflicted items and explains why. |
-| M5-A12 | not started | Batch accept reports completed, skipped, failed, and blocked items if any step fails. |
-| M5-A13 | not started | Review Inbox lists real Proposal data with filtering and no fake counts. |
-| M5-A14 | not started | Review Proposal Detail opens by exact Proposal ID. |
-| M5-A15 | not started | Review accept/reject/edit/stale actions call real APIs and update state. |
-| M5-A16 | not started | Review main path hides engineering audit fields while keeping details reachable. |
-| M5-A17 | not started | Review visual implementation passes Figma-based screenshot QA, with user visual acceptance tracked separately. |
-| M5-A18 | not started | Workshop sessions and messages persist as schema-versioned JSON and reload after restart. |
-| M5-A19 | not started | Workshop Context Basket can add/remove/pin/unpin allowed context references. |
-| M5-A20 | not started | Context preview shows included/excluded items and respects permissions, future-story isolation, and per-detail switches. |
-| M5-A21 | not started | Single-role Workshop call creates ContextBundle and ModelCallLog. |
-| M5-A22 | not started | Model failure preserves the input and context and does not create an empty Proposal. |
-| M5-A23 | not started | Workshop message UI remains author-facing and does not expose main-path audit fields. |
-| M5-A24 | not started | Workshop visual implementation passes Figma-based screenshot QA, with user visual acceptance tracked separately. |
+| M5-A02 | passed | Proposal v2 extends the existing Proposal contract; no parallel Proposal model was introduced. Covered by contract tests. |
+| M5-A03 | passed | Proposal type/source/generator/target/decision schemas cover AI, manual, tool, and import origins. Covered by contract tests. |
+| M5-A04 | passed | Proposal state transitions enforce pending, accepted, rejected, edited, stale, superseded, and archived semantics. Covered by contract tests. |
+| M5-A05 | passed | Proposal JSON storage round trips valid records and isolates corrupted records from the rest of the inbox. Covered by storage tests. |
+| M5-A06 | passed | Duplicate Proposal IDs are rejected or quarantined with diagnostics. Covered by storage tests. |
+| M5-A07 | passed | Missing source message/model/context references produce recoverable unavailable states. Covered by storage/server/UI tests. |
+| M5-A08 | passed | Stale base revisions cannot be accepted. Covered by storage/server tests. |
+| M5-A09 | passed | Accept creates a snapshot before mutating authority data. Covered by storage/server tests. |
+| M5-A10 | passed | Edit-and-accept preserves the original candidate and stores the edited result. Covered by storage/server tests. |
+| M5-A11 | passed | Batch preview excludes stale/conflicted items and explains why. Covered by storage/server tests. |
+| M5-A12 | passed | Batch accept reports completed, skipped, failed, and blocked items if any step fails. Covered by contract/storage/server tests. |
+| M5-A13 | passed | Review Inbox lists real Proposal data with filtering and no fake counts. Covered by web tests. |
+| M5-A14 | passed | Review Proposal Detail opens by exact Proposal ID. Covered by web tests. |
+| M5-A15 | passed | Review accept/reject/edit/stale actions call real APIs and update state. Covered by web/API tests. |
+| M5-A16 | passed | Review main path hides engineering audit fields while keeping details reachable. Covered by web tests and source review. |
+| M5-A17 | function passed; visual pending | Review implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
+| M5-A18 | passed | Workshop sessions and messages persist as schema-versioned JSON and reload after restart. Covered by storage/server/web tests. |
+| M5-A19 | passed | Workshop Context Basket can add/remove/pin/unpin allowed context references. Covered by storage/server/web tests. |
+| M5-A20 | passed | Context preview shows included/excluded items and respects permissions, future-story isolation, and per-detail switches. Covered by Workshop route/context tests. |
+| M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog. Covered by server tests. |
+| M5-A22 | passed | Model failure preserves the input and context and does not create an empty Proposal. Covered by server/web tests. |
+| M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Covered by web tests and source review. |
+| M5-A24 | function passed; visual pending | Workshop implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
 | M5-A25 | not started | Workshop message output can create a Proposal linked to that exact source message. |
 | M5-A26 | not started | Proposal cards deep-link to exact Review Proposal Detail. |
 | M5-A27 | not started | Review Detail links back to the source Workshop message. |
@@ -59,7 +59,7 @@ Command/browser checks do not equal user visual acceptance. Figma acceptance doe
 | M5-A41 | not started | Batch accept applies only eligible Proposals and preserves skipped/failed diagnostics. |
 | M5-A42 | not started | Conflict and stale states are recoverable and do not silently merge. |
 | M5-A43 | not started | Narrow/responsive states follow accepted Figma behavior and do not fake a mobile editor if desktop space is required. |
-| M5-A44 | not started | Final screenshots are managed so each page keeps only the final accepted screenshot. |
+| M5-A44 | not started | User-requested visual artifacts, if any, are page-scoped and do not become agent-owned screenshot acceptance. |
 | M5-A45 | not started | M5 is not marked complete until command tests pass and user visual acceptance is explicitly recorded. |
 
 ## Slice Exit Map
@@ -89,7 +89,7 @@ npm.cmd run test
 git diff --check
 ```
 
-Visual slices must also produce browser/Playwright screenshots against accepted Figma baselines. Screenshot checks are evidence, not user visual acceptance.
+Visual slices must not use agent-owned screenshot acceptance. They must use Figma structure checklists, component/data mapping, focused functional tests, and explicit user visual review.
 
 ## Results
 
@@ -112,6 +112,37 @@ Command results after the added protection tests:
 - `npm.cmd run test -w @novel-studio/ai`: passed, 1 file / 20 tests.
 - `npm.cmd run build`: passed.
 - `npm.cmd run test`: passed; server 5 files / 25 tests, web 3 files / 59 tests, AI 1 file / 20 tests, storage 4 files / 68 tests.
+- `git diff --check`: passed with Windows line-ending warnings only.
+
+M5.1-M5.4 implementation continued on 2026-07-01.
+
+Implemented scope:
+
+- M5.1 upgraded the existing Proposal contract and state machine in `packages/contracts/src/proposals.ts`; it did not create a parallel Proposal model.
+- M5.2 added Proposal JSON storage, Review/proposal API routes, stale/decision behavior, snapshot creation, batch preview, and batch accept reporting.
+- M5.3 replaced the unavailable Review shell with a real Proposal inbox/detail/decision UI backed by Proposal APIs.
+- M5.4 added Workshop session/message/context-basket storage and APIs, Context Builder preview integration, and single-role call handling without authority mutation.
+
+Important boundary:
+
+- M5.5 is not implemented. Workshop messages do not yet create durable Proposal cards with exact source-message deep links and Review status sync.
+- M5.6 is not implemented. Tool Plans, Grants, internal command adapters, Codex tools, and Write tools are not available.
+- M5.7 is not implemented. Council, final responsive/state sweep, and final user visual acceptance are not complete.
+- Agent-owned screenshot acceptance is now prohibited by `AGENTS.md`. Review and Workshop visual acceptance remains a user gate, not a command result.
+
+Focused command results during M5.1-M5.4:
+
+- `npm.cmd run test -w @novel-studio/contracts -- test/proposals.test.ts`: passed, 1 file / 6 tests.
+- `npm.cmd run test -w @novel-studio/storage -- test/proposals.test.ts`: passed, 1 file / 3 tests.
+- `npm.cmd run build:packages`: first sandboxed run hit EPERM while writing `packages/contracts/dist`; rerun with elevated permissions passed.
+- `npm.cmd run test -w @novel-studio/server -- test/proposal-routes.test.ts`: passed, 1 file / 2 tests.
+- `npm.cmd run build -w @novel-studio/web`: passed.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: passed, 1 file / 47 tests after the Review/Workshop assertions were updated for real M5.3-M5.4 surfaces.
+
+Full M5.4 close command results before documentation-only updates:
+
+- `npm.cmd run build`: passed.
+- `npm.cmd run test`: passed; server 7 files / 29 tests, web 3 files / 60 tests, AI 1 file / 20 tests, contracts 2 files / 9 tests, storage 6 files / 74 tests.
 - `git diff --check`: passed with Windows line-ending warnings only.
 
 ## M5.0 Startup Protection Mapping

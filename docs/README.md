@@ -4,7 +4,7 @@ This directory is for durable project knowledge. Temporary browser notes, failed
 
 ## Fast Reading Path
 
-For the current M5 startup state and accepted recovery baseline, read:
+For the current M5 state and accepted recovery baseline, read:
 
 1. `../STATUS.md`
 2. `../HANDOFF.md`
@@ -40,4 +40,4 @@ Only read older milestone documents when the current task depends on that area.
 
 ## Current Warning
 
-Project Recovery is accepted for the current stage by user decision on 2026-06-30. `NS-410` JSON Authority, Block Write Editor, and Unified Codex Progression is command-verified through post-Slice 11 audit repair; do not treat that as separate future M5 visual acceptance. The active line is `M5` Workshop, Proposal, and Review through `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`; M5.0 Current Feature Protection Lock passed on 2026-07-01, while Workshop/Review UI implementation and user visual acceptance have not started.
+Project Recovery is accepted for the current stage by user decision on 2026-06-30. `NS-410` JSON Authority, Block Write Editor, and Unified Codex Progression is command-verified through post-Slice 11 audit repair; do not treat that as separate future M5 visual acceptance. The active line is `M5` Workshop, Proposal, and Review through `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`; M5.1-M5.4 are command/function verified as of 2026-07-01, while M5.5+ and user visual acceptance remain unfinished. Agent-owned screenshot acceptance is prohibited.

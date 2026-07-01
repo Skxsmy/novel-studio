@@ -1,9 +1,11 @@
 import type { ApiClient } from "./client";
 import type {
+  AgentRole,
   CreateModelProfileInput,
   DeleteModelProfileCredentialResult,
   ModelProfile,
   ModelProfileCredentialStatus,
+  PromptTemplate,
   ProviderConnectionResult,
   ProviderModelDescriptor,
   SaveModelProfileCredentialInput,
@@ -17,6 +19,12 @@ export function createAiApi(client: ApiClient) {
   return {
     listModelProfiles(seriesId: string) {
       return client.requestJson<ModelProfile[]>(`/series/${seriesId}/ai/model-profiles`);
+    },
+    listAgentRoles(seriesId: string) {
+      return client.requestJson<AgentRole[]>(`/series/${seriesId}/ai/roles`);
+    },
+    listPromptTemplates(seriesId: string) {
+      return client.requestJson<PromptTemplate[]>(`/series/${seriesId}/ai/prompts`);
     },
     createModelProfile(seriesId: string, input: CreateModelProfileInput) {
       return client.requestJson<ModelProfile>(`/series/${seriesId}/ai/model-profiles`, {
@@ -75,10 +83,12 @@ export function createAiApi(client: ApiClient) {
 }
 
 export type {
+  AgentRole,
   CreateModelProfileInput,
   DeleteModelProfileCredentialResult,
   ModelProfile,
   ModelProfileCredentialStatus,
+  PromptTemplate,
   ProviderConnectionResult,
   ProviderModelDescriptor,
   SaveModelProfileCredentialInput,

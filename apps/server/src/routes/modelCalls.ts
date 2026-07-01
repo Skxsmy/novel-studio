@@ -25,7 +25,7 @@ function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-function contextPrompt(bundle: ContextBundle): ProviderPrompt {
+export function contextPrompt(bundle: ContextBundle): ProviderPrompt {
   const role = bundle.items.find((item) => item.kind === "role-instruction");
   const prompt = bundle.items.find((item) => item.kind === "prompt-template");
   const candidateBoundary = candidateTaskKinds.has(bundle.taskKind)
@@ -41,7 +41,7 @@ function contextPrompt(bundle: ContextBundle): ProviderPrompt {
   };
 }
 
-function requestHash(input: {
+export function requestHash(input: {
   modelProfile: ModelProfile;
   contextBundle: ContextBundle;
   prompt: ProviderPrompt;
@@ -60,7 +60,7 @@ function requestHash(input: {
   }));
 }
 
-function usage(inputTokens: number, response: string): TokenUsage {
+export function usage(inputTokens: number, response: string): TokenUsage {
   const outputTokens = Math.ceil(Array.from(response).length / 2);
   return {
     inputTokens,

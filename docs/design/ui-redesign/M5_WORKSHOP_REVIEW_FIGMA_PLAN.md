@@ -156,17 +156,17 @@ Button presence alone is not sufficient acceptance.
 - Keep audit details available through secondary detail affordances.
 - Use bounded internal scrolling for long lists or details.
 - Keep text inside buttons and pills fully visible.
-- Preserve one final screenshot per page in the active QA set.
+- Preserve one Figma structure checklist per implemented page. Agent-owned screenshot acceptance is prohibited.
 
-## Screenshot QA
+## Visual Evidence
 
-Current temporary screenshot directory:
+Historical temporary screenshot directory:
 
 ```text
 D:\tmp\novel-studio-figma-screenshots
 ```
 
-Current final Figma QA screenshots include:
+Historical Figma reference screenshots include:
 
 - `02-workshop-main.png`
 - `03-workshop-context-plans.png`
@@ -178,7 +178,7 @@ Current final Figma QA screenshots include:
 - `09-responsive-flow-map.png`
 - `10-entry-points-routing.png`
 
-These screenshots are QA evidence for the Figma design. They are not implementation evidence and not user visual acceptance unless the user explicitly accepts them.
+These screenshots are historical Figma reference artifacts. They are not implementation evidence and not user visual acceptance unless the user explicitly accepts them. Agents must not use screenshot capture or screenshot comparison as their own UI acceptance gate.
 
 ## Implementation-Readiness Checklist
 
@@ -194,7 +194,7 @@ Before M5 implementation starts:
 - Figma components have semantic names.
 - Repeated UI uses reusable Figma components where possible.
 - The design can be extracted with Figma MCP metadata/design context and mapped to project components.
-- Final screenshots are kept page-scoped and overwritten rather than accumulated.
+- Figma structure checklists are kept page-scoped. User-requested visual artifacts, if any, are not agent-owned acceptance evidence.
 
 ## Relationship To Implementation
 

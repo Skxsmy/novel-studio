@@ -19,6 +19,7 @@ export * from "./context.js";
 export * from "./defaults.js";
 export * from "./prompts.js";
 export * from "./proposals.js";
+export * from "./workshop.js";
 
 export const SceneStatusSchema = z.enum([
   "idea",

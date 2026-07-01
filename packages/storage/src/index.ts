@@ -13,6 +13,7 @@ import {
   ArchiveSceneSectionInputSchema,
   BookManifestSchema,
   ChapterManifestSchema,
+  assertProposalStatusTransition,
   CodexAiContextPolicySchema,
   CodexAmbiguousMentionSchema,
   CodexBuiltInCategoryIdSchema,
@@ -67,6 +68,30 @@ import {
   MoveSceneInputSchema,
   PlanningBoardSchema,
   PlanningSceneSchema,
+  ProposalApplyResultSchema,
+  ProposalBatchAcceptInputSchema,
+  ProposalBatchAcceptResultSchema,
+  ProposalBatchPreviewInputSchema,
+  ProposalBatchPreviewResultSchema,
+  ProposalDocumentSchema,
+  ProposalInboxSchema,
+  ProposalSchema,
+  ProposalSnapshotSchema,
+  CreateProposalInputSchema,
+  EditAndAcceptProposalInputSchema,
+  MarkProposalStaleInputSchema,
+  ProposalRevisionInputSchema,
+  SupersedeProposalInputSchema,
+  CreateWorkshopBranchInputSchema,
+  CreateWorkshopMessageInputSchema,
+  CreateWorkshopSessionInputSchema,
+  UpdateWorkshopContextBasketInputSchema,
+  UpdateWorkshopSessionInputSchema,
+  WorkshopBranchSchema,
+  WorkshopContextBasketSchema,
+  WorkshopContextItemRefSchema,
+  WorkshopMessageSchema,
+  WorkshopSessionSchema,
   ReorderInputSchema,
   RestoreSceneSectionInputSchema,
   type AgentRole,
@@ -167,6 +192,33 @@ import {
   type PlanningBook,
   type PlanningChapter,
   type PlanningScene,
+  type CreateProposalInput,
+  type EditAndAcceptProposalInput,
+  type MarkProposalStaleInput,
+  type Proposal,
+  type ProposalApplyResult,
+  type ProposalBatchAcceptInput,
+  type ProposalBatchAcceptResult,
+  type ProposalBatchPreviewInput,
+  type ProposalBatchPreviewItem,
+  type ProposalBatchPreviewResult,
+  type ProposalCandidateSnapshot,
+  type ProposalDocument,
+  type ProposalInbox,
+  type ProposalPatch,
+  type ProposalRevisionInput,
+  type ProposalSnapshot,
+  type SupersedeProposalInput,
+  type CreateWorkshopBranchInput,
+  type CreateWorkshopMessageInput,
+  type CreateWorkshopSessionInput,
+  type UpdateWorkshopContextBasketInput,
+  type UpdateWorkshopSessionInput,
+  type WorkshopBranch,
+  type WorkshopContextBasket,
+  type WorkshopContextItemRef,
+  type WorkshopMessage,
+  type WorkshopSession,
   type PromptPreset,
   type PromptTemplate,
   type ReorderInput,
@@ -244,6 +296,26 @@ import {
   serializeJsonAuthority,
   writeJsonAuthorityFile,
 } from "./jsonAuthority.js";
+import {
+  createProposalAuthorityFile,
+  createProposalSnapshotFile,
+  listProposalAuthorityFiles,
+  readProposalAuthorityFile,
+  writeProposalAuthorityFile,
+} from "./proposalFiles.js";
+import {
+  createWorkshopBranchFile,
+  createWorkshopMessageFile,
+  createWorkshopSessionFile,
+  listWorkshopBranchFiles,
+  listWorkshopMessageFiles,
+  listWorkshopSessionFiles,
+  readWorkshopContextBasketFile,
+  readWorkshopMessageFile,
+  readWorkshopSessionFile,
+  writeWorkshopContextBasketFile,
+  writeWorkshopSessionFile,
+} from "./workshopFiles.js";
 export * from "./jsonAuthority.js";
 
 export { StorageError } from "./errors.js";
@@ -3750,6 +3822,485 @@ export class ProjectRepository {
     return listModelCallLogs(await this.findSeriesRoot(seriesId));
   }
 
+  async createWorkshopSession(
+    seriesId: string,
+    rawInput: CreateWorkshopSessionInput,
+  ): Promise<WorkshopSession> {
+    const input = CreateWorkshopSessionInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    if (input.sceneId) {
+      await this.getScene(seriesId, input.sceneId);
+    }
+    const now = new Date().toISOString();
+    const session = WorkshopSessionSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      seriesId,
+      title: input.title,
+      status: "active",
+      branchOfMessageId: null,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      lastMessageAt: null,
+    });
+    const created = await createWorkshopSessionFile(seriesRoot, session);
+    const basket = WorkshopContextBasketSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      seriesId,
+      sessionId: created.id,
+      sceneId: input.sceneId ?? null,
+      blockId: null,
+      selection: null,
+      items: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    await writeWorkshopContextBasketFile(seriesRoot, basket);
+    return created;
+  }
+
+  async listWorkshopSessions(seriesId: string): Promise<WorkshopSession[]> {
+    return listWorkshopSessionFiles(await this.findSeriesRoot(seriesId));
+  }
+
+  async getWorkshopSession(seriesId: string, sessionId: string): Promise<WorkshopSession> {
+    const session = await readWorkshopSessionFile(await this.findSeriesRoot(seriesId), sessionId);
+    if (session.seriesId !== seriesId) {
+      throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", {
+        sessionId,
+      });
+    }
+    return session;
+  }
+
+  async updateWorkshopSession(
+    seriesId: string,
+    sessionId: string,
+    rawInput: UpdateWorkshopSessionInput,
+  ): Promise<WorkshopSession> {
+    const input = UpdateWorkshopSessionInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await readWorkshopSessionFile(seriesRoot, sessionId);
+    const updated = WorkshopSessionSchema.parse({
+      ...current,
+      ...input,
+      updatedAt: new Date().toISOString(),
+    });
+    return writeWorkshopSessionFile(seriesRoot, updated);
+  }
+
+  async archiveWorkshopSession(seriesId: string, sessionId: string): Promise<WorkshopSession> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await readWorkshopSessionFile(seriesRoot, sessionId);
+    const now = new Date().toISOString();
+    return writeWorkshopSessionFile(seriesRoot, {
+      ...current,
+      status: "archived",
+      archivedAt: current.archivedAt ?? now,
+      updatedAt: now,
+    });
+  }
+
+  async restoreWorkshopSession(seriesId: string, sessionId: string): Promise<WorkshopSession> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await readWorkshopSessionFile(seriesRoot, sessionId);
+    return writeWorkshopSessionFile(seriesRoot, {
+      ...current,
+      status: "active",
+      archivedAt: null,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  async listWorkshopBranches(seriesId: string): Promise<WorkshopBranch[]> {
+    return (await listWorkshopBranchFiles(await this.findSeriesRoot(seriesId)))
+      .filter((branch) => branch.seriesId === seriesId);
+  }
+
+  async branchWorkshopSession(
+    seriesId: string,
+    sessionId: string,
+    rawInput: CreateWorkshopBranchInput,
+  ): Promise<{ branch: WorkshopBranch; session: WorkshopSession }> {
+    const input = CreateWorkshopBranchInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const sourceSession = await readWorkshopSessionFile(seriesRoot, sessionId);
+    const sourceMessage = await readWorkshopMessageFile(seriesRoot, input.sourceMessageId);
+    if (sourceMessage.sessionId !== sourceSession.id) {
+      throw new StorageError("Source message does not belong to the Workshop session", "INVALID_DATA", {
+        sessionId,
+        sourceMessageId: input.sourceMessageId,
+      });
+    }
+    const now = new Date().toISOString();
+    const nextSession = WorkshopSessionSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      seriesId,
+      title: input.title ?? `${sourceSession.title} branch`,
+      status: "active",
+      branchOfMessageId: sourceMessage.id,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      lastMessageAt: null,
+    });
+    const createdSession = await createWorkshopSessionFile(seriesRoot, nextSession);
+    const currentBasket = await this.getWorkshopContextBasket(seriesId, sourceSession.id);
+    await writeWorkshopContextBasketFile(seriesRoot, WorkshopContextBasketSchema.parse({
+      ...currentBasket,
+      id: randomUUID(),
+      sessionId: createdSession.id,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    const branch = WorkshopBranchSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      seriesId,
+      sourceSessionId: sourceSession.id,
+      sourceMessageId: sourceMessage.id,
+      sessionId: createdSession.id,
+      title: createdSession.title,
+      createdAt: now,
+    });
+    return {
+      branch: await createWorkshopBranchFile(seriesRoot, branch),
+      session: createdSession,
+    };
+  }
+
+  async listWorkshopMessages(seriesId: string, sessionId: string): Promise<WorkshopMessage[]> {
+    await this.getWorkshopSession(seriesId, sessionId);
+    return listWorkshopMessageFiles(await this.findSeriesRoot(seriesId), sessionId);
+  }
+
+  async createWorkshopMessage(
+    seriesId: string,
+    sessionId: string,
+    rawInput: CreateWorkshopMessageInput,
+  ): Promise<WorkshopMessage> {
+    const input = CreateWorkshopMessageInputSchema.parse(rawInput);
+    const now = new Date().toISOString();
+    return this.saveWorkshopMessage(seriesId, WorkshopMessageSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      seriesId,
+      sessionId,
+      role: input.role,
+      status: "succeeded",
+      content: input.content,
+      contextBundleId: null,
+      modelCallId: null,
+      proposalIds: [],
+      errorCode: null,
+      errorMessage: null,
+      createdAt: now,
+    }));
+  }
+
+  async saveWorkshopMessage(seriesId: string, message: WorkshopMessage): Promise<WorkshopMessage> {
+    const parsed = WorkshopMessageSchema.parse(message);
+    if (parsed.seriesId !== seriesId) {
+      throw new StorageError("Workshop message belongs to another series", "INVALID_DATA", {
+        messageId: parsed.id,
+      });
+    }
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const session = await readWorkshopSessionFile(seriesRoot, parsed.sessionId);
+    if (session.status === "archived") {
+      throw new StorageError("Archived Workshop session cannot receive messages", "INVALID_DATA", {
+        sessionId: session.id,
+      });
+    }
+    const created = await createWorkshopMessageFile(seriesRoot, parsed);
+    await writeWorkshopSessionFile(seriesRoot, {
+      ...session,
+      lastMessageAt: created.createdAt,
+      updatedAt: created.createdAt,
+    });
+    return created;
+  }
+
+  async getWorkshopContextBasket(
+    seriesId: string,
+    sessionId: string,
+  ): Promise<WorkshopContextBasket> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+    try {
+      return await readWorkshopContextBasketFile(seriesRoot, session.id);
+    } catch (error) {
+      if (!(error instanceof StorageError) || error.code !== "NOT_FOUND") throw error;
+      const now = new Date().toISOString();
+      return writeWorkshopContextBasketFile(seriesRoot, WorkshopContextBasketSchema.parse({
+        schemaVersion: 1,
+        id: randomUUID(),
+        seriesId,
+        sessionId,
+        sceneId: null,
+        blockId: null,
+        selection: null,
+        items: [],
+        createdAt: now,
+        updatedAt: now,
+      }));
+    }
+  }
+
+  async updateWorkshopContextBasket(
+    seriesId: string,
+    sessionId: string,
+    rawInput: UpdateWorkshopContextBasketInput,
+  ): Promise<WorkshopContextBasket> {
+    const input = UpdateWorkshopContextBasketInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await this.getWorkshopContextBasket(seriesId, sessionId);
+    const candidate = WorkshopContextBasketSchema.parse({
+      ...current,
+      ...input,
+      updatedAt: new Date().toISOString(),
+    });
+    await this.validateWorkshopContextBasket(seriesId, candidate);
+    return writeWorkshopContextBasketFile(seriesRoot, candidate);
+  }
+
+  async createProposal(
+    seriesId: string,
+    rawInput: CreateProposalInput,
+  ): Promise<ProposalDocument> {
+    const input = CreateProposalInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const now = new Date().toISOString();
+    const proposal = ProposalSchema.parse({
+      schemaVersion: 2,
+      id: input.id ?? randomUUID(),
+      seriesId,
+      type: input.type,
+      title: input.title,
+      summary: input.summary,
+      status: "pending",
+      source: input.source,
+      target: input.target,
+      contextBundleId: input.contextBundleId,
+      generator: input.generator,
+      riskLevel: input.riskLevel,
+      confidence: input.confidence,
+      reason: input.reason,
+      staleReason: "",
+      supersededBy: null,
+      originalCandidate: null,
+      decision: null,
+      patches: input.patches,
+      evidence: input.evidence,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const sourceAvailability = await this.proposalSourceAvailability(seriesId, proposal);
+    if (!sourceAvailability.available) {
+      throw new StorageError("Proposal source is not available", "INVALID_DATA", {
+        proposalId: proposal.id,
+        reason: sourceAvailability.reason,
+      });
+    }
+    const targetAvailability = await this.proposalTargetAvailability(seriesId, seriesRoot, proposal);
+    if (!targetAvailability.available) {
+      throw new StorageError("Proposal target is not available", "INVALID_DATA", {
+        proposalId: proposal.id,
+        reason: targetAvailability.reason,
+      });
+    }
+    const file = await createProposalAuthorityFile(seriesRoot, proposal);
+    return this.proposalDocument(seriesId, seriesRoot, file.proposal, file.revision);
+  }
+
+  async listProposals(seriesId: string): Promise<ProposalInbox> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const list = await listProposalAuthorityFiles(seriesRoot);
+    const items = await Promise.all(
+      list.files.map((file) =>
+        this.proposalDocument(seriesId, seriesRoot, file.proposal, file.revision),
+      ),
+    );
+    return ProposalInboxSchema.parse({ items, diagnostics: list.diagnostics });
+  }
+
+  async getProposal(seriesId: string, proposalId: string): Promise<ProposalDocument> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const file = await readProposalAuthorityFile(seriesRoot, proposalId);
+    return this.proposalDocument(seriesId, seriesRoot, file.proposal, file.revision);
+  }
+
+  async rejectProposal(
+    seriesId: string,
+    proposalId: string,
+    rawInput: ProposalRevisionInput,
+  ): Promise<ProposalDocument> {
+    const input = ProposalRevisionInputSchema.parse(rawInput);
+    return this.decideProposal(seriesId, proposalId, input, "rejected");
+  }
+
+  async archiveProposal(
+    seriesId: string,
+    proposalId: string,
+    rawInput: ProposalRevisionInput,
+  ): Promise<ProposalDocument> {
+    const input = ProposalRevisionInputSchema.parse(rawInput);
+    return this.decideProposal(seriesId, proposalId, input, "archived");
+  }
+
+  async markProposalStale(
+    seriesId: string,
+    proposalId: string,
+    rawInput: MarkProposalStaleInput,
+  ): Promise<ProposalDocument> {
+    const input = MarkProposalStaleInputSchema.parse(rawInput);
+    return this.decideProposal(seriesId, proposalId, input, "stale", {
+      staleReason: input.staleReason,
+    });
+  }
+
+  async supersedeProposal(
+    seriesId: string,
+    proposalId: string,
+    rawInput: SupersedeProposalInput,
+  ): Promise<ProposalDocument> {
+    const input = SupersedeProposalInputSchema.parse(rawInput);
+    return this.decideProposal(seriesId, proposalId, input, "superseded", {
+      supersededBy: input.supersededBy,
+    });
+  }
+
+  async acceptProposal(
+    seriesId: string,
+    proposalId: string,
+    rawInput: ProposalRevisionInput,
+  ): Promise<ProposalApplyResult> {
+    const input = ProposalRevisionInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await readProposalAuthorityFile(seriesRoot, proposalId);
+    this.assertProposalRevision(current.revision, input.baseRevision, current.proposal);
+    assertProposalStatusTransition(current.proposal.status, "accepted");
+    const snapshot = await this.applySceneContentProposal(seriesId, current.proposal);
+    const updated = ProposalSchema.parse({
+      ...current.proposal,
+      status: "accepted",
+      decision: {
+        kind: "accepted",
+        actor: input.actor,
+        decidedAt: new Date().toISOString(),
+        note: input.note,
+        snapshotId: snapshot.id,
+        editedCandidate: null,
+      },
+      updatedAt: new Date().toISOString(),
+    });
+    const written = await writeProposalAuthorityFile(seriesRoot, updated);
+    return ProposalApplyResultSchema.parse({
+      proposal: await this.proposalDocument(seriesId, seriesRoot, written.proposal, written.revision),
+      snapshot,
+    });
+  }
+
+  async editAndAcceptProposal(
+    seriesId: string,
+    proposalId: string,
+    rawInput: EditAndAcceptProposalInput,
+  ): Promise<ProposalApplyResult> {
+    const input = EditAndAcceptProposalInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await readProposalAuthorityFile(seriesRoot, proposalId);
+    this.assertProposalRevision(current.revision, input.baseRevision, current.proposal);
+    assertProposalStatusTransition(current.proposal.status, "edited");
+    const originalCandidate: ProposalCandidateSnapshot = {
+      title: current.proposal.title,
+      summary: current.proposal.summary,
+      reason: current.proposal.reason,
+      patches: current.proposal.patches,
+    };
+    const editedCandidate: ProposalCandidateSnapshot = {
+      title: input.title ?? current.proposal.title,
+      summary: input.summary ?? current.proposal.summary,
+      reason: input.reason ?? current.proposal.reason,
+      patches: input.patches,
+    };
+    const candidate = ProposalSchema.parse({
+      ...current.proposal,
+      title: editedCandidate.title,
+      summary: editedCandidate.summary,
+      reason: editedCandidate.reason,
+      patches: editedCandidate.patches,
+      updatedAt: new Date().toISOString(),
+    });
+    const snapshot = await this.applySceneContentProposal(seriesId, candidate);
+    const updated = ProposalSchema.parse({
+      ...candidate,
+      status: "edited",
+      originalCandidate,
+      decision: {
+        kind: "edited",
+        actor: input.actor,
+        decidedAt: new Date().toISOString(),
+        note: input.note,
+        snapshotId: snapshot.id,
+        editedCandidate,
+      },
+      updatedAt: new Date().toISOString(),
+    });
+    const written = await writeProposalAuthorityFile(seriesRoot, updated);
+    return ProposalApplyResultSchema.parse({
+      proposal: await this.proposalDocument(seriesId, seriesRoot, written.proposal, written.revision),
+      snapshot,
+    });
+  }
+
+  async previewProposalBatch(
+    seriesId: string,
+    rawInput: ProposalBatchPreviewInput,
+  ): Promise<ProposalBatchPreviewResult> {
+    const input = ProposalBatchPreviewInputSchema.parse(rawInput);
+    const items: ProposalBatchPreviewItem[] = [];
+    for (const proposalId of input.proposalIds) {
+      items.push(await this.previewProposal(seriesId, proposalId));
+    }
+    return ProposalBatchPreviewResultSchema.parse({ items });
+  }
+
+  async acceptProposalBatch(
+    seriesId: string,
+    rawInput: ProposalBatchAcceptInput,
+  ): Promise<ProposalBatchAcceptResult> {
+    const input = ProposalBatchAcceptInputSchema.parse(rawInput);
+    const preview = await this.previewProposalBatch(seriesId, input);
+    const completed: ProposalApplyResult[] = [];
+    const skipped: ProposalBatchPreviewItem[] = [];
+    const blocked: ProposalBatchPreviewItem[] = preview.items.filter((item) => !item.eligible);
+    const failed: ProposalBatchPreviewItem[] = [];
+
+    for (const item of preview.items.filter((candidate) => candidate.eligible)) {
+      try {
+        const document = await this.getProposal(seriesId, item.proposalId);
+        completed.push(
+          await this.acceptProposal(seriesId, item.proposalId, {
+            baseRevision: document.revision,
+            actor: input.actor,
+            note: input.note,
+          }),
+        );
+      } catch (error) {
+        failed.push({
+          proposalId: item.proposalId,
+          eligible: false,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return ProposalBatchAcceptResultSchema.parse({ completed, skipped, blocked, failed });
+  }
+
   async rebuildAiIndex(seriesId: string): Promise<{
     indexedContextBundles: number;
     indexedModelCalls: number;
@@ -5091,6 +5642,328 @@ export class ProjectRepository {
       } else {
         await cpCopyFile(srcPath, destPath);
       }
+    }
+  }
+
+  private async validateWorkshopContextBasket(
+    seriesId: string,
+    basket: WorkshopContextBasket,
+  ): Promise<void> {
+    if (basket.seriesId !== seriesId) {
+      throw new StorageError("Workshop context basket belongs to another series", "INVALID_DATA", {
+        basketId: basket.id,
+      });
+    }
+    await this.getWorkshopSession(seriesId, basket.sessionId);
+    if (basket.sceneId) {
+      await this.getScene(seriesId, basket.sceneId);
+    }
+    for (const item of basket.items) {
+      await this.validateWorkshopContextItem(seriesId, basket, item);
+    }
+  }
+
+  private async validateWorkshopContextItem(
+    seriesId: string,
+    basket: WorkshopContextBasket,
+    item: WorkshopContextItemRef,
+  ): Promise<void> {
+    const parsed = WorkshopContextItemRefSchema.parse(item);
+    if (parsed.kind === "note") return;
+    if (!parsed.sourceId) {
+      throw new StorageError("Workshop context item is missing a source", "INVALID_DATA", {
+        itemId: parsed.id,
+      });
+    }
+    if (parsed.kind === "scene" || parsed.kind === "selection") {
+      await this.getScene(seriesId, parsed.sourceId);
+      return;
+    }
+    if (parsed.kind === "codex-entry") {
+      await this.getCodexEntry(seriesId, parsed.sourceId);
+      return;
+    }
+    if (parsed.kind === "scene-section") {
+      const sceneIds = basket.sceneId
+        ? [basket.sceneId]
+        : (await this.getSeries(seriesId)).scenes.map((scene) => scene.metadata.id);
+      for (const sceneId of sceneIds) {
+        const sections = await this.listSceneSections(seriesId, sceneId);
+        if (sections.some((section) => section.metadata.id === parsed.sourceId)) return;
+      }
+      throw new StorageError("Workshop context section does not exist", "NOT_FOUND", {
+        sectionId: parsed.sourceId,
+      });
+    }
+    if (parsed.kind === "proposal-source") {
+      await this.getProposal(seriesId, parsed.sourceId);
+      return;
+    }
+    if (parsed.kind === "research-note") {
+      return;
+    }
+  }
+
+  private async proposalDocument(
+    seriesId: string,
+    seriesRoot: string,
+    proposal: Proposal,
+    revision: string,
+  ): Promise<ProposalDocument> {
+    return ProposalDocumentSchema.parse({
+      proposal,
+      revision,
+      sourceAvailability: await this.proposalSourceAvailability(seriesId, proposal),
+      targetAvailability: await this.proposalTargetAvailability(seriesId, seriesRoot, proposal),
+    });
+  }
+
+  private assertProposalRevision(
+    currentRevision: string,
+    expectedRevision: string,
+    proposal: Proposal,
+  ): void {
+    if (currentRevision !== expectedRevision) {
+      throw new StorageError("Proposal has changed on disk", "CONFLICT", {
+        proposalId: proposal.id,
+        currentRevision,
+      });
+    }
+  }
+
+  private async decideProposal(
+    seriesId: string,
+    proposalId: string,
+    input: ProposalRevisionInput,
+    status: "rejected" | "stale" | "superseded" | "archived",
+    extras: Partial<Pick<Proposal, "staleReason" | "supersededBy">> = {},
+  ): Promise<ProposalDocument> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const current = await readProposalAuthorityFile(seriesRoot, proposalId);
+    this.assertProposalRevision(current.revision, input.baseRevision, current.proposal);
+    assertProposalStatusTransition(current.proposal.status, status);
+    const updated = ProposalSchema.parse({
+      ...current.proposal,
+      status,
+      staleReason: extras.staleReason ?? current.proposal.staleReason,
+      supersededBy: extras.supersededBy ?? current.proposal.supersededBy,
+      decision: {
+        kind: status,
+        actor: input.actor,
+        decidedAt: new Date().toISOString(),
+        note: input.note,
+        snapshotId: null,
+        editedCandidate: null,
+      },
+      updatedAt: new Date().toISOString(),
+    });
+    const written = await writeProposalAuthorityFile(seriesRoot, updated);
+    return this.proposalDocument(seriesId, seriesRoot, written.proposal, written.revision);
+  }
+
+  private async proposalSourceAvailability(
+    seriesId: string,
+    proposal: Proposal,
+  ): Promise<{ available: boolean; reason: string }> {
+    try {
+      const source = proposal.source;
+      if (source.kind === "manual" || source.kind === "import" || source.kind === "tool-plan") {
+        return { available: true, reason: "" };
+      }
+      if (!source.sourceId) return { available: false, reason: "Source id is missing" };
+      if (source.kind === "model-call") {
+        await this.getModelCallLog(seriesId, source.sourceId);
+      } else if (source.kind === "write-selection") {
+        await this.getScene(seriesId, source.sourceId);
+      } else if (source.kind === "codex-entry") {
+        await this.getCodexEntry(seriesId, source.sourceId);
+      } else if (source.kind === "workshop-message") {
+        return { available: true, reason: "" };
+      }
+      return { available: true, reason: "" };
+    } catch (error) {
+      if (error instanceof StorageError && error.code === "NOT_FOUND") {
+        return { available: false, reason: error.message };
+      }
+      throw error;
+    }
+  }
+
+  private async proposalTargetAvailability(
+    seriesId: string,
+    seriesRoot: string,
+    proposal: Proposal,
+  ): Promise<{ available: boolean; reason: string }> {
+    try {
+      const target = proposal.target;
+      if (target.kind === "scene-content" || target.kind === "scene-metadata") {
+        await this.getScene(seriesId, target.targetId);
+      } else if (target.kind === "codex-entry" || target.kind === "codex-research") {
+        await this.getCodexEntry(seriesId, target.targetId);
+      } else if (target.kind === "codex-relation") {
+        await this.readCodexRelation(seriesRoot, target.targetId);
+      } else if (target.kind === "codex-progression") {
+        await this.getCodexProgression(seriesId, target.targetId);
+      } else if (target.kind === "codex-knowledge") {
+        await this.getCodexKnowledge(seriesId, target.targetId);
+      } else if (target.kind === "detail-type") {
+        await this.readCodexDetailType(seriesRoot, target.targetId);
+      }
+      return { available: true, reason: "" };
+    } catch (error) {
+      if (error instanceof StorageError && error.code === "NOT_FOUND") {
+        return { available: false, reason: error.message };
+      }
+      throw error;
+    }
+  }
+
+  private proposalPatchSupportIssue(proposal: Proposal): string {
+    for (const patch of proposal.patches) {
+      if (patch.target.kind !== "scene-content") {
+        return "Only scene content patches can be applied in this milestone";
+      }
+      if (!["replace-content", "replace-text", "insert-text"].includes(patch.action)) {
+        return "Only scene text replacement and insertion patches can be applied in this milestone";
+      }
+      if (patch.after === null) {
+        return "Applicable Proposal patches require after text";
+      }
+    }
+    const sceneIds = new Set(proposal.patches.map((patch) => patch.target.targetId));
+    if (sceneIds.size !== 1) {
+      return "Batching patches across multiple scenes is not supported in this milestone";
+    }
+    return "";
+  }
+
+  private async applySceneContentProposal(
+    seriesId: string,
+    proposal: Proposal,
+  ): Promise<ProposalSnapshot> {
+    const supportIssue = this.proposalPatchSupportIssue(proposal);
+    if (supportIssue) {
+      throw new StorageError(supportIssue, "INVALID_DATA", { proposalId: proposal.id });
+    }
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const sceneId = proposal.patches[0]!.target.targetId;
+    const scene = await this.getScene(seriesId, sceneId);
+    for (const patch of proposal.patches) {
+      if (patch.target.baseRevision && patch.target.baseRevision !== scene.revision) {
+        throw new StorageError("Proposal target has changed since it was generated", "CONFLICT", {
+          proposalId: proposal.id,
+          sceneId,
+          expectedRevision: patch.target.baseRevision,
+          currentRevision: scene.revision,
+        });
+      }
+    }
+    let content = scene.content;
+    for (const patch of proposal.patches) {
+      content = this.applySceneTextPatch(content, patch);
+    }
+    const snapshot = ProposalSnapshotSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      seriesId,
+      proposalId: proposal.id,
+      target: proposal.target,
+      createdAt: new Date().toISOString(),
+      targetRevision: scene.revision,
+      data: { scene },
+    });
+    await createProposalSnapshotFile(seriesRoot, snapshot);
+    await this.updateScene(seriesId, sceneId, {
+      baseRevision: scene.revision,
+      title: scene.metadata.title,
+      content,
+      status: scene.metadata.status,
+      goal: scene.metadata.goal,
+      summary: scene.metadata.summary,
+    });
+    return snapshot;
+  }
+
+  private applySceneTextPatch(content: string, patch: ProposalPatch): string {
+    const after = patch.after ?? "";
+    if (patch.action === "replace-content") {
+      if (patch.before !== null && content !== patch.before) {
+        throw new StorageError("Proposal before text does not match current scene content", "CONFLICT", {
+          patchId: patch.id,
+        });
+      }
+      return after;
+    }
+
+    if (patch.target.range) {
+      const range = patch.target.range;
+      const current = content.slice(range.start, range.end);
+      const expected = patch.before ?? range.text;
+      if (current !== expected) {
+        throw new StorageError("Proposal range no longer matches current scene content", "CONFLICT", {
+          patchId: patch.id,
+        });
+      }
+      if (patch.action === "insert-text") {
+        return `${content.slice(0, range.start)}${after}${content.slice(range.start)}`;
+      }
+      return `${content.slice(0, range.start)}${after}${content.slice(range.end)}`;
+    }
+
+    if (patch.action === "insert-text") {
+      return `${content}${after}`;
+    }
+
+    if (patch.before === null || patch.before === "") {
+      throw new StorageError("Text replacement patches require before text or a range", "INVALID_DATA", {
+        patchId: patch.id,
+      });
+    }
+    const first = content.indexOf(patch.before);
+    if (first < 0) {
+      throw new StorageError("Proposal before text is not present in current scene content", "CONFLICT", {
+        patchId: patch.id,
+      });
+    }
+    const second = content.indexOf(patch.before, first + patch.before.length);
+    if (second >= 0) {
+      throw new StorageError("Proposal before text is ambiguous in current scene content", "INVALID_DATA", {
+        patchId: patch.id,
+      });
+    }
+    return `${content.slice(0, first)}${after}${content.slice(first + patch.before.length)}`;
+  }
+
+  private async previewProposal(
+    seriesId: string,
+    proposalId: string,
+  ): Promise<ProposalBatchPreviewItem> {
+    try {
+      const document = await this.getProposal(seriesId, proposalId);
+      if (document.proposal.status !== "pending") {
+        return { proposalId, eligible: false, reason: `Proposal is ${document.proposal.status}` };
+      }
+      if (!document.sourceAvailability.available) {
+        return { proposalId, eligible: false, reason: document.sourceAvailability.reason };
+      }
+      if (!document.targetAvailability.available) {
+        return { proposalId, eligible: false, reason: document.targetAvailability.reason };
+      }
+      const supportIssue = this.proposalPatchSupportIssue(document.proposal);
+      if (supportIssue) return { proposalId, eligible: false, reason: supportIssue };
+      const sceneId = document.proposal.patches[0]!.target.targetId;
+      const scene = await this.getScene(seriesId, sceneId);
+      for (const patch of document.proposal.patches) {
+        if (patch.target.baseRevision && patch.target.baseRevision !== scene.revision) {
+          return { proposalId, eligible: false, reason: "Target changed since Proposal creation" };
+        }
+      }
+      return { proposalId, eligible: true, reason: "" };
+    } catch (error) {
+      if (error instanceof StorageError && error.code === "NOT_FOUND") {
+        return { proposalId, eligible: false, reason: error.message };
+      }
+      throw error;
     }
   }
 

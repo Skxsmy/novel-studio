@@ -74,7 +74,7 @@ It is strongest for:
 - M5.3 Review UI First.
 - M5.5 Workshop message to Proposal deep links.
 - M5.4 Workshop session/context layout direction.
-- M5.7 routing, responsive, permission, and screenshot QA guidance.
+- M5.7 routing, responsive, permission, and user visual review guidance.
 
 It is not yet sufficient to directly implement full internal tool execution. The tool surfaces are good visual planning artifacts, but M5.6 must wait for Proposal v2, Review API, Tool Plan, Grant, and command adapter contracts.
 
@@ -246,7 +246,7 @@ Conclusion:
 
 Use this page as the state checklist during implementation and QA.
 
-## Responsive And Screenshot QA Assessment
+## Responsive And Visual Review Assessment
 
 `09 Responsive & Flow Map` and `10 Entry Points & Routing` make the design safer to implement.
 
@@ -258,11 +258,11 @@ Positive signals:
 - It defines Review deep links as first-class navigation.
 - It treats non-route surfaces as internal states or panels, avoiding orphan pages.
 
-Screenshot policy:
+Visual artifact policy:
 
-- During implementation, each page should keep only the final accepted screenshot for that page.
-- Failed intermediate screenshots should stay in scratch space or be deleted after the final page screenshot is selected.
-- Command-level screenshot QA and user visual acceptance must be tracked separately.
+- During implementation, each page should keep a Figma structure checklist.
+- Agents must not run screenshot-based UI acceptance. If the user explicitly requests visual artifacts, keep them page-scoped and do not accumulate failed intermediate captures.
+- Command-level checks and user visual acceptance must be tracked separately.
 
 Conclusion:
 
@@ -299,7 +299,7 @@ Main caveat:
 | FUI-09 | Local file/import context appears in design. | Security and data-boundary risk. | Treat import as a separate permissioned source boundary and defer if not covered by the slice. |
 | FUI-10 | Large panels rely on visual overflow assumptions. | Implementation may clip long queues, diffs, and evidence. | Define scroll regions and empty/error/loading states in code before visual acceptance. |
 | FUI-11 | Workshop can look broad enough to tempt implementation before Review. | M5 sequencing risk. | Implement Review first, then Workshop context and source links, then tool plans. |
-| FUI-12 | Screenshots alone cannot preserve behavior. | Static-copy implementation risk. | Use node IDs, design context, component mapping, route contracts, API/control mapping, and visual QA. |
+| FUI-12 | Screenshots alone cannot preserve behavior. | Static-copy implementation risk. | Use node IDs, design context, component mapping, route contracts, API/control mapping, Figma checklists, and user visual review. |
 
 ## Recommended Integration Order
 
@@ -310,14 +310,14 @@ Main caveat:
 5. M5.4: implement Workshop sessions, messages, context basket, context preview, and single-role call from `12:2` and `23:2`.
 6. M5.5: implement Workshop message to Proposal creation, exact `/review/proposals/:id` deep link, Review source return, and status sync.
 7. M5.6: implement Tool Plan, Grant, command adapters, Codex tools, Write tools, dangerous action confirmation, and Proposal fallback from `23:2`, `28:2`, `21:2`, and `37:2`.
-8. M5.7: implement Council, batch/failure/conflict recovery, responsive states, final screenshots, and user visual acceptance from `37:2`, `39:2`, and `42:3`.
+8. M5.7: implement Council, batch/failure/conflict recovery, responsive states, Figma checklist closure, and user visual acceptance from `37:2`, `39:2`, and `42:3`.
 
 ## Per-Frame Implementation Intake Checklist
 
 Before coding any Figma-backed page, collect:
 
 - frame ID;
-- latest screenshot;
+- latest Figma structure checklist or user-provided visual artifact;
 - `get_design_context` output;
 - semantic node list from `get_metadata` or `use_figma`;
 - route and entry point;
@@ -326,7 +326,7 @@ Before coding any Figma-backed page, collect:
 - API endpoint or command adapter for each control;
 - accepted M5 acceptance IDs;
 - loading, empty, unavailable, stale, failed, blocked, and permission-denied states;
-- screenshot QA target and final screenshot file policy.
+- visual artifact policy and user visual acceptance gate.
 
 ## Implementation Readiness By Slice
 

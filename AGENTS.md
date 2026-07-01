@@ -24,6 +24,18 @@ Chat context is not a long-term source of project requirements. If you find an i
 
 Tasks involving UI, layout, or copy must also read `docs/product/USER_EXPERIENCE_SPEC.md`. During implementation, judge information hierarchy from the author's perspective: the main writing, planning, and review screens must not display engineering audit fields such as invocation IDs, baseline versions, source hashes, or internal task names. These details may appear only in logs, detail pages, or debug views. New screens must reuse the unified visual language and component style; do not invent separate buttons, cards, fonts, spacing, or colors for each page. The main interface must not be written as an operation manual; "how to use" guidance may appear only lightly as short labels, input placeholders, icon tooltips, concise empty states, and necessary error messages. Tutorial cards, long explanations, or persistent help copy must not crowd the manuscript and workspace.
 
+## UI And Figma Implementation Discipline
+
+For UI work backed by Figma, Figma is a binding implementation constraint, not an inspiration image. Before editing UI code, extract the target Figma node into a concrete checklist covering node ID, product route, entry and return paths, column structure, region order, row heights, control sizes, key cards, state surfaces, component mapping, data source, and disabled/deferred behavior. Code changes must correspond to that checklist. Do not replace a Figma structure with a personally preferred layout, an easier existing CSS pattern, or an API-shaped placeholder unless the deviation is explicitly recorded and approved.
+
+Unimplemented Figma controls must remain honest: disabled, deferred, or absent according to the current slice. Do not redesign the page to hide missing behavior, and do not present unbacked buttons, fake counts, static proposal cards, or dead links as working UI.
+
+Agents must not perform screenshot-based UI acceptance for this project. Do not start browser screenshot loops, visual-diff loops, or screenshot QA as a completion gate. Screenshots may be captured only when the user explicitly requests a screenshot artifact; they must be treated as a reference artifact, not as agent-owned visual acceptance. If a browser or screenshot tool fails, stop that path and report the tool failure instead of debugging the screenshot pipeline.
+
+UI acceptance must be argued from the Figma checklist, component mapping, real data/control backing, focused functional tests where appropriate, and explicit user visual review. A passing build, test count, screenshot, or DOM measurement must not be described as visual acceptance.
+
+Do not add hard time-box rules for UI work. The constraint is procedural: keep Figma checklist adherence, implementation, and verification separate; do not let verification tooling replace the actual UI work.
+
 The NS-409 frontend redo must build maintainable architecture before full pages. The fixed boundaries are: `src/ui/` for design tokens and base components, `src/features/<domain>/` for domain-composed pages, `src/api/` for an independent API layer, and `src/app/` for the application shell and global boundaries. Global styles may contain only `reset.css`, `tokens.css`, and a small amount of base layout. A multi-thousand-line global `styles.css` must not reappear. Before full implementation, first deliver the English UI designs for the three core pages: writing, planning, and settings. Then complete the vertical slice "project selection -> writing page -> save status -> settings entry". Every control must come from the component library.
 
 ## Minimum Verifiable Logical Work

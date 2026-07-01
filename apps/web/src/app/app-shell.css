@@ -2771,7 +2771,7 @@ details.disclosure summary::-webkit-details-marker { display: none; }
 .review-stat span { color: var(--quiet); font-size: 11px; }
 
 .review-grid {
-  grid-template-columns: 280px minmax(480px, 1fr) 280px 240px;
+  grid-template-columns: 320px minmax(620px, 1fr) 250px 272px;
   align-items: stretch;
   min-height: 760px;
 }
@@ -2824,6 +2824,44 @@ details.disclosure summary::-webkit-details-marker { display: none; }
 .impact-table th {
   color: var(--muted);
   background: var(--surface-2);
+}
+
+.proposal-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: end;
+  min-height: 104px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.proposal-row.is-active {
+  border-color: rgba(47, 100, 214, 0.36);
+  background: #edf2fd;
+}
+
+.proposal-row-pills {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.proposal-row strong {
+  display: block;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.proposal-row span:not(.pill) {
+  display: block;
+  margin-top: 4px;
+  color: var(--quiet);
+  font-size: 11px;
 }
 
 /* ── Chat (Workshop) ── */
@@ -2893,7 +2931,193 @@ details.disclosure summary::-webkit-details-marker { display: none; }
 
 /* ── Workshop grid ── */
 
+.diff-block p {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+}
+
+.review-edit-textarea {
+  min-height: 116px;
+  font-family: var(--font-copy);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.review-side-block {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
 .workshop-grid { grid-template-columns: 280px minmax(600px, 1fr) 340px; }
+
+.workshop-grid {
+  align-items: stretch;
+  height: calc(100vh - 124px);
+  min-height: 640px;
+}
+
+.workshop-grid > .panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workshop-sessions,
+.workshop-context {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.workshop-sessions .panel-body,
+.workshop-context .panel-body {
+  align-content: start;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.workshop-chat {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+}
+
+.workshop-chat .message-stack {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.workshop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.workshop-actions .btn {
+  flex: 0 0 auto;
+}
+
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--quiet);
+  font-size: 11px;
+}
+
+.message p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.message-error {
+  margin-top: 8px !important;
+  color: var(--red);
+}
+
+.message.is-failed {
+  border-color: rgba(180, 71, 71, 0.35);
+  background: #fff8f5;
+}
+
+.workshop-composer-input {
+  min-height: 42px;
+  max-height: 110px;
+  resize: vertical;
+  padding-top: 10px;
+  font-family: var(--font-ui);
+}
+
+.workshop-chat .composer {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.workshop-reference {
+  display: grid;
+  gap: 8px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fffefa;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.workshop-reference .pill {
+  justify-self: start;
+}
+
+.workshop-reference strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.workshop-reference p {
+  margin: 0;
+  color: var(--ink);
+}
+
+.context-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.workshop-context .context-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.workshop-context .context-row .btn {
+  grid-row: 2;
+  justify-self: start;
+}
+
+.context-row > span:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.context-row strong,
+.context-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-row small {
+  color: var(--muted);
+}
+
+.context-preview-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.permission-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
 
 .workshop-grid.is-unavailable {
   grid-template-columns: 280px minmax(460px, 1fr) 320px;
@@ -2925,7 +3149,7 @@ details.disclosure summary::-webkit-details-marker { display: none; }
 }
 
 .app.is-sidebar-collapsed .review-grid {
-  grid-template-columns: 320px minmax(0, 1fr) 340px 300px;
+  grid-template-columns: 320px minmax(620px, 1fr) 250px 272px;
 }
 
 /* ── Responsive: medium desktop (≤1500px) ── */
@@ -2953,11 +3177,15 @@ details.disclosure summary::-webkit-details-marker { display: none; }
   .plan-grid,
   .library-grid,
   .codex-grid,
-  .workshop-grid,
   .review-grid,
   .settings-grid,
   .overview-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workshop-grid {
+    gap: 12px;
+    grid-template-columns: minmax(200px, 0.68fr) minmax(360px, 1.55fr) minmax(230px, 0.82fr);
   }
 
   .codex-grid.detail-open,
@@ -3000,8 +3228,8 @@ details.disclosure summary::-webkit-details-marker { display: none; }
   .app.is-sidebar-collapsed .codex-grid { grid-template-columns: 280px minmax(0, 1fr); }
   .app.is-sidebar-collapsed .codex-grid.detail-open { grid-template-columns: minmax(200px, 0.42fr) minmax(310px, 0.62fr) minmax(0, 2.55fr); }
   .app.is-sidebar-collapsed .codex-grid.detail-open.is-detail-focus { grid-template-columns: minmax(0, 1fr); }
-  .review-grid { grid-template-columns: 320px minmax(760px, 1fr) 340px 300px; }
-  .app.is-sidebar-collapsed .review-grid { grid-template-columns: 340px minmax(820px, 1fr) 360px 320px; }
+  .review-grid { grid-template-columns: 320px minmax(680px, 1fr) 250px 272px; }
+  .app.is-sidebar-collapsed .review-grid { grid-template-columns: 340px minmax(740px, 1fr) 270px 292px; }
   .settings-grid { grid-template-columns: 240px minmax(620px, 1fr) 380px 320px; }
 }
 

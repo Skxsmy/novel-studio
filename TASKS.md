@@ -7,13 +7,13 @@ This index keeps the original milestone/task history translated from the earlier
 ## Current Active Work
 
 - [x] `NS-410` Block Write Editor and Unified Codex Progression. Command-verified through post-Slice 11 audit repair; user visual acceptance remains separate.
-- [-] `M5` Workshop, Proposal, and Review. `M5.0` Current Feature Protection Lock passed on 2026-07-01. Next slice: `M5.1` Proposal v2 Contract And State Machine. Figma/user visual acceptance remains required before later UI implementation.
+- [-] `M5` Workshop, Proposal, and Review. `M5.1-M5.4` are command/function verified on 2026-07-01. Next slice: `M5.5` Workshop Message To Proposal Deep Link. User visual acceptance remains pending, and agent-owned screenshot acceptance is prohibited.
 - [x] `PROJECT-RECOVERY` Project-level recovery roadmap. Accepted for the current stage by user decision on 2026-06-30; future Workshop/Proposal/Review work belongs to M5.
 
 Current decision:
 
 - The active work is not an `NS-409` continuation.
-- Project Recovery is accepted for the current stage; M5 Workshop/Proposal/Review is not implemented or accepted.
+- Project Recovery is accepted for the current stage. M5 Proposal/Review/Workshop is implemented only through M5.4 and is not visually accepted.
 - The previous “do not continue to NS-410” instruction is superseded by explicit user direction on 2026-06-26 for this JSON authority / block document / field progression task.
 - Implementation is active on branch `codex/ns-410-json-authority`; the user has allowed commits on this branch while earlier project data remains disposable test data.
 - Do not treat old `NS-409A` through `NS-409F` assets as current guidance.
@@ -33,7 +33,13 @@ Current decision:
 Accepted recovery baseline and M5 guardrails:
 
 - Project Recovery current-stage acceptance is recorded; continue from the M5 plan unless the user redirects.
-- M5.0 Current Feature Protection Lock is recorded and command-verified. Do not start Proposal storage/API, Review UI, Workshop UI, or Tool Plan execution before M5.1 and M5.2 exit checks.
+- M5.0-M5.4 are recorded and command/function verified. Do not claim Workshop-generated Proposal cards, Tool Plans, Grants, Council, or final M5 completion before their later slice exit checks and user visual acceptance.
+- Done in current M5 code slice: Proposal v2 extends the existing Proposal contract and state machine without introducing a parallel Proposal model.
+- Done in current M5 code slice: Proposal JSON storage and Review/proposal APIs cover create/read/stale/accept/reject/edit/archive/supersede/batch preview/batch accept behavior with snapshot and blocker reporting.
+- Done in current M5 code slice: Review uses real Proposal APIs for inbox, exact Proposal detail, decisions, batch preview, and audit-field hiding in the main path.
+- Done in current M5 code slice: Workshop persists sessions/messages/context baskets, reloads durable messages, previews context through the existing Context Builder, and runs single-role calls without authority mutation.
+- Not done in current M5 code slice: Workshop messages do not yet create durable Proposal cards with exact source-message deep links and Review status sync.
+- Not done in current M5 code slice: Tool Plans, Grants, internal Codex/Write command adapters, Council, and final responsive/state/user visual acceptance are not implemented.
 
 - Slice A is recorded in `docs/tasks/PROJECT_RECOVERY.md`.
 - Slice B and Slice C are command-verified; browser/visual validation remains user-owned.

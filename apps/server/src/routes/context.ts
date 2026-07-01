@@ -225,7 +225,7 @@ async function codexEntryContextContent(
   ].filter(Boolean).join("\n\n");
 }
 
-async function buildContextBundle(
+export async function buildContextBundle(
   repository: ProjectRepository,
   registry: ProviderRegistry,
   seriesId: string,

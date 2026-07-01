@@ -44,6 +44,13 @@ const detailTypeId = "12121212-1212-4121-8121-121212121212";
 const secondDetailTypeId = "23232323-2323-4232-8232-232323232323";
 const progressionId = "34343434-3434-4434-8434-343434343434";
 const secondProgressionId = "45454545-4545-4454-8545-454545454545";
+const proposalId = "56565656-5656-4656-8656-565656565656";
+const snapshotId = "67676767-6767-4676-8676-676767676767";
+const workshopSessionId = "89898989-8989-4989-8989-898989898989";
+const workshopBasketItemId = "90909090-9090-4090-9090-909090909090";
+const workshopContextBundleId = "91919191-9191-4191-9191-919191919191";
+const workshopModelCallId = "92929292-9292-4292-9292-929292929292";
+const promptTemplateId = "00000000-0000-4000-8000-000000000405";
 const revision = "a".repeat(64);
 const updatedRevision = "b".repeat(64);
 const firstBlockId = "10101010-1010-4010-8010-101010101010";
@@ -662,6 +669,161 @@ function modelProfile(overrides: Partial<{
   };
 }
 
+function proposalDocument(status: "pending" | "accepted" | "rejected" | "edited" = "pending") {
+  const target = {
+    kind: "scene-content" as const,
+    targetId: sceneId,
+    label: "Opening Scene",
+    baseRevision: revision,
+    fieldPath: [],
+    blockId: null,
+    range: null,
+  };
+  return {
+    proposal: {
+      schemaVersion: 2 as const,
+      id: proposalId,
+      seriesId,
+      type: "text-replacement" as const,
+      title: "Replace chase beat with continuity-safe escalation",
+      summary: "Keeps the chase consistent with Codex constraints.",
+      status,
+      source: {
+        kind: "manual" as const,
+        sourceId: null,
+        label: "Workshop continuity pass",
+        detail: "",
+      },
+      target,
+      contextBundleId: null,
+      generator: { kind: "manual" as const, actor: "user" },
+      riskLevel: "medium" as const,
+      confidence: 0.82,
+      reason: "Captain Veyr should not know the route before the city clock breaks.",
+      staleReason: "",
+      supersededBy: null,
+      originalCandidate: null,
+      decision: status === "pending" ? null : {
+        kind: status,
+        actor: "user",
+        decidedAt: "2026-06-24T00:00:00.000Z",
+        note: "",
+        snapshotId: status === "accepted" || status === "edited" ? snapshotId : null,
+        editedCandidate: null,
+      },
+      patches: [{
+        id: "78787878-7878-4787-8787-787878787878",
+        target,
+        action: "replace-text" as const,
+        before: "Captain Veyr shouted from the far arch, already knowing her name.",
+        after: "Captain Veyr was not in the arcade. That mattered.",
+        unifiedDiff: "-Captain Veyr shouted from the far arch, already knowing her name.\n+Captain Veyr was not in the arcade. That mattered.",
+      }],
+      evidence: [{
+        sourceType: "codex-entry" as const,
+        sourceId: codexEntryId,
+        revision,
+        quote: "",
+        note: "No knowledge until Scene 14.",
+      }],
+      createdAt: "2026-06-24T00:00:00.000Z",
+      updatedAt: "2026-06-24T00:00:00.000Z",
+    },
+    revision,
+    sourceAvailability: { available: true, reason: "" },
+    targetAvailability: { available: true, reason: "" },
+  };
+}
+
+function workshopSession(overrides: Partial<{
+  id: string;
+  lastMessageAt: string | null;
+  status: "active" | "archived";
+  title: string;
+}> = {}) {
+  return {
+    schemaVersion: 1 as const,
+    id: overrides.id ?? workshopSessionId,
+    seriesId,
+    title: overrides.title ?? "Scene continuity pass",
+    status: overrides.status ?? "active",
+    branchOfMessageId: null,
+    createdAt: "2026-07-01T00:00:00.000Z",
+    updatedAt: "2026-07-01T00:00:00.000Z",
+    archivedAt: overrides.status === "archived" ? "2026-07-01T00:00:00.000Z" : null,
+    lastMessageAt: overrides.lastMessageAt ?? null,
+  };
+}
+
+function workshopBasket(items: Array<Record<string, unknown>> = []) {
+  return {
+    schemaVersion: 1 as const,
+    id: "93939393-9393-4393-9393-939393939393",
+    seriesId,
+    sessionId: workshopSessionId,
+    sceneId,
+    blockId: null,
+    selection: null,
+    items,
+    createdAt: "2026-07-01T00:00:00.000Z",
+    updatedAt: "2026-07-01T00:00:00.000Z",
+  };
+}
+
+function workshopContextBundle() {
+  return {
+    schemaVersion: 1 as const,
+    id: workshopContextBundleId,
+    seriesId,
+    sceneId,
+    roleId: "continuity-editor",
+    taskKind: "continuity-check",
+    userRequest: "Check continuity for the opening scene.",
+    promptTemplateId,
+    promptTemplateVersion: 1,
+    items: [
+      {
+        id: "role-instruction:continuity-editor",
+        kind: "role-instruction",
+        source: { type: "system", id: "continuity-editor", revision: null, label: "Continuity editor" },
+        title: "Continuity editor",
+        content: "Check continuity.",
+        inclusion: "required",
+        inclusionReason: "Role instruction.",
+        access: "local-only",
+        contextPolicy: null,
+        tokenEstimate: 12,
+        manuallySelected: false,
+        textHash: revision,
+        sourceRefs: [],
+      },
+    ],
+    excluded: [],
+    estimatedUsage: { inputTokens: 12, outputTokens: 0, totalTokens: 12 },
+    createdAt: "2026-07-01T00:00:00.000Z",
+  };
+}
+
+function promptTemplate() {
+  return {
+    schemaVersion: 1 as const,
+    id: promptTemplateId,
+    roleId: "continuity-editor",
+    name: "Continuity check",
+    version: 1,
+    status: "active" as const,
+    description: "Check continuity.",
+    system: "You are a continuity editor.",
+    instructions: "Check continuity.",
+    components: [],
+    variables: [],
+    outputSchemaName: "continuity_report",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    updatedAt: "2026-07-01T00:00:00.000Z",
+    archivedAt: null,
+  };
+}
+
 function mockFetch(options: {
   conflictCodexUpdate?: boolean;
   codexUpdateDelayMs?: number;
@@ -669,6 +831,8 @@ function mockFetch(options: {
   initialCodexDetailTypes?: ReturnType<typeof codexDetailTypeDocument>[];
   initialCodexProgressions?: ReturnType<typeof codexProgressionDocument>[];
   initialCodexRelations?: ReturnType<typeof codexRelationDocument>[];
+  initialModelProfiles?: ReturnType<typeof modelProfile>[];
+  initialWorkshopSessions?: ReturnType<typeof workshopSession>[];
   initialSeriesDetail?: ReturnType<typeof seriesDetail>;
   initialSeriesList?: ReturnType<typeof seriesSummary>[];
 } = {}) {
@@ -680,7 +844,11 @@ function mockFetch(options: {
   let codexProgressions: ReturnType<typeof codexProgressionDocument>[] = options.initialCodexProgressions ?? [];
   let codexRelations: ReturnType<typeof codexRelationDocument>[] = options.initialCodexRelations ?? [];
   let conflictCodexUpdate = options.conflictCodexUpdate ?? false;
-  let modelProfiles: ReturnType<typeof modelProfile>[] = [];
+  let modelProfiles: ReturnType<typeof modelProfile>[] = options.initialModelProfiles ?? [];
+  let proposals = [proposalDocument()];
+  let workshopSessions = options.initialWorkshopSessions ?? [];
+  let workshopMessages: Array<Record<string, unknown>> = [];
+  let currentWorkshopBasket = workshopBasket();
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
@@ -758,6 +926,233 @@ function mockFetch(options: {
 
     if (url === `/api/v1/series/${seriesId}/planning` && method === "GET") {
       return jsonResponse(planningBoard());
+    }
+
+    if (url === `/api/v1/series/${seriesId}/workshop/sessions` && method === "GET") {
+      return jsonResponse(workshopSessions);
+    }
+
+    if (url === `/api/v1/series/${seriesId}/workshop/sessions` && method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      const created = workshopSession({ title: body.title ?? "Scene continuity pass" });
+      workshopSessions = [created, ...workshopSessions.filter((session) => session.id !== created.id)];
+      currentWorkshopBasket = {
+        ...workshopBasket(),
+        sceneId: body.sceneId ?? sceneId,
+      };
+      return jsonResponse(created, 201);
+    }
+
+    const workshopSessionMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/workshop/sessions/([^/]+)(?:/([^/]+))?(?:/([^/]+))?$`));
+    if (workshopSessionMatch) {
+      const [, requestedSessionId, segment, action] = workshopSessionMatch;
+      if (!requestedSessionId) {
+        return jsonResponse({ code: "NOT_FOUND", message: "Workshop session not found" }, 404);
+      }
+      const session = workshopSessions.find((item) => item.id === requestedSessionId) ?? workshopSession({ id: requestedSessionId });
+      if (!segment && method === "GET") {
+        return jsonResponse({
+          session,
+          basket: currentWorkshopBasket,
+          messages: workshopMessages,
+        });
+      }
+      if (!segment && method === "PUT") {
+        const body = JSON.parse(String(init?.body));
+        const updated = { ...session, ...body, updatedAt: "2026-07-01T00:10:00.000Z" };
+        workshopSessions = workshopSessions.map((item) => item.id === requestedSessionId ? updated : item);
+        return jsonResponse(updated);
+      }
+      if (segment === "archive" && method === "POST") {
+        const archived = { ...session, status: "archived" as const, archivedAt: "2026-07-01T00:10:00.000Z" };
+        workshopSessions = workshopSessions.map((item) => item.id === requestedSessionId ? archived : item);
+        return jsonResponse(archived);
+      }
+      if (segment === "restore" && method === "POST") {
+        const restored = { ...session, status: "active" as const, archivedAt: null };
+        workshopSessions = workshopSessions.map((item) => item.id === requestedSessionId ? restored : item);
+        return jsonResponse(restored);
+      }
+      if (segment === "messages" && !action && method === "GET") {
+        return jsonResponse(workshopMessages);
+      }
+      if (segment === "messages" && !action && method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        const message = {
+          schemaVersion: 1,
+          id: "94949494-9494-4494-9494-949494949494",
+          seriesId,
+          sessionId: requestedSessionId,
+          role: body.role ?? "author",
+          status: "succeeded",
+          content: body.content,
+          contextBundleId: null,
+          modelCallId: null,
+          proposalIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: "2026-07-01T00:11:00.000Z",
+        };
+        workshopMessages = [...workshopMessages, message];
+        return jsonResponse(message, 201);
+      }
+      if (segment === "branch" && method === "POST") {
+        const branchSession = workshopSession({
+          id: "95959595-9595-4595-9595-959595959595",
+          title: "Scene continuity pass branch",
+        });
+        workshopSessions = [branchSession, ...workshopSessions];
+        return jsonResponse({
+          branch: {
+            schemaVersion: 1,
+            id: "96969696-9696-4696-9696-969696969696",
+            seriesId,
+            sourceSessionId: requestedSessionId,
+            sourceMessageId: workshopMessages.at(-1)?.id,
+            sessionId: branchSession.id,
+            title: branchSession.title,
+            createdAt: "2026-07-01T00:12:00.000Z",
+          },
+          session: branchSession,
+        }, 201);
+      }
+      if (segment === "context-basket" && !action && method === "GET") {
+        return jsonResponse(currentWorkshopBasket);
+      }
+      if (segment === "context-basket" && !action && method === "PUT") {
+        const body = JSON.parse(String(init?.body));
+        currentWorkshopBasket = {
+          ...currentWorkshopBasket,
+          ...body,
+          updatedAt: "2026-07-01T00:12:00.000Z",
+        };
+        return jsonResponse(currentWorkshopBasket);
+      }
+      if (segment === "context-preview" && method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        return jsonResponse({
+          ...workshopContextBundle(),
+          userRequest: body.userRequest,
+        });
+      }
+      if (segment === "calls" && method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        const authorMessage = {
+          schemaVersion: 1,
+          id: "97979797-9797-4797-9797-979797979797",
+          seriesId,
+          sessionId: requestedSessionId,
+          role: "author",
+          status: "succeeded",
+          content: body.userRequest,
+          contextBundleId: null,
+          modelCallId: null,
+          proposalIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: "2026-07-01T00:13:00.000Z",
+        };
+        const assistantMessage = {
+          schemaVersion: 1,
+          id: "98989898-9898-4898-9898-989898989898",
+          seriesId,
+          sessionId: requestedSessionId,
+          role: "assistant",
+          status: "succeeded",
+          content: "Workshop model response.",
+          contextBundleId: workshopContextBundleId,
+          modelCallId: workshopModelCallId,
+          proposalIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: "2026-07-01T00:13:01.000Z",
+        };
+        workshopMessages = [authorMessage, assistantMessage];
+        return jsonResponse({
+          authorMessage,
+          assistantMessage,
+          contextBundleId: workshopContextBundleId,
+          modelCallId: workshopModelCallId,
+          status: "succeeded",
+          responseText: "Workshop model response.",
+          estimatedUsage: { inputTokens: 12, outputTokens: 0, totalTokens: 12 },
+          actualUsage: { inputTokens: 12, outputTokens: 4, totalTokens: 16 },
+        });
+      }
+    }
+
+    if (url === `/api/v1/series/${seriesId}/review/proposals` && method === "GET") {
+      return jsonResponse({ items: proposals, diagnostics: [] });
+    }
+
+    if (url === `/api/v1/series/${seriesId}/review/proposals/batch-preview` && method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      return jsonResponse({
+        items: body.proposalIds.map((id: string) => ({
+          eligible: proposals.some((document) => document.proposal.id === id && document.proposal.status === "pending"),
+          proposalId: id,
+          reason: "",
+        })),
+      });
+    }
+
+    if (url === `/api/v1/series/${seriesId}/review/proposals/batch-accept` && method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      const completed = body.proposalIds
+        .filter((id: string) => proposals.some((document) => document.proposal.id === id && document.proposal.status === "pending"))
+        .map((id: string) => {
+          const updated = proposalDocument("accepted");
+          proposals = proposals.map((document) => document.proposal.id === id ? updated : document);
+          return { proposal: updated, snapshot: { schemaVersion: 1, id: snapshotId, seriesId, proposalId: id, target: updated.proposal.target, createdAt: "2026-06-24T00:00:00.000Z", targetRevision: revision, data: {} } };
+        });
+      return jsonResponse({ completed, skipped: [], failed: [] });
+    }
+
+    const proposalMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/review/proposals/([^/]+)(?:/([^/]+))?$`));
+    if (proposalMatch) {
+      const [, requestedProposalId, action] = proposalMatch;
+      const current = proposals.find((document) => document.proposal.id === requestedProposalId);
+      if (!current) return jsonResponse({ message: "Proposal does not exist" }, 404);
+      if (!action && method === "GET") return jsonResponse(current);
+      if (action === "accept" && method === "POST") {
+        const updated = proposalDocument("accepted");
+        proposals = proposals.map((document) => document.proposal.id === requestedProposalId ? updated : document);
+        return jsonResponse({
+          proposal: updated,
+          snapshot: {
+            schemaVersion: 1,
+            id: snapshotId,
+            seriesId,
+            proposalId: requestedProposalId,
+            target: updated.proposal.target,
+            createdAt: "2026-06-24T00:00:00.000Z",
+            targetRevision: revision,
+            data: {},
+          },
+        });
+      }
+      if (action === "edit-and-accept" && method === "POST") {
+        const updated = proposalDocument("accepted");
+        proposals = proposals.map((document) => document.proposal.id === requestedProposalId ? updated : document);
+        return jsonResponse({
+          proposal: updated,
+          snapshot: {
+            schemaVersion: 1,
+            id: snapshotId,
+            seriesId,
+            proposalId: requestedProposalId,
+            target: updated.proposal.target,
+            createdAt: "2026-06-24T00:00:00.000Z",
+            targetRevision: revision,
+            data: {},
+          },
+        });
+      }
+      if (action === "reject" && method === "POST") {
+        const updated = proposalDocument("rejected");
+        proposals = proposals.map((document) => document.proposal.id === requestedProposalId ? updated : document);
+        return jsonResponse(updated);
+      }
     }
 
     if (url === `/api/v1/series/${seriesId}/codex/categories` && method === "GET") {
@@ -1183,6 +1578,30 @@ function mockFetch(options: {
       const manifest = { ...current.manifest, cloudPolicy: body.cloudPolicy };
       detailOverride = { ...current, manifest };
       return jsonResponse(manifest);
+    }
+
+    if (url === `/api/v1/series/${seriesId}/ai/roles` && method === "GET") {
+      return jsonResponse([{
+        schemaVersion: 1,
+        id: "continuity-editor",
+        title: "Continuity editor",
+        description: "Checks continuity.",
+        persona: "",
+        duties: [],
+        nonDuties: [],
+        challengeObligation: "",
+        forbiddenActions: [],
+        outputContract: "",
+        readScopes: { scenes: true, codex: true, research: true, futureScenes: false },
+        builtIn: true,
+        createdAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        archivedAt: null,
+      }]);
+    }
+
+    if (url === `/api/v1/series/${seriesId}/ai/prompts` && method === "GET") {
+      return jsonResponse([promptTemplate()]);
     }
 
     if (url === `/api/v1/series/${seriesId}/ai/model-profiles` && method === "GET") {
@@ -3147,7 +3566,7 @@ describe("App shell", () => {
     expect(await screen.findByText("No model profiles yet")).toBeTruthy();
   });
 
-  it("keeps review and workshop visible but honest about missing backend workflows", async () => {
+  it("connects Review to the Proposal inbox and opens exact Proposal links", async () => {
     const fetchMock = mockFetch();
     render(<App />);
 
@@ -3160,27 +3579,91 @@ describe("App shell", () => {
     expect(screen.queryByText("128")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Review" }));
-    expect(await screen.findByRole("heading", { name: "Review Inbox" })).toBeTruthy();
-    expect(screen.getByText("Interface retained while the review workflow is rebuilt.")).toBeTruthy();
-    expect(screen.getAllByText("Not connected").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "All" })).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: "Prose" })).toHaveProperty("disabled", true);
-    expect(screen.getByText("Review will be rebuilt")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Review" })).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getAllByText("Replace chase beat with continuity-safe escalation").length).toBeGreaterThan(0);
+    });
+    expect(fetchMock.mock.calls.some(([url]) =>
+      String(url) === `/api/v1/series/${seriesId}/review/proposals`,
+    )).toBe(true);
 
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(window.location.hash).toBe(`#/review/proposals/${proposalId}`);
+    expect(screen.getByText("Captain Veyr shouted from the far arch, already knowing her name.")).toBeTruthy();
+    expect(screen.getAllByText("Captain Veyr was not in the arcade. That mattered.").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Edit and Accept" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview Batch" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/review/proposals/batch-preview`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+  });
+
+  it("connects Workshop sessions, context basket, and single-role calls without exposing audit IDs", async () => {
+    const fetchMock = mockFetch({ initialModelProfiles: [modelProfile()] });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) =>
+        String(url) === `/api/v1/series/${seriesId}/workshop/sessions`,
+      )).toBe(true);
+    });
     expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
-    expect(screen.getByText("Interface retained while Workshop is rebuilt.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "New Session" })).toHaveProperty("disabled", true);
-    expect(screen.getByPlaceholderText("Workshop is not connected")).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: "Send" })).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: "Insert" })).toHaveProperty("disabled", true);
-    expect(screen.getByText("Workshop will be rebuilt")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open Proposal" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
-    expect(document.body.textContent).not.toContain("/review/proposals/");
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/proposals"))).toBe(false);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/workshop/sessions"))).toBe(false);
+    expect(screen.queryByText("Not connected")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "New Session" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByText("Scene continuity pass")).toBeTruthy();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add Scene" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/context-basket`,
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
+    await screen.findAllByText("Opening Scene");
+    expect(screen.getAllByText("Opening Scene").length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("Workshop message"), {
+      target: { value: "Check continuity for the opening scene." },
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Preview Context" })[0]!);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/context-preview`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(screen.getAllByText(/1 included/u).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByText("Workshop model response.")).toBeTruthy();
+    expect(screen.queryByText(workshopModelCallId)).toBeNull();
+    expect(screen.queryByText(workshopContextBundleId)).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) =>
+      String(url).includes(`/api/v1/series/${seriesId}/review/proposals`),
+    )).toBe(false);
   });
 
   it("loads and reorders the planning board after a project is selected", async () => {
