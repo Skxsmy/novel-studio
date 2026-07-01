@@ -10,9 +10,10 @@ For current work, read only:
 2. `M5.md`
 3. `../testing/M5_ACCEPTANCE.md`
 4. `../design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`
-5. `../design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
-6. `PROJECT_RECOVERY.md`
-7. `../testing/PROJECT_RECOVERY_ACCEPTANCE.md`
+5. `../design/ui-redesign/M5_FIGMA_UI_REVIEW.md`
+6. `../design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
+7. `PROJECT_RECOVERY.md`
+8. `../testing/PROJECT_RECOVERY_ACCEPTANCE.md`
 
 Older task files are historical context. Do not start from them unless the current task touches that subsystem.
 

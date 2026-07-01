@@ -1,6 +1,6 @@
 # NS-409 UI Redesign Assets
 
-Updated: 2026-06-23
+Updated: 2026-06-30
 
 ## Current Rule
 
@@ -22,6 +22,9 @@ Current protected backup:
 
 ## Current Useful References
 
+- `M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`: M5 Figma planning and acceptance expectations for Workshop, Proposal, and Review.
+- `M5_FIGMA_UI_REVIEW.md`: MCP-backed usability review of the current M5 Figma file and implementation readiness by slice.
+- `FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`: required workflow for turning accepted Figma frames into project UI without screenshot-only copying.
 - `NS-409.2-english-ui-baseline.html`: static English UI reference. It is a reference, not an accepted current React result.
 - `NS-409.2-english-ui-baseline.md`: notes for that reference.
 - `NS-409.2-screenshot-manifest-advanced-v1.json`: evidence manifest for the advanced static reference.

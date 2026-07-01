@@ -3,6 +3,7 @@
 Status: design companion, not implementation evidence  
 Created: 2026-06-30  
 Related task: `docs/tasks/M5.md`  
+Figma UI review: `docs/design/ui-redesign/M5_FIGMA_UI_REVIEW.md`  
 Implementation workflow: `docs/design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`  
 Current Figma file: https://www.figma.com/design/CXclN6W9I7YfDOxUKxmKFP
 

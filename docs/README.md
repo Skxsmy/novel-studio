@@ -12,12 +12,13 @@ For the current M5 planning state and accepted recovery baseline, read:
 4. `tasks/M5.md`
 5. `testing/M5_ACCEPTANCE.md`
 6. `design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`
-7. `design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
-8. `tasks/NS-410.md`
-9. `testing/NS-410_ACCEPTANCE.md`
-10. `adr/0012-scene-block-documents-and-codex-field-progression.md`
-11. `tasks/PROJECT_RECOVERY.md`
-12. `testing/PROJECT_RECOVERY_ACCEPTANCE.md`
+7. `design/ui-redesign/M5_FIGMA_UI_REVIEW.md`
+8. `design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
+9. `tasks/NS-410.md`
+10. `testing/NS-410_ACCEPTANCE.md`
+11. `adr/0012-scene-block-documents-and-codex-field-progression.md`
+12. `tasks/PROJECT_RECOVERY.md`
+13. `testing/PROJECT_RECOVERY_ACCEPTANCE.md`
 
 Only read older milestone documents when the current task depends on that area.
 
