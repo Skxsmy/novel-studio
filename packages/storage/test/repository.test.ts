@@ -862,6 +862,31 @@ describe("ProjectRepository", () => {
     )).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("blocks deleting Codex detail types used by id-keyed entry details", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "CodexDetailTypeIdUsage" });
+    const detailType = await store.createCodexDetailType(series.manifest.id, {
+      categoryId: "character",
+      name: "Current knowledge",
+    });
+    await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Lena Vale",
+      details: { [detailType.detailType.id]: "Knows the blue-salt key opens Tide Office locks." },
+      detailAiContext: { [detailType.detailType.id]: true },
+    });
+
+    await expect(store.deleteCodexDetailType(series.manifest.id, detailType.detailType.id, {
+      baseRevision: detailType.revision,
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      details: expect.objectContaining({
+        detailTypeId: detailType.detailType.id,
+        detailTypeName: "Current knowledge",
+      }),
+    });
+  });
+
   it("deletes custom Codex categories without deleting their entries", async () => {
     const store = await repository();
     const title = "CodexCategoryDelete";

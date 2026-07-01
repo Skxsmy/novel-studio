@@ -2637,7 +2637,10 @@ export class ProjectRepository {
     const usedByEntryIds = (await this.listCodexEntriesFromRoot(seriesRoot))
       .filter((entry) =>
         entry.metadata.categoryId === current.detailType.categoryId &&
-        Object.prototype.hasOwnProperty.call(entry.metadata.details, current.detailType.name),
+        (
+          Object.prototype.hasOwnProperty.call(entry.metadata.details, current.detailType.id) ||
+          Object.prototype.hasOwnProperty.call(entry.metadata.details, current.detailType.name)
+        ),
       )
       .map((entry) => entry.metadata.id);
     if (usedByEntryIds.length) {

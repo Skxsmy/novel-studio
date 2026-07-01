@@ -2526,6 +2526,47 @@ describe("App shell", () => {
     expect(await screen.findByRole("heading", { name: "Harbor Lock" })).toBeTruthy();
   });
 
+  it("shows id-keyed codex details by type name and saves them without UUID labels", async () => {
+    const fetchMock = mockFetch({
+      initialCodexDetailTypes: [
+        codexDetailTypeDocument("Current knowledge", "character", detailTypeId),
+      ],
+      initialCodexEntries: [
+        codexEntryDocument("Lena Vale", "character", "Carries the blue-salt key.", codexEntryId, {
+          detailAiContext: { [detailTypeId]: false },
+          details: { [detailTypeId]: "知道蓝盐钥匙会打开潮汐署档案门。" },
+        }),
+      ],
+      initialSeriesDetail: seriesDetail("蓝盐钥匙在雾港码头发热。"),
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Codex/i }));
+    fireEvent.click((await screen.findByText("Lena Vale")).closest("button")!);
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    const detailTypeSelect = await screen.findByLabelText("Detail 1 type") as HTMLSelectElement;
+    expect(detailTypeSelect.value).toBe("Current knowledge");
+    expect(screen.queryByText(detailTypeId)).toBeNull();
+
+    setEditorValue("Detail 1 value", "她知道蓝盐钥匙会打开潮汐署档案门，但还不知道钥匙为何回应她。");
+
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(([url, init]) => (
+        url === `/api/v1/series/${seriesId}/codex/entries/${codexEntryId}` && init?.method === "PUT"
+      ));
+      expect(putCall).toBeTruthy();
+      const body = JSON.parse(String(putCall![1]?.body));
+      expect(body.details).toEqual({
+        "Current knowledge": "她知道蓝盐钥匙会打开潮汐署档案门，但还不知道钥匙为何回应她。",
+      });
+      expect(body.detailAiContext).toEqual({ "Current knowledge": false });
+      expect(body.details).not.toHaveProperty(detailTypeId);
+      expect(body.detailAiContext).not.toHaveProperty(detailTypeId);
+    }, { timeout: 3000 });
+  });
+
   it("shows codex relations and mentions from manuscript and other codex entries", async () => {
     const fetchMock = mockFetch({
       initialCodexEntries: [
@@ -3908,6 +3949,19 @@ describe("App shell", () => {
     });
     expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
     expect(screen.queryByText("Not connected")).toBeNull();
+    expect((screen.getByLabelText("Model setting") as HTMLSelectElement).value).toBe(modelProfileId);
+    expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("mock-continuity-v1");
+    fireEvent.click(screen.getByRole("button", { name: "Fetch Models" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/ai/model-profiles/${modelProfileId}/models`,
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+    fireEvent.change(screen.getByLabelText("Model"), {
+      target: { value: "fetched-long-context-model" },
+    });
+    expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("fetched-long-context-model");
 
     fireEvent.click(screen.getByRole("button", { name: "New Session" }));
     await waitFor(() => {
@@ -3947,6 +4001,13 @@ describe("App shell", () => {
         expect.objectContaining({ method: "POST" }),
       );
     });
+    const callRequest = fetchMock.mock.calls.find(([url, init]) =>
+      String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls` &&
+      (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body)).modelOverride).toBe(
+      "fetched-long-context-model",
+    );
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
     expect(screen.queryByText(workshopModelCallId)).toBeNull();
     expect(screen.queryByText(workshopContextBundleId)).toBeNull();

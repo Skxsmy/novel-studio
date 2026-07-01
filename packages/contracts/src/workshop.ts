@@ -180,6 +180,7 @@ export const WorkshopContextPreviewInputSchema = z.object({
   promptTemplateId: z.string().uuid(),
   promptTemplateVersion: z.number().int().positive().default(1),
   modelProfileId: z.string().uuid().nullable().default(null),
+  modelOverride: z.string().trim().min(1).max(200).nullable().default(null),
   tokenBudget: z.number().int().positive().nullable().default(null),
 });
 export type WorkshopContextPreviewInput = z.input<typeof WorkshopContextPreviewInputSchema>;

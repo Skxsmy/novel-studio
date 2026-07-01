@@ -36,7 +36,7 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5-A18 | passed | Workshop sessions and messages persist as schema-versioned JSON and reload after restart. Covered by storage/server/web tests. |
 | M5-A19 | passed | Workshop Context Basket can add/remove/pin/unpin allowed context references, including available Codex and Proposal-source references exposed by the current UI. Covered by storage/server/web tests. |
 | M5-A20 | passed | Context preview shows included/excluded items and respects permissions, future-story isolation, and per-detail switches. Covered by Workshop route/context tests. |
-| M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog. Covered by server tests. |
+| M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog. Workshop can choose a library-global model setting and send a provider model override for that call. Covered by server/web tests. |
 | M5-A22 | passed | Model failure preserves the input and context and does not create an empty Proposal. Covered by server/web tests. |
 | M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Covered by web tests and source review. |
 | M5-A24 | function passed; visual pending | Workshop implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
@@ -179,6 +179,18 @@ Post-M5.5 audit repair closed the retained local M5.1-M5.4 and M5.5 audit findin
 - Workshop context preview renders excluded items and reasons, and Workshop can add currently exposed Codex/Proposal-source context references.
 - Workshop-created scene-content Proposals target the Workshop basket scene when present instead of blindly using the selected app scene.
 - Review and Workshop feature CSS has been moved to feature-local stylesheets, leaving shared app shell layout rules in `app-shell.css`.
+- Review non-pending Proposal details now render as read-only review records instead of showing edit textareas and disabled decision controls.
+- Workshop can switch among saved library-global model settings, fetch provider model options for the chosen setting, and send the selected model as a call-scoped override without writing it back to Settings.
+
+Focused command results during the 2026-07-01 Review/Workshop UI and model-selection repair:
+
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run build -w @novel-studio/server`: passed.
+- `npm.cmd run build -w @novel-studio/web`: passed.
+- `npm.cmd run test -w @novel-studio/contracts -- test/workshop.test.ts test/proposals.test.ts`: passed, 2 files / 10 tests.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts test/proposal-routes.test.ts`: passed, 2 files / 4 tests.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: passed, 1 file / 51 tests.
+- `git diff --check`: passed with Windows line-ending warnings only.
 
 Focused command results during the 2026-07-01 Settings model-profile repair:
 

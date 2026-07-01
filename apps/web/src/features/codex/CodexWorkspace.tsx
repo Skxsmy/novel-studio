@@ -85,7 +85,57 @@ interface CodexContentMention {
   sourceEntry: CodexEntryDocument;
 }
 
-function draftFromEntry(entry: CodexEntryDocument): CodexDraft {
+function matchingDetailType(
+  key: string,
+  detailTypes: CodexDetailTypeDocument[],
+): CodexDetailTypeDocument | undefined {
+  return detailTypes.find((document) =>
+    document.detailType.id === key || document.detailType.name === key,
+  );
+}
+
+function detailKeyLabel(key: string, detailTypes: CodexDetailTypeDocument[]) {
+  return matchingDetailType(key, detailTypes)?.detailType.name ?? key;
+}
+
+function detailContextEnabled(entry: CodexEntryDocument, key: string, label: string) {
+  return entry.metadata.detailAiContext[key] !== false && entry.metadata.detailAiContext[label] !== false;
+}
+
+function detailRowsFromEntry(
+  entry: CodexEntryDocument,
+  detailTypes: CodexDetailTypeDocument[],
+): DetailDraftRow[] {
+  const rows: DetailDraftRow[] = [];
+  const handledKeys = new Set<string>();
+  const entryDetailTypes = detailTypes.filter((document) =>
+    document.detailType.categoryId === entry.metadata.categoryId,
+  );
+  for (const document of entryDetailTypes) {
+    const { id, name } = document.detailType;
+    const value = entry.metadata.details[id] ?? entry.metadata.details[name];
+    if (value === undefined) continue;
+    rows.push({
+      includeInAi: detailContextEnabled(entry, id, name),
+      typeName: name,
+      value,
+    });
+    handledKeys.add(id);
+    handledKeys.add(name);
+  }
+  for (const [key, value] of Object.entries(entry.metadata.details)) {
+    if (handledKeys.has(key)) continue;
+    const label = detailKeyLabel(key, detailTypes);
+    rows.push({
+      includeInAi: detailContextEnabled(entry, key, label),
+      typeName: label,
+      value,
+    });
+  }
+  return rows;
+}
+
+function draftFromEntry(entry: CodexEntryDocument, detailTypes: CodexDetailTypeDocument[] = []): CodexDraft {
   return {
     aiContextPolicy: entry.metadata.aiContextPolicy,
     aliases: commaList(entry.metadata.aliases),
@@ -95,11 +145,7 @@ function draftFromEntry(entry: CodexEntryDocument): CodexDraft {
     caseSensitive: entry.metadata.mention.caseSensitive,
     categoryId: entry.metadata.categoryId,
     description: entry.description,
-    detailRows: Object.entries(entry.metadata.details).map(([typeName, value]) => ({
-      includeInAi: entry.metadata.detailAiContext[typeName] !== false,
-      typeName,
-      value,
-    })),
+    detailRows: detailRowsFromEntry(entry, detailTypes),
     excludedTerms: commaList(entry.metadata.mention.excludedTerms),
     matchAliases: entry.metadata.mention.matchAliases,
     name: entry.metadata.name,
@@ -281,7 +327,11 @@ function findMatchesInText(entry: CodexEntryDocument, content: string) {
   return matches;
 }
 
-function findCodexContentMentions(entry: CodexEntryDocument, entries: CodexEntryDocument[]): CodexContentMention[] {
+function findCodexContentMentions(
+  entry: CodexEntryDocument,
+  entries: CodexEntryDocument[],
+  detailTypes: CodexDetailTypeDocument[],
+): CodexContentMention[] {
   const mentions: CodexContentMention[] = [];
   for (const sourceEntry of entries) {
     if (sourceEntry.metadata.id === entry.metadata.id || sourceEntry.metadata.archivedAt) continue;
@@ -289,7 +339,7 @@ function findCodexContentMentions(entry: CodexEntryDocument, entries: CodexEntry
       { label: codexText.mentions.fieldCanon, content: sourceEntry.description },
       { label: codexText.mentions.fieldResearch, content: sourceEntry.research.content },
       ...Object.entries(sourceEntry.metadata.details).map(([label, content]) => ({
-        label: codexText.mentions.fieldDetail(label),
+        label: codexText.mentions.fieldDetail(detailKeyLabel(label, detailTypes)),
         content,
       })),
     ];
@@ -470,8 +520,8 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     [series.scenes],
   );
   const codexContentMentions = useMemo(
-    () => (selectedEntry ? findCodexContentMentions(selectedEntry, entries) : []),
-    [entries, selectedEntry],
+    () => (selectedEntry ? findCodexContentMentions(selectedEntry, entries, detailTypes) : []),
+    [detailTypes, entries, selectedEntry],
   );
   const descriptionMentionEntries = useMemo(
     () => entries.filter((entry) => entry.metadata.id !== selectedEntryId && !entry.metadata.archivedAt),
@@ -719,10 +769,14 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
 
   function detailTypeUsageCount(detailType: CodexDetailTypeDocument) {
     const entryIds = new Set<string>();
+    const { id, name } = detailType.detailType;
     for (const entry of entries) {
       if (
         entry.metadata.categoryId === detailType.detailType.categoryId &&
-        Object.prototype.hasOwnProperty.call(entry.metadata.details, detailType.detailType.name)
+        (
+          Object.prototype.hasOwnProperty.call(entry.metadata.details, id) ||
+          Object.prototype.hasOwnProperty.call(entry.metadata.details, name)
+        )
       ) {
         entryIds.add(entry.metadata.id);
       }
@@ -730,7 +784,10 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     if (
       selectedEntryId &&
       draft?.categoryId === detailType.detailType.categoryId &&
-      draft.detailRows.some((row) => row.typeName.trim() === detailType.detailType.name)
+      draft.detailRows.some((row) => {
+        const typeName = row.typeName.trim();
+        return typeName === id || typeName === name;
+      })
     ) {
       entryIds.add(selectedEntryId);
     }
@@ -759,7 +816,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       setSaveStatus("idle");
       return;
     }
-    setDraft(draftFromEntry(nextSelectedEntry));
+    setDraft(draftFromEntry(nextSelectedEntry, detailTypes));
     setSaveStatus("idle");
   }
 
@@ -783,7 +840,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     }
     setSelectedEntryId(entry.metadata.id);
     setIsDetailFocus(false);
-    setDraft(draftFromEntry(entry));
+    setDraft(draftFromEntry(entry, detailTypes));
     setActiveMentionSource("manuscript");
     setConnectionError(null);
     setEntryMentions([]);
@@ -812,7 +869,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       replaceEntry(entry);
       setSelectedEntryId(entry.metadata.id);
       setIsDetailFocus(false);
-      setDraft(draftFromEntry(entry));
+      setDraft(draftFromEntry(entry, detailTypes));
       setActiveMentionSource("manuscript");
       setConnectionError(null);
       setEntryMentions([]);
@@ -999,7 +1056,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
               baseResearchRevision: updated.research.revision,
               baseRevision: updated.revision,
             }
-          : draftFromEntry(updated);
+          : draftFromEntry(updated, detailTypes);
         draftRef.current = nextDraft;
         setDraft(nextDraft);
         setSaveStatus(hasUnsubmittedChanges ? "dirty" : "saved");
@@ -1033,7 +1090,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     try {
       const entry = await api.codex.getEntry(series.manifest.id, selectedEntryId);
       replaceEntry(entry);
-      setDraft(draftFromEntry(entry));
+      setDraft(draftFromEntry(entry, detailTypes));
       setIsDetailsExpanded(false);
       setSaveStatus("idle");
     } catch (error) {
@@ -1050,7 +1107,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
         ? await api.codex.archiveEntry(series.manifest.id, selectedEntry.metadata.id, { baseRevision: selectedEntry.revision })
         : await api.codex.restoreEntry(series.manifest.id, selectedEntry.metadata.id, { baseRevision: selectedEntry.revision });
       replaceEntry(entry);
-      setDraft(draftFromEntry(entry));
+      setDraft(draftFromEntry(entry, detailTypes));
       setIsDetailsExpanded(false);
       setSaveStatus("idle");
     } catch (error) {

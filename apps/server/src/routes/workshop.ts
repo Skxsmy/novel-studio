@@ -90,6 +90,15 @@ function combinedInputUsage(
   };
 }
 
+function effectiveModelProfile(modelProfile: ModelProfile, modelOverride?: string | null): ModelProfile {
+  const nextModel = modelOverride?.trim();
+  if (!nextModel || nextModel === modelProfile.model) return modelProfile;
+  return {
+    ...modelProfile,
+    model: nextModel,
+  };
+}
+
 function baseModelCallLog(input: {
   seriesId: string;
   callId: string;
@@ -427,7 +436,10 @@ export function registerWorkshopRoutes(
         if (sendContextError(reply, error)) return reply;
         throw error;
       }
-      const modelProfile = await repository.getModelProfile(input.modelProfileId);
+      const modelProfile = effectiveModelProfile(
+        await repository.getModelProfile(input.modelProfileId),
+        input.modelOverride,
+      );
       const { log, responseText } = await executeWorkshopCall({
         repository,
         providerRegistry,

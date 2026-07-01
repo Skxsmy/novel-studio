@@ -90,6 +90,7 @@ export function ReviewWorkspace({
   const editablePatches = selected?.proposal.patches.filter((patch) => patch.after !== null) ?? [];
   const sourceAvailable = selected?.sourceAvailability.available ?? true;
   const targetAvailable = selected?.targetAvailability.available ?? true;
+  const isSelectedPending = selected?.proposal.status === "pending";
   const canDecide = Boolean(selected && selected.proposal.status === "pending" && sourceAvailable && targetAvailable);
   const canMarkStale = Boolean(selected && selected.proposal.status === "pending");
 
@@ -303,7 +304,7 @@ export function ReviewWorkspace({
               </div>
             ) : (
               <>
-                <div className="decision-meta">
+                <div className="review-meta-strip">
                   <div className="review-stat">
                     <strong>{text.statusLabels[selected.proposal.status]}</strong>
                     <span>{text.labels.status}</span>
@@ -330,21 +331,21 @@ export function ReviewWorkspace({
                 <div className="review-patch-list" aria-label="Proposal patches">
                   {selected.proposal.patches.map((patch, index) => (
                     <div className="review-patch" key={patch.id}>
-                      <div className="proposal-row-pills">
+                      <div className="review-patch-header">
                         <span className="pill muted">{text.labels.patch} {index + 1}</span>
                         <span className="pill blue">{targetKindLabel(patch.target.kind)}</span>
                       </div>
                       <div className="diff" aria-label={`${text.labels.patch} ${index + 1}`}>
                         <div className="diff-block">
                           <span className="brief-label">{text.labels.before}</span>
-                          <p>{patch.before ?? ""}</p>
+                          <p>{patch.before?.trim() ? patch.before : "-"}</p>
                         </div>
                         <div className="diff-block">
                           <span className="brief-label">{text.labels.after}</span>
-                          <p>{patch.after ?? ""}</p>
+                          <p>{patch.after?.trim() ? patch.after : "-"}</p>
                         </div>
                       </div>
-                      {patch.after !== null ? (
+                      {patch.after !== null && isSelectedPending ? (
                         <label className="field">
                           <span>{text.labels.editText} {index + 1}</span>
                           <textarea
@@ -363,40 +364,42 @@ export function ReviewWorkspace({
               </>
             )}
           </div>
-          <div className="decision-actions filter-actions">
-            <button
-              className="btn success"
-              disabled={!canDecide || busyAction !== null}
-              onClick={() => void runDecision("accept")}
-              type="button"
-            >
-              {text.actions.accept}
-            </button>
-            <button
-              className="btn"
-              disabled={!canDecide || editablePatches.length === 0 || busyAction !== null}
-              onClick={() => void runDecision("edit")}
-              type="button"
-            >
-              {text.actions.editAndAccept}
-            </button>
-            <button
-              className="btn danger"
-              disabled={!selected || selected.proposal.status !== "pending" || busyAction !== null}
-              onClick={() => void runDecision("reject")}
-              type="button"
-            >
-              {text.actions.reject}
-            </button>
-            <button
-              className="btn"
-              disabled={!canMarkStale || busyAction !== null}
-              onClick={() => void runDecision("stale")}
-              type="button"
-            >
-              {text.actions.markStale}
-            </button>
-          </div>
+          {isSelectedPending ? (
+            <div className="decision-actions filter-actions">
+              <button
+                className="btn success"
+                disabled={!canDecide || busyAction !== null}
+                onClick={() => void runDecision("accept")}
+                type="button"
+              >
+                {text.actions.accept}
+              </button>
+              <button
+                className="btn"
+                disabled={!canDecide || editablePatches.length === 0 || busyAction !== null}
+                onClick={() => void runDecision("edit")}
+                type="button"
+              >
+                {text.actions.editAndAccept}
+              </button>
+              <button
+                className="btn danger"
+                disabled={!selected || selected.proposal.status !== "pending" || busyAction !== null}
+                onClick={() => void runDecision("reject")}
+                type="button"
+              >
+                {text.actions.reject}
+              </button>
+              <button
+                className="btn"
+                disabled={!canMarkStale || busyAction !== null}
+                onClick={() => void runDecision("stale")}
+                type="button"
+              >
+                {text.actions.markStale}
+              </button>
+            </div>
+          ) : null}
         </section>
 
         <aside className="panel no-shadow">

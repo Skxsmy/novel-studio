@@ -77,6 +77,31 @@
   min-height: 0;
 }
 
+.workshop-model-controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  min-width: min(560px, 100%);
+}
+
+.workshop-model-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.workshop-model-field .input {
+  min-width: 0;
+  height: 36px;
+  font-size: 13px;
+  text-transform: none;
+}
+
 .workshop-chat .message-stack {
   min-height: 0;
   overflow-y: auto;
@@ -320,5 +345,9 @@
   .workshop-grid {
     gap: 12px;
     grid-template-columns: minmax(200px, 0.68fr) minmax(360px, 1.55fr) minmax(230px, 0.82fr);
+  }
+
+  .workshop-model-controls {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

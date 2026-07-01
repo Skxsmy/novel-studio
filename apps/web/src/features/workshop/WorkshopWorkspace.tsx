@@ -3,6 +3,7 @@ import type {
   CodexEntryDocument,
   ContextBundle,
   ModelProfile,
+  ProviderModelDescriptor,
   ProposalDocument,
   PromptTemplate,
   SceneDocument,
@@ -98,11 +99,16 @@ export function WorkshopWorkspace({
   const [contextPreview, setContextPreview] = useState<ContextBundle | null>(null);
   const [contextSourceValue, setContextSourceValue] = useState("");
   const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
+  const [selectedModelProfileId, setSelectedModelProfileId] = useState<string | null>(null);
+  const [selectedModelId, setSelectedModelId] = useState("");
+  const [providerModels, setProviderModels] = useState<ProviderModelDescriptor[]>([]);
+  const [providerModelsProfileId, setProviderModelsProfileId] = useState<string | null>(null);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [composer, setComposer] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isCalling, setIsCalling] = useState(false);
+  const [isFetchingProviderModels, setIsFetchingProviderModels] = useState(false);
   const [creatingProposalMessageId, setCreatingProposalMessageId] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,10 +121,32 @@ export function WorkshopWorkspace({
     () => new Map(proposalDocuments.map((document) => [document.proposal.id, document])),
     [proposalDocuments],
   );
-  const selectedModelProfile = useMemo(
-    () => modelProfiles.find((profile) => profile.archivedAt === null) ?? null,
+  const activeModelProfiles = useMemo(
+    () => modelProfiles.filter((profile) => profile.archivedAt === null),
     [modelProfiles],
   );
+  const selectedModelProfile = useMemo(
+    () =>
+      activeModelProfiles.find((profile) => profile.id === selectedModelProfileId) ??
+      activeModelProfiles[0] ??
+      null,
+    [activeModelProfiles, selectedModelProfileId],
+  );
+  const modelOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    if (selectedModelProfile) {
+      options.set(selectedModelProfile.model, selectedModelProfile.model);
+    }
+    if (providerModelsProfileId === selectedModelProfile?.id) {
+      for (const model of providerModels) {
+        options.set(model.id, model.title || model.id);
+      }
+    }
+    if (selectedModelId) {
+      options.set(selectedModelId, options.get(selectedModelId) ?? selectedModelId);
+    }
+    return Array.from(options, ([value, label]) => ({ value, label }));
+  }, [providerModels, providerModelsProfileId, selectedModelId, selectedModelProfile]);
   const selectedPromptTemplate = useMemo(
     () =>
       newestTemplateForRole(promptTemplates, "continuity-editor") ??
@@ -155,6 +183,7 @@ export function WorkshopWorkspace({
     activeSession.status === "active" &&
     selectedPromptTemplate &&
     selectedModelProfile &&
+    selectedModelId &&
     composer.trim() &&
     !isCalling,
   );
@@ -171,8 +200,19 @@ export function WorkshopWorkspace({
         api.ai.listModelProfiles(),
         api.ai.listPromptTemplates(seriesId),
       ]);
+      const nextActiveProfiles = nextProfiles.filter((profile) => profile.archivedAt === null);
+      const nextProfile =
+        nextActiveProfiles.find((profile) => profile.id === selectedModelProfileId) ??
+        nextActiveProfiles[0] ??
+        null;
       setSessions(nextSessions);
       setModelProfiles(nextProfiles);
+      setSelectedModelProfileId(nextProfile?.id ?? null);
+      setSelectedModelId((current) => (
+        nextProfile && nextProfile.id === selectedModelProfileId
+          ? (current || nextProfile.model)
+          : nextProfile?.model ?? ""
+      ));
       setPromptTemplates(nextTemplates);
       const nextActive =
         preferredSessionId ??
@@ -184,6 +224,30 @@ export function WorkshopWorkspace({
       setError(apiErrorMessage(caught));
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  function selectModelProfile(profileId: string) {
+    const profile = activeModelProfiles.find((item) => item.id === profileId) ?? null;
+    setSelectedModelProfileId(profile?.id ?? null);
+    setSelectedModelId(profile?.model ?? "");
+    setProviderModels([]);
+    setProviderModelsProfileId(null);
+  }
+
+  async function fetchProviderModels() {
+    if (!selectedModelProfile) return;
+    setIsFetchingProviderModels(true);
+    setError(null);
+    try {
+      const models = await api.ai.listProviderModels(selectedModelProfile.id);
+      setProviderModels(models);
+      setProviderModelsProfileId(selectedModelProfile.id);
+      setSelectedModelId((current) => current || selectedModelProfile.model);
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setIsFetchingProviderModels(false);
     }
   }
 
@@ -387,6 +451,10 @@ export function WorkshopWorkspace({
       promptTemplateId: selectedPromptTemplate.id,
       promptTemplateVersion: selectedPromptTemplate.version,
       modelProfileId: selectedModelProfile?.id ?? null,
+      modelOverride:
+        selectedModelProfile && selectedModelId && selectedModelId !== selectedModelProfile.model
+          ? selectedModelId
+          : null,
     };
   }
 
@@ -561,11 +629,52 @@ export function WorkshopWorkspace({
               <div className="panel-title">{text.conversationTitle}</div>
               <div className="panel-kicker">{text.conversationKicker}</div>
             </div>
-            {selectedModelProfile ? (
-              <span className="pill muted">{selectedModelProfile.title}</span>
-            ) : (
-              <span className="pill amber">{text.labels.modelProfileMissing}</span>
-            )}
+            <div className="workshop-model-controls" aria-label="Workshop model controls">
+              <label className="workshop-model-field">
+                <span>{text.labels.modelSetting}</span>
+                <select
+                  aria-label={text.labels.modelSetting}
+                  className="input"
+                  disabled={activeModelProfiles.length === 0}
+                  onChange={(event) => selectModelProfile(event.target.value)}
+                  value={selectedModelProfile?.id ?? ""}
+                >
+                  {activeModelProfiles.length === 0 ? (
+                    <option value="">{text.labels.modelProfileMissing}</option>
+                  ) : null}
+                  {activeModelProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="workshop-model-field">
+                <span>{text.labels.model}</span>
+                <select
+                  aria-label={text.labels.model}
+                  className="input"
+                  disabled={!selectedModelProfile}
+                  onChange={(event) => setSelectedModelId(event.target.value)}
+                  value={selectedModelId}
+                >
+                  {!selectedModelProfile ? (
+                    <option value="">{text.labels.modelProfileMissing}</option>
+                  ) : null}
+                  {modelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="btn compact"
+                disabled={!selectedModelProfile || isFetchingProviderModels}
+                onClick={() => void fetchProviderModels()}
+                type="button"
+              >
+                {isFetchingProviderModels ? text.labels.modelListLoading : text.fetchModels}
+              </button>
+            </div>
           </div>
           <div className="message-stack">
             {isDetailLoading ? <p className="brief-text">{text.labels.loadingSession}</p> : null}
