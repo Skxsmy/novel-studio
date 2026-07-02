@@ -180,4 +180,56 @@ describe("M5 Workshop storage", () => {
       reason: "Workshop message does not exist",
     });
   });
+
+  it("rejects Proposal creation from General Chat Workshop messages", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopGeneralChatProposal" });
+    const scene = series.scenes[0]!;
+    const session = await store.createWorkshopSession(series.manifest.id, {
+      title: "General chat thread",
+      sceneId: scene.metadata.id,
+    });
+    const message = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "assistant",
+      mode: "general-chat",
+      content: "This is a discussion response, not a write candidate.",
+    });
+    const target = {
+      kind: "scene-content" as const,
+      targetId: scene.metadata.id,
+      label: scene.metadata.title,
+      baseRevision: scene.revision,
+      fieldPath: [],
+      blockId: null,
+      range: null,
+    };
+
+    await expect(store.createProposalFromWorkshopMessage(series.manifest.id, session.id, message.id, {
+      type: "text-insertion",
+      title: "Blocked General Chat proposal",
+      summary: "Should not be allowed",
+      target,
+      riskLevel: "medium",
+      confidence: null,
+      reason: "General Chat is not Review input.",
+      patches: [{
+        id: "11111111-1111-4111-8111-111111111111",
+        target,
+        action: "insert-text",
+        before: null,
+        after: message.content,
+        unifiedDiff: `+${message.content}`,
+      }],
+      evidence: [{
+        sourceType: "workshop-message",
+        sourceId: message.id,
+        revision: null,
+        quote: "",
+        note: "General Chat source.",
+      }],
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      message: "General Chat messages cannot create Proposals",
+    });
+  });
 });

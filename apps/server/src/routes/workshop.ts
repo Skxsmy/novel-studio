@@ -71,6 +71,7 @@ async function workshopContextPayload(
     taskKind: input.taskKind,
     promptTemplateId: input.promptTemplateId,
     promptTemplateVersion: input.promptTemplateVersion,
+    systemPromptOverride: input.mode === "general-chat" ? input.systemPrompt : null,
     modelProfileId: input.modelProfileId,
     tokenBudget: input.tokenBudget,
   };
@@ -423,7 +424,7 @@ export function registerWorkshopRoutes(
       const authorMessage = await repository.createWorkshopMessage(
         request.params.seriesId,
         request.params.sessionId,
-        { role: "author", content: input.userRequest },
+        { role: "author", mode: input.mode, content: input.userRequest },
       );
       let contextBundle;
       try {
@@ -462,6 +463,7 @@ export function registerWorkshopRoutes(
           seriesId: request.params.seriesId,
           sessionId: request.params.sessionId,
           role: "assistant",
+          mode: input.mode,
           status: log.status === "succeeded" ? "succeeded" : "failed",
           content: responseText || log.errorMessage || "Model call failed.",
           contextBundleId: contextBundle.id,

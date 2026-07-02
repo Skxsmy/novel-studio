@@ -132,6 +132,7 @@ export const ContextPreviewInputSchema = z.object({
   promptTemplateVersion: z.number().int().positive().default(1),
   selection: ContextPreviewSelectionSchema.nullable().default(null),
   manualContextIds: z.array(z.string().min(1).max(240)).default([]),
+  systemPromptOverride: z.string().trim().max(8000).nullable().default(null),
   modelProfileId: z.string().uuid().nullable().default(null),
   tokenBudget: z.number().int().positive().nullable().default(null),
 });

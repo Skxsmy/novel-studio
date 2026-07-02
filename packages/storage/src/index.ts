@@ -4006,6 +4006,7 @@ export class ProjectRepository {
       seriesId,
       sessionId,
       role: input.role,
+      mode: input.mode,
       status: "succeeded",
       content: input.content,
       contextBundleId: null,
@@ -4062,6 +4063,11 @@ export class ProjectRepository {
     }
     if (message.status !== "succeeded" || !message.content.trim()) {
       throw new StorageError("Only successful Workshop messages can create Proposals", "INVALID_DATA", {
+        messageId,
+      });
+    }
+    if (message.mode === "general-chat") {
+      throw new StorageError("General Chat messages cannot create Proposals", "INVALID_DATA", {
         messageId,
       });
     }

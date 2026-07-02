@@ -12,6 +12,9 @@ export type WorkshopMessageRole = z.infer<typeof WorkshopMessageRoleSchema>;
 export const WorkshopMessageStatusSchema = z.enum(["pending", "succeeded", "failed"]);
 export type WorkshopMessageStatus = z.infer<typeof WorkshopMessageStatusSchema>;
 
+export const WorkshopModeSchema = z.enum(["general-chat", "continuity-check"]);
+export type WorkshopMode = z.infer<typeof WorkshopModeSchema>;
+
 export const WorkshopContextItemKindSchema = z.enum([
   "full-novel",
   "full-outline",
@@ -59,6 +62,7 @@ export const WorkshopMessageSchema = z.object({
   seriesId: z.string().uuid(),
   sessionId: z.string().uuid(),
   role: WorkshopMessageRoleSchema,
+  mode: WorkshopModeSchema.default("continuity-check"),
   status: WorkshopMessageStatusSchema.default("succeeded"),
   content: z.string().max(400000).default(""),
   contextBundleId: z.string().uuid().nullable().default(null),
@@ -134,6 +138,7 @@ export type UpdateWorkshopSessionInput = z.infer<typeof UpdateWorkshopSessionInp
 
 export const CreateWorkshopMessageInputSchema = z.object({
   role: WorkshopMessageRoleSchema.default("author"),
+  mode: WorkshopModeSchema.default("continuity-check"),
   content: z.string().trim().min(1).max(400000),
 });
 export type CreateWorkshopMessageInput = z.input<typeof CreateWorkshopMessageInputSchema>;
@@ -178,11 +183,13 @@ export type UpdateWorkshopContextBasketInput = z.infer<
 >;
 
 export const WorkshopContextPreviewInputSchema = z.object({
+  mode: WorkshopModeSchema.default("general-chat"),
   userRequest: z.string().trim().min(1).max(16000),
   roleId: z.string().min(1).max(120).default("continuity-editor"),
   taskKind: AiTaskKindSchema.default("continuity-check"),
   promptTemplateId: z.string().uuid(),
   promptTemplateVersion: z.number().int().positive().default(1),
+  systemPrompt: z.string().trim().max(8000).default(""),
   modelProfileId: z.string().uuid().nullable().default(null),
   modelOverride: z.string().trim().min(1).max(200).nullable().default(null),
   tokenBudget: z.number().int().positive().nullable().default(null),

@@ -36,8 +36,8 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5-A18 | passed | Workshop sessions and messages persist as schema-versioned JSON and reload after restart. Covered by storage/server/web tests. |
 | M5-A19 | passed | Workshop selected context can add/remove/toggle allowed references through the compact composer menu, including full novel text, full outline, act, chapter, multiple scenes, direct Codex entries, and Codex grouped by type/detail/category. The internal storage object is still `WorkshopContextBasket`; the visible right-side basket panel has been removed. Covered by storage/server/web tests. |
 | M5-A20 | passed | Context assembly shows included/excluded items and respects permissions, future-story isolation, auto-linked Codex policy, and per-detail Send to AI switches. The Codex detail `Send to AI` audit confirmed the UI writes `detailAiContext`, storage persists it, and Context Builder omits disabled detail text from `ContextBundle` content. Covered by Workshop route/context tests. |
-| M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog. Workshop can choose a library-global model setting and send a provider model override for that call. Covered by server/web tests. |
-| M5-A22 | passed | Model failure preserves the input and context and does not create an empty Proposal. Covered by server/web tests. |
+| M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog. Workshop can choose a library-global model setting and send a provider model override for that call. General Chat is the default mode and sends the user-edited system prompt into Context Builder. Covered by server/web tests. |
+| M5-A22 | passed | Model failure preserves the input/context, displays the author's sent message immediately, and appends a failed assistant message instead of creating an empty Proposal. Covered by server/web tests. |
 | M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Covered by web tests and source review. |
 | M5-A24 | function passed; visual pending | Workshop implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
 | M5-A25 | passed | Workshop message output can create a Proposal linked to that exact source message. Proposal creation and message `proposalIds` update are written transactionally. Covered by storage/server/web tests. |
@@ -229,6 +229,22 @@ The 2026-07-02 repair closed these Workshop/Codex context gaps:
 - Full-novel, full-outline, act, chapter, and selected-scene scopes flow through contracts, storage validation, Workshop route mapping, and Context Builder item assembly.
 - Selecting a story scope materializes policy-allowed Codex entries into the same internal basket with `note: "Linked from selected context."`; entries set to `manual` or `never` are not auto-linked.
 - The Codex detail `Send to AI` checkbox is not decorative: it writes `detailAiContext`, and Context Builder filters disabled details from the actual context bundle.
+
+Focused command results during the 2026-07-02 Workshop General Chat repair:
+
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- Initial root-level focused test command was invalid because the same path filters were applied to unrelated workspaces and reported no matching files; workspace-relative reruns were used.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts`: passed, 1 file / 3 tests.
+- `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts`: passed, 1 file / 5 tests.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: passed, 1 file / 54 tests.
+- `npm.cmd run build -w @novel-studio/web`: first exposed a General Chat system-prompt state typing issue; after fixing the source, passed. A same-turn UI correction then moved the system prompt editor out of the permanent footer into a compact popover; `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx` passed 54/54 again and `npm.cmd run build -w @novel-studio/web` passed.
+
+The repair closed these Workshop General Chat gaps:
+
+- The author's submitted message appears in the chat stream immediately after Send instead of waiting for the AI reply.
+- General Chat is the default mode and can use a user-edited system prompt.
+- General Chat replies do not expose Create Proposal in the UI, and storage/API reject Proposal creation if called directly.
+- The system prompt editor is not a cramped permanent footer textarea; it opens from a compact footer button into a larger popover editor.
 
 ## M5.0 Startup Protection Mapping
 

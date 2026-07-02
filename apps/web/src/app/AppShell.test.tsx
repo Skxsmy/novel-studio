@@ -875,6 +875,7 @@ function mockFetch(options: {
   initialSeriesDetail?: ReturnType<typeof seriesDetail>;
   initialSeriesList?: ReturnType<typeof seriesSummary>[];
   providerModelCount?: number;
+  workshopCallDelayMs?: number;
 } = {}) {
   let detailOverride: ReturnType<typeof seriesDetail> | null = options.initialSeriesDetail ?? null;
   let seriesSummaries = options.initialSeriesList ?? [seriesSummary()];
@@ -889,6 +890,7 @@ function mockFetch(options: {
   let workshopSessions = options.initialWorkshopSessions ?? [];
   let workshopMessages: Array<Record<string, unknown>> = options.initialWorkshopMessages ?? [];
   let currentWorkshopBasket = workshopBasket();
+  const workshopCallDelayMs = options.workshopCallDelayMs ?? 0;
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
@@ -1033,6 +1035,7 @@ function mockFetch(options: {
           seriesId,
           sessionId: requestedSessionId,
           role: body.role ?? "author",
+          mode: body.mode ?? "continuity-check",
           status: "succeeded",
           content: body.content,
           contextBundleId: null,
@@ -1136,6 +1139,7 @@ function mockFetch(options: {
           seriesId,
           sessionId: requestedSessionId,
           role: "author",
+          mode: body.mode ?? "continuity-check",
           status: "succeeded",
           content: body.userRequest,
           contextBundleId: null,
@@ -1151,6 +1155,7 @@ function mockFetch(options: {
           seriesId,
           sessionId: requestedSessionId,
           role: "assistant",
+          mode: body.mode ?? "continuity-check",
           status: "succeeded",
           content: "Workshop model response.",
           contextBundleId: workshopContextBundleId,
@@ -1160,8 +1165,7 @@ function mockFetch(options: {
           errorMessage: null,
           createdAt: "2026-07-01T00:13:01.000Z",
         };
-        workshopMessages = [authorMessage, assistantMessage];
-        return jsonResponse({
+        const responseBody = {
           authorMessage,
           assistantMessage,
           contextBundleId: workshopContextBundleId,
@@ -1170,7 +1174,17 @@ function mockFetch(options: {
           responseText: "Workshop model response.",
           estimatedUsage: { inputTokens: 12, outputTokens: 0, totalTokens: 12 },
           actualUsage: { inputTokens: 12, outputTokens: 4, totalTokens: 16 },
-        });
+        };
+        if (workshopCallDelayMs > 0) {
+          return new Promise<Response>((resolve) => {
+            setTimeout(() => {
+              workshopMessages = [authorMessage, assistantMessage];
+              resolve(jsonResponse(responseBody));
+            }, workshopCallDelayMs);
+          });
+        }
+        workshopMessages = [authorMessage, assistantMessage];
+        return jsonResponse(responseBody);
       }
     }
 
@@ -3984,6 +3998,11 @@ describe("App shell", () => {
       target: { value: "fetched-long-context-model" },
     });
     expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("fetched-long-context-model");
+    expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("general-chat");
+    fireEvent.change(screen.getByLabelText("Mode"), {
+      target: { value: "continuity-check" },
+    });
+    expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("continuity-check");
 
     const sessionsPanel = screen.getByText("Conversation branches").closest(".panel");
     expect(sessionsPanel).toBeTruthy();
@@ -4023,6 +4042,7 @@ describe("App shell", () => {
     expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body)).modelOverride).toBe(
       "fetched-long-context-model",
     );
+    expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body)).mode).toBe("continuity-check");
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
     expect(screen.queryByText(workshopModelCallId)).toBeNull();
     expect(screen.queryByText(workshopContextBundleId)).toBeNull();
@@ -4057,6 +4077,53 @@ describe("App shell", () => {
     });
     fireEvent.click(await screen.findByRole("button", { name: "Go to Chat" }));
     expect(await screen.findByText("Accepted")).toBeTruthy();
+  });
+
+  it("shows the author message immediately and keeps General Chat out of Proposal creation", async () => {
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, title: "General chat thread" })],
+      workshopCallDelayMs: 80,
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+    expect(((await screen.findByLabelText("Mode")) as HTMLSelectElement).value).toBe("general-chat");
+
+    fireEvent.click(screen.getByRole("button", { name: "System Prompt" }));
+    fireEvent.change(screen.getByLabelText("General Chat system prompt"), {
+      target: { value: "Answer as a context-aware story consultant." },
+    });
+    fireEvent.change(screen.getByLabelText("Workshop message"), {
+      target: { value: "Talk through the current scene options." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(screen.getByText("Talk through the current scene options.")).toBeTruthy();
+    expect(screen.queryByText("Workshop model response.")).toBeNull();
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    const callRequest = fetchMock.mock.calls.find(([url, init]) =>
+      String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls` &&
+      (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body))).toMatchObject({
+      mode: "general-chat",
+      systemPrompt: "Answer as a context-aware story consultant.",
+      taskKind: "analysis",
+      userRequest: "Talk through the current scene options.",
+    });
+
+    expect(await screen.findByText("Workshop model response.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
   });
 
   it("renders Workshop context selection as nested scene and Codex menus", async () => {

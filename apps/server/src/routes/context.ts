@@ -372,7 +372,8 @@ export async function buildContextBundle(
     : "";
 
   const role = await repository.getAgentRole(seriesId, input.roleId);
-  const roleInstruction = [
+  const customSystemPrompt = input.systemPromptOverride?.trim() ?? "";
+  const roleInstruction = customSystemPrompt || [
     `角色：${role.title}`,
     role.description,
     role.persona ? `工作人格：${role.persona}` : "",
@@ -390,12 +391,14 @@ export async function buildContextBundle(
   });
   items.push(contextItem({
     kind: "role-instruction",
-    sourceType: "system",
+    sourceType: customSystemPrompt ? "user-input" : "system",
     sourceId: input.roleId,
-    title: "角色职责",
+    title: customSystemPrompt ? "General Chat system prompt" : "角色职责",
     content: roleInstruction,
     inclusion: "required",
-    inclusionReason: "模型调用必须先说明角色职责和禁止行为。",
+    inclusionReason: customSystemPrompt
+      ? "The author supplied this custom General Chat system prompt."
+      : "模型调用必须先说明角色职责和禁止行为。",
   }));
 
   items.push(contextItem({

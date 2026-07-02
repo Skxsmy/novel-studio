@@ -12,6 +12,7 @@ import type {
   WorkshopContextBasket,
   WorkshopContextItemRef,
   WorkshopMessage,
+  WorkshopMode,
   WorkshopSession,
 } from "@novel-studio/contracts";
 import { ApiError, api } from "../../api";
@@ -239,12 +240,15 @@ export function WorkshopWorkspace({
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const [contextMenuView, setContextMenuView] = useState<ContextMenuView>({ kind: "root" });
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const [isSystemPromptMenuOpen, setIsSystemPromptMenuOpen] = useState(false);
   const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
   const [selectedModelProfileId, setSelectedModelProfileId] = useState<string | null>(null);
   const [selectedModelId, setSelectedModelId] = useState("");
   const [providerModels, setProviderModels] = useState<ProviderModelDescriptor[]>([]);
   const [providerModelsProfileId, setProviderModelsProfileId] = useState<string | null>(null);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
+  const [workshopMode, setWorkshopMode] = useState<WorkshopMode>("general-chat");
+  const [generalSystemPrompt, setGeneralSystemPrompt] = useState<string>(text.defaultGeneralSystemPrompt);
   const [composer, setComposer] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
@@ -287,13 +291,23 @@ export function WorkshopWorkspace({
     }
     return Array.from(options, ([value, label]) => ({ value, label }));
   }, [providerModels, providerModelsProfileId, selectedModelId, selectedModelProfile]);
-  const selectedPromptTemplate = useMemo(
+  const continuityPromptTemplate = useMemo(
     () =>
       newestTemplateForRole(promptTemplates, "continuity-editor") ??
       promptTemplates.find((template) => template.archivedAt === null) ??
       null,
     [promptTemplates],
   );
+  const generalPromptTemplate = useMemo(
+    () =>
+      newestTemplateForRole(promptTemplates, "lead-writing-partner") ??
+      promptTemplates.find((template) => template.archivedAt === null) ??
+      null,
+    [promptTemplates],
+  );
+  const selectedPromptTemplate = workshopMode === "general-chat"
+    ? generalPromptTemplate
+    : continuityPromptTemplate;
   const contextScene = useMemo(
     () => (
       basket?.sceneId
@@ -409,9 +423,9 @@ export function WorkshopWorkspace({
     modelOptions.find((option) => option.value === selectedModelId)?.label ??
     selectedModelProfile?.model ??
     text.labels.modelProfileMissing;
-  const selectedRoleLabel = selectedPromptTemplate?.roleId === "continuity-editor"
-    ? text.labels.roleContinuity
-    : text.labels.roleGeneral;
+  const selectedRoleLabel = workshopMode === "general-chat"
+    ? text.modes.generalChat
+    : text.modes.continuityCheck;
 
   async function loadShell(preferredSessionId?: string) {
     setIsLoading(true);
@@ -712,14 +726,17 @@ export function WorkshopWorkspace({
     });
   }
 
-  function previewPayload() {
+  function previewPayload(userRequest = composer.trim() || text.labels.defaultRequest) {
     if (!selectedPromptTemplate) throw new Error(text.labels.noPrompt);
+    const isGeneralChat = workshopMode === "general-chat";
     return {
-      userRequest: composer.trim() || text.labels.defaultRequest,
+      mode: workshopMode,
+      userRequest,
       roleId: selectedPromptTemplate.roleId,
-      taskKind: "continuity-check" as const,
+      taskKind: isGeneralChat ? "analysis" as const : "continuity-check" as const,
       promptTemplateId: selectedPromptTemplate.id,
       promptTemplateVersion: selectedPromptTemplate.version,
+      systemPrompt: isGeneralChat ? generalSystemPrompt.trim() : "",
       modelProfileId: selectedModelProfile?.id ?? null,
       modelOverride:
         selectedModelProfile && selectedModelId && selectedModelId !== selectedModelProfile.model
@@ -730,19 +747,83 @@ export function WorkshopWorkspace({
 
   async function sendMessage() {
     if (!activeSession || !selectedModelProfile || !selectedPromptTemplate || !composer.trim()) return;
+    const requestText = composer.trim();
+    const payload = {
+      ...previewPayload(requestText),
+      modelProfileId: selectedModelProfile.id,
+    };
+    const now = new Date().toISOString();
+    const localAuthorMessage: WorkshopMessage = {
+      schemaVersion: 1,
+      id: randomId(),
+      seriesId,
+      sessionId: activeSession.id,
+      role: "author",
+      mode: payload.mode,
+      status: "succeeded",
+      content: requestText,
+      contextBundleId: null,
+      modelCallId: null,
+      proposalIds: [],
+      errorCode: null,
+      errorMessage: null,
+      createdAt: now,
+    };
     setIsCalling(true);
     setError(null);
+    setMessages((current) => [...current, localAuthorMessage]);
+    setComposer("");
+    setIsContextMenuOpen(false);
+    setIsModelMenuOpen(false);
+    setIsSystemPromptMenuOpen(false);
     try {
-      await api.workshop.runCall(seriesId, activeSession.id, {
-        ...previewPayload(),
-        modelProfileId: selectedModelProfile.id,
+      const result = await api.workshop.runCall(seriesId, activeSession.id, payload);
+      setMessages((current) => {
+        let replacedLocalAuthor = false;
+        const next = current.flatMap((message) => {
+          if (message.id !== localAuthorMessage.id) return [message];
+          replacedLocalAuthor = true;
+          return [result.authorMessage, result.assistantMessage];
+        });
+        if (replacedLocalAuthor) return next;
+        const withAuthor = next.some((message) => message.id === result.authorMessage.id)
+          ? next
+          : [...next, result.authorMessage];
+        return withAuthor.some((message) => message.id === result.assistantMessage.id)
+          ? withAuthor
+          : [...withAuthor, result.assistantMessage];
       });
-      setComposer("");
-      setIsContextMenuOpen(false);
-      setIsModelMenuOpen(false);
-      await loadSession(activeSession.id);
+      setSessions((current) => current.map((session) => (
+        session.id === activeSession.id
+          ? {
+            ...session,
+            lastMessageAt: result.assistantMessage.createdAt,
+            updatedAt: result.assistantMessage.createdAt,
+          }
+          : session
+      )));
     } catch (caught) {
-      setError(apiErrorMessage(caught));
+      const message = apiErrorMessage(caught);
+      setError(message);
+      setMessages((current) => [
+        ...current,
+        {
+          schemaVersion: 1,
+          id: randomId(),
+          seriesId,
+          sessionId: activeSession.id,
+          role: "assistant",
+          mode: payload.mode,
+          status: "failed",
+          content: text.labels.assistantFailed,
+          contextBundleId: null,
+          modelCallId: null,
+          proposalIds: [],
+          errorCode: "WORKSHOP_CALL_FAILED",
+          errorMessage: message,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
     } finally {
       setIsCalling(false);
     }
@@ -1342,6 +1423,7 @@ export function WorkshopWorkspace({
                 ) : null}
                 {activeSession?.status === "active" &&
                 message.role !== "author" &&
+                message.mode !== "general-chat" &&
                 message.status === "succeeded" &&
                 message.content.trim() &&
                 message.proposalIds.length === 0 ? (
@@ -1394,9 +1476,52 @@ export function WorkshopWorkspace({
               value={composer}
             />
             <div className="workshop-composer-foot">
-              <button className="btn compact workshop-role-button" disabled type="button">
-                {selectedRoleLabel}
-              </button>
+              <div className="workshop-mode-controls">
+                <label className="workshop-mode-field">
+                  <span>{text.labels.mode}</span>
+                  <select
+                    aria-label={text.labels.mode}
+                    className="input workshop-mode-select"
+                    disabled={!activeSession || activeSession.status !== "active"}
+                    onChange={(event) => {
+                      setWorkshopMode(event.target.value as WorkshopMode);
+                      setIsSystemPromptMenuOpen(false);
+                    }}
+                    value={workshopMode}
+                  >
+                    <option value="general-chat">{text.modes.generalChat}</option>
+                    <option value="continuity-check">{text.modes.continuityCheck}</option>
+                  </select>
+                </label>
+                {workshopMode === "general-chat" ? (
+                  <div className="workshop-system-prompt-picker">
+                    <button
+                      aria-expanded={isSystemPromptMenuOpen}
+                      className="btn compact workshop-system-prompt-trigger"
+                      disabled={!activeSession || activeSession.status !== "active"}
+                      onClick={() => setIsSystemPromptMenuOpen((current) => !current)}
+                      type="button"
+                    >
+                      {text.labels.systemPrompt}
+                    </button>
+                    {isSystemPromptMenuOpen ? (
+                      <div className="workshop-system-prompt-menu">
+                        <label className="workshop-system-prompt-field">
+                          <span>{text.labels.systemPrompt}</span>
+                          <textarea
+                            aria-label={text.labels.generalSystemPrompt}
+                            className="input workshop-system-prompt-input"
+                            onChange={(event) => setGeneralSystemPrompt(event.target.value)}
+                            value={generalSystemPrompt}
+                          />
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <span className="pill muted workshop-mode-pill">{selectedRoleLabel}</span>
+                )}
+              </div>
               <div className="workshop-composer-actions">
                 <div className="workshop-model-picker">
                   <button

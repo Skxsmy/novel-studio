@@ -150,6 +150,7 @@ describe("M5 Workshop API routes", () => {
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/context-preview`,
       payload: {
+        mode: "continuity-check",
         userRequest: "Check continuity for this scene.",
         roleId: "continuity-editor",
         taskKind: "continuity-check",
@@ -179,6 +180,7 @@ describe("M5 Workshop API routes", () => {
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
       payload: {
+        mode: "continuity-check",
         userRequest: "Check continuity for this scene.",
         roleId: "continuity-editor",
         taskKind: "continuity-check",
@@ -308,6 +310,7 @@ describe("M5 Workshop API routes", () => {
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
       payload: {
+        mode: "continuity-check",
         userRequest: "This request should be preserved.",
         roleId: "continuity-editor",
         taskKind: "continuity-check",
@@ -346,6 +349,94 @@ describe("M5 Workshop API routes", () => {
       url: `/api/v1/series/${series.manifest.id}/review/proposals`,
     });
     expect(proposals.json().items).toEqual([]);
+
+    await app.close();
+  });
+
+  it("uses custom General Chat system prompts and blocks Proposal creation from those replies", async () => {
+    const { app, series, profile } = await createSeriesWithMockProfile();
+    const scene = series.scenes[0];
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "General chat", sceneId: scene.metadata.id },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "general-chat",
+        userRequest: "Talk through options without creating a write candidate.",
+        roleId: "lead-writing-partner",
+        taskKind: "analysis",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
+        promptTemplateVersion: 1,
+        systemPrompt: "Answer as a private context-aware story consultant.",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(call.statusCode).toBe(200);
+    expect(call.json()).toMatchObject({ status: "succeeded" });
+    expect(call.json().authorMessage).toMatchObject({ mode: "general-chat" });
+    expect(call.json().assistantMessage).toMatchObject({ mode: "general-chat" });
+
+    const context = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/context/${call.json().contextBundleId}`,
+    });
+    expect(context.statusCode).toBe(200);
+    expect(context.json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "role-instruction",
+        source: expect.objectContaining({ type: "user-input" }),
+        title: "General Chat system prompt",
+        content: "Answer as a private context-aware story consultant.",
+      }),
+    ]));
+
+    const assistantMessage = call.json().assistantMessage;
+    const target = {
+      kind: "scene-content",
+      targetId: scene.metadata.id,
+      label: scene.metadata.title,
+      baseRevision: scene.revision,
+      fieldPath: [],
+      blockId: null,
+      range: null,
+    };
+    const blockedProposal = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${assistantMessage.id}/proposals`,
+      payload: {
+        type: "text-insertion",
+        title: "Blocked general chat proposal",
+        summary: "Should not enter Review",
+        target,
+        riskLevel: "medium",
+        confidence: null,
+        reason: "General chat is not a proposal source.",
+        patches: [{
+          id: "11111111-1111-4111-8111-111111111111",
+          target,
+          action: "insert-text",
+          before: null,
+          after: assistantMessage.content,
+          unifiedDiff: `+${assistantMessage.content}`,
+        }],
+        evidence: [{
+          sourceType: "workshop-message",
+          sourceId: assistantMessage.id,
+          revision: null,
+          quote: "",
+          note: "General chat source message.",
+        }],
+      },
+    });
+    expect(blockedProposal.statusCode).not.toBe(201);
+    expect(blockedProposal.json().message).toContain("General Chat messages cannot create Proposals");
 
     await app.close();
   });
