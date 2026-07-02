@@ -237,14 +237,14 @@ Focused command results during the 2026-07-02 Workshop General Chat repair:
 - `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts`: passed, 1 file / 3 tests.
 - `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts`: passed, 1 file / 5 tests.
 - `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: passed, 1 file / 54 tests.
-- `npm.cmd run build -w @novel-studio/web`: first exposed a General Chat system-prompt state typing issue; after fixing the source, passed. A same-turn UI correction then moved the system prompt editor out of the permanent footer into a compact popover; `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx` passed 54/54 again and `npm.cmd run build -w @novel-studio/web` passed.
+- `npm.cmd run build -w @novel-studio/web`: first exposed a General Chat system-prompt state typing issue; after fixing the source, passed. Same-turn UI corrections then moved the system prompt editor out of the permanent footer into a compact popover, moved Mode and Model controls to the Conversation header, and kept the footer focused on System Prompt plus Send. `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx` passed 54/54 again after each UI correction, and `npm.cmd run build -w @novel-studio/web` passed after each correction.
 
 The repair closed these Workshop General Chat gaps:
 
 - The author's submitted message appears in the chat stream immediately after Send instead of waiting for the AI reply.
 - General Chat is the default mode and can use a user-edited system prompt.
 - General Chat replies do not expose Create Proposal in the UI, and storage/API reject Proposal creation if called directly.
-- The system prompt editor is not a cramped permanent footer textarea; it opens from a compact footer button into a larger popover editor.
+- Mode and Model controls are in the Conversation header, and the system prompt editor is not a cramped permanent footer textarea; it opens from a compact footer button into a larger popover editor.
 
 ## M5.0 Startup Protection Mapping
 

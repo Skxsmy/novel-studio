@@ -104,6 +104,48 @@
   min-height: 0;
 }
 
+.workshop-chat > .panel-head {
+  position: relative;
+  z-index: 5;
+  overflow: visible;
+}
+
+.workshop-head-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.workshop-head-controls .workshop-mode-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+  text-transform: uppercase;
+}
+
+.workshop-head-controls .workshop-mode-select {
+  width: 150px;
+  min-height: 36px;
+}
+
+.workshop-head-controls .workshop-model-trigger {
+  width: 186px;
+  min-height: 36px;
+}
+
+.workshop-head-controls .workshop-model-menu {
+  top: 43px;
+  right: 0;
+  bottom: auto;
+}
+
 .workshop-chat .message-stack {
   display: grid;
   align-content: start;
@@ -281,14 +323,14 @@
   border-top: 1px solid var(--line);
 }
 
-.workshop-mode-controls {
+.workshop-footer-controls {
   display: flex;
   align-items: flex-end;
   gap: 10px;
   min-width: 0;
 }
 
-.workshop-mode-field {
+.workshop-footer-controls .workshop-mode-field {
   display: grid;
   gap: 5px;
   min-width: 0;
@@ -299,7 +341,7 @@
   text-transform: uppercase;
 }
 
-.workshop-mode-select {
+.workshop-footer-controls .workshop-mode-select {
   width: 148px;
   min-height: 38px;
   font-size: 14px;
@@ -610,14 +652,26 @@
     flex-direction: column;
   }
 
-  .workshop-mode-controls {
+  .workshop-head-controls,
+  .workshop-footer-controls {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .workshop-mode-select,
+  .workshop-head-controls .workshop-mode-field {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workshop-head-controls .workshop-mode-select,
+  .workshop-head-controls .workshop-model-trigger,
+  .workshop-footer-controls .workshop-mode-select,
   .workshop-system-prompt-trigger {
     width: 100%;
+  }
+
+  .workshop-head-controls .workshop-model-menu {
+    top: 44px;
   }
 
   .workshop-system-prompt-menu {

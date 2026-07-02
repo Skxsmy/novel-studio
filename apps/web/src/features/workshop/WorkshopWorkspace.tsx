@@ -1261,6 +1261,71 @@ export function WorkshopWorkspace({
     );
   }
 
+  function renderModelPicker() {
+    return (
+      <div className="workshop-model-picker">
+        <button
+          aria-expanded={isModelMenuOpen}
+          aria-label={text.labels.modelPicker}
+          className="btn compact workshop-model-trigger"
+          disabled={activeModelProfiles.length === 0}
+          onClick={() => setIsModelMenuOpen((current) => !current)}
+          type="button"
+        >
+          {selectedModelLabel}
+        </button>
+        {isModelMenuOpen ? (
+          <div className="workshop-model-menu" aria-label="Workshop model controls">
+            <label className="workshop-model-field">
+              <span>{text.labels.modelSetting}</span>
+              <select
+                aria-label={text.labels.modelSetting}
+                className="input"
+                disabled={activeModelProfiles.length === 0}
+                onChange={(event) => selectModelProfile(event.target.value)}
+                value={selectedModelProfile?.id ?? ""}
+              >
+                {activeModelProfiles.length === 0 ? (
+                  <option value="">{text.labels.modelProfileMissing}</option>
+                ) : null}
+                {activeModelProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="workshop-model-field">
+              <span>{text.labels.model}</span>
+              <select
+                aria-label={text.labels.model}
+                className="input"
+                disabled={!selectedModelProfile}
+                onChange={(event) => setSelectedModelId(event.target.value)}
+                value={selectedModelId}
+              >
+                {!selectedModelProfile ? (
+                  <option value="">{text.labels.modelProfileMissing}</option>
+                ) : null}
+                {modelOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="btn compact"
+              disabled={!selectedModelProfile || isFetchingProviderModels}
+              onClick={() => void fetchProviderModels()}
+              type="button"
+            >
+              {isFetchingProviderModels ? text.labels.modelListLoading : text.fetchModels}
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="page-head">
@@ -1335,6 +1400,25 @@ export function WorkshopWorkspace({
             <div>
               <div className="panel-title">{text.conversationTitle}</div>
               <div className="panel-kicker">{text.conversationKicker}</div>
+            </div>
+            <div className="workshop-head-controls">
+              <label className="workshop-mode-field">
+                <span>{text.labels.mode}</span>
+                <select
+                  aria-label={text.labels.mode}
+                  className="input workshop-mode-select"
+                  disabled={!activeSession || activeSession.status !== "active"}
+                  onChange={(event) => {
+                    setWorkshopMode(event.target.value as WorkshopMode);
+                    setIsSystemPromptMenuOpen(false);
+                  }}
+                  value={workshopMode}
+                >
+                  <option value="general-chat">{text.modes.generalChat}</option>
+                  <option value="continuity-check">{text.modes.continuityCheck}</option>
+                </select>
+              </label>
+              {renderModelPicker()}
             </div>
           </div>
           <div className="message-stack">
@@ -1476,23 +1560,7 @@ export function WorkshopWorkspace({
               value={composer}
             />
             <div className="workshop-composer-foot">
-              <div className="workshop-mode-controls">
-                <label className="workshop-mode-field">
-                  <span>{text.labels.mode}</span>
-                  <select
-                    aria-label={text.labels.mode}
-                    className="input workshop-mode-select"
-                    disabled={!activeSession || activeSession.status !== "active"}
-                    onChange={(event) => {
-                      setWorkshopMode(event.target.value as WorkshopMode);
-                      setIsSystemPromptMenuOpen(false);
-                    }}
-                    value={workshopMode}
-                  >
-                    <option value="general-chat">{text.modes.generalChat}</option>
-                    <option value="continuity-check">{text.modes.continuityCheck}</option>
-                  </select>
-                </label>
+              <div className="workshop-footer-controls">
                 {workshopMode === "general-chat" ? (
                   <div className="workshop-system-prompt-picker">
                     <button
@@ -1523,66 +1591,6 @@ export function WorkshopWorkspace({
                 )}
               </div>
               <div className="workshop-composer-actions">
-                <div className="workshop-model-picker">
-                  <button
-                    aria-expanded={isModelMenuOpen}
-                    aria-label={text.labels.modelPicker}
-                    className="btn compact workshop-model-trigger"
-                    disabled={activeModelProfiles.length === 0}
-                    onClick={() => setIsModelMenuOpen((current) => !current)}
-                    type="button"
-                  >
-                    {selectedModelLabel}
-                  </button>
-                  {isModelMenuOpen ? (
-                    <div className="workshop-model-menu" aria-label="Workshop model controls">
-                      <label className="workshop-model-field">
-                        <span>{text.labels.modelSetting}</span>
-                        <select
-                          aria-label={text.labels.modelSetting}
-                          className="input"
-                          disabled={activeModelProfiles.length === 0}
-                          onChange={(event) => selectModelProfile(event.target.value)}
-                          value={selectedModelProfile?.id ?? ""}
-                        >
-                          {activeModelProfiles.length === 0 ? (
-                            <option value="">{text.labels.modelProfileMissing}</option>
-                          ) : null}
-                          {activeModelProfiles.map((profile) => (
-                            <option key={profile.id} value={profile.id}>
-                              {profile.title}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="workshop-model-field">
-                        <span>{text.labels.model}</span>
-                        <select
-                          aria-label={text.labels.model}
-                          className="input"
-                          disabled={!selectedModelProfile}
-                          onChange={(event) => setSelectedModelId(event.target.value)}
-                          value={selectedModelId}
-                        >
-                          {!selectedModelProfile ? (
-                            <option value="">{text.labels.modelProfileMissing}</option>
-                          ) : null}
-                          {modelOptions.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        className="btn compact"
-                        disabled={!selectedModelProfile || isFetchingProviderModels}
-                        onClick={() => void fetchProviderModels()}
-                        type="button"
-                      >
-                        {isFetchingProviderModels ? text.labels.modelListLoading : text.fetchModels}
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
                 <button className="btn primary workshop-send-button" disabled={!canCall} onClick={sendMessage} type="button">
                   {isCalling ? text.labels.sending : text.send}
                 </button>
