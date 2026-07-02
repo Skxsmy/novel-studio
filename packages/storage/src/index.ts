@@ -329,6 +329,7 @@ export { pathExists } from "./fileSystem.js";
 
 const FRONTMATTER_MARKER = "---";
 const SCENE_JSON_EXTENSION = ".json";
+const WORKSHOP_LINKED_CODEX_NOTE = "Linked from selected context.";
 const SERIES_FILE = "series.json";
 const BOOK_FILE = "book.json";
 const ACTS_DIR = "acts";
@@ -4176,8 +4177,9 @@ export class ProjectRepository {
       ...input,
       updatedAt: new Date().toISOString(),
     });
-    await this.validateWorkshopContextBasket(seriesId, candidate);
-    return writeWorkshopContextBasketFile(seriesRoot, candidate);
+    const materialized = await this.withLinkedWorkshopCodexItems(seriesId, candidate);
+    await this.validateWorkshopContextBasket(seriesId, materialized);
+    return writeWorkshopContextBasketFile(seriesRoot, materialized);
   }
 
   async createProposal(
@@ -5805,6 +5807,133 @@ export class ProjectRepository {
     }
   }
 
+  private async withLinkedWorkshopCodexItems(
+    seriesId: string,
+    basket: WorkshopContextBasket,
+  ): Promise<WorkshopContextBasket> {
+    const series = await this.getSeries(seriesId);
+    const entries = (await this.listCodexEntries(seriesId, { includeArchived: true }))
+      .filter((entry) => entry.metadata.archivedAt === null);
+    const scopeTexts = this.workshopSelectedScopeTexts(series, basket.items);
+    const linkedIds = new Set<string>();
+    if (scopeTexts.length > 0) {
+      const combined = scopeTexts.join("\n\n");
+      const mentionSceneId = basket.sceneId ?? series.scenes[0]?.metadata.id;
+      const mentionedIds = new Set(
+        mentionSceneId
+          ? findCodexMentionsInContent(mentionSceneId, combined, entries).mentions.map((mention) => mention.entryId)
+          : [],
+      );
+      for (const entry of entries) {
+        if (entry.metadata.aiContextPolicy === "always") {
+          linkedIds.add(entry.metadata.id);
+        }
+        if (entry.metadata.aiContextPolicy === "on-mention" && mentionedIds.has(entry.metadata.id)) {
+          linkedIds.add(entry.metadata.id);
+        }
+      }
+    }
+    const sourceItems = basket.items.filter((item) =>
+      !(item.kind === "codex-entry" && item.note === WORKSHOP_LINKED_CODEX_NOTE && !linkedIds.has(item.sourceId ?? "")),
+    );
+    const existingCodexIds = new Set(sourceItems
+      .filter((item) => item.kind === "codex-entry" && item.sourceId)
+      .map((item) => item.sourceId!));
+    const linkedItems = entries
+      .filter((entry) => linkedIds.has(entry.metadata.id) && !existingCodexIds.has(entry.metadata.id))
+      .map((entry) => WorkshopContextItemRefSchema.parse({
+        id: randomUUID(),
+        kind: "codex-entry",
+        sourceId: entry.metadata.id,
+        label: entry.metadata.name,
+        pinned: true,
+        note: WORKSHOP_LINKED_CODEX_NOTE,
+        createdAt: new Date().toISOString(),
+      }));
+    return WorkshopContextBasketSchema.parse({
+      ...basket,
+      items: [...sourceItems, ...linkedItems],
+    });
+  }
+
+  private workshopSelectedScopeTexts(
+    series: SeriesDetail,
+    items: WorkshopContextItemRef[],
+  ): string[] {
+    const texts: string[] = [];
+    const selectedSceneIds = new Set<string>();
+    for (const item of items) {
+      if (item.kind === "full-novel") {
+        texts.push(this.workshopScenesInSeriesOrder(series).map((scene) => this.workshopSceneScopeText(scene)).join("\n\n"));
+      }
+      if (item.kind === "full-outline") {
+        texts.push(this.workshopScenesInSeriesOrder(series).map((scene) => this.workshopSceneOutlineText(scene)).join("\n\n"));
+      }
+      if (item.kind === "act" && item.sourceId) {
+        texts.push(this.workshopScenesForAct(series, item.sourceId).map((scene) => this.workshopSceneScopeText(scene)).join("\n\n"));
+      }
+      if (item.kind === "chapter" && item.sourceId) {
+        texts.push(this.workshopScenesForChapter(series, item.sourceId).map((scene) => this.workshopSceneScopeText(scene)).join("\n\n"));
+      }
+      if (item.kind === "scene" && item.sourceId) {
+        selectedSceneIds.add(item.sourceId);
+      }
+    }
+    for (const sceneId of selectedSceneIds) {
+      const scene = series.scenes.find((candidate) => candidate.metadata.id === sceneId);
+      if (scene) texts.push(this.workshopSceneScopeText(scene));
+    }
+    return texts.filter((text) => text.trim().length > 0);
+  }
+
+  private workshopSceneScopeText(scene: SceneDocument): string {
+    return [
+      this.workshopSceneOutlineText(scene),
+      scene.plainText || scene.content,
+    ].filter(Boolean).join("\n\n");
+  }
+
+  private workshopSceneOutlineText(scene: SceneDocument): string {
+    return [
+      scene.metadata.title,
+      scene.metadata.summary,
+      scene.metadata.goal,
+      scene.metadata.conflict,
+      scene.metadata.outcome,
+      scene.metadata.beats.join("\n"),
+    ].filter(Boolean).join("\n");
+  }
+
+  private workshopScenesInSeriesOrder(series: SeriesDetail): SceneDocument[] {
+    const ordered: SceneDocument[] = [];
+    const seen = new Set<string>();
+    for (const book of [...series.books].sort((left, right) => left.order - right.order)) {
+      for (const act of [...series.acts].filter((item) => item.bookId === book.id).sort((left, right) => left.order - right.order)) {
+        for (const scene of this.workshopScenesForAct(series, act.id)) {
+          ordered.push(scene);
+          seen.add(scene.metadata.id);
+        }
+      }
+    }
+    ordered.push(...series.scenes
+      .filter((scene) => !seen.has(scene.metadata.id))
+      .sort((left, right) => left.metadata.order - right.metadata.order));
+    return ordered;
+  }
+
+  private workshopScenesForAct(series: SeriesDetail, actId: string): SceneDocument[] {
+    return [...series.chapters]
+      .filter((chapter) => chapter.actId === actId)
+      .sort((left, right) => left.order - right.order)
+      .flatMap((chapter) => this.workshopScenesForChapter(series, chapter.id));
+  }
+
+  private workshopScenesForChapter(series: SeriesDetail, chapterId: string): SceneDocument[] {
+    return [...series.scenes]
+      .filter((scene) => scene.metadata.chapterId === chapterId)
+      .sort((left, right) => left.metadata.order - right.metadata.order);
+  }
+
   private async validateWorkshopContextItem(
     seriesId: string,
     basket: WorkshopContextBasket,
@@ -5819,6 +5948,24 @@ export class ProjectRepository {
     }
     if (parsed.kind === "scene" || parsed.kind === "selection") {
       await this.getScene(seriesId, parsed.sourceId);
+      return;
+    }
+    if (parsed.kind === "full-novel" || parsed.kind === "full-outline") {
+      if (parsed.sourceId !== seriesId) {
+        throw new StorageError("Workshop context project scope belongs to another series", "INVALID_DATA", {
+          itemId: parsed.id,
+          sourceId: parsed.sourceId,
+        });
+      }
+      await this.getSeries(seriesId);
+      return;
+    }
+    if (parsed.kind === "act") {
+      await this.getAct(seriesId, parsed.sourceId);
+      return;
+    }
+    if (parsed.kind === "chapter") {
+      await this.getChapter(seriesId, parsed.sourceId);
       return;
     }
     if (parsed.kind === "codex-entry") {

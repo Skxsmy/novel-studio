@@ -3,6 +3,8 @@ import type { FastifyInstance } from "fastify";
 import {
   ContextBundleSchema,
   ContextPreviewInputSchema,
+  type ActManifest,
+  type ChapterManifest,
   type CodexEntryDocument,
   type ContextBundle,
   type ContextExclusion,
@@ -14,6 +16,7 @@ import {
   type SceneBlock,
   type SceneDocument,
   type SceneSectionDocument,
+  type SeriesDetail,
 } from "@novel-studio/contracts";
 import type { ProviderRegistry } from "@novel-studio/ai";
 import { StorageError, type ProjectRepository } from "@novel-studio/storage";
@@ -24,6 +27,7 @@ import { ensureBuiltInPrompts } from "../prompts/builtIns.js";
 import { PromptRenderError, renderPromptTemplate } from "../prompts/render.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const CONTEXT_ITEM_CONTENT_LIMIT = 399000;
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -131,13 +135,134 @@ function sceneContextWithBody(scene: SceneDocument, body: string): string {
   return parts.join("\n\n");
 }
 
+function selectedSceneContextContent(scene: SceneDocument): string {
+  return boundedContextContent([
+    sceneOutlineContent(scene),
+    "",
+    sceneManuscriptContent(scene),
+  ].join("\n"));
+}
+
 function previousSceneSummary(scene: SceneDocument): string {
   if (scene.metadata.summary) return scene.metadata.summary;
   return scene.plainText.trim().slice(0, 300) || "Previous scene has no summary or manuscript text yet.";
 }
 
-function manualIdMatches(manualIds: Set<string>, kind: "section" | "codex", id: string): boolean {
+function manualIdMatches(
+  manualIds: Set<string>,
+  kind: "section" | "codex" | "full-novel" | "full-outline" | "act" | "chapter" | "scene",
+  id: string,
+): boolean {
   return manualIds.has(id) || manualIds.has(`${kind}:${id}`);
+}
+
+function boundedContextContent(content: string): string {
+  if (content.length <= CONTEXT_ITEM_CONTENT_LIMIT) return content;
+  return `${content.slice(0, CONTEXT_ITEM_CONTENT_LIMIT)}\n\n[Context truncated to fit the maximum item size.]`;
+}
+
+function sortedByOrder<T extends { order: number }>(items: T[]): T[] {
+  return [...items].sort((left, right) => left.order - right.order);
+}
+
+function scenesInChapter(series: SeriesDetail, chapterId: string): SceneDocument[] {
+  return sortedByOrder(series.scenes
+    .filter((scene) => scene.metadata.chapterId === chapterId)
+    .map((scene) => ({ ...scene, order: scene.metadata.order })));
+}
+
+function chaptersInAct(series: SeriesDetail, actId: string): ChapterManifest[] {
+  return sortedByOrder(series.chapters.filter((chapter) => chapter.actId === actId));
+}
+
+function actsInBook(series: SeriesDetail, bookId: string): ActManifest[] {
+  return sortedByOrder(series.acts.filter((act) => act.bookId === bookId));
+}
+
+function scenesInSeriesOrder(series: SeriesDetail): SceneDocument[] {
+  const ordered: SceneDocument[] = [];
+  const seen = new Set<string>();
+  for (const book of sortedByOrder(series.books)) {
+    for (const act of actsInBook(series, book.id)) {
+      for (const chapter of chaptersInAct(series, act.id)) {
+        for (const scene of scenesInChapter(series, chapter.id)) {
+          ordered.push(scene);
+          seen.add(scene.metadata.id);
+        }
+      }
+    }
+  }
+  ordered.push(...sortedByOrder(series.scenes
+    .filter((scene) => !seen.has(scene.metadata.id))
+    .map((scene) => ({ ...scene, order: scene.metadata.order }))));
+  return ordered;
+}
+
+function sceneOutlineContent(scene: SceneDocument): string {
+  return [
+    `Scene: ${scene.metadata.title}`,
+    `Status: ${scene.metadata.status}`,
+    scene.metadata.summary ? `Summary: ${scene.metadata.summary}` : "",
+    scene.metadata.goal ? `Goal: ${scene.metadata.goal}` : "",
+    scene.metadata.conflict ? `Conflict: ${scene.metadata.conflict}` : "",
+    scene.metadata.outcome ? `Outcome: ${scene.metadata.outcome}` : "",
+    scene.metadata.beats.length ? `Beats:\n${scene.metadata.beats.map((beat, index) => `${index + 1}. ${beat}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function sceneManuscriptContent(scene: SceneDocument): string {
+  const body = scene.plainText.trim() || scene.content.trim() || "[No manuscript text.]";
+  return `## ${scene.metadata.title}\n\n${body}`;
+}
+
+function fullNovelTextContent(series: SeriesDetail): string {
+  return boundedContextContent([
+    `Novel: ${series.manifest.title}`,
+    series.manifest.description ? `Description: ${series.manifest.description}` : "",
+    ...scenesInSeriesOrder(series).map(sceneManuscriptContent),
+  ].filter(Boolean).join("\n\n"));
+}
+
+function fullOutlineContent(series: SeriesDetail): string {
+  const lines = [
+    `Novel outline: ${series.manifest.title}`,
+    series.manifest.description ? `Description: ${series.manifest.description}` : "",
+  ];
+  for (const book of sortedByOrder(series.books)) {
+    lines.push(`\nVolume: ${book.title}`);
+    for (const act of actsInBook(series, book.id)) {
+      lines.push(`  Act: ${act.title}`);
+      for (const chapter of chaptersInAct(series, act.id)) {
+        lines.push(`    Chapter: ${chapter.title}`);
+        for (const scene of scenesInChapter(series, chapter.id)) {
+          lines.push(`      ${sceneOutlineContent(scene).replace(/\n/gu, "\n      ")}`);
+        }
+      }
+    }
+  }
+  return boundedContextContent(lines.filter(Boolean).join("\n"));
+}
+
+function chapterContextContent(series: SeriesDetail, chapter: ChapterManifest): string {
+  const act = series.acts.find((item) => item.id === chapter.actId);
+  return boundedContextContent([
+    `Chapter: ${chapter.title}`,
+    act ? `Act: ${act.title}` : "",
+    ...scenesInChapter(series, chapter.id).map((scene) => [
+      sceneOutlineContent(scene),
+      "",
+      sceneManuscriptContent(scene),
+    ].join("\n")),
+  ].filter(Boolean).join("\n\n"));
+}
+
+function actContextContent(series: SeriesDetail, act: ActManifest): string {
+  const book = series.books.find((item) => item.id === act.bookId);
+  return boundedContextContent([
+    `Act: ${act.title}`,
+    book ? `Volume: ${book.title}` : "",
+    ...chaptersInAct(series, act.id).map((chapter) => chapterContextContent(series, chapter)),
+  ].filter(Boolean).join("\n\n"));
 }
 
 function providerTokenEstimate(
@@ -348,6 +473,97 @@ export async function buildContextBundle(
       title: "后一场景",
       reason: "future-information",
       note: "当前场景之后的正文和摘要默认不提供给模型。",
+    }));
+  }
+
+  const selectedScopeTexts: string[] = [];
+
+  if (manualIdMatches(manualIds, "full-novel", series.manifest.id)) {
+    const content = fullNovelTextContent(series);
+    selectedScopeTexts.push(content);
+    items.push(contextItem({
+      kind: "full-novel",
+      sourceType: "series",
+      sourceId: series.manifest.id,
+      sourceRevision: hashText(content),
+      sourceLabel: series.manifest.title,
+      title: "Full novel text",
+      content,
+      inclusion: "selected",
+      inclusionReason: "The author selected the full novel text.",
+      manuallySelected: true,
+    }));
+  }
+
+  if (manualIdMatches(manualIds, "full-outline", series.manifest.id)) {
+    const content = fullOutlineContent(series);
+    selectedScopeTexts.push(content);
+    items.push(contextItem({
+      kind: "full-outline",
+      sourceType: "series",
+      sourceId: series.manifest.id,
+      sourceRevision: hashText(content),
+      sourceLabel: series.manifest.title,
+      title: "Full outline",
+      content,
+      inclusion: "selected",
+      inclusionReason: "The author selected the full outline.",
+      manuallySelected: true,
+    }));
+  }
+
+  for (const act of sortedByOrder(series.acts)) {
+    if (!manualIdMatches(manualIds, "act", act.id)) continue;
+    const content = actContextContent(series, act);
+    selectedScopeTexts.push(content);
+    items.push(contextItem({
+      kind: "act",
+      sourceType: "act",
+      sourceId: act.id,
+      sourceRevision: hashText(content),
+      sourceLabel: act.title,
+      title: `Act: ${act.title}`,
+      content,
+      inclusion: "selected",
+      inclusionReason: "The author selected this act.",
+      manuallySelected: true,
+    }));
+  }
+
+  for (const chapter of sortedByOrder(series.chapters)) {
+    if (!manualIdMatches(manualIds, "chapter", chapter.id)) continue;
+    const content = chapterContextContent(series, chapter);
+    selectedScopeTexts.push(content);
+    items.push(contextItem({
+      kind: "chapter",
+      sourceType: "chapter",
+      sourceId: chapter.id,
+      sourceRevision: hashText(content),
+      sourceLabel: chapter.title,
+      title: `Chapter: ${chapter.title}`,
+      content,
+      inclusion: "selected",
+      inclusionReason: "The author selected this chapter.",
+      manuallySelected: true,
+    }));
+  }
+
+  for (const scene of scenesInSeriesOrder(series)) {
+    if (scene.metadata.id === currentScene.metadata.id) continue;
+    if (!manualIdMatches(manualIds, "scene", scene.metadata.id)) continue;
+    const content = selectedSceneContextContent(scene);
+    selectedScopeTexts.push(content);
+    items.push(contextItem({
+      kind: "scene",
+      sourceType: "scene",
+      sourceId: scene.metadata.id,
+      sourceRevision: scene.revision,
+      sourceLabel: scene.metadata.title,
+      title: `Selected scene: ${scene.metadata.title}`,
+      content,
+      inclusion: "selected",
+      inclusionReason: "The author selected this scene.",
+      manuallySelected: true,
     }));
   }
 

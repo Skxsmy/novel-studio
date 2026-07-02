@@ -13,6 +13,10 @@ export const WorkshopMessageStatusSchema = z.enum(["pending", "succeeded", "fail
 export type WorkshopMessageStatus = z.infer<typeof WorkshopMessageStatusSchema>;
 
 export const WorkshopContextItemKindSchema = z.enum([
+  "full-novel",
+  "full-outline",
+  "act",
+  "chapter",
   "scene",
   "selection",
   "codex-entry",

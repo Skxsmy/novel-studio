@@ -3968,6 +3968,9 @@ describe("App shell", () => {
     });
     expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
     expect(screen.queryByText("Not connected")).toBeNull();
+    expect(screen.queryByText("Context Basket")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview Context" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Model selector" }));
     expect((screen.getByLabelText("Model setting") as HTMLSelectElement).value).toBe(modelProfileId);
     expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("mock-continuity-v1");
     fireEvent.click(screen.getByRole("button", { name: "Fetch Models" }));
@@ -3982,7 +3985,9 @@ describe("App shell", () => {
     });
     expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("fetched-long-context-model");
 
-    fireEvent.click(screen.getByRole("button", { name: "New Session" }));
+    const sessionsPanel = screen.getByText("Conversation branches").closest(".panel");
+    expect(sessionsPanel).toBeTruthy();
+    fireEvent.click(within(sessionsPanel as HTMLElement).getByRole("button", { name: "Add" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/v1/series/${seriesId}/workshop/sessions`,
@@ -3991,27 +3996,18 @@ describe("App shell", () => {
     });
     expect(await screen.findByText("Scene continuity pass")).toBeTruthy();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Add Scene" }));
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/context-basket`,
-        expect.objectContaining({ method: "PUT" }),
-      );
-    });
-    await screen.findAllByText("Opening Scene");
-    expect(screen.getAllByText("Opening Scene").length).toBeGreaterThan(0);
+    fireEvent.click(await screen.findByRole("button", { name: "+ Context" }));
+    expect(screen.queryByLabelText("Context source")).toBeNull();
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Scenes/u }));
+    expect(fetchMock.mock.calls.some(([url, init]) =>
+      String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/context-basket` &&
+      (init as RequestInit | undefined)?.method === "PUT",
+    )).toBe(false);
+    expect(screen.getByText("Current scene")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Workshop message"), {
       target: { value: "Check continuity for the opening scene." },
     });
-    fireEvent.click(screen.getAllByRole("button", { name: "Preview Context" })[0]!);
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/context-preview`,
-        expect.objectContaining({ method: "POST" }),
-      );
-    });
-    expect(screen.getAllByText(/1 included/u).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => {
@@ -4061,6 +4057,97 @@ describe("App shell", () => {
     });
     fireEvent.click(await screen.findByRole("button", { name: "Go to Chat" }));
     expect(await screen.findByText("Accepted")).toBeTruthy();
+  });
+
+  it("renders Workshop context selection as nested scene and Codex menus", async () => {
+    const fetchMock = mockFetch({
+      initialSeriesDetail: seriesDetail("Mara Quill checked the old press initials."),
+      initialCodexDetailTypes: [codexDetailTypeDocument("Private motive", "character", detailTypeId)],
+      initialCodexEntries: [
+        codexEntryDocument("Mara Quill", "character", "Reporter.", codexEntryId, {
+          details: { [detailTypeId]: "Protects the press initials." },
+        }),
+      ],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, title: "Nested context menu" })],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) =>
+        String(url) === `/api/v1/series/${seriesId}/codex/entries`,
+      )).toBe(true);
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "+ Context" }));
+    expect(screen.queryByLabelText("Context source")).toBeNull();
+    expect(screen.queryByText("Selected context")).toBeNull();
+
+    const contextBasketPutCalls = () => fetchMock.mock.calls.filter(([url, init]) =>
+      String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/context-basket` &&
+      (init as RequestInit | undefined)?.method === "PUT",
+    );
+    expect(await screen.findByRole("menuitem", { name: /^Full Novel Text/u })).toBeTruthy();
+    expect(await screen.findByRole("menuitem", { name: /^Full Outline/u })).toBeTruthy();
+    expect(await screen.findByRole("menuitem", { name: /^Acts/u })).toBeTruthy();
+    expect(await screen.findByRole("menuitem", { name: /^Chapters/u })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Full Novel Text/u }));
+    await waitFor(() => {
+      expect(contextBasketPutCalls()).toHaveLength(1);
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Full Novel Text/u }));
+    await waitFor(() => {
+      expect(contextBasketPutCalls()).toHaveLength(2);
+    });
+
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Acts/u }));
+    expect(contextBasketPutCalls()).toHaveLength(2);
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Chapter One/u }));
+    await waitFor(() => {
+      expect(contextBasketPutCalls()).toHaveLength(3);
+    });
+    const actContextBody = JSON.parse(String((contextBasketPutCalls().at(-1)?.[1] as RequestInit).body));
+    expect(actContextBody.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "act", sourceId: actId }),
+      expect.objectContaining({ kind: "codex-entry", sourceId: codexEntryId, note: "Linked from selected context." }),
+    ]));
+    fireEvent.click(screen.getByRole("button", { name: /Acts/u }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Chapters/u }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Act One/u }));
+    await waitFor(() => {
+      expect(contextBasketPutCalls()).toHaveLength(4);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Chapters/u }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Scenes/u }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Opening Scene/u }));
+    await waitFor(() => {
+      expect(contextBasketPutCalls()).toHaveLength(5);
+    });
+    const sceneContextBody = JSON.parse(String((contextBasketPutCalls().at(-1)?.[1] as RequestInit).body));
+    expect(sceneContextBody.sceneId).toBeUndefined();
+    expect(sceneContextBody.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "scene", sourceId: sceneId }),
+    ]));
+
+    fireEvent.click(screen.getByRole("button", { name: /Scenes/u }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Codex Entries/u }));
+    expect(contextBasketPutCalls()).toHaveLength(5);
+    expect(await screen.findByRole("menuitem", { name: /Mara Quill/u })).toBeTruthy();
+    expect(screen.getAllByText("Added").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /Codex Entries/u }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Entries by Detail/u }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Private motive/u }));
+    expect(await screen.findByRole("menuitem", { name: /Mara Quill/u })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Private motive/u }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Entries by Category/u }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Character/u }));
+    expect(await screen.findByRole("menuitem", { name: /Mara Quill/u })).toBeTruthy();
   });
 
   it("shows Workshop proposal card states from Proposal authority", async () => {

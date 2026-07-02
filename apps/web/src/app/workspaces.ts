@@ -36,7 +36,7 @@ export const workspaces: WorkspaceDefinition[] = [
     id: "workshop",
     label: "Workshop",
     shortLabel: "WS",
-    description: "Assistant sessions and context baskets",
+    description: "AI sessions and review-gated drafts",
   },
   {
     id: "review",

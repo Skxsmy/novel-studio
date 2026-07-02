@@ -38,6 +38,49 @@ describe("M5 Workshop API routes", () => {
   it("persists sessions, previews context, and saves a successful single-role call", async () => {
     const { app, series, profile } = await createSeriesWithMockProfile();
     const scene = series.scenes[0];
+    const detectedCodex = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: {
+        categoryId: "object",
+        name: "Blue Lantern",
+        description: "A signal lamp that marks the tide office.",
+      },
+    });
+    expect(detectedCodex.statusCode).toBe(201);
+    const manualCodex = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: {
+        categoryId: "object",
+        name: "Hidden Manual",
+        aiContextPolicy: "manual",
+      },
+    });
+    expect(manualCodex.statusCode).toBe(201);
+    const neverCodex = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: {
+        categoryId: "object",
+        name: "Forbidden Relic",
+        aiContextPolicy: "never",
+      },
+    });
+    expect(neverCodex.statusCode).toBe(201);
+    const selectedSceneResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/scenes`,
+      payload: {
+        bookId: scene.metadata.bookId,
+        actId: scene.metadata.actId,
+        chapterId: scene.metadata.chapterId,
+        title: "Selected evidence scene",
+        content: "The Blue Lantern, Hidden Manual, and Forbidden Relic were all named in this selected scene.",
+      },
+    });
+    expect(selectedSceneResponse.statusCode).toBe(201);
+    const selectedScene = selectedSceneResponse.json();
     const sessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
@@ -52,9 +95,41 @@ describe("M5 Workshop API routes", () => {
       payload: {
         items: [{
           id: "11111111-1111-4111-8111-111111111111",
+          kind: "full-novel",
+          sourceId: series.manifest.id,
+          label: "Full Novel Text",
+          pinned: true,
+          note: "",
+          createdAt: "2026-07-01T00:00:00.000Z",
+        }, {
+          id: "11111111-1111-4111-8111-111111111112",
+          kind: "full-outline",
+          sourceId: series.manifest.id,
+          label: "Full Outline",
+          pinned: true,
+          note: "",
+          createdAt: "2026-07-01T00:00:00.000Z",
+        }, {
+          id: "11111111-1111-4111-8111-111111111113",
+          kind: "act",
+          sourceId: scene.metadata.actId,
+          label: "Selected act",
+          pinned: true,
+          note: "",
+          createdAt: "2026-07-01T00:00:00.000Z",
+        }, {
+          id: "11111111-1111-4111-8111-111111111114",
+          kind: "chapter",
+          sourceId: scene.metadata.chapterId,
+          label: "Selected chapter",
+          pinned: true,
+          note: "",
+          createdAt: "2026-07-01T00:00:00.000Z",
+        }, {
+          id: "11111111-1111-4111-8111-111111111115",
           kind: "scene",
-          sourceId: scene.metadata.id,
-          label: scene.metadata.title,
+          sourceId: selectedScene.metadata.id,
+          label: selectedScene.metadata.title,
           pinned: true,
           note: "",
           createdAt: "2026-07-01T00:00:00.000Z",
@@ -62,7 +137,14 @@ describe("M5 Workshop API routes", () => {
       },
     });
     expect(basket.statusCode).toBe(200);
-    expect(basket.json().items).toHaveLength(1);
+    expect(basket.json().items).toHaveLength(6);
+    expect(basket.json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "codex-entry",
+        sourceId: detectedCodex.json().metadata.id,
+        note: "Linked from selected context.",
+      }),
+    ]));
 
     const preview = await app.inject({
       method: "POST",
@@ -77,7 +159,21 @@ describe("M5 Workshop API routes", () => {
       },
     });
     expect(preview.statusCode).toBe(200);
-    expect(preview.json().items.length).toBeGreaterThan(0);
+    const previewItems = preview.json().items as Array<{ kind: string; source: { id: string | null }; title: string }>;
+    expect(previewItems.map((item) => item.kind)).toEqual(expect.arrayContaining([
+      "full-novel",
+      "full-outline",
+      "act",
+      "chapter",
+      "scene",
+      "codex-entry",
+    ]));
+    expect(previewItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "scene", source: expect.objectContaining({ id: selectedScene.metadata.id }) }),
+      expect.objectContaining({ kind: "codex-entry", source: expect.objectContaining({ id: detectedCodex.json().metadata.id }) }),
+    ]));
+    expect(previewItems.some((item) => item.source.id === manualCodex.json().metadata.id)).toBe(false);
+    expect(previewItems.some((item) => item.source.id === neverCodex.json().metadata.id)).toBe(false);
 
     const call = await app.inject({
       method: "POST",

@@ -34,8 +34,8 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5-A16 | passed | Review main path hides engineering audit fields while keeping details reachable. Covered by web tests and source review. |
 | M5-A17 | function passed; visual pending | Review implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
 | M5-A18 | passed | Workshop sessions and messages persist as schema-versioned JSON and reload after restart. Covered by storage/server/web tests. |
-| M5-A19 | passed | Workshop Context Basket can add/remove/pin/unpin allowed context references, including available Codex and Proposal-source references exposed by the current UI. Covered by storage/server/web tests. |
-| M5-A20 | passed | Context preview shows included/excluded items and respects permissions, future-story isolation, and per-detail switches. Covered by Workshop route/context tests. |
+| M5-A19 | passed | Workshop selected context can add/remove/toggle allowed references through the compact composer menu, including full novel text, full outline, act, chapter, multiple scenes, direct Codex entries, and Codex grouped by type/detail/category. The internal storage object is still `WorkshopContextBasket`; the visible right-side basket panel has been removed. Covered by storage/server/web tests. |
+| M5-A20 | passed | Context assembly shows included/excluded items and respects permissions, future-story isolation, auto-linked Codex policy, and per-detail Send to AI switches. The Codex detail `Send to AI` audit confirmed the UI writes `detailAiContext`, storage persists it, and Context Builder omits disabled detail text from `ContextBundle` content. Covered by Workshop route/context tests. |
 | M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog. Workshop can choose a library-global model setting and send a provider model override for that call. Covered by server/web tests. |
 | M5-A22 | passed | Model failure preserves the input and context and does not create an empty Proposal. Covered by server/web tests. |
 | M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Covered by web tests and source review. |
@@ -70,7 +70,7 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5.1 Proposal v2 Contract And State Machine | Existing Proposal contract is upgraded; state machine and generator/source/decision schemas are tested. | M5-A02 - M5-A04 |
 | M5.2 Proposal/Review Storage And API | Seeded Proposals can be stored, read, stale-checked, accepted, rejected, edited, archived, and batch-previewed. | M5-A05 - M5-A12 |
 | M5.3 Review UI First | Review Inbox and Proposal Detail use real Proposal APIs and accepted Figma design. | M5-A13 - M5-A17 |
-| M5.4 Workshop Sessions, Context Basket, And Single-Role Call | Workshop persists sessions/messages, previews context, and runs single-role calls without authority mutation. | M5-A18 - M5-A24 |
+| M5.4 Workshop Sessions, Context Selection, And Single-Role Call | Workshop persists sessions/messages, edits selected context through the compact menu backed by `WorkshopContextBasket`, assembles context through Context Builder, and runs single-role calls without authority mutation. | M5-A18 - M5-A24 |
 | M5.5 Workshop Message To Proposal Deep Link | Workshop messages create Proposals, deep-link to Review detail, and receive status updates. | M5-A25 - M5-A29 |
 | M5.6 Tool Plan, Grant, And Command Adapter | Approved Tool Plans execute only through validated command adapters or convert to Proposals. | M5-A30 - M5-A37 |
 | M5.7 Council, Batch, Conflict/Failure, Responsive, And Final Visual Acceptance | Council, batch, failure/conflict states, responsive states, and final visual acceptance are complete. | M5-A38 - M5-A45 |
@@ -211,6 +211,24 @@ The repair closed these Settings regressions:
 - Save Setting preserves an existing key when the key input is empty and saves a newly typed key through the credential endpoint.
 - Settings actions for key save, connection test, and model fetch are available without opening a project.
 - Large fetched provider model lists are collapsed by default and render inside a bounded scroll list when opened.
+
+Focused command results during the 2026-07-02 Workshop context selector and Codex detail Send to AI audit:
+
+- `npm.cmd run test -w @novel-studio/server -- test/context-routes.test.ts`: passed, 1 file / 1 test. This test verifies per-detail `detailAiContext` filtering by omitting disabled detail text from the built context bundle.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts`: passed, 1 file / 2 tests. This covers full-novel, full-outline, act, chapter, selected-scene context kinds and auto-linked Codex materialization while excluding `manual` and `never` Codex entries.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx -t "Workshop context selection"`: passed, 1 file / 1 test, 52 skipped by filter. This covers the nested compact context menu, toggle behavior, grouped Codex entries, and linked Codex visibility.
+- `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts`: passed, 1 file / 4 tests.
+- `npm.cmd run build -w @novel-studio/web`: passed.
+- `git diff --check`: passed with Windows line-ending warnings only.
+
+The 2026-07-02 repair closed these Workshop/Codex context gaps:
+
+- The visible right-side Context Basket panel and separate Preview Context button are removed from Workshop.
+- The composer context menu supports full novel text, full outline, acts, chapters, multiple scenes, direct Codex entries, entries by type, entries by detail type, and entries by category.
+- Context menu selections are toggleable; selecting a menu branch alone does not mutate the basket.
+- Full-novel, full-outline, act, chapter, and selected-scene scopes flow through contracts, storage validation, Workshop route mapping, and Context Builder item assembly.
+- Selecting a story scope materializes policy-allowed Codex entries into the same internal basket with `note: "Linked from selected context."`; entries set to `manual` or `never` are not auto-linked.
+- The Codex detail `Send to AI` checkbox is not decorative: it writes `detailAiContext`, and Context Builder filters disabled details from the actual context bundle.
 
 ## M5.0 Startup Protection Mapping
 

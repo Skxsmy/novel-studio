@@ -38,6 +38,11 @@ function hashText(value: string): string {
 function manualContextIds(basket: WorkshopContextBasket): string[] {
   return basket.items.flatMap((item) => {
     if (!item.sourceId) return [];
+    if (item.kind === "full-novel") return [`full-novel:${item.sourceId}`];
+    if (item.kind === "full-outline") return [`full-outline:${item.sourceId}`];
+    if (item.kind === "act") return [`act:${item.sourceId}`];
+    if (item.kind === "chapter") return [`chapter:${item.sourceId}`];
+    if (item.kind === "scene") return [`scene:${item.sourceId}`];
     if (item.kind === "codex-entry") return [`codex:${item.sourceId}`];
     if (item.kind === "scene-section") return [`section:${item.sourceId}`];
     return [];
