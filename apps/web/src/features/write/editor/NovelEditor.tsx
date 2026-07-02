@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import type { Editor, JSONContent } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
-import type { SceneBlock, SceneBlockDocument } from "@novel-studio/contracts";
+import type { CodexEntryDocument, SceneBlock, SceneBlockDocument } from "@novel-studio/contracts";
 import { createParagraphBlock } from "../../../app/sceneBlocks";
 import { uiText } from "../../../app/uiText";
 import type { ProgressionDraft } from "../story-change/storyChangeViewModel";
@@ -17,7 +17,9 @@ import { storyChangeAnchorSelector } from "./storyChangeAnchors";
 import "./editorStyles.css";
 
 export interface NovelEditorProps {
+  codexEntries: CodexEntryDocument[];
   document: SceneBlockDocument;
+  emptyCodexPreviewText?: string;
   focusBlockId: string | null;
   onActiveBlockChange: (blockId: string | null) => void;
   onChange: (document: SceneBlockDocument) => void;
@@ -29,6 +31,26 @@ export interface NovelEditorProps {
   onToggleProgressionCollapse: (blockId: string) => void;
   onUpdateProgressionDraft: (blockId: string, patch: Partial<ProgressionDraft>) => void;
   progressionNodeViews: Record<string, ProgressionNodeViewModel>;
+}
+
+interface ActiveCodexPreview {
+  entry: CodexEntryDocument;
+  key: string;
+  style: CSSProperties;
+}
+
+interface RelativeRect {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+}
+
+interface RelativeBounds extends RelativeRect {}
+
+interface Size {
+  height: number;
+  width: number;
 }
 
 type ProgressionNodeStore = {
@@ -79,6 +101,94 @@ function focusBlock(editor: Editor, blockId: string) {
   return true;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+export function computeNovelCodexPreviewPosition(input: {
+  anchor: RelativeRect;
+  boundary?: RelativeBounds;
+  margin?: number;
+  previewSize: Size;
+  shellSize: Size;
+}) {
+  const margin = input.margin ?? 12;
+  const shellWidth = Math.max(0, input.shellSize.width);
+  const shellHeight = Math.max(0, input.shellSize.height);
+  const boundary = input.boundary ?? {
+    bottom: shellHeight,
+    left: 0,
+    right: shellWidth,
+    top: 0,
+  };
+  const boundaryWidth = Math.max(0, boundary.right - boundary.left);
+  const boundaryHeight = Math.max(0, boundary.bottom - boundary.top);
+  const availableWidth = Math.max(0, boundaryWidth - margin * 2);
+  const width = Math.min(input.previewSize.width, availableWidth);
+  const availableHeight = Math.max(0, boundaryHeight - margin * 2);
+  const previewHeight = Math.min(input.previewSize.height, availableHeight);
+  const minLeft = boundary.left + margin;
+  const maxLeft = Math.max(minLeft, boundary.right - width - margin);
+  const left = clamp(input.anchor.left, minLeft, maxLeft);
+  const belowTop = input.anchor.bottom + 8;
+  const aboveTop = input.anchor.top - previewHeight - 8;
+  const minTop = boundary.top + margin;
+  const maxTop = Math.max(minTop, boundary.bottom - previewHeight - margin);
+  const preferredTop = belowTop + previewHeight <= boundary.bottom - margin || aboveTop < minTop
+    ? belowTop
+    : aboveTop;
+  const top = clamp(preferredTop, minTop, maxTop);
+
+  return {
+    left,
+    maxHeight: Math.max(0, boundary.bottom - top - margin),
+    top,
+    width,
+  };
+}
+
+function findCodexMark(shell: HTMLElement, key: string) {
+  return Array.from(shell.querySelectorAll<HTMLElement>(".pm-codex-mention"))
+    .find((mark) => mark.dataset.codexKey === key) ?? null;
+}
+
+function codexPreviewStyle(mark: HTMLElement, shell: HTMLElement, preview: HTMLElement | null = null): CSSProperties {
+  const anchor = mark.getBoundingClientRect();
+  const bounds = shell.getBoundingClientRect();
+  const boundaryElement = shell.closest<HTMLElement>(".copy-area") ?? shell;
+  const boundaryBounds = boundaryElement.getBoundingClientRect();
+  const shellWidth = bounds.width || shell.clientWidth || 720;
+  const shellHeight = bounds.height || shell.clientHeight || 420;
+  const previewBounds = preview?.getBoundingClientRect();
+  const position = computeNovelCodexPreviewPosition({
+    anchor: {
+      bottom: anchor.bottom - bounds.top,
+      left: anchor.left - bounds.left,
+      right: anchor.right - bounds.left,
+      top: anchor.top - bounds.top,
+    },
+    boundary: {
+      bottom: boundaryBounds.bottom - bounds.top,
+      left: boundaryBounds.left - bounds.left,
+      right: boundaryBounds.right - bounds.left,
+      top: boundaryBounds.top - bounds.top,
+    },
+    previewSize: {
+      height: previewBounds?.height || 180,
+      width: previewBounds?.width || Math.min(560, Math.max(280, shellWidth - 24)),
+    },
+    shellSize: { height: shellHeight, width: shellWidth },
+  });
+  return {
+    left: `${Math.round(position.left)}px`,
+    maxHeight: `${Math.round(position.maxHeight)}px`,
+    maxWidth: "calc(100% - 24px)",
+    position: "absolute",
+    top: `${Math.round(position.top)}px`,
+    width: `${Math.round(position.width)}px`,
+  };
+}
+
 function documentsEqual(left: SceneBlockDocument, right: SceneBlockDocument) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -116,7 +226,9 @@ function needsBlockIdNormalization(document: NovelEditorDocument) {
 }
 
 export function NovelEditor({
+  codexEntries,
   document,
+  emptyCodexPreviewText = uiText.writeEditor.empty.noDescription,
   focusBlockId,
   onActiveBlockChange,
   onChange,
@@ -130,9 +242,12 @@ export function NovelEditor({
   progressionNodeViews,
 }: NovelEditorProps) {
   const [activeBlockId, setActiveBlockId] = useState<string | null>(() => document.blocks[0]?.id ?? null);
+  const [activeCodexPreview, setActiveCodexPreview] = useState<ActiveCodexPreview | null>(null);
   const [renderVersion, setRenderVersion] = useState(0);
+  const codexEntriesRef = useRef(codexEntries);
   const isApplyingExternalDocument = useRef(false);
   const progressionNodeStoreRef = useRef(createProgressionNodeStore(progressionNodeViews));
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const onActiveBlockChangeRef = useRef(onActiveBlockChange);
   const onChangeRef = useRef(onChange);
   const onDeleteProgressionBlockRef = useRef(onDeleteProgressionBlock);
@@ -178,6 +293,8 @@ export function NovelEditor({
     onToggleCollapse: (blockId) => onToggleProgressionCollapseRef.current(blockId),
     onUpdateDraft: (blockId, patch) => onUpdateProgressionDraftRef.current(blockId, patch),
     subscribe: (listener) => progressionNodeStoreRef.current.subscribe(listener),
+  }, {
+    getEntries: () => codexEntriesRef.current,
   }), []);
 
   function syncSelection(editor: Editor) {
@@ -192,6 +309,22 @@ export function NovelEditor({
       attributes: {
         "aria-label": uiText.writeEditor.aria.editor,
         "class": "novel-tiptap-prosemirror",
+      },
+      handleDOMEvents: {
+        keydown: (_view, event) => {
+          if (event.key === "Escape") {
+            setActiveCodexPreview(null);
+            return false;
+          }
+          if (event.key !== "Enter" && event.key !== " ") return false;
+          const codexMark = event.target instanceof HTMLElement
+            ? event.target.closest<HTMLElement>(".pm-codex-mention")
+            : null;
+          if (!codexMark) return false;
+          event.preventDefault();
+          toggleCodexPreview(codexMark);
+          return true;
+        },
       },
     },
     extensions,
@@ -221,6 +354,85 @@ export function NovelEditor({
       syncSelection(editor);
     },
   });
+
+  useEffect(() => {
+    codexEntriesRef.current = codexEntries;
+    setActiveCodexPreview(null);
+    if (editor) editor.view.dispatch(editor.state.tr.setMeta("codexMentionRefresh", true));
+  }, [codexEntries, editor]);
+
+  function refreshActiveCodexPreview() {
+    setActiveCodexPreview((current) => {
+      if (!current) return current;
+      const shell = shellRef.current;
+      const mark = shell ? findCodexMark(shell, current.key) : null;
+      if (!shell || !mark) return null;
+      return {
+        ...current,
+        style: codexPreviewStyle(mark, shell, shell.querySelector<HTMLElement>(".pm-codex-preview-popover")),
+      };
+    });
+  }
+
+  useEffect(() => {
+    function closeOnOutsidePointer(event: PointerEvent) {
+      const shell = shellRef.current;
+      const target = event.target as Node | null;
+      if (!shell || !target || shell.contains(target)) return;
+      setActiveCodexPreview(null);
+    }
+
+    globalThis.document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => globalThis.document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, []);
+
+  useEffect(() => {
+    function handleCodexMentionKeydown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setActiveCodexPreview(null);
+        return;
+      }
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const codexMark = event.target instanceof HTMLElement
+        ? event.target.closest<HTMLElement>(".pm-codex-mention")
+        : null;
+      if (!codexMark || !shellRef.current?.contains(codexMark)) return;
+      event.preventDefault();
+      toggleCodexPreview(codexMark);
+    }
+
+    globalThis.document.addEventListener("keydown", handleCodexMentionKeydown, true);
+    return () => globalThis.document.removeEventListener("keydown", handleCodexMentionKeydown, true);
+  }, []);
+
+  useEffect(() => {
+    if (!activeCodexPreview) return;
+    const ownerWindow = shellRef.current?.ownerDocument.defaultView ?? window;
+    const handle = ownerWindow.setTimeout(() => refreshActiveCodexPreview(), 0);
+    return () => ownerWindow.clearTimeout(handle);
+  }, [activeCodexPreview?.key, renderVersion]);
+
+  useEffect(() => {
+    if (!activeCodexPreview) return;
+    const ownerDocument = shellRef.current?.ownerDocument ?? globalThis.document;
+    const ownerWindow = ownerDocument.defaultView ?? window;
+    let handle = -1;
+    const scheduleRefresh = () => {
+      if (handle >= 0) ownerWindow.clearTimeout(handle);
+      handle = ownerWindow.setTimeout(() => {
+        handle = -1;
+        refreshActiveCodexPreview();
+      }, 0);
+    };
+
+    ownerDocument.addEventListener("scroll", scheduleRefresh, true);
+    ownerWindow.addEventListener("resize", scheduleRefresh);
+    return () => {
+      if (handle >= 0) ownerWindow.clearTimeout(handle);
+      ownerDocument.removeEventListener("scroll", scheduleRefresh, true);
+      ownerWindow.removeEventListener("resize", scheduleRefresh);
+    };
+  }, [activeCodexPreview?.key]);
 
   useEffect(() => {
     if (!editor) return;
@@ -255,7 +467,27 @@ export function NovelEditor({
     syncSelection(editor);
   }
 
+  function toggleCodexPreview(codexMark: HTMLElement) {
+    const entryId = codexMark.dataset.codexEntryId;
+    const key = codexMark.dataset.codexKey;
+    const entry = entryId ? codexEntriesRef.current.find((candidate) => candidate.metadata.id === entryId) : null;
+    const shell = shellRef.current;
+    if (!entry || !key || !shell) return;
+    const style = codexPreviewStyle(codexMark, shell, shell.querySelector<HTMLElement>(".pm-codex-preview-popover"));
+    setActiveCodexPreview((current) => current?.key === key ? null : { entry, key, style });
+  }
+
   function handleEditorClick(event: MouseEvent<HTMLDivElement>) {
+    const codexMark = event.target instanceof HTMLElement
+      ? event.target.closest<HTMLElement>(".pm-codex-mention")
+      : null;
+    if (codexMark) {
+      event.preventDefault();
+      toggleCodexPreview(codexMark);
+      return;
+    }
+    setActiveCodexPreview(null);
+
     const target = event.target instanceof HTMLElement
       ? event.target.closest(storyChangeAnchorSelector)
       : null;
@@ -266,7 +498,15 @@ export function NovelEditor({
   const isEmpty = isEmptyManuscript(document);
 
   return (
-    <div className="novel-tiptap-shell">
+    <div
+      className="novel-tiptap-shell"
+      onPointerDown={(event) => {
+        const target = event.target instanceof HTMLElement ? event.target : null;
+        if (target?.closest(".pm-codex-mention, .pm-codex-preview-popover")) return;
+        setActiveCodexPreview(null);
+      }}
+      ref={shellRef}
+    >
       <EditorContent
         aria-label={uiText.writeEditor.aria.content}
         className="novel-tiptap-editor"
@@ -275,10 +515,39 @@ export function NovelEditor({
         data-render-version={renderVersion}
         editor={editor}
         onClick={handleEditorClick}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            setActiveCodexPreview(null);
+            return;
+          }
+          if (event.key !== "Enter" && event.key !== " ") return;
+          const codexMark = event.target instanceof HTMLElement
+            ? event.target.closest<HTMLElement>(".pm-codex-mention")
+            : null;
+          if (!codexMark) return;
+          event.preventDefault();
+          toggleCodexPreview(codexMark);
+        }}
         onMouseDown={(event) => {
           if (event.target === event.currentTarget) focusEditorEnd();
         }}
       />
+      {activeCodexPreview ? (
+        <aside
+          aria-label={uiText.writeEditor.aria.codexDescriptionPreview(activeCodexPreview.entry.metadata.name)}
+          className="codex-preview-popover pm-codex-preview-popover"
+          data-codex-preview="true"
+          style={activeCodexPreview.style}
+        >
+          <div className="codex-preview-head">
+            <div>
+              <div className="row-meta">Codex</div>
+              <strong>{activeCodexPreview.entry.metadata.name}</strong>
+            </div>
+          </div>
+          <p>{activeCodexPreview.entry.description || emptyCodexPreviewText}</p>
+        </aside>
+      ) : null}
     </div>
   );
 }

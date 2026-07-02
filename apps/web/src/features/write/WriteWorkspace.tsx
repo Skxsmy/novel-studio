@@ -27,7 +27,6 @@ import {
 } from "../../app/sceneBlocks";
 import { uiText } from "../../app/uiText";
 import type { SaveStatus, SceneDraft } from "../../app/useProjectSession";
-import { findInlineCodexMentions } from "../codex/inlineMentions";
 import { NovelEditor } from "./editor";
 import type { ProgressionNodeViewModel } from "./editor/CodexProgressionNodeView";
 import {
@@ -105,7 +104,6 @@ function toggleSetValue(values: Set<string>, value: string) {
 type ProductStructureType = "volume" | "chapter" | "act" | "scene";
 type RenamingStructure = { type: "volume" | "chapter" | "act"; id: string; title: string };
 type SelectedStructure = { type: ProductStructureType; id: string };
-type ActiveBlockMention = { blockId: string; entryId: string };
 const progressionText = uiText.writeProgression;
 const structureCreateLabels: Record<ProductStructureType, string> = {
   volume: uiText.hierarchy.volume,
@@ -166,7 +164,6 @@ export function WriteWorkspace({
   const [activeEditorBlockId, setActiveEditorBlockId] = useState<string | null>(null);
   const [pendingEditorFocusBlockId, setPendingEditorFocusBlockId] = useState<string | null>(null);
   const [isEditorToolMenuOpen, setIsEditorToolMenuOpen] = useState(false);
-  const [activeBlockMention, setActiveBlockMention] = useState<ActiveBlockMention | null>(null);
   const [isBriefVisible, setIsBriefVisible] = useState(true);
   const [isCodexLoading, setIsCodexLoading] = useState(false);
   const actsByBook = new Map<string, ActManifest[]>();
@@ -524,7 +521,6 @@ export function WriteWorkspace({
   }, [series.manifest.id, selectedScene?.metadata.id]);
 
   useEffect(() => {
-    setActiveBlockMention(null);
     setProgressionError(null);
     setSelectedProgressionBlockId(null);
     setActiveEditorBlockId(null);
@@ -631,10 +627,6 @@ export function WriteWorkspace({
     setRenamingStructure(null);
   }
 
-  const sceneMentions = sceneStats ? findInlineCodexMentions(sceneStats.plainText, codexEntries) : [];
-  const activeMentionEntry = activeBlockMention
-    ? codexEntries.find((entry) => entry.metadata.id === activeBlockMention.entryId) ?? null
-    : null;
   const progressionNodeViews = useMemo(() => {
     const views: Record<string, ProgressionNodeViewModel> = {};
     const sceneBlocks = draft?.document.blocks ?? [];
@@ -1034,7 +1026,9 @@ export function WriteWorkspace({
                   value={draft.title}
                 />
                 <NovelEditor
+                  codexEntries={codexEntries}
                   document={draft.document}
+                  emptyCodexPreviewText={uiText.writeEditor.empty.noDescription}
                   focusBlockId={pendingEditorFocusBlockId}
                   onActiveBlockChange={setActiveEditorBlockId}
                   onChange={onUpdateDocument}
@@ -1049,30 +1043,6 @@ export function WriteWorkspace({
                   onUpdateProgressionDraft={updateProgressionDraftByBlockId}
                   progressionNodeViews={progressionNodeViews}
                 />
-                {sceneMentions.length ? (
-                  <div className="scene-codex-mentions" aria-label={uiText.writeEditor.aria.codexMentions}>
-                    {sceneMentions.map((mention) => (
-                      <button
-                        className="codex-mention-chip"
-                        key={`${mention.entryId}-${mention.start}-${mention.end}`}
-                        onClick={() => setActiveBlockMention((current) =>
-                          current?.entryId === mention.entryId
-                            ? null
-                            : { blockId: "scene", entryId: mention.entryId },
-                        )}
-                        type="button"
-                      >
-                        {mention.matchedText}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                {activeMentionEntry ? (
-                  <div className="scene-content-preview" aria-label={uiText.writeEditor.aria.codexDescriptionPreview(activeMentionEntry.metadata.name)}>
-                    <div className="preview-title">{activeMentionEntry.metadata.name}</div>
-                    <p>{activeMentionEntry.description || uiText.writeEditor.empty.noDescription}</p>
-                  </div>
-                ) : null}
               </>
             ) : (
               <div className="large-note">

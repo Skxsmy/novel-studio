@@ -984,9 +984,7 @@ button {
 
 .copy-area > .scene-kicker,
 .copy-area > .scene-title-input,
-.copy-area > .novel-tiptap-shell,
-.copy-area > .scene-codex-mentions,
-.copy-area > .scene-content-preview {
+.copy-area > .novel-tiptap-shell {
   width: 100%;
   max-width: none;
 }
@@ -1099,22 +1097,6 @@ button {
 
 .scene-copy-editor.novel-editor .cm-content {
   min-height: 430px;
-}
-
-.scene-codex-mentions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-
-.codex-mention-chip {
-  border: 0;
-  border-bottom: 1px dashed var(--blue);
-  background: transparent;
-  color: var(--ink);
-  cursor: pointer;
-  padding: 0;
 }
 
 .canon-description-editor {
@@ -2640,6 +2622,16 @@ details.disclosure summary::-webkit-details-marker { display: none; }
   opacity: 1 !important;
   box-shadow: 0 18px 44px rgba(31, 37, 35, 0.32);
   transform: translateZ(0);
+  z-index: 2147483000 !important;
+}
+
+.pm-codex-preview-popover {
+  box-sizing: border-box;
+  background: #fffaf0 !important;
+  background-clip: border-box;
+  background-color: #fffaf0 !important;
+  opacity: 1 !important;
+  pointer-events: auto;
   z-index: 2147483000 !important;
 }
 

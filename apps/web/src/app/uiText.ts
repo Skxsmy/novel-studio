@@ -104,7 +104,6 @@ export const uiText = {
   },
   writeEditor: {
     aria: {
-      codexMentions: "Scene Codex mentions",
       content: "Scene content",
       codexDescriptionPreview: (name: string) => `${name} canon description`,
       editor: "Manuscript editor",

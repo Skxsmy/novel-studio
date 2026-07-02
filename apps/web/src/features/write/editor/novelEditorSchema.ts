@@ -1,6 +1,11 @@
 import { Extension, mergeAttributes, Node } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Plugin } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import type { CodexEntryDocument } from "@novel-studio/contracts";
+import { findInlineCodexMentions } from "../../codex/inlineMentions";
 import {
   CodexProgressionNodeView,
   emptyProgressionNodeViewOptions,
@@ -35,6 +40,56 @@ const SceneBlockAttributes = Extension.create({
         },
       },
     }];
+  },
+});
+
+export interface CodexMentionDecorationOptions {
+  getEntries: () => CodexEntryDocument[];
+}
+
+function buildCodexMentionDecorations(doc: ProseMirrorNode, entries: CodexEntryDocument[]) {
+  if (!entries.length) return DecorationSet.empty;
+  const decorations: Decoration[] = [];
+
+  doc.descendants((node, pos) => {
+    if (!node.isText || !node.text) return true;
+    for (const mention of findInlineCodexMentions(node.text, entries)) {
+      const from = pos + mention.start;
+      const to = pos + mention.end;
+      const key = `${mention.entryId}:${from}:${to}`;
+      decorations.push(Decoration.inline(from, to, {
+        "aria-label": mention.matchedText,
+        "class": "codex-mention-mark pm-codex-mention",
+        "data-codex-entry-id": mention.entryId,
+        "data-codex-from": String(from),
+        "data-codex-key": key,
+        "data-codex-to": String(to),
+        "role": "button",
+        "tabindex": "0",
+      }));
+    }
+    return true;
+  });
+
+  return DecorationSet.create(doc, decorations);
+}
+
+const CodexMentionDecorations = Extension.create<CodexMentionDecorationOptions>({
+  name: "codexMentionDecorations",
+  addOptions() {
+    return { getEntries: () => [] };
+  },
+  addProseMirrorPlugins() {
+    const getEntries = this.options.getEntries;
+    return [
+      new Plugin({
+        props: {
+          decorations(state) {
+            return buildCodexMentionDecorations(state.doc, getEntries());
+          },
+        },
+      }),
+    ];
   },
 });
 
@@ -78,7 +133,10 @@ const StoryChangeAnchor = Node.create<ProgressionNodeViewOptions>({
   },
 });
 
-export function novelEditorExtensions(progressionOptions?: ProgressionNodeViewOptions) {
+export function novelEditorExtensions(
+  progressionOptions?: ProgressionNodeViewOptions,
+  codexMentionOptions?: CodexMentionDecorationOptions,
+) {
   return [
     StarterKit.configure({
       codeBlock: false,
@@ -86,6 +144,7 @@ export function novelEditorExtensions(progressionOptions?: ProgressionNodeViewOp
       listKeymap: false,
     }),
     SceneBlockAttributes,
+    CodexMentionDecorations.configure(codexMentionOptions ?? { getEntries: () => [] }),
     StoryChangeAnchor.configure(progressionOptions ?? emptyProgressionNodeViewOptions),
   ];
 }

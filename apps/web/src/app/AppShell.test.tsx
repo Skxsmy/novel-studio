@@ -2246,6 +2246,7 @@ describe("App shell", () => {
     });
     expect(screen.queryByText("Codex in scene")).toBeNull();
     expect(screen.queryByText("Included context")).toBeNull();
+    expect(screen.queryByLabelText("Scene Codex mentions")).toBeNull();
   });
 
   it("shows write codex marks inline and toggles the preview from the same mark", async () => {
@@ -2263,21 +2264,39 @@ describe("App shell", () => {
     const editor = await screen.findByLabelText("Scene content");
     expect(EditorView.findFromDOM(editor)).toBeNull();
     expect(screen.getByLabelText("Manuscript editor")).toBeTruthy();
-    const mentions = await screen.findByLabelText("Scene Codex mentions");
     await waitFor(() => {
-      expect(mentions.querySelector(".codex-mention-chip")).toBeTruthy();
+      expect(editor.querySelector(".pm-codex-mention")).toBeTruthy();
     });
-    const mark = mentions.querySelector(".codex-mention-chip");
-    if (!mark) throw new Error("Missing Bellgate mark");
+    const currentMark = () => {
+      const nextMark = editor.querySelector(".pm-codex-mention");
+      if (!nextMark) throw new Error("Missing Bellgate mark");
+      return nextMark;
+    };
+    const mark = currentMark();
 
     expect(screen.queryByText(/codex marks/i)).toBeNull();
-    expect(document.querySelector(".scene-content-preview")).toBeNull();
+    expect(screen.queryByLabelText("Scene Codex mentions")).toBeNull();
+    expect(document.querySelector(".pm-codex-preview-popover")).toBeNull();
 
     fireEvent.click(mark);
-    expect(screen.getByLabelText("Harbor Lock canon description")).toBeTruthy();
+    let preview = screen.getByLabelText("Harbor Lock canon description") as HTMLElement;
+    expect(preview.classList.contains("codex-preview-popover")).toBe(true);
+    expect(preview.classList.contains("pm-codex-preview-popover")).toBe(true);
+    expect(preview.style.position).toBe("absolute");
+    expect(preview.style.maxHeight).toMatch(/px$/u);
+    expect(preview.style.width).toMatch(/px$/u);
     expect(screen.getByText("A storm-pressure mechanism below the west quay.")).toBeTruthy();
 
-    fireEvent.click(mark);
+    fireEvent.click(editor);
+    expect(screen.queryByLabelText("Harbor Lock canon description")).toBeNull();
+
+    fireEvent.click(currentMark());
+    expect(screen.getByLabelText("Harbor Lock canon description")).toBeTruthy();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByLabelText("Harbor Lock canon description")).toBeNull();
+
+    fireEvent.click(currentMark());
+    fireEvent.click(currentMark());
     expect(screen.queryByLabelText("Harbor Lock canon description")).toBeNull();
   });
 
