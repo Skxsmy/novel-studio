@@ -1,6 +1,6 @@
 # M5 Acceptance Record
 
-Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings, message-attachment, context-delivery, UI-interaction, and provider-reasoning repairs; M5.6 next; user visual acceptance pending
+Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings, message-attachment, context-delivery, UI-interaction, provider-reasoning, and chat-layout repairs; M5.6 next; user visual acceptance pending
 Created: 2026-06-30  
 Task: `docs/tasks/M5.md`
 
@@ -33,13 +33,13 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5-A15 | passed | Review accept/reject/edit/stale actions call real APIs and update state. Review displays all patches before accepting and shows batch accept results. Covered by web/API tests. |
 | M5-A16 | passed | Review main path hides engineering audit fields while keeping details reachable. Covered by web tests and source review. |
 | M5-A17 | function passed; visual pending | Review implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
-| M5-A18 | passed | Workshop sessions, messages, and message attachments persist as schema-versioned JSON and reload after restart. Unlinked messages can be deleted through storage/API/UI, while Proposal-linked messages remain protected. Draft attachment reload/delete, message binding, and message-delete cascade are covered by storage/server/web tests. |
+| M5-A18 | passed | Workshop sessions, messages, branches, and message attachments persist as schema-versioned JSON and reload after restart. Branch copies source message history through the branch point plus attachment snapshots into the new session instead of opening an empty chat. Unlinked messages can be deleted through storage/API/UI, while Proposal-linked messages remain protected. Draft attachment reload/delete, message binding, branch cloning, and message-delete cascade are covered by storage/server/web tests. |
 | M5-A19 | passed | Workshop selected context can add/remove/toggle allowed references through the compact composer menu, including full novel text, full outline, act, chapter, multiple scenes, direct Codex entries, and Codex grouped by type/detail/category. The internal storage object is still `WorkshopContextBasket`; the visible right-side basket panel has been removed. Covered by storage/server/web tests. |
 | M5-A20 | passed | Context assembly shows included/excluded items and respects permissions, future-story isolation, auto-linked Codex policy, per-detail Send to AI switches, parsed `message-attachment` ContextBundle snapshots, and prior same-session `workshop-chat-history`. Attachments do not create SourceDocuments or retrieval index records. Covered by contract/server/storage tests and source review. |
 | M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog from IDs rather than raw files, and provider request bodies receive ContextBundle item text. Workshop can choose a library-global model setting and send a provider model override for that call. Call input accepts `attachmentIds` plus `draftToken`, rejects raw file content, and rejects invalid attachment references. Covered by contract/server/AI-provider/web tests. |
 | M5-A22 | passed | Model failure preserves the input, parsed attachments, bound author message, and context, then appends a failed assistant message instead of creating an empty Proposal. Covered by server/web tests and the storage binding invariants. |
-| M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Mode, model setting, provider model override, system prompt, streaming, and reasoning-display controls are centralized in one settings dialog; reasoning is distinct and collapsible; Enter sends and Ctrl+Enter inserts a newline. The composer has one attachment icon, removable parse-state chips, send blocking for parsing/failed chips, and attachment names on sent user messages. Covered by web tests and source review. |
-| M5-A24 | function passed; visual pending | Workshop implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
+| M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Mode, model setting, provider model override, system prompt, streaming, and reasoning-display controls are centralized in one settings dialog; reasoning is distinct and collapsible; Enter sends and Ctrl+Enter inserts a newline. The composer has one attachment icon, removable parse-state chips, send blocking for parsing/failed chips, and attachment names on sent user messages. New sessions use a neutral title, empty chats auto-name from the first request or attachment file names after sending starts, and authors can double-click session titles to persist manual renames. The 2026-07-03 chat-layout repair makes messages one broad readable column instead of left/right narrow bubbles, with readable body/reasoning typography. Covered by web tests and source review. |
+| M5-A24 | function passed; visual pending | Workshop implementation must be checked against the Figma structure checklist. The 2026-07-03 chat-layout repair could not use the previously recorded Figma Workshop node because `12:2` was unavailable and the Figma file exposed only `00 Cover`; this is recorded as a Figma evidence gap, not visual acceptance. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
 | M5-A25 | passed | Workshop message output can create a Proposal linked to that exact source message. Proposal creation and message `proposalIds` update are written transactionally. Covered by storage/server/web tests. |
 | M5-A26 | passed | Proposal cards deep-link to exact Review Proposal Detail by Proposal ID. Covered by web tests. |
 | M5-A27 | passed | Review Detail links back to the source Workshop message. Covered by server/web tests. |
@@ -333,6 +333,47 @@ The provider-reasoning repair closed these Workshop gaps:
 - Official Ollama `thinking`-style chunks are preserved when returned through the compatible adapter.
 - OpenAI reasoning that is only exposed through the Responses API is documented as a future explicit integration; this repair does not fabricate private reasoning on the current Chat Completions-compatible adapter path.
 - Official source basis: DeepSeek reasoning model docs, OpenRouter reasoning token docs, Ollama thinking docs, and OpenAI reasoning model docs as checked on 2026-07-03.
+
+Focused command results during the 2026-07-03 Workshop chat-layout repair:
+
+- Figma MCP check: `get_design_context` for recorded node `12:2` failed because the node was unavailable; `get_metadata` for the file listed only top-level page `00 Cover`, and `get_metadata` for `0:1` showed only the cover frame. No screenshot-based acceptance was run or claimed.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx -t "Workshop chat messages"`: the initial two runs failed because the new CSS regression test used a raw CSS import/helper that did not read the source selector reliably; after changing the test to read the CSS source through Node `fs`, rerun passed, 1 selected test / 55 skipped.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx -t "Workshop"`: passed, 1 file / 6 selected tests, 50 skipped.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: passed, 1 file / 56 tests.
+- `npm.cmd run build`: passed.
+- `git diff --check`: passed with Windows line-ending warnings only.
+
+The chat-layout repair closed these Workshop UI gaps:
+
+- User/author messages are no longer right-aligned narrow bubbles capped at 52% width; all messages now use the available conversation column.
+- Assistant and author messages stay in one reading flow and are distinguished by role metadata, restrained tint, and a small left accent.
+- Message body text is increased to a readable author-workspace scale; reasoning text and collapsed reasoning state are also enlarged, with attachment chips spaced for scanning.
+- A source-level web regression test guards the key CSS rules so the layout does not silently regress to left/right chat bubbles.
+
+Focused command results during the 2026-07-03 Workshop session naming and Branch repair:
+
+- `npm.cmd run test -w @novel-studio/contracts -- test/workshop.test.ts`: passed, 1 file / 7 tests.
+- `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts`: passed, 1 file / 8 tests.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts -t "branches"`: first run failed because server was reading stale `@novel-studio/contracts` dist with the old default title; after rebuilding contracts and storage, rerun passed, 1 selected test / 8 skipped.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx -t "Workshop chats"`: passed, 2 selected tests / 56 skipped.
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run build -w @novel-studio/storage`: passed.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx -t "Workshop"`: passed, 8 selected tests / 50 skipped.
+- Final rerun after implementation and documentation updates:
+  - `npm.cmd run test -w @novel-studio/contracts -- test/workshop.test.ts`: passed, 1 file / 7 tests.
+  - `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts`: passed, 1 file / 8 tests.
+  - `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts`: passed, 1 file / 9 tests.
+  - `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: passed, 1 file / 58 tests.
+  - `npm.cmd run build`: passed.
+  - `git diff --check`: passed with Windows line-ending warnings only.
+
+The session naming and Branch repair closed these Workshop gaps:
+
+- New Workshop sessions now default to neutral `New chat` instead of the scene/task-specific `Scene continuity pass`.
+- Empty chats auto-name from the first author request or from attachment file names once sending begins.
+- Authors can double-click a session title in the sessions list, edit it, and persist the new title through the Workshop session update API.
+- Branch creation now copies source messages through the source message into the new session. Copied messages use new IDs, carry no old Proposal/model-call/context audit links, and remain readable in the newly opened branch.
+- Branch creation copies message-bound attachment snapshots into the new session and rewrites cloned message attachment IDs to those new attachment records.
 
 ## M5.0 Startup Protection Mapping
 

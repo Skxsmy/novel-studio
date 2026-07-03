@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
 import type { Editor, JSONContent } from "@tiptap/core";
@@ -7,6 +10,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { SceneBlock, SceneBlockDocument } from "@novel-studio/contracts";
 import { sceneBlockDocumentToNovelEditorDocument } from "../features/write/editor";
+
+const testDir = dirname(fileURLToPath(import.meta.url));
+const workshopWorkspaceCss = readFileSync(resolve(testDir, "../features/workshop/workshop-workspace.css"), "utf8");
 
 if (typeof Range !== "undefined") {
   if (!Range.prototype.getClientRects) {
@@ -77,6 +83,13 @@ function blockToMarkdown(block: SceneBlock) {
   if (block.kind === "sceneBreak") return "***";
   if (block.kind === "paragraph") return block.text ?? "";
   return "";
+}
+
+function cssRule(css: string, selector: string) {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`${escapedSelector}\\s*\\{[^}]*\\}`).exec(css);
+  expect(match).toBeTruthy();
+  return match?.[0] ?? "";
 }
 
 function documentStats(document: SceneBlockDocument) {
@@ -817,6 +830,7 @@ function proposalDocumentWithStatus(
 }
 
 function workshopSession(overrides: Partial<{
+  branchOfMessageId: string | null;
   id: string;
   lastMessageAt: string | null;
   status: "active" | "archived";
@@ -826,9 +840,9 @@ function workshopSession(overrides: Partial<{
     schemaVersion: 1 as const,
     id: overrides.id ?? workshopSessionId,
     seriesId,
-    title: overrides.title ?? "Scene continuity pass",
+    title: overrides.title ?? "New chat",
     status: overrides.status ?? "active",
-    branchOfMessageId: null,
+    branchOfMessageId: overrides.branchOfMessageId ?? null,
     createdAt: "2026-07-01T00:00:00.000Z",
     updatedAt: "2026-07-01T00:00:00.000Z",
     archivedAt: overrides.status === "archived" ? "2026-07-01T00:00:00.000Z" : null,
@@ -1047,7 +1061,7 @@ function mockFetch(options: {
 
     if (url === `/api/v1/series/${seriesId}/workshop/sessions` && method === "POST") {
       const body = JSON.parse(String(init?.body));
-      const created = workshopSession({ title: body.title ?? "Scene continuity pass" });
+      const created = workshopSession({ title: body.title ?? "New chat" });
       workshopSessions = [created, ...workshopSessions.filter((session) => session.id !== created.id)];
       currentWorkshopBasket = {
         ...workshopBasket(),
@@ -1076,8 +1090,8 @@ function mockFetch(options: {
         return jsonResponse({
           session,
           basket: currentWorkshopBasket,
-          messages: workshopMessages,
-          attachments: workshopAttachments,
+          messages: workshopMessages.filter((message) => message.sessionId === requestedSessionId),
+          attachments: workshopAttachments.filter((attachment) => attachment.sessionId === requestedSessionId),
         });
       }
       if (!segment && method === "PUT") {
@@ -1097,7 +1111,7 @@ function mockFetch(options: {
         return jsonResponse(restored);
       }
       if (segment === "messages" && !action && method === "GET") {
-        return jsonResponse(workshopMessages);
+        return jsonResponse(workshopMessages.filter((message) => message.sessionId === requestedSessionId));
       }
       if (segment === "attachments" && !action && method === "GET") {
         return jsonResponse(workshopAttachments.filter((attachment) =>
@@ -1203,7 +1217,9 @@ function mockFetch(options: {
           attachment.messageId !== requestedMessageId,
         );
         workshopMessages = workshopMessages.filter((message) => message.id !== requestedMessageId);
-        const lastMessage = workshopMessages.at(-1) as { createdAt?: string } | undefined;
+        const lastMessage = workshopMessages
+          .filter((message) => message.sessionId === requestedSessionId)
+          .at(-1) as { createdAt?: string } | undefined;
         const updatedSession = {
           ...session,
           lastMessageAt: lastMessage?.createdAt ?? null,
@@ -1213,18 +1229,53 @@ function mockFetch(options: {
         return jsonResponse({ deletedId: requestedMessageId, deletedAttachmentIds, session: updatedSession });
       }
       if (segment === "branch" && method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        const sourceMessageId = String(body.sourceMessageId ?? "");
+        const sourceMessages = workshopMessages.filter((message) => message.sessionId === requestedSessionId);
+        const sourceIndex = sourceMessages.findIndex((message) => message.id === sourceMessageId);
+        const clonedSourceMessages = sourceIndex >= 0 ? sourceMessages.slice(0, sourceIndex + 1) : [];
         const branchSession = workshopSession({
+          branchOfMessageId: sourceMessageId,
           id: "95959595-9595-4595-9595-959595959595",
-          title: "Scene continuity pass branch",
+          lastMessageAt: (clonedSourceMessages.at(-1)?.createdAt as string | undefined) ?? null,
+          title: body.title ?? `${session.title} branch`,
         });
         workshopSessions = [branchSession, ...workshopSessions];
+        const clonedAttachments: Array<Record<string, unknown>> = [];
+        const clonedMessages = clonedSourceMessages.map((message, index) => {
+          const clonedMessageId = `96969696-9696-4696-8696-${String(index + 1).padStart(12, "0")}`;
+          const attachmentIds = (message.attachmentIds as string[] | undefined ?? []).map((attachmentId, attachmentIndex) => {
+            const clonedAttachmentId = `97979797-9797-4797-8797-${String((index + 1) * 100 + attachmentIndex).padStart(12, "0")}`;
+            const attachment = workshopAttachments.find((item) => item.id === attachmentId);
+            if (attachment) {
+              clonedAttachments.push({
+                ...attachment,
+                id: clonedAttachmentId,
+                sessionId: branchSession.id,
+                messageId: clonedMessageId,
+              });
+            }
+            return clonedAttachmentId;
+          });
+          return {
+            ...message,
+            id: clonedMessageId,
+            sessionId: branchSession.id,
+            contextBundleId: null,
+            modelCallId: null,
+            proposalIds: [],
+            attachmentIds,
+          };
+        });
+        workshopMessages = [...workshopMessages, ...clonedMessages];
+        workshopAttachments = [...workshopAttachments, ...clonedAttachments];
         return jsonResponse({
           branch: {
             schemaVersion: 1,
             id: "96969696-9696-4696-9696-969696969696",
             seriesId,
             sourceSessionId: requestedSessionId,
-            sourceMessageId: workshopMessages.at(-1)?.id,
+            sourceMessageId,
             sessionId: branchSession.id,
             title: branchSession.title,
             createdAt: "2026-07-01T00:12:00.000Z",
@@ -1303,7 +1354,11 @@ function mockFetch(options: {
         workshopAttachments = workshopAttachments.map((attachment) =>
           attachmentIds.includes(attachment.id) ? { ...attachment, messageId: authorMessage.id } : attachment,
         );
-        workshopMessages = [authorMessage, assistantMessage];
+        workshopMessages = [
+          ...workshopMessages.filter((message) => message.sessionId !== requestedSessionId),
+          authorMessage,
+          assistantMessage,
+        ];
         return sseResponse([
           { type: "author-message", message: authorMessage },
           { type: "metadata", contextBundleId: workshopContextBundleId, modelCallId: workshopModelCallId },
@@ -1365,7 +1420,11 @@ function mockFetch(options: {
         if (workshopCallDelayMs > 0) {
           return delayedJsonResponse(responseBody, 200, workshopCallDelayMs, init?.signal).then((response) => {
             if (!init?.signal?.aborted) {
-              workshopMessages = [authorMessage, assistantMessage];
+              workshopMessages = [
+                ...workshopMessages.filter((message) => message.sessionId !== requestedSessionId),
+                authorMessage,
+                assistantMessage,
+              ];
               workshopAttachments = workshopAttachments.map((attachment) =>
                 attachmentIds.includes(attachment.id) ? { ...attachment, messageId: authorMessage.id } : attachment,
               );
@@ -1376,7 +1435,11 @@ function mockFetch(options: {
         workshopAttachments = workshopAttachments.map((attachment) =>
           attachmentIds.includes(attachment.id) ? { ...attachment, messageId: authorMessage.id } : attachment,
         );
-        workshopMessages = [authorMessage, assistantMessage];
+        workshopMessages = [
+          ...workshopMessages.filter((message) => message.sessionId !== requestedSessionId),
+          authorMessage,
+          assistantMessage,
+        ];
         return jsonResponse(responseBody);
       }
     }
@@ -4160,6 +4223,25 @@ describe("App shell", () => {
     expect(screen.queryByRole("button", { name: "Go to Chat" })).toBeNull();
   });
 
+  it("keeps Workshop chat messages in one broad readable column", () => {
+    const stackRule = cssRule(workshopWorkspaceCss, ".workshop-chat .message-stack");
+    const messageRule = cssRule(workshopWorkspaceCss, ".message");
+    const userMessageRule = cssRule(workshopWorkspaceCss, ".message.user");
+    const reasoningRule = cssRule(workshopWorkspaceCss, ".message-reasoning p");
+
+    expect(stackRule).toContain("grid-template-columns: minmax(0, 1fr);");
+    expect(messageRule).toContain("width: 100%;");
+    expect(messageRule).toContain("max-width: none;");
+    expect(messageRule).toContain("font-size: 16px;");
+    expect(messageRule).toContain("line-height: 1.68;");
+    expect(userMessageRule).toContain("justify-self: stretch;");
+    expect(userMessageRule).toContain("width: 100%;");
+    expect(userMessageRule).not.toContain("justify-self: end;");
+    expect(userMessageRule).not.toContain("52%");
+    expect(reasoningRule).toContain("font-size: 14px;");
+    expect(reasoningRule).toContain("line-height: 22px;");
+  });
+
   it("connects Workshop sessions, context basket, and single-role calls without exposing audit IDs", async () => {
     const fetchMock = mockFetch({ initialModelProfiles: [modelProfile()] });
     render(<App />);
@@ -4211,7 +4293,7 @@ describe("App shell", () => {
         expect.objectContaining({ method: "POST" }),
       );
     });
-    expect(await screen.findByText("Scene continuity pass")).toBeTruthy();
+    expect(await screen.findByText("New chat")).toBeTruthy();
 
     fireEvent.click(await screen.findByRole("button", { name: "+ Context" }));
     expect(screen.queryByLabelText("Context source")).toBeNull();
@@ -4283,6 +4365,113 @@ describe("App shell", () => {
     });
     fireEvent.click(await screen.findByRole("button", { name: "Go to Chat" }));
     expect(await screen.findByText("Accepted")).toBeTruthy();
+  });
+
+  it("auto-names new Workshop chats and lets authors rename sessions", async () => {
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, title: "New chat" })],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+    const sessionsPanel = screen.getByText("Conversation branches").closest(".panel") as HTMLElement;
+    expect(within(sessionsPanel).getByText("New chat")).toBeTruthy();
+
+    const messageInput = screen.getByLabelText("Workshop message");
+    fireEvent.change(messageInput, {
+      target: { value: "Map the opening conflict." },
+    });
+    fireEvent.keyDown(messageInput, { code: "Enter", key: "Enter" });
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url, init]) =>
+        String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}` &&
+        (init as RequestInit | undefined)?.method === "PUT" &&
+        JSON.parse(String((init as RequestInit).body)).title === "Map the opening conflict.",
+      )).toBe(true);
+    });
+    expect(await within(sessionsPanel).findByText("Map the opening conflict.")).toBeTruthy();
+
+    fireEvent.doubleClick(within(sessionsPanel).getByText("Map the opening conflict."));
+    const titleInput = within(sessionsPanel).getByLabelText("Session title");
+    fireEvent.change(titleInput, {
+      target: { value: "Opening conflict options" },
+    });
+    fireEvent.keyDown(titleInput, { code: "Enter", key: "Enter" });
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url, init]) =>
+        String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}` &&
+        (init as RequestInit | undefined)?.method === "PUT" &&
+        JSON.parse(String((init as RequestInit).body)).title === "Opening conflict options",
+      )).toBe(true);
+    });
+    expect(await within(sessionsPanel).findByText("Opening conflict options")).toBeTruthy();
+  });
+
+  it("branches Workshop chats with copied message history", async () => {
+    const sourceSession = workshopSession({ id: workshopSessionId, title: "Source thread" });
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [sourceSession],
+      initialWorkshopMessages: [{
+        schemaVersion: 1,
+        id: "91919191-9191-4191-9191-919191919191",
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "author",
+        mode: "general-chat",
+        status: "succeeded",
+        content: "Original branch question.",
+        reasoningContent: "",
+        contextBundleId: null,
+        modelCallId: null,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:10:00.000Z",
+      }, {
+        schemaVersion: 1,
+        id: "92929292-9292-4292-9292-929292929292",
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "assistant",
+        mode: "general-chat",
+        status: "succeeded",
+        content: "Original branch answer.",
+        reasoningContent: "",
+        contextBundleId: workshopContextBundleId,
+        modelCallId: workshopModelCallId,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:10:01.000Z",
+      }],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+    expect(await screen.findByText("Original branch question.")).toBeTruthy();
+    expect(await screen.findByText("Original branch answer.")).toBeTruthy();
+
+    const sessionsPanel = screen.getByText("Conversation branches").closest(".panel") as HTMLElement;
+    fireEvent.click(within(sessionsPanel).getByRole("button", { name: "Branch" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/branch`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await within(sessionsPanel).findByText("Source thread branch")).toBeTruthy();
+    expect(await screen.findByText("Original branch question.")).toBeTruthy();
+    expect(await screen.findByText("Original branch answer.")).toBeTruthy();
   });
 
   it("shows the author message immediately and keeps General Chat out of Proposal creation", async () => {

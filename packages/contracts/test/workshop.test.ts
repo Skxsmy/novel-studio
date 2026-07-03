@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CreateWorkshopSessionInputSchema,
   RunWorkshopCallInputSchema,
   WorkshopCallStreamEventSchema,
   WorkshopContextBasketSchema,
@@ -11,6 +12,10 @@ import {
 const now = "2026-07-01T00:00:00.000Z";
 
 describe("M5 Workshop contracts", () => {
+  it("uses a neutral default title for new Workshop chats", () => {
+    expect(CreateWorkshopSessionInputSchema.parse({}).title).toBe("New chat");
+  });
+
   it("validates persistent sessions and messages without requiring Proposals", () => {
     const session = WorkshopSessionSchema.parse({
       schemaVersion: 1,

@@ -52,6 +52,10 @@
   align-self: start;
 }
 
+.workshop-session-row.is-editing {
+  cursor: default;
+}
+
 .workshop-session-copy {
   display: grid;
   gap: 6px;
@@ -71,6 +75,26 @@
   font-size: 14px;
   font-weight: 700;
   line-height: 20px;
+}
+
+.workshop-session-title-input {
+  min-width: 0;
+  width: 100%;
+  height: 30px;
+  padding: 4px 7px;
+  border: 1px solid #9fb8f3;
+  border-radius: 5px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.workshop-session-title-input:focus {
+  outline: 2px solid rgba(58, 105, 210, 0.22);
+  outline-offset: 1px;
 }
 
 .workshop-session-copy .row-meta {
@@ -246,10 +270,11 @@
 
 .workshop-chat .message-stack {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
-  gap: 18px;
+  gap: 16px;
   min-height: 0;
-  padding: 28px;
+  padding: 28px 32px 30px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -258,31 +283,43 @@
 
 .message {
   display: grid;
-  gap: 10px;
-  width: min(768px, 78%);
-  padding: 13px;
+  box-sizing: border-box;
+  gap: 12px;
+  width: 100%;
+  max-width: none;
+  padding: 16px 18px 17px;
   border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-left-color: #7d8f83;
   border-radius: 6px;
   background: #fff;
   color: var(--ink);
-  font-size: 15px;
-  line-height: 1.55;
+  font-size: 16px;
+  line-height: 1.68;
 }
 
 .message.user {
-  justify-self: end;
-  width: min(480px, 52%);
+  justify-self: stretch;
+  width: 100%;
   border-color: #a8bdf1;
-  background: #edf2fd;
+  border-left-color: #3b65d6;
+  background: #f5f8ff;
 }
 
 .message-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   color: var(--quiet);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.message-meta .pill {
+  min-height: 24px;
   font-size: 12px;
-  line-height: 16px;
+  line-height: 18px;
 }
 
 .message-toolbar {
@@ -295,8 +332,8 @@
 }
 
 .message-toolbar .btn {
-  min-height: 30px;
-  padding-inline: 10px;
+  min-height: 32px;
+  padding-inline: 11px;
 }
 
 .message-reasoning-toggle[aria-expanded="false"] {
@@ -307,6 +344,7 @@
 
 .message p {
   margin: 0;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
@@ -316,23 +354,26 @@
 
 .message.is-failed {
   border-color: rgba(180, 71, 71, 0.35);
+  border-left-color: #b44747;
   background: #fff8f5;
 }
 
 .message.is-streaming {
   border-color: rgba(59, 101, 214, 0.32);
+  border-left-color: #3b65d6;
 }
 
 .message.is-target {
   border-color: rgba(25, 128, 94, 0.42);
+  border-left-color: #19805e;
   box-shadow: 0 0 0 2px rgba(25, 128, 94, 0.12);
 }
 
 .message-reasoning {
   display: grid;
-  gap: 7px;
-  max-height: 220px;
-  padding: 10px 12px;
+  gap: 8px;
+  max-height: 280px;
+  padding: 12px 14px;
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -343,30 +384,30 @@
 
 .message-reasoning > div {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  line-height: 15px;
+  line-height: 16px;
   text-transform: uppercase;
 }
 
 .message-reasoning p {
   color: #45504a;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace);
-  font-size: 12px;
-  line-height: 19px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 22px;
 }
 
 .message-reasoning-collapsed {
   width: max-content;
   max-width: 100%;
-  padding: 5px 9px;
+  padding: 6px 10px;
   border: 1px solid rgba(59, 101, 214, 0.24);
   border-radius: 999px;
   background: #eef3ff;
   color: #25448f;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
-  line-height: 16px;
+  line-height: 18px;
 }
 
 .message-actions {
@@ -383,12 +424,14 @@
 .message-attachments {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .message-attachment-pill {
   max-width: 100%;
   overflow: hidden;
+  font-size: 12px;
+  line-height: 18px;
   text-overflow: ellipsis;
 }
 
@@ -785,7 +828,7 @@
 
   .message,
   .message.user {
-    width: min(100%, 760px);
+    width: 100%;
   }
 }
 

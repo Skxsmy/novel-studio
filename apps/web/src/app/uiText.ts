@@ -214,7 +214,7 @@ export const uiText = {
   workshop: {
     title: "Workshop",
     subtitle: "Draft with AI, then review every change before it touches the project.",
-    defaultSessionTitle: "Scene continuity pass",
+    defaultSessionTitle: "New chat",
     importThread: "Import Thread",
     sessionsTitle: "Sessions",
     sessionsKicker: "Conversation branches",
@@ -314,6 +314,7 @@ export const uiText = {
       streaming: "Writing...",
       settings: "Workshop settings",
       settingsTitle: "Workshop settings",
+      sessionTitle: "Session title",
       closeSettings: "Close",
       streamResponses: "Stream output",
       reasoning: "Reasoning",

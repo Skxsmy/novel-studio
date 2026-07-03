@@ -188,7 +188,11 @@ AI 改写候选必须直接进入正文编辑器并保持整段选中。编辑�
 
 ## 9. Workshop
 
+- Workshop messages use a single broad reading column. Do not alternate author and assistant messages as left/right narrow bubbles; role distinction comes from compact metadata, a restrained surface tint, and a small accent.
+- Workshop message body text, attachment chips, and reasoning blocks must use a readable author-workspace scale rather than compact log typography.
 - 左列为对话和分支，中间为消息；不得保留常驻右侧 Context Basket 面板。
+- 新会话列表项先显示中性的临时标题；首次发送后应按首条消息或附件文件名自动命名。作者双击会话标题即可编辑名称，保存后不再被自动命名覆盖。
+- Branch 必须让作者继续看到分支点之前的聊天历史和附件名/附件上下文；新开的分支不能呈现为空白对话。
 - 上下文选择应靠近输入区，以类似菜单的高折叠控件出现，支持全书正文、全书大纲、幕、章、多个场景、Codex 条目、按类型、按详情类型和按类别选择条目。
 - 上下文菜单中的可选项必须真实可选，不得因为当前项目已有对应数据而禁用；只有当前项目确实没有该类数据时才显示不可用状态。
 - 用户再次点击已选中的上下文项时必须取消选择；不应强迫用户到另一个“已选上下文”列表中删除。

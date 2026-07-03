@@ -300,6 +300,61 @@ async function uploadAttachment(input: {
 }
 
 describe("M5 Workshop API routes", () => {
+  it("uses a neutral default session title and branches with copied message history", async () => {
+    const { app, series } = await createSeriesWithMockProfile();
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: {},
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    expect(sessionResponse.json().title).toBe("New chat");
+    const session = sessionResponse.json();
+
+    const author = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "author",
+        mode: "general-chat",
+        content: "Original branch question.",
+      },
+    });
+    expect(author.statusCode).toBe(201);
+    const assistant = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "assistant",
+        mode: "general-chat",
+        content: "Original branch answer.",
+      },
+    });
+    expect(assistant.statusCode).toBe(201);
+
+    const branch = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/branch`,
+      payload: { sourceMessageId: assistant.json().id },
+    });
+    expect(branch.statusCode).toBe(201);
+    expect(branch.json().session.title).toBe("New chat branch");
+
+    const branchMessages = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${branch.json().session.id}/messages`,
+    });
+    expect(branchMessages.statusCode).toBe(200);
+    expect(branchMessages.json().map((message: { content: string }) => message.content)).toEqual([
+      "Original branch question.",
+      "Original branch answer.",
+    ]);
+    expect(branchMessages.json().map((message: { id: string }) => message.id))
+      .not.toEqual([author.json().id, assistant.json().id]);
+
+    await app.close();
+  });
+
   it("persists sessions, previews context, and saves a successful single-role call", async () => {
     const { app, series, profile } = await createSeriesWithMockProfile();
     const scene = series.scenes[0];

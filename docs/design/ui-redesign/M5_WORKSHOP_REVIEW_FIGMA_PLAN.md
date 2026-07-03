@@ -7,6 +7,8 @@ Figma UI review: `docs/design/ui-redesign/M5_FIGMA_UI_REVIEW.md`
 Implementation workflow: `docs/design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`  
 Current Figma file: https://www.figma.com/design/CXclN6W9I7YfDOxUKxmKFP
 
+2026-07-03 availability note: the previously recorded Workshop node `12:2` was unavailable through Figma MCP during the Workshop chat-layout repair, and the file currently exposed only `00 Cover`. Treat the page list and screenshots below as historical planning evidence, not current implementation-ready node evidence, until the Figma file is restored or a new accepted node-specific source is recorded.
+
 ## Purpose
 
 This file defines how Figma should be used for M5 Workshop, Proposal, and Review.

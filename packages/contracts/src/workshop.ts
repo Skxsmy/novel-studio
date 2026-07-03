@@ -211,7 +211,7 @@ export const WorkshopContextBasketSchema = z
 export type WorkshopContextBasket = z.infer<typeof WorkshopContextBasketSchema>;
 
 export const CreateWorkshopSessionInputSchema = z.object({
-  title: z.string().trim().min(1).max(160).default("Scene continuity pass"),
+  title: z.string().trim().min(1).max(160).default("New chat"),
   sceneId: z.string().uuid().nullable().optional(),
 });
 export type CreateWorkshopSessionInput = z.input<typeof CreateWorkshopSessionInputSchema>;

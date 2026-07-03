@@ -4,6 +4,8 @@ Date: 2026-06-30
 
 Status: design usability review only. This file does not mark M5 implementation complete and does not replace user visual acceptance.
 
+2026-07-03 availability note: during the Workshop chat-layout repair, Figma MCP could not load the previously recorded Workshop node `12:2`, and file metadata exposed only page `00 Cover`. The review below is retained as historical design evidence, but its page/node inventory must not be treated as current implementation-ready Figma structure until the Figma file is restored or a new node-specific source is accepted.
+
 ## Purpose
 
 This review checks whether the current M5 Figma design can be used as the implementation source for Workshop, Proposal, and Review work.

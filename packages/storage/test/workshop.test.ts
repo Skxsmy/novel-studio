@@ -58,7 +58,7 @@ describe("M5 Workshop storage", () => {
     const series = await store.createSeries({ title: "WorkshopStorage" });
     const scene = series.scenes[0]!;
     const session = await store.createWorkshopSession(series.manifest.id, {
-      title: "Scene continuity pass",
+      title: "Reloadable chat",
       sceneId: scene.metadata.id,
     });
     const message = await store.createWorkshopMessage(series.manifest.id, session.id, {
@@ -87,8 +87,24 @@ describe("M5 Workshop storage", () => {
       title: "Original thread",
       sceneId: series.scenes[0]!.metadata.id,
     });
+    const attachment = await store.createWorkshopAttachment(series.manifest.id, session.id, workshopAttachment({
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      draftToken: "branch-draft",
+      extractedText: "Attachment copied into a branch.",
+      textHash: textHash("Attachment copied into a branch."),
+    }));
+    const authorMessage = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Use this source attachment.",
+      attachmentIds: [attachment.id],
+      draftToken: "branch-draft",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
     const message = await store.createWorkshopMessage(series.manifest.id, session.id, {
       role: "assistant",
+      mode: "general-chat",
       content: "Branch from this answer.",
     });
 
@@ -103,6 +119,26 @@ describe("M5 Workshop storage", () => {
       sourceMessageId: message.id,
       sessionId: result.session.id,
     });
+    expect(result.session.lastMessageAt).toBe(message.createdAt);
+    const branchedMessages = await store.listWorkshopMessages(series.manifest.id, result.session.id);
+    expect(branchedMessages.map((item) => item.content)).toEqual([
+      "Use this source attachment.",
+      "Branch from this answer.",
+    ]);
+    expect(branchedMessages.map((item) => item.id)).not.toEqual([authorMessage.id, message.id]);
+    expect(branchedMessages.every((item) => item.sessionId === result.session.id)).toBe(true);
+    expect(branchedMessages.every((item) => item.proposalIds.length === 0)).toBe(true);
+
+    const branchedAttachments = await store.listWorkshopAttachments(series.manifest.id, result.session.id);
+    expect(branchedAttachments).toHaveLength(1);
+    expect(branchedAttachments[0]).toMatchObject({
+      sessionId: result.session.id,
+      messageId: branchedMessages[0]!.id,
+      extractedText: "Attachment copied into a branch.",
+      parseStatus: "parsed",
+    });
+    expect(branchedAttachments[0]?.id).not.toBe(attachment.id);
+    expect(branchedMessages[0]?.attachmentIds).toEqual([branchedAttachments[0]?.id]);
   });
 
   it("deletes General Chat messages without leaving stale session timestamps", async () => {

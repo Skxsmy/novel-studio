@@ -388,7 +388,8 @@ Sections 使用独立文件和权限元数据，不混入正文后再靠隐藏�
 
 ### FR-AI-01 Workshop
 
-- 持久聊天、命名、搜索、归档和分支。
+- 持久聊天、命名、搜索、归档和分支。新会话默认标题必须是中性的，不得暗示已经绑定某个场景或任务；会话开始后应根据首条作者消息或附件文件名自动生成可读标题，且作者可在会话列表中双击手动改名。
+- 从某条消息创建分支时，新分支必须复制源会话从开头到源消息为止的可见消息历史和消息附件快照，不能打开成空聊天。复制出的消息和附件使用新的分支内 ID，不继承旧 Proposal 链接或旧模型调用审计链接。
 - 选择单个角色或编辑会审。
 - 主动选择全书正文、全书大纲、幕、章、多个场景、Codex、Snippet、研究片段和风格档案。
 - Workshop 的上下文选择不得作为常驻右侧大面板挤占对话区；应使用靠近输入框的高折叠选择器。已选择内容必须在选择器状态中可见，用户再次选择同一项时可以取消选择。
@@ -405,6 +406,7 @@ Sections 使用独立文件和权限元数据，不混入正文后再靠隐藏�
 - Workshop model calls must include prior visible messages from the same session as `workshop-chat-history` context. Historical message-bound attachments must carry their extracted text forward in that history item so follow-up questions about an earlier uploaded file do not lose file context. The current author message is represented by the call's `userRequest` and must not be duplicated in history.
 - Reasoning availability must be visible even when reasoning content is collapsed, and each message's toggle must expose a clear expanded/collapsed state.
 - Workshop reasoning display must preserve provider-native reasoning fields when official APIs expose them. The current OpenAI-compatible adapter must recognize DeepSeek `reasoning_content`, OpenRouter `reasoning` / `reasoning_content` / `reasoning_details`, and Ollama `thinking`-style fields before falling back to legacy `<think>` / `<thinking>` tag parsing. OpenAI reasoning that is only available through the Responses API must not be fabricated on the Chat Completions-compatible path.
+- Workshop chat messages must render as one broad reading column rather than alternating left/right narrow bubbles. Author and assistant messages should be distinguished through compact role metadata, restrained surface color, and a small accent, while body text uses an editor-adjacent readable scale.
 - Mode、模型设置、具体模型、system prompt、是否流式输出和是否默认显示 reasoning 必须集中在一个设置入口中，不得散落在对话页不同区域。
 - 流式输出可以把模型返回的 reasoning 与正式回答分离；reasoning 必须使用区别于正文的样式并可在单条消息内折叠。
 - 未关联 Proposal 的普通聊天消息可以删除；已关联 Proposal 或审计链路的消息必须保留或给出阻止原因。

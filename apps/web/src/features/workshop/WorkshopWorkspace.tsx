@@ -48,6 +48,7 @@ type ComposerAttachment = Omit<WorkshopMessageAttachment, "parseStatus"> & {
 };
 
 const LINKED_CODEX_NOTE = "Linked from selected context.";
+const AUTO_SESSION_TITLE_MAX = 56;
 
 function randomId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
@@ -225,6 +226,26 @@ function selectedScopeTexts(
   return texts.filter((value) => value.trim().length > 0);
 }
 
+function titleFromChatStart(
+  requestText: string,
+  attachments: Array<{ fileName: string }>,
+  attachmentOnlyRequest: string,
+  defaultSessionTitle: string,
+): string {
+  const normalizedRequest = requestText.replace(/\s+/gu, " ").trim();
+  const attachmentNames = attachments
+    .map((attachment) => attachment.fileName.trim())
+    .filter(Boolean)
+    .join(", ");
+  const source = normalizedRequest && normalizedRequest !== attachmentOnlyRequest
+    ? normalizedRequest
+    : attachmentNames || normalizedRequest;
+  if (!source) return defaultSessionTitle;
+  return source.length > AUTO_SESSION_TITLE_MAX
+    ? `${source.slice(0, AUTO_SESSION_TITLE_MAX - 3).trimEnd()}...`
+    : source;
+}
+
 function attachmentStatusLabel(
   status: ComposerAttachment["parseStatus"] | WorkshopMessageAttachment["parseStatus"],
   text: typeof uiText.workshop,
@@ -266,6 +287,8 @@ export function WorkshopWorkspace({
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const [contextMenuView, setContextMenuView] = useState<ContextMenuView>({ kind: "root" });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editingSessionTitle, setEditingSessionTitle] = useState("");
   const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
   const [selectedModelProfileId, setSelectedModelProfileId] = useState<string | null>(null);
   const [selectedModelId, setSelectedModelId] = useState("");
@@ -477,6 +500,81 @@ export function WorkshopWorkspace({
         }
         : session
     )));
+  }
+
+  function applySessionUpdate(updated: WorkshopSession) {
+    setSessions((current) => current.map((session) => (
+      session.id === updated.id ? updated : session
+    )));
+  }
+
+  async function updateSessionTitle(sessionId: string, title: string): Promise<WorkshopSession | null> {
+    const trimmed = title.trim();
+    if (!trimmed) return null;
+    const updated = await api.workshop.updateSession(seriesId, sessionId, { title: trimmed });
+    applySessionUpdate(updated);
+    return updated;
+  }
+
+  async function autoNameSessionFromStart(
+    session: WorkshopSession,
+    requestText: string,
+    sentAttachments: Array<{ fileName: string }>,
+    messageCountBeforeSend: number,
+  ) {
+    if (messageCountBeforeSend > 0) return;
+    if (session.title.trim() !== text.defaultSessionTitle) return;
+    const title = titleFromChatStart(
+      requestText,
+      sentAttachments,
+      text.labels.attachmentOnlyRequest,
+      text.defaultSessionTitle,
+    );
+    if (!title || title === session.title) return;
+    try {
+      await updateSessionTitle(session.id, title);
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    }
+  }
+
+  function startSessionTitleEdit(session: WorkshopSession) {
+    setActiveSessionId(session.id);
+    setEditingSessionId(session.id);
+    setEditingSessionTitle(session.title);
+  }
+
+  function cancelSessionTitleEdit() {
+    setEditingSessionId(null);
+    setEditingSessionTitle("");
+  }
+
+  async function commitSessionTitleEdit() {
+    if (!editingSessionId) return;
+    const session = sessions.find((item) => item.id === editingSessionId);
+    const nextTitle = editingSessionTitle.trim();
+    if (!session || !nextTitle || nextTitle === session.title) {
+      cancelSessionTitleEdit();
+      return;
+    }
+    try {
+      await updateSessionTitle(session.id, nextTitle);
+      cancelSessionTitleEdit();
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    }
+  }
+
+  function handleSessionTitleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelSessionTitleEdit();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void commitSessionTitleEdit();
+    }
   }
 
   function replaceMessageByIdentity(
@@ -934,6 +1032,7 @@ export function WorkshopWorkspace({
     const sentAttachmentIds = parsedDraftAttachments.map((attachment) => attachment.id);
     const sentDraftToken = sentAttachmentIds.length ? draftToken : null;
     const requestText = composer.trim() || text.labels.attachmentOnlyRequest;
+    const messageCountBeforeSend = messages.length;
     const abortController = new AbortController();
     callAbortRef.current = abortController;
     const payload = {
@@ -969,6 +1068,12 @@ export function WorkshopWorkspace({
     setDraftToken(randomId());
     setIsContextMenuOpen(false);
     setIsSettingsOpen(false);
+    void autoNameSessionFromStart(
+      activeSession,
+      requestText,
+      parsedDraftAttachments,
+      messageCountBeforeSend,
+    );
     try {
       if (payload.mode === "general-chat" && useStreamingResponses) {
         const localAssistantId = randomId();
@@ -1739,23 +1844,54 @@ export function WorkshopWorkspace({
               </div>
             ) : null}
             {sessions.map((session) => (
-              <button
-                className={`workshop-session-row${session.id === activeSessionId ? " is-active" : ""}`}
-                key={session.id}
-                onClick={() => setActiveSessionId(session.id)}
-                type="button"
-              >
-                <span className="workshop-session-copy">
-                  <span className="row-title">{session.title}</span>
-                  <span className="row-meta">
-                    {session.branchOfMessageId ? text.labels.branchSession : text.labels.threadSession}
-                    {session.lastMessageAt ? ` / ${formatDate(session.lastMessageAt)}` : ""}
+              editingSessionId === session.id ? (
+                <form
+                  className={`workshop-session-row is-editing${session.id === activeSessionId ? " is-active" : ""}`}
+                  key={session.id}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void commitSessionTitleEdit();
+                  }}
+                >
+                  <span className="workshop-session-copy">
+                    <input
+                      aria-label={text.labels.sessionTitle}
+                      autoFocus
+                      className="workshop-session-title-input"
+                      onBlur={() => void commitSessionTitleEdit()}
+                      onChange={(event) => setEditingSessionTitle(event.currentTarget.value)}
+                      onKeyDown={handleSessionTitleKeyDown}
+                      value={editingSessionTitle}
+                    />
+                    <span className="row-meta">
+                      {session.branchOfMessageId ? text.labels.branchSession : text.labels.threadSession}
+                      {session.lastMessageAt ? ` / ${formatDate(session.lastMessageAt)}` : ""}
+                    </span>
                   </span>
-                </span>
-                <span className={session.status === "active" ? "pill blue" : "pill muted"}>
-                  {text.statusLabels[session.status]}
-                </span>
-              </button>
+                  <span className={session.status === "active" ? "pill blue" : "pill muted"}>
+                    {text.statusLabels[session.status]}
+                  </span>
+                </form>
+              ) : (
+                <button
+                  className={`workshop-session-row${session.id === activeSessionId ? " is-active" : ""}`}
+                  key={session.id}
+                  onClick={() => setActiveSessionId(session.id)}
+                  onDoubleClick={() => startSessionTitleEdit(session)}
+                  type="button"
+                >
+                  <span className="workshop-session-copy">
+                    <span className="row-title">{session.title}</span>
+                    <span className="row-meta">
+                      {session.branchOfMessageId ? text.labels.branchSession : text.labels.threadSession}
+                      {session.lastMessageAt ? ` / ${formatDate(session.lastMessageAt)}` : ""}
+                    </span>
+                  </span>
+                  <span className={session.status === "active" ? "pill blue" : "pill muted"}>
+                    {text.statusLabels[session.status]}
+                  </span>
+                </button>
+              )
             ))}
           </div>
           <div className="workshop-session-foot">

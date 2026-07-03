@@ -315,7 +315,6 @@ import {
 } from "./proposalFiles.js";
 import {
   createWorkshopAttachmentFile,
-  createWorkshopBranchFile,
   createWorkshopSessionFile,
   listWorkshopAttachmentFiles,
   listWorkshopBranchFiles,
@@ -326,6 +325,8 @@ import {
   readWorkshopMessageFile,
   readWorkshopSessionFile,
   workshopAttachmentPath,
+  workshopBranchPath,
+  workshopContextBasketPath,
   workshopMessagePath,
   workshopSessionPath,
   writeWorkshopContextBasketFile,
@@ -3940,6 +3941,15 @@ export class ProjectRepository {
         sourceMessageId: input.sourceMessageId,
       });
     }
+    const sourceMessages = await listWorkshopMessageFiles(seriesRoot, sourceSession.id);
+    const sourceMessageIndex = sourceMessages.findIndex((message) => message.id === sourceMessage.id);
+    if (sourceMessageIndex < 0) {
+      throw new StorageError("Source message is not listed in the Workshop session", "INVALID_DATA", {
+        sessionId,
+        sourceMessageId: input.sourceMessageId,
+      });
+    }
+    const branchMessages = sourceMessages.slice(0, sourceMessageIndex + 1);
     const now = new Date().toISOString();
     const nextSession = WorkshopSessionSchema.parse({
       schemaVersion: 1,
@@ -3951,30 +3961,77 @@ export class ProjectRepository {
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
-      lastMessageAt: null,
+      lastMessageAt: branchMessages.at(-1)?.createdAt ?? null,
     });
-    const createdSession = await createWorkshopSessionFile(seriesRoot, nextSession);
     const currentBasket = await this.getWorkshopContextBasket(seriesId, sourceSession.id);
-    await writeWorkshopContextBasketFile(seriesRoot, WorkshopContextBasketSchema.parse({
+    const nextBasket = WorkshopContextBasketSchema.parse({
       ...currentBasket,
       id: randomUUID(),
-      sessionId: createdSession.id,
+      sessionId: nextSession.id,
       createdAt: now,
       updatedAt: now,
-    }));
+    });
+    const sourceAttachments = await listWorkshopAttachmentFiles(seriesRoot, sourceSession.id);
+    const sourceAttachmentById = new Map(sourceAttachments.map((attachment) => [attachment.id, attachment]));
+    const clonedAttachments: WorkshopMessageAttachment[] = [];
+    const clonedMessages = branchMessages.map((message) => {
+      const nextMessageId = randomUUID();
+      const nextAttachmentIds = message.attachmentIds.map((attachmentId) => {
+        const attachment = sourceAttachmentById.get(attachmentId);
+        if (!attachment || attachment.messageId !== message.id) {
+          throw new StorageError("Workshop branch source message has a missing attachment", "INVALID_DATA", {
+            sessionId,
+            messageId: message.id,
+            attachmentId,
+          });
+        }
+        const nextAttachmentId = randomUUID();
+        clonedAttachments.push(WorkshopMessageAttachmentSchema.parse({
+          ...attachment,
+          id: nextAttachmentId,
+          sessionId: nextSession.id,
+          messageId: nextMessageId,
+          draftToken: `branch-${nextSession.id}`,
+          updatedAt: now,
+        }));
+        return nextAttachmentId;
+      });
+      return WorkshopMessageSchema.parse({
+        ...message,
+        id: nextMessageId,
+        sessionId: nextSession.id,
+        contextBundleId: null,
+        modelCallId: null,
+        proposalIds: [],
+        attachmentIds: nextAttachmentIds,
+      });
+    });
     const branch = WorkshopBranchSchema.parse({
       schemaVersion: 1,
       id: randomUUID(),
       seriesId,
       sourceSessionId: sourceSession.id,
       sourceMessageId: sourceMessage.id,
-      sessionId: createdSession.id,
-      title: createdSession.title,
+      sessionId: nextSession.id,
+      title: nextSession.title,
       createdAt: now,
     });
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: workshopSessionPath(seriesRoot, nextSession.id), content: serializeJsonAuthority(nextSession) },
+      { targetPath: workshopContextBasketPath(seriesRoot, nextBasket.sessionId), content: serializeJsonAuthority(nextBasket) },
+      ...clonedMessages.map((message) => ({
+        targetPath: workshopMessagePath(seriesRoot, message.id),
+        content: serializeJsonAuthority(message),
+      })),
+      ...clonedAttachments.map((attachment) => ({
+        targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
+        content: serializeJsonAuthority(attachment),
+      })),
+      { targetPath: workshopBranchPath(seriesRoot, branch.id), content: serializeJsonAuthority(branch) },
+    ]);
     return {
-      branch: await createWorkshopBranchFile(seriesRoot, branch),
-      session: createdSession,
+      branch,
+      session: nextSession,
     };
   }
 
