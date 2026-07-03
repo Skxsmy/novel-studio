@@ -28,6 +28,7 @@ import {
   DeleteCodexProgressionResultSchema,
   DeleteWorkshopAttachmentResultSchema,
   DeleteWorkshopMessageResultSchema,
+  DeleteWorkshopSessionResultSchema,
   DeleteSeriesInputSchema,
   DeleteSeriesResultSchema,
   DeleteSceneProgressionBlockInputSchema,
@@ -177,6 +178,7 @@ import {
   type DeleteCodexProgressionResult,
   type DeleteWorkshopAttachmentResult,
   type DeleteWorkshopMessageResult,
+  type DeleteWorkshopSessionResult,
   type DeleteSeriesInput,
   type DeleteSeriesResult,
   type DeleteSceneProgressionBlockInput,
@@ -3918,6 +3920,73 @@ export class ProjectRepository {
       status: "active",
       archivedAt: null,
       updatedAt: new Date().toISOString(),
+    });
+  }
+
+  async deleteWorkshopSession(
+    seriesId: string,
+    sessionId: string,
+  ): Promise<DeleteWorkshopSessionResult> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+    if (session.seriesId !== seriesId) {
+      throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", {
+        sessionId,
+      });
+    }
+    const messages = await listWorkshopMessageFiles(seriesRoot, session.id);
+    const proposalLinkedMessages = messages.filter((message) => message.proposalIds.length > 0);
+    if (proposalLinkedMessages.length > 0) {
+      throw new StorageError("Workshop sessions with Proposal-linked messages cannot be deleted", "INVALID_DATA", {
+        sessionId,
+        messageIds: proposalLinkedMessages.map((message) => message.id),
+      });
+    }
+    const attachments = await listWorkshopAttachmentFiles(seriesRoot, session.id);
+    const deletedMessageIds = messages.map((message) => message.id);
+    const deletedMessageIdSet = new Set(deletedMessageIds);
+    const branches = (await listWorkshopBranchFiles(seriesRoot)).filter((branch) =>
+      branch.sessionId === session.id || branch.sourceSessionId === session.id,
+    );
+    const now = new Date().toISOString();
+    const relatedSessions = (await listWorkshopSessionFiles(seriesRoot))
+      .filter((item) =>
+        item.id !== session.id &&
+        item.branchOfMessageId !== null &&
+        deletedMessageIdSet.has(item.branchOfMessageId),
+      )
+      .map((item) => WorkshopSessionSchema.parse({
+        ...item,
+        branchOfMessageId: null,
+        updatedAt: now,
+      }));
+
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: workshopSessionPath(seriesRoot, session.id), delete: true },
+      { targetPath: workshopContextBasketPath(seriesRoot, session.id), delete: true },
+      ...messages.map((message) => ({
+        targetPath: workshopMessagePath(seriesRoot, message.id),
+        delete: true,
+      })),
+      ...attachments.map((attachment) => ({
+        targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
+        delete: true,
+      })),
+      ...branches.map((branch) => ({
+        targetPath: workshopBranchPath(seriesRoot, branch.id),
+        delete: true,
+      })),
+      ...relatedSessions.map((item) => ({
+        targetPath: workshopSessionPath(seriesRoot, item.id),
+        content: serializeJsonAuthority(item),
+      })),
+    ]);
+
+    return DeleteWorkshopSessionResultSchema.parse({
+      deletedId: session.id,
+      deletedMessageIds,
+      deletedAttachmentIds: attachments.map((attachment) => attachment.id),
+      deletedBranchIds: branches.map((branch) => branch.id),
     });
   }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CreateWorkshopSessionInputSchema,
+  DeleteWorkshopSessionResultSchema,
   RunWorkshopCallInputSchema,
   WorkshopCallStreamEventSchema,
   WorkshopContextBasketSchema,
@@ -81,6 +82,18 @@ describe("M5 Workshop contracts", () => {
       text: "Visible answer.",
     });
     expect(delta).toMatchObject({ type: "delta" });
+  });
+
+  it("validates permanent Workshop session delete results", () => {
+    const result = DeleteWorkshopSessionResultSchema.parse({
+      deletedId: "11111111-1111-4111-8111-111111111111",
+      deletedMessageIds: ["22222222-2222-4222-8222-222222222222"],
+      deletedAttachmentIds: ["33333333-3333-4333-8333-333333333333"],
+      deletedBranchIds: ["44444444-4444-4444-8444-444444444444"],
+    });
+    expect(result.deletedMessageIds).toHaveLength(1);
+    expect(result.deletedAttachmentIds).toHaveLength(1);
+    expect(result.deletedBranchIds).toHaveLength(1);
   });
 
   it("rejects duplicate basket item IDs and source-less non-note refs", () => {

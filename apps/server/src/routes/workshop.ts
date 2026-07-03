@@ -7,6 +7,7 @@ import {
   CreateWorkshopSessionInputSchema,
   ContextBundleSchema,
   DeleteWorkshopAttachmentResultSchema,
+  DeleteWorkshopSessionResultSchema,
   ListWorkshopAttachmentsQuerySchema,
   ModelCallLogSchema,
   RunWorkshopCallInputSchema,
@@ -474,6 +475,13 @@ export function registerWorkshopRoutes(
       const input = UpdateWorkshopSessionInputSchema.parse(request.body);
       return repository.updateWorkshopSession(request.params.seriesId, request.params.sessionId, input);
     },
+  );
+
+  app.delete<{ Params: { seriesId: string; sessionId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId",
+    async (request) => DeleteWorkshopSessionResultSchema.parse(
+      await repository.deleteWorkshopSession(request.params.seriesId, request.params.sessionId),
+    ),
   );
 
   app.post<{ Params: { seriesId: string; sessionId: string } }>(

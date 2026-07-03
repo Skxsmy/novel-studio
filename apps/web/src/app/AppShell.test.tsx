@@ -1086,6 +1086,40 @@ function mockFetch(options: {
         return jsonResponse({ code: "NOT_FOUND", message: "Workshop session not found" }, 404);
       }
       const session = workshopSessions.find((item) => item.id === requestedSessionId) ?? workshopSession({ id: requestedSessionId });
+      if (!segment && method === "DELETE") {
+        const existingSession = workshopSessions.find((item) => item.id === requestedSessionId);
+        if (!existingSession) {
+          return jsonResponse({ code: "NOT_FOUND", message: "Workshop session does not exist" }, 404);
+        }
+        const sessionMessages = workshopMessages.filter((message) => message.sessionId === requestedSessionId);
+        const linkedMessage = sessionMessages.find((message) =>
+          ((message.proposalIds as string[] | undefined) ?? []).length > 0,
+        );
+        if (linkedMessage) {
+          return jsonResponse({
+            code: "INVALID_DATA",
+            message: "Workshop sessions with Proposal-linked messages cannot be deleted",
+          }, 409);
+        }
+        const deletedMessageIds = sessionMessages.map((message) => String(message.id));
+        const deletedMessageIdSet = new Set(deletedMessageIds);
+        const deletedAttachmentIds = workshopAttachments
+          .filter((attachment) => attachment.sessionId === requestedSessionId)
+          .map((attachment) => String(attachment.id));
+        workshopMessages = workshopMessages.filter((message) => message.sessionId !== requestedSessionId);
+        workshopAttachments = workshopAttachments.filter((attachment) => attachment.sessionId !== requestedSessionId);
+        workshopSessions = workshopSessions
+          .filter((item) => item.id !== requestedSessionId)
+          .map((item) => deletedMessageIdSet.has(String(item.branchOfMessageId))
+            ? { ...item, branchOfMessageId: null }
+            : item);
+        return jsonResponse({
+          deletedId: requestedSessionId,
+          deletedMessageIds,
+          deletedAttachmentIds,
+          deletedBranchIds: [],
+        });
+      }
       if (!segment && method === "GET") {
         return jsonResponse({
           session,
@@ -1351,15 +1385,17 @@ function mockFetch(options: {
           estimatedUsage: { inputTokens: 12, outputTokens: 0, totalTokens: 12 },
           actualUsage: { inputTokens: 12, outputTokens: 4, totalTokens: 16 },
         };
-        workshopAttachments = workshopAttachments.map((attachment) =>
-          attachmentIds.includes(attachment.id) ? { ...attachment, messageId: authorMessage.id } : attachment,
-        );
-        workshopMessages = [
-          ...workshopMessages.filter((message) => message.sessionId !== requestedSessionId),
-          authorMessage,
-          assistantMessage,
-        ];
-        return sseResponse([
+        const persistStreamResult = () => {
+          workshopAttachments = workshopAttachments.map((attachment) =>
+            attachmentIds.includes(attachment.id) ? { ...attachment, messageId: authorMessage.id } : attachment,
+          );
+          workshopMessages = [
+            ...workshopMessages.filter((message) => message.sessionId !== requestedSessionId),
+            authorMessage,
+            assistantMessage,
+          ];
+        };
+        const streamResponse = sseResponse([
           { type: "author-message", message: authorMessage },
           { type: "metadata", contextBundleId: workshopContextBundleId, modelCallId: workshopModelCallId },
           { type: "reasoning-delta", text: "Checked the selected context before answering." },
@@ -1367,6 +1403,14 @@ function mockFetch(options: {
           { type: "assistant-message", message: assistantMessage },
           { type: "done", result },
         ], 200, workshopCallDelayMs, init?.signal);
+        if (workshopCallDelayMs > 0) {
+          return streamResponse.then((response) => {
+            if (!init?.signal?.aborted) persistStreamResult();
+            return response;
+          });
+        }
+        persistStreamResult();
+        return streamResponse;
       }
       if (segment === "calls" && method === "POST") {
         const body = JSON.parse(String(init?.body));
@@ -4637,6 +4681,89 @@ describe("App shell", () => {
 
     expect(await screen.findByText("Sending stopped.")).toBeTruthy();
     expect(screen.queryByText("Workshop model response.")).toBeNull();
+  });
+
+  it("keeps an in-flight Workshop stream attached to its session while authors switch sessions", async () => {
+    const otherSessionId = "8a8a8a8a-8a8a-4a8a-8a8a-8a8a8a8a8a8a";
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [
+        workshopSession({ id: workshopSessionId, title: "Streaming thread" }),
+        workshopSession({ id: otherSessionId, title: "Other thread" }),
+      ],
+      workshopCallDelayMs: 2500,
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+    const sessionsPanel = screen.getByText("Conversation branches").closest(".panel") as HTMLElement;
+
+    fireEvent.change(screen.getByLabelText("Workshop message"), {
+      target: { value: "Keep this partial answer visible." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls/stream`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(screen.getByText("Keep this partial answer visible.")).toBeTruthy();
+    expect(screen.getByText("Writing...")).toBeTruthy();
+
+    fireEvent.click(within(sessionsPanel).getByText("Other thread"));
+    await waitFor(() => {
+      expect(screen.queryByText("Keep this partial answer visible.")).toBeNull();
+    });
+
+    fireEvent.click(within(sessionsPanel).getByText("Streaming thread"));
+    expect(await screen.findByText("Keep this partial answer visible.")).toBeTruthy();
+    expect(await screen.findByText("Writing...")).toBeTruthy();
+    expect(screen.queryByText("Workshop model response.")).toBeNull();
+    expect(await screen.findByText("Workshop model response.", {}, { timeout: 3500 })).toBeTruthy();
+  });
+
+  it("keeps permanent Workshop session delete behind session actions and removes the session", async () => {
+    const otherSessionId = "8b8b8b8b-8b8b-4b8b-8b8b-8b8b8b8b8b8b";
+    const confirmDelete = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirmDelete);
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [
+        workshopSession({ id: workshopSessionId, title: "Delete target" }),
+        workshopSession({ id: otherSessionId, title: "Remaining thread" }),
+      ],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+    const sessionsPanel = screen.getByText("Conversation branches").closest(".panel") as HTMLElement;
+    expect(within(sessionsPanel).getByText("Delete target")).toBeTruthy();
+    expect(within(sessionsPanel).queryByRole("menuitem", { name: "Delete permanently" })).toBeNull();
+
+    fireEvent.click(within(sessionsPanel).getByRole("button", { name: "Session actions" }));
+    fireEvent.click(await within(sessionsPanel).findByRole("menuitem", { name: "Delete permanently" }));
+
+    await waitFor(() => {
+      expect(confirmDelete).toHaveBeenCalledWith(
+        "Delete this Workshop session permanently? Its messages and attachments will be removed.",
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}`,
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    await waitFor(() => {
+      expect(within(sessionsPanel).queryByText("Delete target")).toBeNull();
+    });
+    expect(within(sessionsPanel).getByText("Remaining thread")).toBeTruthy();
   });
 
   it("renders Workshop context selection as nested scene and Codex menus", async () => {

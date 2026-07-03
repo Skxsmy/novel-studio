@@ -355,6 +355,45 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
+  it("permanently deletes unlinked Workshop sessions through the session route", async () => {
+    const { app, series } = await createSeriesWithMockProfile();
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Disposable chat" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+    const message = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "author",
+        mode: "general-chat",
+        content: "Remove this whole chat.",
+      },
+    });
+    expect(message.statusCode).toBe(201);
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}`,
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toMatchObject({
+      deletedId: session.id,
+      deletedMessageIds: [message.json().id],
+      deletedAttachmentIds: [],
+    });
+    const reloaded = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}`,
+    });
+    expect(reloaded.statusCode).toBe(404);
+
+    await app.close();
+  });
+
   it("persists sessions, previews context, and saves a successful single-role call", async () => {
     const { app, series, profile } = await createSeriesWithMockProfile();
     const scene = series.scenes[0];

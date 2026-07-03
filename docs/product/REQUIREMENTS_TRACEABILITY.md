@@ -83,6 +83,8 @@
 
 验收 ID：`M5-A01` 至 `M5-A45`，详见 `docs/testing/M5_ACCEPTANCE.md`。
 
+2026-07-03 follow-up trace: Workshop session lifecycle and streaming-session-switch behavior are part of the M5 Workshop acceptance boundary. In-flight stream output must remain attached to its originating session across session switches, and permanent Workshop session delete must be exposed separately from Archive with cascade/reference-blocking behavior.
+
 ## M6 资料分析库
 
 覆盖：TXT、Markdown、DOCX、文本 PDF、EPUB、HTML；SourceLocation、FTS5、可选 Embedding、Research Note 和权限。

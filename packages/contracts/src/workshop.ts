@@ -266,6 +266,14 @@ export const DeleteWorkshopMessageResultSchema = z.object({
 });
 export type DeleteWorkshopMessageResult = z.infer<typeof DeleteWorkshopMessageResultSchema>;
 
+export const DeleteWorkshopSessionResultSchema = z.object({
+  deletedId: z.string().uuid(),
+  deletedMessageIds: z.array(z.string().uuid()).default([]),
+  deletedAttachmentIds: z.array(z.string().uuid()).default([]),
+  deletedBranchIds: z.array(z.string().uuid()).default([]),
+});
+export type DeleteWorkshopSessionResult = z.infer<typeof DeleteWorkshopSessionResultSchema>;
+
 export const DeleteWorkshopAttachmentResultSchema = z.object({
   deletedId: z.string().uuid(),
 });

@@ -7,6 +7,7 @@ import type {
   CreateWorkshopSessionInput,
   DeleteWorkshopAttachmentResult,
   DeleteWorkshopMessageResult,
+  DeleteWorkshopSessionResult,
   PromptTemplate,
   RunWorkshopCallInput,
   UploadWorkshopAttachmentInput,
@@ -66,6 +67,12 @@ export function createWorkshopApi(client: ApiClient) {
       return client.requestJson<WorkshopSession>(`/series/${seriesId}/workshop/sessions/${sessionId}/restore`, {
         method: "POST",
       });
+    },
+    deleteSession(seriesId: string, sessionId: string) {
+      return client.requestJson<DeleteWorkshopSessionResult>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}`,
+        { method: "DELETE" },
+      );
     },
     listMessages(seriesId: string, sessionId: string) {
       return client.requestJson<WorkshopMessage[]>(`/series/${seriesId}/workshop/sessions/${sessionId}/messages`);
@@ -188,6 +195,7 @@ export type {
   CreateWorkshopSessionInput,
   DeleteWorkshopAttachmentResult,
   DeleteWorkshopMessageResult,
+  DeleteWorkshopSessionResult,
   PromptTemplate,
   RunWorkshopCallInput,
   UploadWorkshopAttachmentInput,

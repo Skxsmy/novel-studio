@@ -1,6 +1,6 @@
 # M5 Acceptance Record
 
-Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings, message-attachment, context-delivery, UI-interaction, provider-reasoning, and chat-layout repairs; M5.6 next; user visual acceptance pending
+Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings, message-attachment, context-delivery, UI-interaction, provider-reasoning, chat-layout, session-lifecycle, and streaming-session-switch repairs; M5.6 next; user visual acceptance pending
 Created: 2026-06-30  
 Task: `docs/tasks/M5.md`
 
@@ -33,12 +33,12 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5-A15 | passed | Review accept/reject/edit/stale actions call real APIs and update state. Review displays all patches before accepting and shows batch accept results. Covered by web/API tests. |
 | M5-A16 | passed | Review main path hides engineering audit fields while keeping details reachable. Covered by web tests and source review. |
 | M5-A17 | function passed; visual pending | Review implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
-| M5-A18 | passed | Workshop sessions, messages, branches, and message attachments persist as schema-versioned JSON and reload after restart. Branch copies source message history through the branch point plus attachment snapshots into the new session instead of opening an empty chat. Unlinked messages can be deleted through storage/API/UI, while Proposal-linked messages remain protected. Draft attachment reload/delete, message binding, branch cloning, and message-delete cascade are covered by storage/server/web tests. |
+| M5-A18 | passed | Workshop sessions, messages, branches, and message attachments persist as schema-versioned JSON and reload after restart. Branch copies source message history through the branch point plus attachment snapshots into the new session instead of opening an empty chat. Unlinked messages can be deleted through storage/API/UI, while Proposal-linked messages remain protected. Whole Workshop sessions can now be permanently deleted through the session route/UI when no message is Proposal-linked; deletion cascades messages, attachments, context baskets, and branch records, and blocks Proposal-linked sessions. Draft attachment reload/delete, message binding, branch cloning, message-delete cascade, and session-delete cascade/blocking are covered by storage/server/web tests. |
 | M5-A19 | passed | Workshop selected context can add/remove/toggle allowed references through the compact composer menu, including full novel text, full outline, act, chapter, multiple scenes, direct Codex entries, and Codex grouped by type/detail/category. The internal storage object is still `WorkshopContextBasket`; the visible right-side basket panel has been removed. Covered by storage/server/web tests. |
 | M5-A20 | passed | Context assembly shows included/excluded items and respects permissions, future-story isolation, auto-linked Codex policy, per-detail Send to AI switches, parsed `message-attachment` ContextBundle snapshots, and prior same-session `workshop-chat-history`. Attachments do not create SourceDocuments or retrieval index records. Covered by contract/server/storage tests and source review. |
 | M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog from IDs rather than raw files, and provider request bodies receive ContextBundle item text. Workshop can choose a library-global model setting and send a provider model override for that call. Call input accepts `attachmentIds` plus `draftToken`, rejects raw file content, and rejects invalid attachment references. Covered by contract/server/AI-provider/web tests. |
 | M5-A22 | passed | Model failure preserves the input, parsed attachments, bound author message, and context, then appends a failed assistant message instead of creating an empty Proposal. Covered by server/web tests and the storage binding invariants. |
-| M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Mode, model setting, provider model override, system prompt, streaming, and reasoning-display controls are centralized in one settings dialog; reasoning is distinct and collapsible; Enter sends and Ctrl+Enter inserts a newline. The composer has one attachment icon, removable parse-state chips, send blocking for parsing/failed chips, and attachment names on sent user messages. New sessions use a neutral title, empty chats auto-name from the first request or attachment file names after sending starts, and authors can double-click session titles to persist manual renames. The 2026-07-03 chat-layout repair makes messages one broad readable column instead of left/right narrow bubbles, with readable body/reasoning typography. Covered by web tests and source review. |
+| M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Mode, model setting, provider model override, system prompt, streaming, and reasoning-display controls are centralized in one settings dialog; reasoning is distinct and collapsible; Enter sends and Ctrl+Enter inserts a newline. The composer has one attachment icon, removable parse-state chips, send blocking for parsing/failed chips, and attachment names on sent user messages. New sessions use a neutral title, empty chats auto-name from the first request or attachment file names after sending starts, and authors can double-click session titles to persist manual renames. In-flight streamed replies stay attached to the session that started the call when authors switch sessions and return before completion. Permanent session delete is tucked behind a compact session actions menu rather than added as another primary session-list button. The 2026-07-03 chat-layout repair makes messages one broad readable column instead of left/right narrow bubbles, with readable body/reasoning typography. Covered by web tests and source review. |
 | M5-A24 | function passed; visual pending | Workshop implementation must be checked against the Figma structure checklist. The 2026-07-03 chat-layout repair could not use the previously recorded Figma Workshop node because `12:2` was unavailable and the Figma file exposed only `00 Cover`; this is recorded as a Figma evidence gap, not visual acceptance. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
 | M5-A25 | passed | Workshop message output can create a Proposal linked to that exact source message. Proposal creation and message `proposalIds` update are written transactionally. Covered by storage/server/web tests. |
 | M5-A26 | passed | Proposal cards deep-link to exact Review Proposal Detail by Proposal ID. Covered by web tests. |
@@ -374,6 +374,29 @@ The session naming and Branch repair closed these Workshop gaps:
 - Authors can double-click a session title in the sessions list, edit it, and persist the new title through the Workshop session update API.
 - Branch creation now copies source messages through the source message into the new session. Copied messages use new IDs, carry no old Proposal/model-call/context audit links, and remain readable in the newly opened branch.
 - Branch creation copies message-bound attachment snapshots into the new session and rewrites cloned message attachment IDs to those new attachment records.
+
+Focused command results during the 2026-07-03 Workshop streaming session-switch and permanent session delete repair:
+
+- Official source basis checked before implementation: React `useRef` and `useState` docs for session-scoped mutable stream refs plus state updater behavior; Fastify routes docs for adding the session `DELETE` route beside existing session routes.
+- `npm.cmd run test -w @novel-studio/contracts -- test/workshop.test.ts`: passed, 1 file / 8 tests.
+- Initial `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts` and `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts` failed because downstream workspaces were reading stale built `@novel-studio/contracts` / `@novel-studio/storage` exports; after rebuilding contracts/storage, reruns passed.
+- Initial `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx -t "Workshop"` exposed a test mock inconsistency: the delayed SSE mock persisted final server messages before the stream response resolved. The mock was corrected to persist streamed results only when the delayed response resolves.
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run build -w @novel-studio/storage`: passed.
+- `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts`: passed, 1 file / 9 tests.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts`: passed, 1 file / 10 tests.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx -t "Workshop"`: passed, 1 file / 10 selected tests, 50 skipped by filter.
+- `npm.cmd run build`: passed.
+- `git diff --check`: passed with Windows line-ending warnings only.
+
+The repair closed these Workshop gaps:
+
+- A streaming call now captures its originating session ID and updates that session's local in-flight message overlay rather than blindly updating whichever session is currently open.
+- Loading a session merges persisted messages with that session's in-flight local messages, so switching away and back before completion still shows the pending author message, pending assistant reply, and received stream content.
+- Stream completion replaces optimistic local messages with saved server messages and clears the in-flight overlay for that session.
+- Workshop sessions now have a permanent delete contract, storage method, Fastify route, web API method, and compact session actions menu entry.
+- Permanent delete cascades unlinked session messages, message attachments, context basket JSON, and branch records; it clears other sessions' branch source pointer when the referenced source message was deleted.
+- Sessions containing Proposal-linked messages are blocked from permanent delete with an explicit storage/API error instead of breaking Proposal source/audit references.
 
 ## M5.0 Startup Protection Mapping
 

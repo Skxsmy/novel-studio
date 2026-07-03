@@ -190,6 +190,8 @@ AI 改写候选必须直接进入正文编辑器并保持整段选中。编辑�
 
 - Workshop messages use a single broad reading column. Do not alternate author and assistant messages as left/right narrow bubbles; role distinction comes from compact metadata, a restrained surface tint, and a small accent.
 - Workshop message body text, attachment chips, and reasoning blocks must use a readable author-workspace scale rather than compact log typography.
+- In-flight streamed replies must remain visible when the author leaves a Workshop session and returns before the stream finishes.
+- Permanent session delete belongs in a compact session actions menu so it does not compete with primary Archive and Branch controls.
 - 左列为对话和分支，中间为消息；不得保留常驻右侧 Context Basket 面板。
 - 新会话列表项先显示中性的临时标题；首次发送后应按首条消息或附件文件名自动命名。作者双击会话标题即可编辑名称，保存后不再被自动命名覆盖。
 - Branch 必须让作者继续看到分支点之前的聊天历史和附件名/附件上下文；新开的分支不能呈现为空白对话。

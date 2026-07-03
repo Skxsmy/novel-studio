@@ -141,6 +141,53 @@ describe("M5 Workshop storage", () => {
     expect(branchedMessages[0]?.attachmentIds).toEqual([branchedAttachments[0]?.id]);
   });
 
+  it("permanently deletes unlinked Workshop sessions and clears branch source pointers", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopDeleteSession" });
+    const session = await store.createWorkshopSession(series.manifest.id, {
+      title: "Delete this thread",
+      sceneId: series.scenes[0]!.metadata.id,
+    });
+    const attachment = await store.createWorkshopAttachment(series.manifest.id, session.id, workshopAttachment({
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      draftToken: "delete-session-draft",
+      extractedText: "Session attachment should be deleted.",
+      textHash: textHash("Session attachment should be deleted."),
+    }));
+    await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Delete this source question.",
+      attachmentIds: [attachment.id],
+      draftToken: "delete-session-draft",
+    });
+    const assistant = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "assistant",
+      mode: "general-chat",
+      content: "Delete this source answer.",
+    });
+    const branch = await store.branchWorkshopSession(series.manifest.id, session.id, {
+      sourceMessageId: assistant.id,
+      title: "Keep branch copy",
+    });
+
+    const deleted = await store.deleteWorkshopSession(series.manifest.id, session.id);
+    expect(deleted.deletedId).toBe(session.id);
+    expect(deleted.deletedMessageIds).toEqual(expect.arrayContaining([assistant.id]));
+    expect(deleted.deletedAttachmentIds).toEqual([attachment.id]);
+    expect(deleted.deletedBranchIds).toEqual([branch.branch.id]);
+    await expect(store.getWorkshopSession(series.manifest.id, session.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+    await expect(store.getWorkshopAttachment(series.manifest.id, attachment.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+    expect(await store.listWorkshopBranches(series.manifest.id)).toEqual([]);
+    const branchSession = await store.getWorkshopSession(series.manifest.id, branch.session.id);
+    expect(branchSession.title).toBe("Keep branch copy");
+    expect(branchSession.branchOfMessageId).toBeNull();
+    expect(await store.listWorkshopMessages(series.manifest.id, branch.session.id)).toHaveLength(2);
+  });
+
   it("deletes General Chat messages without leaving stale session timestamps", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopDeleteMessage" });
@@ -369,6 +416,11 @@ describe("M5 Workshop storage", () => {
       .rejects.toMatchObject<Partial<StorageError>>({
         code: "INVALID_DATA",
         message: "Workshop messages linked to Proposals cannot be deleted",
+      });
+    await expect(store.deleteWorkshopSession(series.manifest.id, session.id))
+      .rejects.toMatchObject<Partial<StorageError>>({
+        code: "INVALID_DATA",
+        message: "Workshop sessions with Proposal-linked messages cannot be deleted",
       });
 
     await store.archiveWorkshopSession(series.manifest.id, session.id);

@@ -287,6 +287,7 @@ export function WorkshopWorkspace({
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const [contextMenuView, setContextMenuView] = useState<ContextMenuView>({ kind: "root" });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSessionActionsOpen, setIsSessionActionsOpen] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingSessionTitle, setEditingSessionTitle] = useState("");
   const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
@@ -304,6 +305,7 @@ export function WorkshopWorkspace({
   const [isFetchingProviderModels, setIsFetchingProviderModels] = useState(false);
   const [creatingProposalMessageId, setCreatingProposalMessageId] = useState<string | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [reasoningOverrideIds, setReasoningOverrideIds] = useState<Set<string>>(() => new Set());
   const [useStreamingResponses, setUseStreamingResponses] = useState(true);
   const [showReasoningByDefault, setShowReasoningByDefault] = useState(false);
@@ -311,6 +313,8 @@ export function WorkshopWorkspace({
   const attachmentInputId = useMemo(() => `workshop-attachment-${randomId()}`, []);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const callAbortRef = useRef<AbortController | null>(null);
+  const activeSessionIdRef = useRef<string | null>(activeSessionId);
+  const liveSessionMessagesRef = useRef<Record<string, WorkshopMessage[]>>({});
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
@@ -490,6 +494,60 @@ export function WorkshopWorkspace({
     selectedModelProfile?.model ??
     text.labels.modelProfileMissing;
 
+  function activateSession(sessionId: string | null) {
+    activeSessionIdRef.current = sessionId;
+    setActiveSessionId(sessionId);
+    setIsSessionActionsOpen(false);
+  }
+
+  function mergeMessagesById(
+    storedMessages: WorkshopMessage[],
+    liveMessages: WorkshopMessage[],
+  ): WorkshopMessage[] {
+    const merged = [...storedMessages];
+    for (const liveMessage of liveMessages) {
+      const existingIndex = merged.findIndex((message) => message.id === liveMessage.id);
+      if (existingIndex >= 0) {
+        merged[existingIndex] = liveMessage;
+      } else {
+        merged.push(liveMessage);
+      }
+    }
+    return merged.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  }
+
+  function appendLiveSessionMessages(sessionId: string, nextMessages: WorkshopMessage[]) {
+    liveSessionMessagesRef.current = {
+      ...liveSessionMessagesRef.current,
+      [sessionId]: [
+        ...(liveSessionMessagesRef.current[sessionId] ?? []),
+        ...nextMessages,
+      ],
+    };
+    if (activeSessionIdRef.current === sessionId) {
+      setMessages((current) => [...current, ...nextMessages]);
+    }
+  }
+
+  function updateSessionMessages(
+    sessionId: string,
+    updater: (current: WorkshopMessage[]) => WorkshopMessage[],
+  ) {
+    liveSessionMessagesRef.current = {
+      ...liveSessionMessagesRef.current,
+      [sessionId]: updater(liveSessionMessagesRef.current[sessionId] ?? []),
+    };
+    if (activeSessionIdRef.current === sessionId) {
+      setMessages(updater);
+    }
+  }
+
+  function clearLiveSessionMessages(sessionId: string) {
+    const remaining = { ...liveSessionMessagesRef.current };
+    delete remaining[sessionId];
+    liveSessionMessagesRef.current = remaining;
+  }
+
   function updateSessionFromMessage(message: WorkshopMessage) {
     setSessions((current) => current.map((session) => (
       session.id === message.sessionId
@@ -539,7 +597,7 @@ export function WorkshopWorkspace({
   }
 
   function startSessionTitleEdit(session: WorkshopSession) {
-    setActiveSessionId(session.id);
+    activateSession(session.id);
     setEditingSessionId(session.id);
     setEditingSessionTitle(session.title);
   }
@@ -601,14 +659,16 @@ export function WorkshopWorkspace({
   }
 
   function applyCallResult(
+    sessionId: string,
     result: { authorMessage: WorkshopMessage; assistantMessage: WorkshopMessage },
     localAuthorId = result.authorMessage.id,
     localAssistantId = result.assistantMessage.id,
   ) {
-    setMessages((current) => {
+    updateSessionMessages(sessionId, (current) => {
       const withAuthor = replaceMessageByIdentity(current, localAuthorId, result.authorMessage);
       return replaceMessageByIdentity(withAuthor, localAssistantId, result.assistantMessage);
     });
+    clearLiveSessionMessages(sessionId);
     bindAttachmentsToMessage(result.authorMessage);
     updateSessionFromMessage(result.assistantMessage);
   }
@@ -649,7 +709,7 @@ export function WorkshopWorkspace({
         (activeSessionId && nextSessions.some((session) => session.id === activeSessionId)
           ? activeSessionId
           : nextSessions.find((session) => session.status === "active")?.id ?? nextSessions[0]?.id ?? null);
-      setActiveSessionId(nextActive);
+      activateSession(nextActive);
       setIsSettingsOpen(false);
     } catch (caught) {
       setError(apiErrorMessage(caught));
@@ -693,8 +753,9 @@ export function WorkshopWorkspace({
         api.codex.listDetailTypes(seriesId),
         api.codex.listEntries(seriesId, { includeArchived: false }),
       ]);
+      if (activeSessionIdRef.current !== sessionId) return;
       setBasket(detail.basket);
-      setMessages(detail.messages);
+      setMessages(mergeMessagesById(detail.messages, liveSessionMessagesRef.current[sessionId] ?? []));
       setAttachments(detail.attachments ?? []);
       setDraftAttachments([]);
       setDraftToken(randomId());
@@ -707,7 +768,9 @@ export function WorkshopWorkspace({
     } catch (caught) {
       setError(apiErrorMessage(caught));
     } finally {
-      setIsDetailLoading(false);
+      if (activeSessionIdRef.current === sessionId) {
+        setIsDetailLoading(false);
+      }
     }
   }
 
@@ -717,8 +780,12 @@ export function WorkshopWorkspace({
   }, [seriesId]);
 
   useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  useEffect(() => {
     if (selectedSessionId && selectedSessionId !== activeSessionId) {
-      setActiveSessionId(selectedSessionId);
+      activateSession(selectedSessionId);
     }
   }, [activeSessionId, selectedSessionId]);
 
@@ -726,6 +793,7 @@ export function WorkshopWorkspace({
     if (!activeSessionId) {
       setBasket(null);
       setMessages([]);
+      setIsDetailLoading(false);
       setIsContextMenuOpen(false);
       return;
     }
@@ -756,6 +824,43 @@ export function WorkshopWorkspace({
       await loadShell(updated.id);
     } catch (caught) {
       setError(apiErrorMessage(caught));
+    }
+  }
+
+  async function deleteSessionPermanently() {
+    if (!activeSession) return;
+    const sessionId = activeSession.id;
+    const confirmed = globalThis.confirm?.(text.labels.deleteSessionConfirm) ?? false;
+    if (!confirmed) {
+      setIsSessionActionsOpen(false);
+      return;
+    }
+    setDeletingSessionId(sessionId);
+    setError(null);
+    try {
+      const result = await api.workshop.deleteSession(seriesId, sessionId);
+      clearLiveSessionMessages(result.deletedId);
+      setReasoningOverrideIds((current) => {
+        const next = new Set(current);
+        for (const messageId of result.deletedMessageIds) next.delete(messageId);
+        return next;
+      });
+      const remainingSessions = sessions.filter((session) => session.id !== result.deletedId);
+      const nextActive =
+        remainingSessions.find((session) => session.status === "active") ??
+        remainingSessions[0] ??
+        null;
+      setBasket(null);
+      setMessages([]);
+      setAttachments([]);
+      setDraftAttachments([]);
+      setDraftToken(randomId());
+      await loadShell(nextActive?.id);
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setDeletingSessionId(null);
+      setIsSessionActionsOpen(false);
     }
   }
 
@@ -1033,6 +1138,7 @@ export function WorkshopWorkspace({
     const sentDraftToken = sentAttachmentIds.length ? draftToken : null;
     const requestText = composer.trim() || text.labels.attachmentOnlyRequest;
     const messageCountBeforeSend = messages.length;
+    const callSessionId = activeSession.id;
     const abortController = new AbortController();
     callAbortRef.current = abortController;
     const payload = {
@@ -1046,7 +1152,7 @@ export function WorkshopWorkspace({
       schemaVersion: 1,
       id: randomId(),
       seriesId,
-      sessionId: activeSession.id,
+      sessionId: callSessionId,
       role: "author",
       mode: payload.mode,
       status: "succeeded",
@@ -1062,7 +1168,7 @@ export function WorkshopWorkspace({
     };
     setIsCalling(true);
     setError(null);
-    setMessages((current) => [...current, localAuthorMessage]);
+    appendLiveSessionMessages(callSessionId, [localAuthorMessage]);
     setComposer("");
     setDraftAttachments([]);
     setDraftToken(randomId());
@@ -1082,7 +1188,7 @@ export function WorkshopWorkspace({
           schemaVersion: 1,
           id: localAssistantId,
           seriesId,
-          sessionId: activeSession.id,
+          sessionId: callSessionId,
           role: "assistant",
           mode: payload.mode,
           status: "pending",
@@ -1096,26 +1202,29 @@ export function WorkshopWorkspace({
           errorMessage: null,
           createdAt: now,
         };
-        setMessages((current) => [...current, localAssistantMessage]);
+        appendLiveSessionMessages(callSessionId, [localAssistantMessage]);
         await api.workshop.runCallStream(
           seriesId,
-          activeSession.id,
+          callSessionId,
           payload,
           (event: WorkshopCallStreamEvent) => {
             if (event.type === "author-message") {
-              setMessages((current) => replaceMessageByIdentity(current, localAuthorMessage.id, event.message));
+              updateSessionMessages(
+                callSessionId,
+                (current) => replaceMessageByIdentity(current, localAuthorMessage.id, event.message),
+              );
               bindAttachmentsToMessage(event.message);
               return;
             }
             if (event.type === "metadata") {
-              setMessages((current) => patchMessage(current, assistantMessageId, {
+              updateSessionMessages(callSessionId, (current) => patchMessage(current, assistantMessageId, {
                 contextBundleId: event.contextBundleId,
                 modelCallId: event.modelCallId,
               }));
               return;
             }
             if (event.type === "delta") {
-              setMessages((current) => current.map((message) => (
+              updateSessionMessages(callSessionId, (current) => current.map((message) => (
                 message.id === assistantMessageId
                   ? { ...message, content: `${message.content}${event.text}` }
                   : message
@@ -1123,7 +1232,7 @@ export function WorkshopWorkspace({
               return;
             }
             if (event.type === "reasoning-delta") {
-              setMessages((current) => current.map((message) => (
+              updateSessionMessages(callSessionId, (current) => current.map((message) => (
                 message.id === assistantMessageId
                   ? { ...message, reasoningContent: `${message.reasoningContent ?? ""}${event.text}` }
                   : message
@@ -1131,7 +1240,10 @@ export function WorkshopWorkspace({
               return;
             }
             if (event.type === "assistant-message") {
-              setMessages((current) => replaceMessageByIdentity(current, assistantMessageId, event.message));
+              updateSessionMessages(
+                callSessionId,
+                (current) => replaceMessageByIdentity(current, assistantMessageId, event.message),
+              );
               assistantMessageId = event.message.id;
               updateSessionFromMessage(event.message);
               return;
@@ -1139,31 +1251,34 @@ export function WorkshopWorkspace({
             if (event.type === "error") {
               setError(event.message);
               if (event.assistantMessage) {
-                setMessages((current) => replaceMessageByIdentity(current, assistantMessageId, event.assistantMessage!));
+                updateSessionMessages(
+                  callSessionId,
+                  (current) => replaceMessageByIdentity(current, assistantMessageId, event.assistantMessage!),
+                );
                 assistantMessageId = event.assistantMessage.id;
                 updateSessionFromMessage(event.assistantMessage);
               }
               return;
             }
             if (event.type === "done") {
-              applyCallResult(event.result, localAuthorMessage.id, localAssistantId);
+              applyCallResult(callSessionId, event.result, localAuthorMessage.id, localAssistantId);
             }
           },
           abortController.signal,
         );
         return;
       }
-      const result = await api.workshop.runCall(seriesId, activeSession.id, payload, abortController.signal);
-      applyCallResult(result, localAuthorMessage.id);
+      const result = await api.workshop.runCall(seriesId, callSessionId, payload, abortController.signal);
+      applyCallResult(callSessionId, result, localAuthorMessage.id);
     } catch (caught) {
       if (isAbortError(caught)) {
         setError(null);
-        setMessages((current) => {
+        updateSessionMessages(callSessionId, (current) => {
           const stopped = {
             schemaVersion: 1 as const,
             id: randomId(),
             seriesId,
-            sessionId: activeSession.id,
+            sessionId: callSessionId,
             role: "assistant" as const,
             mode: payload.mode,
             status: "failed" as const,
@@ -1180,7 +1295,7 @@ export function WorkshopWorkspace({
           const pendingIndex = current.findIndex((message) =>
             message.role === "assistant" &&
             message.status === "pending" &&
-            message.sessionId === activeSession.id,
+            message.sessionId === callSessionId,
           );
           if (pendingIndex < 0) return [...current, stopped];
           return current.map((message, index) => index === pendingIndex ? stopped : message);
@@ -1189,13 +1304,13 @@ export function WorkshopWorkspace({
       }
       const message = apiErrorMessage(caught);
       setError(message);
-      setMessages((current) => [
+      updateSessionMessages(callSessionId, (current) => [
         ...current,
         {
           schemaVersion: 1,
           id: randomId(),
           seriesId,
-          sessionId: activeSession.id,
+          sessionId: callSessionId,
           role: "assistant",
           mode: payload.mode,
           status: "failed",
@@ -1876,7 +1991,7 @@ export function WorkshopWorkspace({
                 <button
                   className={`workshop-session-row${session.id === activeSessionId ? " is-active" : ""}`}
                   key={session.id}
-                  onClick={() => setActiveSessionId(session.id)}
+                  onClick={() => activateSession(session.id)}
                   onDoubleClick={() => startSessionTitleEdit(session)}
                   type="button"
                 >
@@ -1898,7 +2013,7 @@ export function WorkshopWorkspace({
             <div className="workshop-session-tools">
               <button
                 className="btn compact"
-                disabled={!activeSession}
+                disabled={!activeSession || deletingSessionId !== null || isCalling}
                 onClick={archiveSession}
                 type="button"
               >
@@ -1906,12 +2021,39 @@ export function WorkshopWorkspace({
               </button>
               <button
                 className="btn compact"
-                disabled={!activeSession || messages.length === 0}
+                disabled={!activeSession || messages.length === 0 || deletingSessionId !== null || isCalling}
                 onClick={branchFromLastMessage}
                 type="button"
               >
                 {text.branch}
               </button>
+              <div className="workshop-session-actions">
+                <button
+                  aria-expanded={isSessionActionsOpen}
+                  aria-label={text.labels.sessionActions}
+                  className="btn compact workshop-session-actions-trigger"
+                  disabled={!activeSession || deletingSessionId !== null || isCalling}
+                  onClick={() => setIsSessionActionsOpen((current) => !current)}
+                  type="button"
+                >
+                  ...
+                </button>
+                {isSessionActionsOpen ? (
+                  <div className="workshop-session-action-menu" role="menu">
+                    <button
+                      className="danger"
+                      disabled={!activeSession || deletingSessionId !== null || isCalling}
+                      onClick={() => void deleteSessionPermanently()}
+                      role="menuitem"
+                      type="button"
+                    >
+                      {deletingSessionId === activeSession?.id
+                        ? text.labels.deletingSession
+                        : text.labels.deleteSession}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
             <button className="btn workshop-import-thread" disabled type="button">{text.importThread}</button>
           </div>
