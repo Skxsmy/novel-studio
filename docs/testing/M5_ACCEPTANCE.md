@@ -1,6 +1,6 @@
 # M5 Acceptance Record
 
-Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings, message-attachment, context-delivery, UI-interaction, provider-reasoning, chat-layout, session-lifecycle, and streaming-session-switch repairs; M5.6 next; user visual acceptance pending
+Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings, message-attachment, context-delivery, UI-interaction, provider-reasoning, chat-layout, session-lifecycle, streaming-session-switch, and Review diff-workspace repairs; M5.6 next; user visual acceptance pending
 Created: 2026-06-30  
 Task: `docs/tasks/M5.md`
 
@@ -28,11 +28,11 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5-A10 | passed | Edit-and-accept preserves the original candidate and stores the edited result. Covered by storage/server tests. |
 | M5-A11 | passed | Batch preview excludes stale/conflicted items, same-scene intra-batch conflicts, and explains why. Covered by storage/server tests. |
 | M5-A12 | passed | Batch accept is bound to previewed Proposal revisions and reports completed, skipped, failed, and blocked items if any step fails. Covered by contract/storage/server/web tests. |
-| M5-A13 | passed | Review Inbox lists real Proposal data with filtering and no fake counts. Covered by web tests. |
+| M5-A13 | passed | Review pending queue lists real Proposal data and no fake counts; accepted/rejected/edited/stale Proposals are not kept in the pending working queue. Covered by web tests. |
 | M5-A14 | passed | Review Proposal Detail opens by exact Proposal ID. Covered by web tests. |
-| M5-A15 | passed | Review accept/reject/edit/stale actions call real APIs and update state. Review displays all patches before accepting and shows batch accept results. Covered by web/API tests. |
+| M5-A15 | passed | Review accept/reject/edit/stale actions call real APIs and update state. Review displays all patches before accepting, focuses the main path on before/after diff review, and keeps batch/impact dashboard controls out of the main review surface. Covered by web/API tests and source review. |
 | M5-A16 | passed | Review main path hides engineering audit fields while keeping details reachable. Covered by web tests and source review. |
-| M5-A17 | function passed; visual pending | Review implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
+| M5-A17 | function passed; visual pending | Review implementation was reset to the Figma-aligned pending queue plus before/after workspace direction and checked by component/source review plus web tests. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
 | M5-A18 | passed | Workshop sessions, messages, branches, and message attachments persist as schema-versioned JSON and reload after restart. Branch copies source message history through the branch point plus attachment snapshots into the new session instead of opening an empty chat. Unlinked messages can be deleted through storage/API/UI, while Proposal-linked messages remain protected. Whole Workshop sessions can now be permanently deleted through the session route/UI when no message is Proposal-linked; deletion cascades messages, attachments, context baskets, and branch records, and blocks Proposal-linked sessions. Draft attachment reload/delete, message binding, branch cloning, message-delete cascade, and session-delete cascade/blocking are covered by storage/server/web tests. |
 | M5-A19 | passed | Workshop selected context can add/remove/toggle allowed references through the compact composer menu, including full novel text, full outline, act, chapter, multiple scenes, direct Codex entries, and Codex grouped by type/detail/category. The internal storage object is still `WorkshopContextBasket`; the visible right-side basket panel has been removed. Covered by storage/server/web tests. |
 | M5-A20 | passed | Context assembly shows included/excluded items and respects permissions, future-story isolation, auto-linked Codex policy, per-detail Send to AI switches, parsed `message-attachment` ContextBundle snapshots, and prior same-session `workshop-chat-history`. Attachments do not create SourceDocuments or retrieval index records. Covered by contract/server/storage tests and source review. |
@@ -171,7 +171,7 @@ Focused command results during post-M5.5 audit repair:
 
 Post-M5.5 audit repair closed the retained local M5.1-M5.4 and M5.5 audit findings without advancing into M5.6:
 
-- Review exposes stale marking through the real API, displays every Proposal patch before accept/edit, and shows batch accept completed/skipped/blocked/failed results.
+- Review exposes stale marking through the real API, displays every Proposal patch before accept/edit, and the Proposal API reports batch accept completed/skipped/blocked/failed results. The later 2026-07-03 Review diff-workspace reset removes permanent batch controls from the main Review UI.
 - Scene-content Proposal patches now require base revisions; batch preview/accept is bound to reviewed Proposal revisions and detects same-scene intra-batch conflicts.
 - Proposal acceptance writes snapshot, target scene, and Proposal status through one file transaction before index refresh.
 - Proposal source availability validates workshop-message, context-bundle, and AI model-call references.
@@ -397,6 +397,22 @@ The repair closed these Workshop gaps:
 - Workshop sessions now have a permanent delete contract, storage method, Fastify route, web API method, and compact session actions menu entry.
 - Permanent delete cascades unlinked session messages, message attachments, context basket JSON, and branch records; it clears other sessions' branch source pointer when the referenced source message was deleted.
 - Sessions containing Proposal-linked messages are blocked from permanent delete with an explicit storage/API error instead of breaking Proposal source/audit references.
+
+Focused command results during the 2026-07-03 Review diff-workspace repair:
+
+- `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx`: passed, 1 file / 60 tests.
+- `npm.cmd run build -w @novel-studio/web`: passed.
+
+The Review diff-workspace repair closed these Review UI gaps:
+
+- The Review main route is no longer a four-column management dashboard with permanent Evidence, Impact, Batch Preview, and Batch Review panels.
+- The Review working queue shows pending Proposal records only; decided Proposals leave the pending queue after accept/reject/edit/stale actions.
+- Selecting a queue row opens the exact `/review/proposals/:id` route without a redundant `Open` button.
+- The main detail area prioritizes readable before/after diff panes for manuscript patches and field-level before/after rows for structured Codex-like patches.
+- Source, reason, and evidence remain available from a collapsed details section instead of occupying permanent side columns.
+- `Mark Stale` is exposed only for recoverable unavailable source/target states; ordinary valid Proposals show Reject, Edit and Accept, and Accept.
+- Workshop-to-Review source-message return remains available from the source/evidence details when the source message is available.
+- No agent-owned screenshot acceptance was run or claimed; user visual acceptance remains separate.
 
 ## M5.0 Startup Protection Mapping
 

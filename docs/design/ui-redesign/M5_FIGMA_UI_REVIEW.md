@@ -6,6 +6,8 @@ Status: design usability review only. This file does not mark M5 implementation 
 
 2026-07-03 availability note: during the Workshop chat-layout repair, Figma MCP could not load the previously recorded Workshop node `12:2`, and file metadata exposed only page `00 Cover`. The review below is retained as historical design evidence, but its page/node inventory must not be treated as current implementation-ready Figma structure until the Figma file is restored or a new node-specific source is accepted.
 
+2026-07-03 Review reset note: the earlier Review Inbox / Proposal Detail dashboard direction in this historical review was superseded after user review. The current accepted implementation direction for Review is the Figma `06 Review Workspace` page with app-shell context and two core frames, `Review / Manuscript Change - App Shell` and `Review / Codex Change - App Shell`: pending queue on the left, focused before/after diff in the work area, and source/evidence details collapsed rather than permanent side columns. The implementation record is in `docs/testing/M5_ACCEPTANCE.md`; user visual acceptance is still separate.
+
 ## Purpose
 
 This review checks whether the current M5 Figma design can be used as the implementation source for Workshop, Proposal, and Review work.

@@ -4215,31 +4215,29 @@ describe("App shell", () => {
       String(url) === `/api/v1/series/${seriesId}/review/proposals`,
     )).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(screen.queryByRole("button", { name: "Preview Batch" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Batch Review" })).toBeNull();
+    expect(screen.queryByText("Impact")).toBeNull();
+    expect(screen.queryByText("Proposal inbox")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Replace chase beat with continuity-safe escalation/u }));
     expect(window.location.hash).toBe(`#/review/proposals/${proposalId}`);
+    expect(screen.getByText("Before / After")).toBeTruthy();
     expect(screen.getByText("Captain Veyr shouted from the far arch, already knowing her name.")).toBeTruthy();
     expect(screen.getAllByText("Captain Veyr was not in the arcade. That mattered.").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Edit and Accept" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reject" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Mark Stale" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Mark Stale" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview Batch" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/review/proposals/batch-preview`,
+        `/api/v1/series/${seriesId}/review/proposals/${proposalId}/reject`,
         expect.objectContaining({ method: "POST" }),
       );
     });
-
-    fireEvent.click(screen.getByRole("button", { name: "Mark Stale" }));
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/review/proposals/${proposalId}/mark-stale`,
-        expect.objectContaining({ method: "POST" }),
-      );
-    });
-    expect(await screen.findByText("Marked stale during Review.")).toBeTruthy();
+    expect(await screen.findByText("No pending changes")).toBeTruthy();
   });
 
   it("shows a recoverable Review state when a Workshop source message is unavailable", async () => {
@@ -4255,7 +4253,7 @@ describe("App shell", () => {
         reason: "Workshop message does not exist",
       },
     });
-    mockFetch({ initialProposals: [unavailableProposal] });
+    const fetchMock = mockFetch({ initialProposals: [unavailableProposal] });
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
@@ -4265,6 +4263,13 @@ describe("App shell", () => {
     const unavailableButton = screen.getByRole("button", { name: "Source unavailable" });
     expect(unavailableButton).toHaveProperty("disabled", true);
     expect(screen.queryByRole("button", { name: "Go to Chat" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Mark Stale" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/review/proposals/${unavailableProposal.proposal.id}/mark-stale`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
   });
 
   it("keeps Workshop chat messages in one broad readable column", () => {
@@ -4391,6 +4396,7 @@ describe("App shell", () => {
     expect(await screen.findByRole("heading", { name: "Review" })).toBeTruthy();
     expect(screen.getAllByText("Workshop model response.").length).toBeGreaterThan(0);
 
+    fireEvent.click(screen.getByText("Source and evidence"));
     fireEvent.click(screen.getByRole("button", { name: "Go to Chat" }));
     await waitFor(() => {
       expect(window.location.hash).toBe(
@@ -4407,7 +4413,7 @@ describe("App shell", () => {
         expect.objectContaining({ method: "POST" }),
       );
     });
-    fireEvent.click(await screen.findByRole("button", { name: "Go to Chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
     expect(await screen.findByText("Accepted")).toBeTruthy();
   });
 
