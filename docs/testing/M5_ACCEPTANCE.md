@@ -1,6 +1,6 @@
 # M5 Acceptance Record
 
-Status: M5.1-M5.5 command/function verified; M5.6 next; user visual acceptance pending
+Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings repairs; M5.6 next; user visual acceptance pending
 Created: 2026-06-30  
 Task: `docs/tasks/M5.md`
 
@@ -33,12 +33,12 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5-A15 | passed | Review accept/reject/edit/stale actions call real APIs and update state. Review displays all patches before accepting and shows batch accept results. Covered by web/API tests. |
 | M5-A16 | passed | Review main path hides engineering audit fields while keeping details reachable. Covered by web tests and source review. |
 | M5-A17 | function passed; visual pending | Review implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
-| M5-A18 | passed | Workshop sessions and messages persist as schema-versioned JSON and reload after restart. Covered by storage/server/web tests. |
+| M5-A18 | passed | Workshop sessions and messages persist as schema-versioned JSON and reload after restart. Unlinked messages can be deleted through storage/API/UI, while Proposal-linked messages are protected. Covered by storage/server/web tests. |
 | M5-A19 | passed | Workshop selected context can add/remove/toggle allowed references through the compact composer menu, including full novel text, full outline, act, chapter, multiple scenes, direct Codex entries, and Codex grouped by type/detail/category. The internal storage object is still `WorkshopContextBasket`; the visible right-side basket panel has been removed. Covered by storage/server/web tests. |
 | M5-A20 | passed | Context assembly shows included/excluded items and respects permissions, future-story isolation, auto-linked Codex policy, and per-detail Send to AI switches. The Codex detail `Send to AI` audit confirmed the UI writes `detailAiContext`, storage persists it, and Context Builder omits disabled detail text from `ContextBundle` content. Covered by Workshop route/context tests. |
-| M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog. Workshop can choose a library-global model setting and send a provider model override for that call. General Chat is the default mode and sends the user-edited system prompt into Context Builder. Covered by server/web tests. |
-| M5-A22 | passed | Model failure preserves the input/context, displays the author's sent message immediately, and appends a failed assistant message instead of creating an empty Proposal. Covered by server/web tests. |
-| M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Covered by web tests and source review. |
+| M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog. Workshop can choose a library-global model setting and send a provider model override for that call. General Chat is the default mode, sends only the visible user-edited system prompt without a hidden fallback prompt, can use streaming, and separates `<think>`/`<thinking>` reasoning from visible answer text. Covered by contract/server/web tests. |
+| M5-A22 | passed | Model failure preserves the input/context, displays the author's sent message immediately, and appends a failed assistant message instead of creating an empty Proposal. Streaming failure also leaves a recoverable failed assistant message. Covered by server/web tests. |
+| M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Mode, model setting, provider model override, system prompt, streaming, and reasoning-display controls are centralized in one settings dialog; reasoning is distinct and collapsible; Enter sends and Ctrl+Enter inserts a newline. Covered by web tests and source review. |
 | M5-A24 | function passed; visual pending | Workshop implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
 | M5-A25 | passed | Workshop message output can create a Proposal linked to that exact source message. Proposal creation and message `proposalIds` update are written transactionally. Covered by storage/server/web tests. |
 | M5-A26 | passed | Proposal cards deep-link to exact Review Proposal Detail by Proposal ID. Covered by web tests. |
@@ -245,6 +245,30 @@ The repair closed these Workshop General Chat gaps:
 - General Chat is the default mode and can use a user-edited system prompt.
 - General Chat replies do not expose Create Proposal in the UI, and storage/API reject Proposal creation if called directly.
 - Mode and Model controls are in the Conversation header, and the system prompt editor is not a cramped permanent footer textarea; it opens from a compact footer button into a larger popover editor.
+
+Focused command results during the 2026-07-03 Workshop chat/settings repair:
+
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run test -w @novel-studio/contracts -- test/workshop.test.ts`: passed.
+- `npm.cmd run build -w @novel-studio/storage`: passed.
+- `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts`: passed.
+- `npm.cmd run build -w @novel-studio/ai`: passed.
+- `npm.cmd run build -w @novel-studio/server`: passed.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts test/context-routes.test.ts`: passed.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: passed, 1 file / 54 tests.
+- `npm.cmd run build -w @novel-studio/web`: passed.
+- `git diff --check`: passed with Windows line-ending warnings only.
+
+The 2026-07-03 repair closed these Workshop chat/settings gaps:
+
+- Workshop sessions no longer bind a default scene; context is assembled from explicit user-selected context items.
+- General Chat provider calls use the visible custom system prompt exactly, including an intentionally empty prompt, and remove role-instruction/prompt-template/user-request context items from the provider context bundle.
+- General Chat can stream assistant output and splits `<think>`/`<thinking>` spans into `reasoningContent` instead of mixing them with visible answer text.
+- Reasoning display is styled differently from answer text and can be expanded/collapsed per message, with a global default controlled in Workshop settings.
+- Unlinked Workshop messages can be deleted, while Proposal-linked messages remain protected.
+- The duplicate user-message regression was fixed by merging local optimistic IDs and server IDs into one message.
+- Enter sends the composer message; Ctrl+Enter preserves newline insertion; IME composition Enter is not treated as Send.
+- Mode, model setting, provider model override, system prompt, streaming, and reasoning-display controls are centralized in a settings dialog instead of scattered through header/footer controls.
 
 ## M5.0 Startup Protection Mapping
 

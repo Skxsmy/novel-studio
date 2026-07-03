@@ -123,7 +123,7 @@ export const ContextPreviewSelectionSchema = z.object({
 export type ContextPreviewSelection = z.infer<typeof ContextPreviewSelectionSchema>;
 
 export const ContextPreviewInputSchema = z.object({
-  sceneId: z.string().uuid(),
+  sceneId: z.string().uuid().nullable().default(null),
   blockId: z.string().uuid().nullable().default(null),
   roleId: z.string().min(1).max(120).default("continuity-editor"),
   taskKind: AiTaskKindSchema.default("continuity-check"),

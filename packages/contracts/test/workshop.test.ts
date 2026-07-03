@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   RunWorkshopCallInputSchema,
+  WorkshopCallStreamEventSchema,
   WorkshopContextBasketSchema,
   WorkshopMessageSchema,
   WorkshopSessionSchema,
@@ -32,6 +33,20 @@ describe("M5 Workshop contracts", () => {
       createdAt: now,
     });
     expect(message.proposalIds).toEqual([]);
+    expect(message.reasoningContent).toBe("");
+  });
+
+  it("validates Workshop stream events with visible reasoning deltas", () => {
+    const reasoning = WorkshopCallStreamEventSchema.parse({
+      type: "reasoning-delta",
+      text: "Checked the selected context before answering.",
+    });
+    expect(reasoning).toMatchObject({ type: "reasoning-delta" });
+    const delta = WorkshopCallStreamEventSchema.parse({
+      type: "delta",
+      text: "Visible answer.",
+    });
+    expect(delta).toMatchObject({ type: "delta" });
   });
 
   it("rejects duplicate basket item IDs and source-less non-note refs", () => {

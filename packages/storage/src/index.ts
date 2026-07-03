@@ -26,6 +26,7 @@ import {
   DeleteCodexEntryResultSchema,
   DeleteCodexDetailTypeResultSchema,
   DeleteCodexProgressionResultSchema,
+  DeleteWorkshopMessageResultSchema,
   DeleteSeriesInputSchema,
   DeleteSeriesResultSchema,
   DeleteSceneProgressionBlockInputSchema,
@@ -172,6 +173,7 @@ import {
   type DeleteCodexEntryResult,
   type DeleteCodexDetailTypeResult,
   type DeleteCodexProgressionResult,
+  type DeleteWorkshopMessageResult,
   type DeleteSeriesInput,
   type DeleteSeriesResult,
   type DeleteSceneProgressionBlockInput,
@@ -318,6 +320,7 @@ import {
   readWorkshopMessageFile,
   readWorkshopSessionFile,
   workshopMessagePath,
+  workshopSessionPath,
   writeWorkshopContextBasketFile,
   writeWorkshopMessageFile,
   writeWorkshopSessionFile,
@@ -338,6 +341,7 @@ const PLANNING_DIR = "planning";
 const TIMELINE_FILE = "timeline.json";
 const TIMELINE_EVENTS_DIR = "events";
 const SECTIONS_DIR = "sections";
+const WORKSHOP_UNBOUND_CONTEXT_SCENE_ID = "00000000-0000-4000-8000-000000000000";
 const REVIEW_DIR = "review";
 const ANCHORS_DIR = "anchors";
 const CODEX_DIR = "codex";
@@ -4041,6 +4045,56 @@ export class ProjectRepository {
     return created;
   }
 
+  async deleteWorkshopMessage(
+    seriesId: string,
+    sessionId: string,
+    messageId: string,
+  ): Promise<DeleteWorkshopMessageResult> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+    if (session.seriesId !== seriesId) {
+      throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", {
+        sessionId,
+      });
+    }
+    if (session.status === "archived") {
+      throw new StorageError("Archived Workshop session cannot delete messages", "INVALID_DATA", {
+        sessionId,
+      });
+    }
+    const message = await readWorkshopMessageFile(seriesRoot, messageId);
+    if (message.seriesId !== seriesId || message.sessionId !== sessionId) {
+      throw new StorageError("Workshop message does not belong to the requested session", "INVALID_DATA", {
+        sessionId,
+        messageId,
+      });
+    }
+    if (message.proposalIds.length > 0) {
+      throw new StorageError("Workshop messages linked to Proposals cannot be deleted", "INVALID_DATA", {
+        messageId,
+        proposalIds: message.proposalIds,
+      });
+    }
+
+    const remainingMessages = (await listWorkshopMessageFiles(seriesRoot, sessionId))
+      .filter((item) => item.id !== message.id);
+    const lastMessage = remainingMessages.at(-1) ?? null;
+    const now = new Date().toISOString();
+    const nextSession = WorkshopSessionSchema.parse({
+      ...session,
+      lastMessageAt: lastMessage?.createdAt ?? null,
+      updatedAt: now,
+    });
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: workshopMessagePath(seriesRoot, message.id), delete: true },
+      { targetPath: workshopSessionPath(seriesRoot, session.id), content: serializeJsonAuthority(nextSession) },
+    ]);
+    return DeleteWorkshopMessageResultSchema.parse({
+      deletedId: message.id,
+      session: await readWorkshopSessionFile(seriesRoot, session.id),
+    });
+  }
+
   async createProposalFromWorkshopMessage(
     seriesId: string,
     sessionId: string,
@@ -5824,11 +5878,12 @@ export class ProjectRepository {
     const linkedIds = new Set<string>();
     if (scopeTexts.length > 0) {
       const combined = scopeTexts.join("\n\n");
-      const mentionSceneId = basket.sceneId ?? series.scenes[0]?.metadata.id;
       const mentionedIds = new Set(
-        mentionSceneId
-          ? findCodexMentionsInContent(mentionSceneId, combined, entries).mentions.map((mention) => mention.entryId)
-          : [],
+        findCodexMentionsInContent(
+          basket.sceneId ?? WORKSHOP_UNBOUND_CONTEXT_SCENE_ID,
+          combined,
+          entries,
+        ).mentions.map((mention) => mention.entryId),
       );
       for (const entry of entries) {
         if (entry.metadata.aiContextPolicy === "always") {

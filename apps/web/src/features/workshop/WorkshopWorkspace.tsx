@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
 import type {
   CodexCategoryDocument,
   CodexDetailTypeDocument,
@@ -11,6 +11,7 @@ import type {
   SeriesDetail,
   WorkshopContextBasket,
   WorkshopContextItemRef,
+  WorkshopCallStreamEvent,
   WorkshopMessage,
   WorkshopMode,
   WorkshopSession,
@@ -222,13 +223,11 @@ function selectedScopeTexts(
 export function WorkshopWorkspace({
   onOpenProposal,
   selectedMessageId,
-  selectedScene,
   selectedSessionId,
   series,
 }: WorkshopWorkspaceProps) {
   const text = uiText.workshop;
   const seriesId = series.manifest.id;
-  const defaultScene = selectedScene ?? series.scenes[0] ?? null;
   const [sessions, setSessions] = useState<WorkshopSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<WorkshopMessage[]>([]);
@@ -239,8 +238,7 @@ export function WorkshopWorkspace({
   const [basket, setBasket] = useState<WorkshopContextBasket | null>(null);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const [contextMenuView, setContextMenuView] = useState<ContextMenuView>({ kind: "root" });
-  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
-  const [isSystemPromptMenuOpen, setIsSystemPromptMenuOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
   const [selectedModelProfileId, setSelectedModelProfileId] = useState<string | null>(null);
   const [selectedModelId, setSelectedModelId] = useState("");
@@ -255,6 +253,10 @@ export function WorkshopWorkspace({
   const [isCalling, setIsCalling] = useState(false);
   const [isFetchingProviderModels, setIsFetchingProviderModels] = useState(false);
   const [creatingProposalMessageId, setCreatingProposalMessageId] = useState<string | null>(null);
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const [reasoningOverrideIds, setReasoningOverrideIds] = useState<Set<string>>(() => new Set());
+  const [useStreamingResponses, setUseStreamingResponses] = useState(true);
+  const [showReasoningByDefault, setShowReasoningByDefault] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const activeSession = useMemo(
@@ -308,14 +310,18 @@ export function WorkshopWorkspace({
   const selectedPromptTemplate = workshopMode === "general-chat"
     ? generalPromptTemplate
     : continuityPromptTemplate;
-  const contextScene = useMemo(
-    () => (
-      basket?.sceneId
-        ? series.scenes.find((scene) => scene.metadata.id === basket.sceneId) ?? defaultScene
-        : defaultScene
-    ),
-    [basket?.sceneId, defaultScene, series.scenes],
-  );
+  const contextItems = basket?.items ?? [];
+  const contextScene = useMemo(() => {
+    if (basket?.sceneId) {
+      return series.scenes.find((scene) => scene.metadata.id === basket.sceneId) ?? null;
+    }
+    const selectedSceneIds = contextItems
+      .filter((item) => item.kind === "scene" && item.sourceId)
+      .map((item) => item.sourceId!);
+    const uniqueSceneIds = [...new Set(selectedSceneIds)];
+    if (uniqueSceneIds.length !== 1) return null;
+    return series.scenes.find((scene) => scene.metadata.id === uniqueSceneIds[0]) ?? null;
+  }, [basket?.sceneId, contextItems, series.scenes]);
   const activeCodexEntries = useMemo(
     () => codexEntries.filter((entry) => !entry.metadata.archivedAt),
     [codexEntries],
@@ -358,7 +364,6 @@ export function WorkshopWorkspace({
       .filter((group) => group.count > 0),
     [activeCodexDetailTypes, activeCodexEntries],
   );
-  const contextItems = basket?.items ?? [];
   const contextChips = useMemo(() => {
     const chips: string[] = [];
     const hasCurrentScene = Boolean(basket?.sceneId);
@@ -423,9 +428,53 @@ export function WorkshopWorkspace({
     modelOptions.find((option) => option.value === selectedModelId)?.label ??
     selectedModelProfile?.model ??
     text.labels.modelProfileMissing;
-  const selectedRoleLabel = workshopMode === "general-chat"
-    ? text.modes.generalChat
-    : text.modes.continuityCheck;
+
+  function updateSessionFromMessage(message: WorkshopMessage) {
+    setSessions((current) => current.map((session) => (
+      session.id === message.sessionId
+        ? {
+          ...session,
+          lastMessageAt: message.createdAt,
+          updatedAt: message.createdAt,
+        }
+        : session
+    )));
+  }
+
+  function replaceMessageByIdentity(
+    current: WorkshopMessage[],
+    localId: string,
+    message: WorkshopMessage,
+  ): WorkshopMessage[] {
+    const targetIds = new Set([localId, message.id]);
+    const firstIndex = current.findIndex((item) => targetIds.has(item.id));
+    if (firstIndex < 0) return [...current, message];
+    const next = current.filter((item) => !targetIds.has(item.id));
+    next.splice(firstIndex, 0, message);
+    return next;
+  }
+
+  function patchMessage(
+    current: WorkshopMessage[],
+    messageId: string,
+    patch: Partial<WorkshopMessage>,
+  ): WorkshopMessage[] {
+    return current.map((message) => (
+      message.id === messageId ? { ...message, ...patch } : message
+    ));
+  }
+
+  function applyCallResult(
+    result: { authorMessage: WorkshopMessage; assistantMessage: WorkshopMessage },
+    localAuthorId = result.authorMessage.id,
+    localAssistantId = result.assistantMessage.id,
+  ) {
+    setMessages((current) => {
+      const withAuthor = replaceMessageByIdentity(current, localAuthorId, result.authorMessage);
+      return replaceMessageByIdentity(withAuthor, localAssistantId, result.assistantMessage);
+    });
+    updateSessionFromMessage(result.assistantMessage);
+  }
 
   async function loadShell(preferredSessionId?: string) {
     setIsLoading(true);
@@ -456,7 +505,7 @@ export function WorkshopWorkspace({
           ? activeSessionId
           : nextSessions.find((session) => session.status === "active")?.id ?? nextSessions[0]?.id ?? null);
       setActiveSessionId(nextActive);
-      setIsModelMenuOpen(false);
+      setIsSettingsOpen(false);
     } catch (caught) {
       setError(apiErrorMessage(caught));
     } finally {
@@ -541,7 +590,7 @@ export function WorkshopWorkspace({
     try {
       const created = await api.workshop.createSession(seriesId, {
         title: text.defaultSessionTitle,
-        sceneId: defaultScene?.metadata.id ?? null,
+        sceneId: null,
       });
       await loadShell(created.id);
     } catch (caught) {
@@ -746,7 +795,7 @@ export function WorkshopWorkspace({
   }
 
   async function sendMessage() {
-    if (!activeSession || !selectedModelProfile || !selectedPromptTemplate || !composer.trim()) return;
+    if (!activeSession || !selectedModelProfile || !selectedPromptTemplate || !composer.trim() || isCalling) return;
     const requestText = composer.trim();
     const payload = {
       ...previewPayload(requestText),
@@ -762,6 +811,7 @@ export function WorkshopWorkspace({
       mode: payload.mode,
       status: "succeeded",
       content: requestText,
+      reasoningContent: "",
       contextBundleId: null,
       modelCallId: null,
       proposalIds: [],
@@ -774,34 +824,85 @@ export function WorkshopWorkspace({
     setMessages((current) => [...current, localAuthorMessage]);
     setComposer("");
     setIsContextMenuOpen(false);
-    setIsModelMenuOpen(false);
-    setIsSystemPromptMenuOpen(false);
+    setIsSettingsOpen(false);
     try {
+      if (payload.mode === "general-chat" && useStreamingResponses) {
+        const localAssistantId = randomId();
+        let assistantMessageId = localAssistantId;
+        const localAssistantMessage: WorkshopMessage = {
+          schemaVersion: 1,
+          id: localAssistantId,
+          seriesId,
+          sessionId: activeSession.id,
+          role: "assistant",
+          mode: payload.mode,
+          status: "pending",
+          content: "",
+          reasoningContent: "",
+          contextBundleId: null,
+          modelCallId: null,
+          proposalIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: now,
+        };
+        setMessages((current) => [...current, localAssistantMessage]);
+        await api.workshop.runCallStream(
+          seriesId,
+          activeSession.id,
+          payload,
+          (event: WorkshopCallStreamEvent) => {
+            if (event.type === "author-message") {
+              setMessages((current) => replaceMessageByIdentity(current, localAuthorMessage.id, event.message));
+              return;
+            }
+            if (event.type === "metadata") {
+              setMessages((current) => patchMessage(current, assistantMessageId, {
+                contextBundleId: event.contextBundleId,
+                modelCallId: event.modelCallId,
+              }));
+              return;
+            }
+            if (event.type === "delta") {
+              setMessages((current) => current.map((message) => (
+                message.id === assistantMessageId
+                  ? { ...message, content: `${message.content}${event.text}` }
+                  : message
+              )));
+              return;
+            }
+            if (event.type === "reasoning-delta") {
+              setMessages((current) => current.map((message) => (
+                message.id === assistantMessageId
+                  ? { ...message, reasoningContent: `${message.reasoningContent ?? ""}${event.text}` }
+                  : message
+              )));
+              return;
+            }
+            if (event.type === "assistant-message") {
+              setMessages((current) => replaceMessageByIdentity(current, assistantMessageId, event.message));
+              assistantMessageId = event.message.id;
+              updateSessionFromMessage(event.message);
+              return;
+            }
+            if (event.type === "error") {
+              setError(event.message);
+              if (event.assistantMessage) {
+                setMessages((current) => replaceMessageByIdentity(current, assistantMessageId, event.assistantMessage!));
+                assistantMessageId = event.assistantMessage.id;
+                updateSessionFromMessage(event.assistantMessage);
+              }
+              return;
+            }
+            if (event.type === "done") {
+              applyCallResult(event.result, localAuthorMessage.id, localAssistantId);
+            }
+          },
+        );
+        return;
+      }
       const result = await api.workshop.runCall(seriesId, activeSession.id, payload);
-      setMessages((current) => {
-        let replacedLocalAuthor = false;
-        const next = current.flatMap((message) => {
-          if (message.id !== localAuthorMessage.id) return [message];
-          replacedLocalAuthor = true;
-          return [result.authorMessage, result.assistantMessage];
-        });
-        if (replacedLocalAuthor) return next;
-        const withAuthor = next.some((message) => message.id === result.authorMessage.id)
-          ? next
-          : [...next, result.authorMessage];
-        return withAuthor.some((message) => message.id === result.assistantMessage.id)
-          ? withAuthor
-          : [...withAuthor, result.assistantMessage];
-      });
-      setSessions((current) => current.map((session) => (
-        session.id === activeSession.id
-          ? {
-            ...session,
-            lastMessageAt: result.assistantMessage.createdAt,
-            updatedAt: result.assistantMessage.createdAt,
-          }
-          : session
-      )));
+      applyCallResult(result, localAuthorMessage.id);
     } catch (caught) {
       const message = apiErrorMessage(caught);
       setError(message);
@@ -816,6 +917,7 @@ export function WorkshopWorkspace({
           mode: payload.mode,
           status: "failed",
           content: text.labels.assistantFailed,
+          reasoningContent: "",
           contextBundleId: null,
           modelCallId: null,
           proposalIds: [],
@@ -827,6 +929,14 @@ export function WorkshopWorkspace({
     } finally {
       setIsCalling(false);
     }
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter") return;
+    if (event.ctrlKey) return;
+    if ((event.nativeEvent as { isComposing?: boolean }).isComposing) return;
+    event.preventDefault();
+    if (canCall) void sendMessage();
   }
 
   function proposalInputFromMessage(message: WorkshopMessage) {
@@ -892,6 +1002,45 @@ export function WorkshopWorkspace({
     } finally {
       setCreatingProposalMessageId(null);
     }
+  }
+
+  async function deleteMessage(message: WorkshopMessage) {
+    if (!activeSession) return;
+    setDeletingMessageId(message.id);
+    setError(null);
+    try {
+      const result = await api.workshop.deleteMessage(seriesId, activeSession.id, message.id);
+      setMessages((current) => current.filter((item) => item.id !== result.deletedId));
+      setSessions((current) => current.map((session) => (
+        session.id === result.session.id ? result.session : session
+      )));
+      setReasoningOverrideIds((current) => {
+        const next = new Set(current);
+        next.delete(result.deletedId);
+        return next;
+      });
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setDeletingMessageId(null);
+    }
+  }
+
+  function toggleReasoning(messageId: string) {
+    setReasoningOverrideIds((current) => {
+      const next = new Set(current);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  }
+
+  function setShowReasoningDefault(nextValue: boolean) {
+    setShowReasoningByDefault(nextValue);
+    setReasoningOverrideIds(new Set());
   }
 
   function entriesForCategory(categoryId: string) {
@@ -1261,22 +1410,45 @@ export function WorkshopWorkspace({
     );
   }
 
-  function renderModelPicker() {
+  function renderSettingsDialog() {
+    if (!isSettingsOpen) return null;
     return (
-      <div className="workshop-model-picker">
-        <button
-          aria-expanded={isModelMenuOpen}
-          aria-label={text.labels.modelPicker}
-          className="btn compact workshop-model-trigger"
-          disabled={activeModelProfiles.length === 0}
-          onClick={() => setIsModelMenuOpen((current) => !current)}
-          type="button"
+      <div className="workshop-settings-backdrop" role="presentation">
+        <section
+          aria-labelledby="workshop-settings-title"
+          aria-modal="true"
+          className="workshop-settings-dialog"
+          role="dialog"
         >
-          {selectedModelLabel}
-        </button>
-        {isModelMenuOpen ? (
-          <div className="workshop-model-menu" aria-label="Workshop model controls">
-            <label className="workshop-model-field">
+          <div className="workshop-settings-head">
+            <div>
+              <h3 id="workshop-settings-title">{text.labels.settingsTitle}</h3>
+              <p>{selectedModelLabel}</p>
+            </div>
+            <button
+              aria-label={text.labels.closeSettings}
+              className="btn compact"
+              onClick={() => setIsSettingsOpen(false)}
+              type="button"
+            >
+              {text.labels.closeSettings}
+            </button>
+          </div>
+          <div className="workshop-settings-body">
+            <label className="workshop-settings-field">
+              <span>{text.labels.mode}</span>
+              <select
+                aria-label={text.labels.mode}
+                className="input"
+                disabled={!activeSession || activeSession.status !== "active"}
+                onChange={(event) => setWorkshopMode(event.target.value as WorkshopMode)}
+                value={workshopMode}
+              >
+                <option value="general-chat">{text.modes.generalChat}</option>
+                <option value="continuity-check">{text.modes.continuityCheck}</option>
+              </select>
+            </label>
+            <label className="workshop-settings-field">
               <span>{text.labels.modelSetting}</span>
               <select
                 aria-label={text.labels.modelSetting}
@@ -1295,33 +1467,61 @@ export function WorkshopWorkspace({
                 ))}
               </select>
             </label>
-            <label className="workshop-model-field">
-              <span>{text.labels.model}</span>
-              <select
-                aria-label={text.labels.model}
-                className="input"
-                disabled={!selectedModelProfile}
-                onChange={(event) => setSelectedModelId(event.target.value)}
-                value={selectedModelId}
+            <div className="workshop-settings-row">
+              <label className="workshop-settings-field">
+                <span>{text.labels.model}</span>
+                <select
+                  aria-label={text.labels.model}
+                  className="input"
+                  disabled={!selectedModelProfile}
+                  onChange={(event) => setSelectedModelId(event.target.value)}
+                  value={selectedModelId}
+                >
+                  {!selectedModelProfile ? (
+                    <option value="">{text.labels.modelProfileMissing}</option>
+                  ) : null}
+                  {modelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="btn compact workshop-settings-fetch"
+                disabled={!selectedModelProfile || isFetchingProviderModels}
+                onClick={() => void fetchProviderModels()}
+                type="button"
               >
-                {!selectedModelProfile ? (
-                  <option value="">{text.labels.modelProfileMissing}</option>
-                ) : null}
-                {modelOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
+                {isFetchingProviderModels ? text.labels.modelListLoading : text.fetchModels}
+              </button>
+            </div>
+            <label className="workshop-settings-field">
+              <span>{text.labels.generalSystemPrompt}</span>
+              <textarea
+                aria-label={text.labels.generalSystemPrompt}
+                className="input workshop-settings-prompt"
+                disabled={workshopMode !== "general-chat"}
+                onChange={(event) => setGeneralSystemPrompt(event.target.value)}
+                value={generalSystemPrompt}
+              />
             </label>
-            <button
-              className="btn compact"
-              disabled={!selectedModelProfile || isFetchingProviderModels}
-              onClick={() => void fetchProviderModels()}
-              type="button"
-            >
-              {isFetchingProviderModels ? text.labels.modelListLoading : text.fetchModels}
-            </button>
+            <label className="workshop-settings-toggle">
+              <input
+                checked={useStreamingResponses}
+                onChange={(event) => setUseStreamingResponses(event.target.checked)}
+                type="checkbox"
+              />
+              <span>{text.labels.streamResponses}</span>
+            </label>
+            <label className="workshop-settings-toggle">
+              <input
+                checked={showReasoningByDefault}
+                onChange={(event) => setShowReasoningDefault(event.target.checked)}
+                type="checkbox"
+              />
+              <span>{text.labels.showReasoningByDefault}</span>
+            </label>
           </div>
-        ) : null}
+        </section>
       </div>
     );
   }
@@ -1334,6 +1534,7 @@ export function WorkshopWorkspace({
           <p className="page-subtitle">{text.subtitle}</p>
         </div>
       </div>
+      {renderSettingsDialog()}
       {error ? <p className="alert">{error}</p> : null}
       <div className="workshop-grid">
         <aside className="panel no-shadow workshop-sessions">
@@ -1402,23 +1603,14 @@ export function WorkshopWorkspace({
               <div className="panel-kicker">{text.conversationKicker}</div>
             </div>
             <div className="workshop-head-controls">
-              <label className="workshop-mode-field">
-                <span>{text.labels.mode}</span>
-                <select
-                  aria-label={text.labels.mode}
-                  className="input workshop-mode-select"
-                  disabled={!activeSession || activeSession.status !== "active"}
-                  onChange={(event) => {
-                    setWorkshopMode(event.target.value as WorkshopMode);
-                    setIsSystemPromptMenuOpen(false);
-                  }}
-                  value={workshopMode}
-                >
-                  <option value="general-chat">{text.modes.generalChat}</option>
-                  <option value="continuity-check">{text.modes.continuityCheck}</option>
-                </select>
-              </label>
-              {renderModelPicker()}
+              <button
+                aria-expanded={isSettingsOpen}
+                className="btn compact workshop-settings-trigger"
+                onClick={() => setIsSettingsOpen(true)}
+                type="button"
+              >
+                {text.labels.settings}
+              </button>
             </div>
           </div>
           <div className="message-stack">
@@ -1435,18 +1627,55 @@ export function WorkshopWorkspace({
                 <p>{text.conversationEmptyBody}</p>
               </div>
             ) : null}
-            {messages.map((message) => (
-              <article
-                className={`message${message.role === "author" ? " user" : ""}${message.status === "failed" ? " is-failed" : ""}${message.id === selectedMessageId ? " is-target" : ""}`}
-                key={message.id}
-              >
-                <div className="message-meta">
-                  <span className={message.status === "failed" ? "pill amber" : "pill muted"}>
-                    {text.roles[message.role]}
-                  </span>
-                  <span>{formatDate(message.createdAt)}</span>
-                </div>
-                <p>{message.content}</p>
+            {messages.map((message) => {
+              const reasoningContent = (message.reasoningContent ?? "").trim();
+              const hasReasoningOverride = reasoningOverrideIds.has(message.id);
+              const isReasoningExpanded = showReasoningByDefault
+                ? !hasReasoningOverride
+                : hasReasoningOverride;
+              const canDeleteMessage = activeSession?.status === "active" &&
+                message.mode === "general-chat" &&
+                message.proposalIds.length === 0 &&
+                message.status !== "pending";
+              return (
+                <article
+                  className={`message${message.role === "author" ? " user" : ""}${message.status === "failed" ? " is-failed" : ""}${message.status === "pending" ? " is-streaming" : ""}${message.id === selectedMessageId ? " is-target" : ""}`}
+                  key={message.id}
+                >
+                  <div className="message-meta">
+                    <span className={message.status === "failed" ? "pill amber" : message.status === "pending" ? "pill blue" : "pill muted"}>
+                      {message.status === "pending" ? text.statusLabels.pending : text.roles[message.role]}
+                    </span>
+                    <span>{formatDate(message.createdAt)}</span>
+                    <div className="message-toolbar">
+                      {reasoningContent ? (
+                        <button
+                          className="btn compact subtle"
+                          onClick={() => toggleReasoning(message.id)}
+                          type="button"
+                        >
+                          {isReasoningExpanded ? text.labels.hideReasoning : text.labels.showReasoning}
+                        </button>
+                      ) : null}
+                      {canDeleteMessage ? (
+                        <button
+                          className="btn compact subtle"
+                          disabled={deletingMessageId !== null}
+                          onClick={() => void deleteMessage(message)}
+                          type="button"
+                        >
+                          {deletingMessageId === message.id ? text.labels.deletingMessage : text.labels.deleteMessage}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  {reasoningContent && isReasoningExpanded ? (
+                    <div className="message-reasoning">
+                      <div>{text.labels.reasoning}</div>
+                      <p>{reasoningContent}</p>
+                    </div>
+                  ) : null}
+                  <p>{message.content || (message.status === "pending" ? text.labels.streaming : "")}</p>
                 {message.status === "failed" ? (
                   <p className="message-error">{message.errorMessage ?? text.labels.assistantFailed}</p>
                 ) : null}
@@ -1524,8 +1753,9 @@ export function WorkshopWorkspace({
                     </button>
                   </div>
                 ) : null}
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
           <div className="composer workshop-composer">
             <div className="workshop-composer-context">
@@ -1555,41 +1785,13 @@ export function WorkshopWorkspace({
               aria-label="Workshop message"
               className="input workshop-composer-input"
               disabled={!activeSession || activeSession.status !== "active"}
+              onKeyDown={handleComposerKeyDown}
               onChange={(event) => setComposer(event.target.value)}
               placeholder={text.inputPlaceholder}
               value={composer}
             />
             <div className="workshop-composer-foot">
-              <div className="workshop-footer-controls">
-                {workshopMode === "general-chat" ? (
-                  <div className="workshop-system-prompt-picker">
-                    <button
-                      aria-expanded={isSystemPromptMenuOpen}
-                      className="btn compact workshop-system-prompt-trigger"
-                      disabled={!activeSession || activeSession.status !== "active"}
-                      onClick={() => setIsSystemPromptMenuOpen((current) => !current)}
-                      type="button"
-                    >
-                      {text.labels.systemPrompt}
-                    </button>
-                    {isSystemPromptMenuOpen ? (
-                      <div className="workshop-system-prompt-menu">
-                        <label className="workshop-system-prompt-field">
-                          <span>{text.labels.systemPrompt}</span>
-                          <textarea
-                            aria-label={text.labels.generalSystemPrompt}
-                            className="input workshop-system-prompt-input"
-                            onChange={(event) => setGeneralSystemPrompt(event.target.value)}
-                            value={generalSystemPrompt}
-                          />
-                        </label>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <span className="pill muted workshop-mode-pill">{selectedRoleLabel}</span>
-                )}
-              </div>
+              <div className="workshop-footer-controls" />
               <div className="workshop-composer-actions">
                 <button className="btn primary workshop-send-button" disabled={!canCall} onClick={sendMessage} type="button">
                   {isCalling ? text.labels.sending : text.send}

@@ -79,7 +79,7 @@
 
 覆盖：全部角色、单角色调用、独立会审、Workshop、Proposal、Review、正文候选和后台分析策略。
 
-完成标准：Proposal/Review 闭环先可用，Workshop 作为可靠 Proposal 来源进入闭环；Workshop 上下文选择必须支持折叠菜单式选择全书、全书大纲、幕、章、多个场景和 Codex，并让按规则自动加入的 Codex 与后端实际请求保持可见一致；Codex detail 的发送开关必须实际影响 Context Bundle；两个编辑独立评审产生可见分歧；候选应用前磁盘不变；过期 Proposal 被拒；事实提取进入收件箱而非 Canon；Tool Plan 只有在用户明确授权后才能通过共享命令适配器操作 Write/Codex，或退回 Proposal。
+完成标准：Proposal/Review 闭环先可用，Workshop 作为可靠 Proposal 来源进入闭环；Workshop 上下文选择必须支持折叠菜单式选择全书、全书大纲、幕、章、多个场景和 Codex，并让按规则自动加入的 Codex 与后端实际请求保持可见一致；Codex detail 的发送开关必须实际影响 Context Bundle；General Chat 不默认绑定场景、不暴露 Proposal 操作、system prompt 完整可见且无隐藏追加 prompt，流式 reasoning 与正式回答分离并可折叠；两个编辑独立评审产生可见分歧；候选应用前磁盘不变；过期 Proposal 被拒；事实提取进入收件箱而非 Canon；Tool Plan 只有在用户明确授权后才能通过共享命令适配器操作 Write/Codex，或退回 Proposal。
 
 验收 ID：`M5-A01` 至 `M5-A45`，详见 `docs/testing/M5_ACCEPTANCE.md`。
 

@@ -5,12 +5,14 @@ import type {
   CreateWorkshopMessageProposalInput,
   CreateWorkshopMessageInput,
   CreateWorkshopSessionInput,
+  DeleteWorkshopMessageResult,
   PromptTemplate,
   RunWorkshopCallInput,
   UpdateWorkshopContextBasketInput,
   UpdateWorkshopSessionInput,
   WorkshopBranch,
   WorkshopCallResult,
+  WorkshopCallStreamEvent,
   WorkshopContextBasket,
   WorkshopContextPreviewInput,
   WorkshopMessage,
@@ -73,6 +75,12 @@ export function createWorkshopApi(client: ApiClient) {
         method: "POST",
       });
     },
+    deleteMessage(seriesId: string, sessionId: string, messageId: string) {
+      return client.requestJson<DeleteWorkshopMessageResult>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/messages/${messageId}`,
+        { method: "DELETE" },
+      );
+    },
     createMessageProposal(
       seriesId: string,
       sessionId: string,
@@ -125,6 +133,18 @@ export function createWorkshopApi(client: ApiClient) {
         },
       );
     },
+    runCallStream(
+      seriesId: string,
+      sessionId: string,
+      input: RunWorkshopCallInput,
+      onEvent: (event: WorkshopCallStreamEvent) => void,
+    ) {
+      return client.requestEventStream(`/series/${seriesId}/workshop/sessions/${sessionId}/calls/stream`, {
+        body: input,
+        method: "POST",
+        onEvent: (event) => onEvent(event as WorkshopCallStreamEvent),
+      });
+    },
   };
 }
 
@@ -135,12 +155,14 @@ export type {
   CreateWorkshopMessageProposalInput,
   CreateWorkshopMessageInput,
   CreateWorkshopSessionInput,
+  DeleteWorkshopMessageResult,
   PromptTemplate,
   RunWorkshopCallInput,
   UpdateWorkshopContextBasketInput,
   UpdateWorkshopSessionInput,
   WorkshopBranch,
   WorkshopCallResult,
+  WorkshopCallStreamEvent,
   WorkshopContextBasket,
   WorkshopContextPreviewInput,
   WorkshopMessage,

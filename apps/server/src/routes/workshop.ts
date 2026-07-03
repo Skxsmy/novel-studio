@@ -5,11 +5,13 @@ import {
   CreateWorkshopMessageProposalInputSchema,
   CreateWorkshopMessageInputSchema,
   CreateWorkshopSessionInputSchema,
+  ContextBundleSchema,
   ModelCallLogSchema,
   RunWorkshopCallInputSchema,
   UpdateWorkshopContextBasketInputSchema,
   UpdateWorkshopSessionInputSchema,
   WorkshopCallResultSchema,
+  WorkshopCallStreamEventSchema,
   WorkshopContextPreviewInputSchema,
   WorkshopMessageSchema,
   type ContextBundle,
@@ -19,9 +21,10 @@ import {
   type ModelProfile,
   type TokenUsage,
   type WorkshopContextBasket,
+  type WorkshopCallStreamEvent,
 } from "@novel-studio/contracts";
 import type { ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
-import { StorageError, type ProjectRepository } from "@novel-studio/storage";
+import type { ProjectRepository } from "@novel-studio/storage";
 import {
   ensureCredentialBoundary,
   modelError,
@@ -33,6 +36,120 @@ import { contextPrompt, requestHash, usage } from "./modelCalls.js";
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+const OPEN_REASONING_TAGS = ["<think>", "<thinking>"];
+const CLOSE_REASONING_TAGS = ["</think>", "</thinking>"];
+
+interface ParsedReasoningContent {
+  content: string;
+  reasoningContent: string;
+}
+
+interface ReasoningDelta {
+  type: "delta" | "reasoning-delta";
+  text: string;
+}
+
+function findFirstTag(buffer: string, tags: string[]): { index: number; tag: string } | null {
+  const lower = buffer.toLocaleLowerCase("und");
+  let found: { index: number; tag: string } | null = null;
+  for (const tag of tags) {
+    const index = lower.indexOf(tag);
+    if (index === -1) continue;
+    if (!found || index < found.index) {
+      found = { index, tag };
+    }
+  }
+  return found;
+}
+
+function suffixPrefixLength(buffer: string, tags: string[]): number {
+  const lower = buffer.toLocaleLowerCase("und");
+  const maxLength = Math.min(
+    lower.length,
+    Math.max(...tags.map((tag) => tag.length)) - 1,
+  );
+  for (let length = maxLength; length > 0; length -= 1) {
+    const suffix = lower.slice(-length);
+    if (tags.some((tag) => tag.startsWith(suffix))) return length;
+  }
+  return 0;
+}
+
+function createReasoningParser() {
+  let buffer = "";
+  let inReasoning = false;
+
+  function drain(): ReasoningDelta[] {
+    const events: ReasoningDelta[] = [];
+    while (buffer.length > 0) {
+      if (!inReasoning) {
+        const tag = findFirstTag(buffer, OPEN_REASONING_TAGS);
+        if (tag) {
+          if (tag.index > 0) {
+            events.push({ type: "delta", text: buffer.slice(0, tag.index) });
+          }
+          buffer = buffer.slice(tag.index + tag.tag.length);
+          inReasoning = true;
+          continue;
+        }
+        const holdLength = suffixPrefixLength(buffer, OPEN_REASONING_TAGS);
+        const visible = buffer.slice(0, buffer.length - holdLength);
+        if (visible) events.push({ type: "delta", text: visible });
+        buffer = buffer.slice(buffer.length - holdLength);
+        break;
+      }
+
+      const tag = findFirstTag(buffer, CLOSE_REASONING_TAGS);
+      if (tag) {
+        if (tag.index > 0) {
+          events.push({ type: "reasoning-delta", text: buffer.slice(0, tag.index) });
+        }
+        buffer = buffer.slice(tag.index + tag.tag.length);
+        inReasoning = false;
+        continue;
+      }
+      const holdLength = suffixPrefixLength(buffer, CLOSE_REASONING_TAGS);
+      const reasoning = buffer.slice(0, buffer.length - holdLength);
+      if (reasoning) events.push({ type: "reasoning-delta", text: reasoning });
+      buffer = buffer.slice(buffer.length - holdLength);
+      break;
+    }
+    return events;
+  }
+
+  return {
+    push(chunk: string): ReasoningDelta[] {
+      buffer += chunk;
+      return drain();
+    },
+    finish(): ReasoningDelta[] {
+      const leftover = buffer;
+      buffer = "";
+      return leftover ? [{ type: inReasoning ? "reasoning-delta" : "delta", text: leftover }] : [];
+    },
+  };
+}
+
+function splitReasoningContent(raw: string): ParsedReasoningContent {
+  const parser = createReasoningParser();
+  let content = "";
+  let reasoningContent = "";
+  for (const event of [...parser.push(raw), ...parser.finish()]) {
+    if (event.type === "reasoning-delta") {
+      reasoningContent += event.text;
+    } else {
+      content += event.text;
+    }
+  }
+  return { content, reasoningContent };
+}
+
+function writeWorkshopEvent(reply: FastifyReply, rawEvent: WorkshopCallStreamEvent): void {
+  const event = WorkshopCallStreamEventSchema.parse(rawEvent);
+  reply.raw.write(`event: ${event.type}\n`);
+  reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
 function manualContextIds(basket: WorkshopContextBasket): string[] {
@@ -55,14 +172,8 @@ async function workshopContextPayload(
   basket: WorkshopContextBasket,
   input: ReturnType<typeof WorkshopContextPreviewInputSchema.parse>,
 ): Promise<Record<string, unknown>> {
-  const sceneId = basket.sceneId ?? (await repository.getSeries(seriesId)).scenes[0]?.metadata.id;
-  if (!sceneId) {
-    throw new StorageError("Workshop context requires a scene", "INVALID_DATA", {
-      sessionId: basket.sessionId,
-    });
-  }
   return {
-    sceneId,
+    sceneId: basket.sceneId ?? null,
     blockId: basket.blockId,
     selection: basket.selection,
     manualContextIds: manualContextIds(basket),
@@ -105,11 +216,46 @@ function effectiveModelProfile(modelProfile: ModelProfile, modelOverride?: strin
   };
 }
 
+function workshopProviderPrompt(
+  contextBundle: ContextBundle,
+  input: ReturnType<typeof RunWorkshopCallInputSchema.parse>,
+): ProviderPrompt {
+  if (input.mode !== "general-chat") return contextPrompt(contextBundle);
+  return {
+    system: input.systemPrompt.trim(),
+    instructions: "",
+    user: contextBundle.userRequest,
+  };
+}
+
+function workshopProviderContextBundle(
+  contextBundle: ContextBundle,
+  input: ReturnType<typeof RunWorkshopCallInputSchema.parse>,
+): ContextBundle {
+  if (input.mode !== "general-chat") return contextBundle;
+  const items = contextBundle.items.filter((item) =>
+    item.kind !== "role-instruction" &&
+    item.kind !== "prompt-template" &&
+    item.kind !== "user-request",
+  );
+  const inputTokens = items.reduce((sum, item) => sum + item.tokenEstimate, 0);
+  return ContextBundleSchema.parse({
+    ...contextBundle,
+    items,
+    estimatedUsage: {
+      inputTokens,
+      outputTokens: 0,
+      totalTokens: inputTokens,
+    },
+  });
+}
+
 function baseModelCallLog(input: {
   seriesId: string;
   callId: string;
   modelProfile: ModelProfile;
   contextBundle: ContextBundle;
+  requestContextBundle?: ContextBundle;
   prompt: ProviderPrompt;
   parameters: ModelParameters;
   estimatedUsage: TokenUsage;
@@ -129,7 +275,7 @@ function baseModelCallLog(input: {
     promptTemplateVersion: input.contextBundle.promptTemplateVersion,
     requestHash: requestHash({
       modelProfile: input.modelProfile,
-      contextBundle: input.contextBundle,
+      contextBundle: input.requestContextBundle ?? input.contextBundle,
       prompt: input.prompt,
       parameters: input.parameters,
     }),
@@ -164,21 +310,28 @@ async function executeWorkshopCall(input: {
   seriesId: string;
   sessionId: string;
   contextBundle: ContextBundle;
+  providerContextBundle?: ContextBundle;
   modelProfile: ModelProfile;
+  prompt?: ProviderPrompt;
   parameters: ModelParameters;
+  abortSignal?: AbortSignal;
+  onChunk?: (chunk: string) => void | Promise<void>;
+  onStreamingLog?: (log: ModelCallLog) => void | Promise<void>;
 }): Promise<{ log: ModelCallLog; responseText: string }> {
   const { repository, providerRegistry, seriesId, contextBundle, modelProfile, parameters } = input;
-  const prompt = contextPrompt(contextBundle);
+  const prompt = input.prompt ?? contextPrompt(contextBundle);
+  const providerContextBundle = input.providerContextBundle ?? contextBundle;
   let adapter;
   try {
     adapter = providerRegistry.get(modelProfile.provider);
   } catch {
-    const estimatedUsage = combinedInputUsage(contextBundle, modelProfile, prompt, null);
+    const estimatedUsage = combinedInputUsage(providerContextBundle, modelProfile, prompt, null);
     const baseLog = baseModelCallLog({
       seriesId,
       callId: randomUUID(),
       modelProfile,
       contextBundle,
+      requestContextBundle: providerContextBundle,
       prompt,
       parameters,
       estimatedUsage,
@@ -194,12 +347,13 @@ async function executeWorkshopCall(input: {
     return { log, responseText: "" };
   }
 
-  const estimatedUsage = combinedInputUsage(contextBundle, modelProfile, prompt, providerRegistry);
+  const estimatedUsage = combinedInputUsage(providerContextBundle, modelProfile, prompt, providerRegistry);
   const baseLog = baseModelCallLog({
     seriesId,
     callId: randomUUID(),
     modelProfile,
     contextBundle,
+    requestContextBundle: providerContextBundle,
     prompt,
     parameters,
     estimatedUsage,
@@ -222,15 +376,18 @@ async function executeWorkshopCall(input: {
 
   let latestLog = ModelCallLogSchema.parse({ ...baseLog, status: "streaming" });
   await repository.saveModelCallLog(seriesId, latestLog);
+  await input.onStreamingLog?.(latestLog);
   let responseText = "";
   try {
     for await (const chunk of adapter.streamText({
       modelProfile,
       prompt,
-      contextBundle,
+      contextBundle: providerContextBundle,
       parameters,
+      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     })) {
       responseText += chunk;
+      await input.onChunk?.(chunk);
     }
     latestLog = ModelCallLogSchema.parse({
       ...latestLog,
@@ -346,6 +503,16 @@ export function registerWorkshopRoutes(
     },
   );
 
+  app.delete<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId",
+    async (request) =>
+      repository.deleteWorkshopMessage(
+        request.params.seriesId,
+        request.params.sessionId,
+        request.params.messageId,
+      ),
+  );
+
   app.post<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/proposals",
     async (request, reply) => {
@@ -417,6 +584,151 @@ export function registerWorkshopRoutes(
   );
 
   app.post<{ Params: { seriesId: string; sessionId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/calls/stream",
+    async (request, reply) => {
+      await ensureBuiltInPrompts(repository, request.params.seriesId);
+      const input = RunWorkshopCallInputSchema.parse(request.body);
+      const authorMessage = await repository.createWorkshopMessage(
+        request.params.seriesId,
+        request.params.sessionId,
+        { role: "author", mode: input.mode, content: input.userRequest },
+      );
+      let contextBundle;
+      try {
+        const basket = await repository.getWorkshopContextBasket(
+          request.params.seriesId,
+          request.params.sessionId,
+        );
+        contextBundle = await buildContextBundle(
+          repository,
+          providerRegistry,
+          request.params.seriesId,
+          await workshopContextPayload(repository, request.params.seriesId, basket, input),
+        );
+      } catch (error) {
+        if (sendContextError(reply, error)) return reply;
+        throw error;
+      }
+      const modelProfile = effectiveModelProfile(
+        await repository.getModelProfile(input.modelProfileId),
+        input.modelOverride,
+      );
+      const prompt = workshopProviderPrompt(contextBundle, input);
+      const providerContextBundle = workshopProviderContextBundle(contextBundle, input);
+
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+      });
+
+      const abortController = new AbortController();
+      request.raw.on("close", () => abortController.abort());
+      let metadataSent = false;
+      let visibleText = "";
+      let reasoningText = "";
+      const parser = createReasoningParser();
+      writeWorkshopEvent(reply, { type: "author-message", message: authorMessage });
+
+      const { log, responseText } = await executeWorkshopCall({
+        repository,
+        providerRegistry,
+        seriesId: request.params.seriesId,
+        sessionId: request.params.sessionId,
+        contextBundle,
+        providerContextBundle,
+        modelProfile,
+        prompt,
+        parameters: input.parameters,
+        abortSignal: abortController.signal,
+        onStreamingLog: (streamingLog) => {
+          metadataSent = true;
+          writeWorkshopEvent(reply, {
+            type: "metadata",
+            contextBundleId: contextBundle.id,
+            modelCallId: streamingLog.id,
+          });
+        },
+        onChunk: (chunk) => {
+          for (const event of parser.push(chunk)) {
+            if (event.type === "reasoning-delta") {
+              reasoningText += event.text;
+              writeWorkshopEvent(reply, event);
+            } else {
+              visibleText += event.text;
+              writeWorkshopEvent(reply, event);
+            }
+          }
+        },
+      });
+
+      for (const event of parser.finish()) {
+        if (event.type === "reasoning-delta") {
+          reasoningText += event.text;
+          writeWorkshopEvent(reply, event);
+        } else {
+          visibleText += event.text;
+          writeWorkshopEvent(reply, event);
+        }
+      }
+      if (!metadataSent) {
+        writeWorkshopEvent(reply, {
+          type: "metadata",
+          contextBundleId: contextBundle.id,
+          modelCallId: log.id,
+        });
+      }
+
+      const parsedResponse = splitReasoningContent(responseText);
+      const assistantContent = visibleText || parsedResponse.content || log.errorMessage || "Model call failed.";
+      const assistantReasoning = reasoningText || parsedResponse.reasoningContent;
+      const assistantMessage = await repository.saveWorkshopMessage(
+        request.params.seriesId,
+        WorkshopMessageSchema.parse({
+          schemaVersion: 1,
+          id: randomUUID(),
+          seriesId: request.params.seriesId,
+          sessionId: request.params.sessionId,
+          role: "assistant",
+          mode: input.mode,
+          status: log.status === "succeeded" ? "succeeded" : "failed",
+          content: assistantContent,
+          reasoningContent: assistantReasoning,
+          contextBundleId: contextBundle.id,
+          modelCallId: log.id,
+          proposalIds: [],
+          errorCode: log.errorCode,
+          errorMessage: log.errorMessage,
+          createdAt: new Date().toISOString(),
+        }),
+      );
+      const result = WorkshopCallResultSchema.parse({
+        authorMessage,
+        assistantMessage,
+        contextBundleId: contextBundle.id,
+        modelCallId: log.id,
+        status: assistantMessage.status,
+        responseText: parsedResponse.content || visibleText,
+        estimatedUsage: log.estimatedUsage,
+        actualUsage: log.actualUsage,
+      });
+      writeWorkshopEvent(reply, { type: "assistant-message", message: assistantMessage });
+      if (assistantMessage.status === "failed") {
+        writeWorkshopEvent(reply, {
+          type: "error",
+          code: assistantMessage.errorCode,
+          message: assistantMessage.errorMessage ?? assistantMessage.content,
+          assistantMessage,
+        });
+      }
+      writeWorkshopEvent(reply, { type: "done", result });
+      reply.raw.end();
+      return reply;
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; sessionId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/calls",
     async (request, reply) => {
       await ensureBuiltInPrompts(repository, request.params.seriesId);
@@ -446,15 +758,20 @@ export function registerWorkshopRoutes(
         await repository.getModelProfile(input.modelProfileId),
         input.modelOverride,
       );
+      const prompt = workshopProviderPrompt(contextBundle, input);
+      const providerContextBundle = workshopProviderContextBundle(contextBundle, input);
       const { log, responseText } = await executeWorkshopCall({
         repository,
         providerRegistry,
         seriesId: request.params.seriesId,
         sessionId: request.params.sessionId,
         contextBundle,
+        providerContextBundle,
         modelProfile,
+        prompt,
         parameters: input.parameters,
       });
+      const parsedResponse = splitReasoningContent(responseText);
       const assistantMessage = await repository.saveWorkshopMessage(
         request.params.seriesId,
         WorkshopMessageSchema.parse({
@@ -465,7 +782,8 @@ export function registerWorkshopRoutes(
           role: "assistant",
           mode: input.mode,
           status: log.status === "succeeded" ? "succeeded" : "failed",
-          content: responseText || log.errorMessage || "Model call failed.",
+          content: parsedResponse.content || log.errorMessage || "Model call failed.",
+          reasoningContent: parsedResponse.reasoningContent,
           contextBundleId: contextBundle.id,
           modelCallId: log.id,
           proposalIds: [],
@@ -480,7 +798,7 @@ export function registerWorkshopRoutes(
         contextBundleId: contextBundle.id,
         modelCallId: log.id,
         status: assistantMessage.status,
-        responseText,
+        responseText: parsedResponse.content,
         estimatedUsage: log.estimatedUsage,
         actualUsage: log.actualUsage,
       });

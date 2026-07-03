@@ -350,7 +350,7 @@ export async function buildContextBundle(
   await ensureBuiltInPrompts(repository, seriesId);
   const [series, currentScene, modelProfile, promptTemplate] = await Promise.all([
     repository.getSeries(seriesId),
-    repository.getScene(seriesId, input.sceneId),
+    input.sceneId ? repository.getScene(seriesId, input.sceneId) : Promise.resolve(null),
     input.modelProfileId ? repository.getModelProfile(input.modelProfileId) : Promise.resolve(null),
     repository.getPromptTemplate(seriesId, input.promptTemplateId, input.promptTemplateVersion),
   ]);
@@ -367,13 +367,17 @@ export async function buildContextBundle(
   const manualIds = new Set(input.manualContextIds);
   const items: ContextItem[] = [];
   const excluded: ContextExclusion[] = [];
-  const selectionText = input.selection
+  if (input.selection && !currentScene) {
+    throw new StorageError("Context selection requires an explicit scene", "INVALID_DATA");
+  }
+  const selectionText = input.selection && currentScene
     ? input.selection.text || currentScene.content.slice(input.selection.start, input.selection.end)
     : "";
 
   const role = await repository.getAgentRole(seriesId, input.roleId);
+  const hasSystemPromptOverride = input.systemPromptOverride !== null;
   const customSystemPrompt = input.systemPromptOverride?.trim() ?? "";
-  const roleInstruction = customSystemPrompt || [
+  const roleInstruction = hasSystemPromptOverride ? customSystemPrompt : [
     `角色：${role.title}`,
     role.description,
     role.persona ? `工作人格：${role.persona}` : "",
@@ -383,38 +387,42 @@ export async function buildContextBundle(
     role.forbiddenActions.length ? `禁止行为：\n${role.forbiddenActions.map((item) => `- ${item}`).join("\n")}` : "",
     role.outputContract ? `输出约束：${role.outputContract}` : "",
   ].filter(Boolean).join("\n\n");
-  const renderedPrompt = renderPromptTemplate(promptTemplate, {
-    user_request: input.userRequest,
-    scene_title: currentScene.metadata.title,
-    selected_text: selectionText,
-    context_summary: currentScene.metadata.summary,
-  });
+  const renderedPrompt = hasSystemPromptOverride
+    ? null
+    : renderPromptTemplate(promptTemplate, {
+      user_request: input.userRequest,
+      scene_title: currentScene?.metadata.title ?? "",
+      selected_text: selectionText,
+      context_summary: currentScene?.metadata.summary ?? "",
+    });
   items.push(contextItem({
     kind: "role-instruction",
-    sourceType: customSystemPrompt ? "user-input" : "system",
+    sourceType: hasSystemPromptOverride ? "user-input" : "system",
     sourceId: input.roleId,
-    title: customSystemPrompt ? "General Chat system prompt" : "角色职责",
+    title: hasSystemPromptOverride ? "General Chat system prompt" : "角色职责",
     content: roleInstruction,
     inclusion: "required",
-    inclusionReason: customSystemPrompt
+    inclusionReason: hasSystemPromptOverride
       ? "The author supplied this custom General Chat system prompt."
       : "模型调用必须先说明角色职责和禁止行为。",
   }));
 
-  items.push(contextItem({
-    kind: "prompt-template",
-    sourceType: "prompt-template",
-    sourceId: promptTemplate.id,
-    sourceLabel: `${promptTemplate.name} v${promptTemplate.version}`,
-    title: `提示词模板：${promptTemplate.name} v${promptTemplate.version}`,
-    content: [
-      `模板 ID：${renderedPrompt.promptTemplateId}`,
-      `模板版本：${renderedPrompt.promptTemplateVersion}`,
-      renderedPrompt.finalPrompt,
-    ].join("\n\n"),
-    inclusion: "required",
-    inclusionReason: "用于审计本次上下文预览采用的提示词版本。",
-  }));
+  if (renderedPrompt) {
+    items.push(contextItem({
+      kind: "prompt-template",
+      sourceType: "prompt-template",
+      sourceId: promptTemplate.id,
+      sourceLabel: `${promptTemplate.name} v${promptTemplate.version}`,
+      title: `提示词模板：${promptTemplate.name} v${promptTemplate.version}`,
+      content: [
+        `模板 ID：${renderedPrompt.promptTemplateId}`,
+        `模板版本：${renderedPrompt.promptTemplateVersion}`,
+        renderedPrompt.finalPrompt,
+      ].join("\n\n"),
+      inclusion: "required",
+      inclusionReason: "用于审计本次上下文预览采用的提示词版本。",
+    }));
+  }
 
   items.push(contextItem({
     kind: "user-request",
@@ -425,7 +433,7 @@ export async function buildContextBundle(
     inclusionReason: "作者本次提出的明确任务。",
   }));
 
-  if (input.selection) {
+  if (input.selection && currentScene) {
     items.push(contextItem({
       kind: "scene-selection",
       sourceType: "scene",
@@ -439,44 +447,46 @@ export async function buildContextBundle(
     }));
   }
 
-  items.push(contextItem({
-    kind: "scene",
-    sourceType: "scene",
-    sourceId: currentScene.metadata.id,
-    sourceRevision: currentScene.revision,
-    sourceLabel: currentScene.metadata.title,
-    title: "当前场景",
-    content: sceneContextWithBody(currentScene, scenePlainTextUntilBlock(currentScene, input.blockId)),
-    inclusion: "required",
-    inclusionReason: "当前写作场景是本次任务的核心上下文。",
-  }));
-
-  const currentIndex = series.scenes.findIndex((scene) => scene.metadata.id === currentScene.metadata.id);
-  if (currentIndex > 0) {
-    const previous = series.scenes[currentIndex - 1]!;
+  if (currentScene) {
     items.push(contextItem({
-      kind: "adjacent-scene",
+      kind: "scene",
       sourceType: "scene",
-      sourceId: previous.metadata.id,
-      sourceRevision: previous.revision,
-      sourceLabel: previous.metadata.title,
-      title: "前一场景摘要",
-      content: previousSceneSummary(previous),
-      inclusion: "derived",
-      inclusionReason: "用于理解当前场景之前的叙事状态。",
+      sourceId: currentScene.metadata.id,
+      sourceRevision: currentScene.revision,
+      sourceLabel: currentScene.metadata.title,
+      title: "当前场景",
+      content: sceneContextWithBody(currentScene, scenePlainTextUntilBlock(currentScene, input.blockId)),
+      inclusion: "required",
+      inclusionReason: "当前写作场景是本次任务的核心上下文。",
     }));
-  }
-  const next = series.scenes[currentIndex + 1];
-  if (next) {
-    excluded.push(exclusion({
-      sourceType: "scene",
-      sourceId: next.metadata.id,
-      sourceRevision: next.revision,
-      sourceLabel: next.metadata.title,
-      title: "后一场景",
-      reason: "future-information",
-      note: "当前场景之后的正文和摘要默认不提供给模型。",
-    }));
+
+    const currentIndex = series.scenes.findIndex((scene) => scene.metadata.id === currentScene.metadata.id);
+    if (currentIndex > 0) {
+      const previous = series.scenes[currentIndex - 1]!;
+      items.push(contextItem({
+        kind: "adjacent-scene",
+        sourceType: "scene",
+        sourceId: previous.metadata.id,
+        sourceRevision: previous.revision,
+        sourceLabel: previous.metadata.title,
+        title: "前一场景摘要",
+        content: previousSceneSummary(previous),
+        inclusion: "derived",
+        inclusionReason: "用于理解当前场景之前的叙事状态。",
+      }));
+    }
+    const next = series.scenes[currentIndex + 1];
+    if (next) {
+      excluded.push(exclusion({
+        sourceType: "scene",
+        sourceId: next.metadata.id,
+        sourceRevision: next.revision,
+        sourceLabel: next.metadata.title,
+        title: "后一场景",
+        reason: "future-information",
+        note: "当前场景之后的正文和摘要默认不提供给模型。",
+      }));
+    }
   }
 
   const selectedScopeTexts: string[] = [];
@@ -552,7 +562,7 @@ export async function buildContextBundle(
   }
 
   for (const scene of scenesInSeriesOrder(series)) {
-    if (scene.metadata.id === currentScene.metadata.id) continue;
+    if (currentScene && scene.metadata.id === currentScene.metadata.id) continue;
     if (!manualIdMatches(manualIds, "scene", scene.metadata.id)) continue;
     const content = selectedSceneContextContent(scene);
     selectedScopeTexts.push(content);
@@ -570,209 +580,261 @@ export async function buildContextBundle(
     }));
   }
 
-  const sections = await repository.listSceneSections(seriesId, currentScene.metadata.id);
-  for (const section of sections) {
-    if (section.metadata.archivedAt) {
-      excluded.push(sectionExclusion(section, "archived", "已归档附属文档不会进入上下文。"));
-      continue;
+  if (currentScene) {
+    const sections = await repository.listSceneSections(seriesId, currentScene.metadata.id);
+    for (const section of sections) {
+      if (section.metadata.archivedAt) {
+        excluded.push(sectionExclusion(section, "archived", "已归档附属文档不会进入上下文。"));
+        continue;
+      }
+      const selected = manualIdMatches(manualIds, "section", section.metadata.id);
+      if (section.metadata.aiPolicy === "never") {
+        excluded.push(sectionExclusion(section, "hidden-section", "该附属文档被标记为禁止提供给模型，即使主动选择也会排除。"));
+        continue;
+      }
+      if (!selected) {
+        excluded.push(sectionExclusion(section, "not-selected", "附属文档默认不提供，需要作者主动选择。"));
+        continue;
+      }
+      items.push(contextItem({
+        kind: "scene-section",
+        sourceType: "scene-section",
+        sourceId: section.metadata.id,
+        sourceRevision: section.revision,
+        sourceLabel: section.metadata.title,
+        title: `附属文档：${section.metadata.title}`,
+        content: section.content,
+        inclusion: "selected",
+        inclusionReason: "作者主动选择的附属文档。",
+        contextPolicy: section.metadata.aiPolicy,
+        manuallySelected: true,
+      }));
     }
-    const selected = manualIdMatches(manualIds, "section", section.metadata.id);
-    if (section.metadata.aiPolicy === "never") {
-      excluded.push(sectionExclusion(section, "hidden-section", "该附属文档被标记为禁止提供给模型，即使主动选择也会排除。"));
-      continue;
-    }
-    if (!selected) {
-      excluded.push(sectionExclusion(section, "not-selected", "附属文档默认不提供，需要作者主动选择。"));
-      continue;
-    }
-    items.push(contextItem({
-      kind: "scene-section",
-      sourceType: "scene-section",
-      sourceId: section.metadata.id,
-      sourceRevision: section.revision,
-      sourceLabel: section.metadata.title,
-      title: `附属文档：${section.metadata.title}`,
-      content: section.content,
-      inclusion: "selected",
-      inclusionReason: "作者主动选择的附属文档。",
-      contextPolicy: section.metadata.aiPolicy,
-      manuallySelected: true,
-    }));
   }
 
   const pinnedCodexIds = input.manualContextIds
     .filter((id) => id.startsWith("codex:"))
     .map((id) => id.slice("codex:".length))
     .filter((id) => UUID_PATTERN.test(id));
-  const codexPreview = await repository.previewCodexContext(
-    seriesId,
-    currentScene.metadata.id,
-    pinnedCodexIds,
-    input.blockId,
-  );
-  for (const entry of codexPreview.included) {
-    const selected = manualIdMatches(manualIds, "codex", entry.metadata.id);
-    const effectiveEntry = await repository.getCodexEffectiveEntry(
-      seriesId,
-      entry.metadata.id,
-      currentScene.metadata.id,
-      input.blockId,
-    );
-    const projectedEntry = effectiveEntry.entry;
-    const content = await codexEntryContextContent(repository, seriesId, projectedEntry);
-    const fieldProgressionRefs = await Promise.all(
-      [...new Set(effectiveEntry.fieldStates
-        .map((state) => state.lastProgressionId)
-        .filter((id): id is string => Boolean(id)))]
-        .map(async (progressionId) => {
-          const document = await repository.getCodexProgression(seriesId, progressionId);
-          return {
-            type: "codex-progression" as const,
-            id: document.progression.id,
-            revision: document.revision,
-            label: document.progression.summary,
-          };
-        }),
-    );
-    const codexSourceRefs: ContextSource[] = [
-      {
-        type: "codex-entry",
-        id: projectedEntry.metadata.id,
-        revision: projectedEntry.revision,
-        label: projectedEntry.metadata.name,
-      },
-      ...fieldProgressionRefs,
-    ];
-    items.push(contextItem({
-      kind: "codex-entry",
-      sourceType: "codex-entry",
-      sourceId: projectedEntry.metadata.id,
-      sourceRevision: hashText(JSON.stringify(codexSourceRefs) + content),
-      sourceLabel: projectedEntry.metadata.name,
-      title: `Codex entry: ${projectedEntry.metadata.name}`,
-      content,
-      inclusion: selected ? "selected" : "derived",
-      inclusionReason: selected
-        ? "The author selected this Codex entry."
-        : "Included by model-readable scope and current scene mentions.",
-      contextPolicy: projectedEntry.metadata.aiContextPolicy,
-      manuallySelected: selected,
-      sourceRefs: codexSourceRefs,
-    }));
-    if (effectiveEntry.hiddenFutureFieldProgressionCount > 0) {
-      excluded.push(exclusion({
-        sourceType: "codex-progression",
-        sourceId: projectedEntry.metadata.id,
-        sourceLabel: projectedEntry.metadata.name,
-        title: `Future Codex fields: ${projectedEntry.metadata.name}`,
-        reason: "future-information",
-        note: `${effectiveEntry.hiddenFutureFieldProgressionCount} future field progression record(s) were hidden.`,
-      }));
-    }
-
-    const viewerEntryId = UUID_PATTERN.test(currentScene.metadata.pov ?? "")
-      ? currentScene.metadata.pov!
-      : currentScene.metadata.characterIds[0] ?? undefined;
-    const effective = await repository.getCodexEffectiveState(
+  if (currentScene) {
+    const codexPreview = await repository.previewCodexContext(
       seriesId,
       currentScene.metadata.id,
-      projectedEntry.metadata.id,
-      viewerEntryId,
+      pinnedCodexIds,
       input.blockId,
     );
-    const effectiveLines = [
-      ...effective.worldFacts.map((document) => `World fact: ${document.progression.summary}`),
-      ...effective.relationStates.flatMap((state) =>
-        state.progressions.map((document) =>
-          `Relation change (${state.relation.relation.type}): ${document.progression.summary}`,
-        ),
-      ),
-    ];
-    if (effectiveLines.length) {
-      const effectiveProgressions = [
-        ...effective.worldFacts,
-        ...effective.relationStates.flatMap((state) => state.progressions),
+    for (const entry of codexPreview.included) {
+      const selected = manualIdMatches(manualIds, "codex", entry.metadata.id);
+      const effectiveEntry = await repository.getCodexEffectiveEntry(
+        seriesId,
+        entry.metadata.id,
+        currentScene.metadata.id,
+        input.blockId,
+      );
+      const projectedEntry = effectiveEntry.entry;
+      const content = await codexEntryContextContent(repository, seriesId, projectedEntry);
+      const fieldProgressionRefs = await Promise.all(
+        [...new Set(effectiveEntry.fieldStates
+          .map((state) => state.lastProgressionId)
+          .filter((id): id is string => Boolean(id)))]
+          .map(async (progressionId) => {
+            const document = await repository.getCodexProgression(seriesId, progressionId);
+            return {
+              type: "codex-progression" as const,
+              id: document.progression.id,
+              revision: document.revision,
+              label: document.progression.summary,
+            };
+          }),
+      );
+      const codexSourceRefs: ContextSource[] = [
+        {
+          type: "codex-entry",
+          id: projectedEntry.metadata.id,
+          revision: projectedEntry.revision,
+          label: projectedEntry.metadata.name,
+        },
+        ...fieldProgressionRefs,
       ];
-      const effectiveSourceRefs: ContextSource[] = effectiveProgressions.map((document) => ({
-        type: "codex-progression",
-        id: document.progression.id,
-        revision: document.revision,
-        label: document.progression.summary,
-      }));
-      const effectiveContent = effectiveLines.join("\n");
       items.push(contextItem({
-        kind: "codex-effective-state",
+        kind: "codex-entry",
         sourceType: "codex-entry",
         sourceId: projectedEntry.metadata.id,
-        sourceRevision: hashText(JSON.stringify(effectiveSourceRefs) + effectiveContent),
+        sourceRevision: hashText(JSON.stringify(codexSourceRefs) + content),
         sourceLabel: projectedEntry.metadata.name,
-        title: `Effective state: ${projectedEntry.metadata.name}`,
-        content: effectiveContent,
-        inclusion: "derived",
-        inclusionReason: "Only story state effective at the current narrative scene is included.",
-        sourceRefs: effectiveSourceRefs,
+        title: `Codex entry: ${projectedEntry.metadata.name}`,
+        content,
+        inclusion: selected ? "selected" : "derived",
+        inclusionReason: selected
+          ? "The author selected this Codex entry."
+          : "Included by model-readable scope and current scene mentions.",
+        contextPolicy: projectedEntry.metadata.aiContextPolicy,
+        manuallySelected: selected,
+        sourceRefs: codexSourceRefs,
+      }));
+      if (effectiveEntry.hiddenFutureFieldProgressionCount > 0) {
+        excluded.push(exclusion({
+          sourceType: "codex-progression",
+          sourceId: projectedEntry.metadata.id,
+          sourceLabel: projectedEntry.metadata.name,
+          title: `Future Codex fields: ${projectedEntry.metadata.name}`,
+          reason: "future-information",
+          note: `${effectiveEntry.hiddenFutureFieldProgressionCount} future field progression record(s) were hidden.`,
+        }));
+      }
+
+      const viewerEntryId = UUID_PATTERN.test(currentScene.metadata.pov ?? "")
+        ? currentScene.metadata.pov!
+        : currentScene.metadata.characterIds[0] ?? undefined;
+      const effective = await repository.getCodexEffectiveState(
+        seriesId,
+        currentScene.metadata.id,
+        projectedEntry.metadata.id,
+        viewerEntryId,
+        input.blockId,
+      );
+      const effectiveLines = [
+        ...effective.worldFacts.map((document) => `World fact: ${document.progression.summary}`),
+        ...effective.relationStates.flatMap((state) =>
+          state.progressions.map((document) =>
+            `Relation change (${state.relation.relation.type}): ${document.progression.summary}`,
+          ),
+        ),
+      ];
+      if (effectiveLines.length) {
+        const effectiveProgressions = [
+          ...effective.worldFacts,
+          ...effective.relationStates.flatMap((state) => state.progressions),
+        ];
+        const effectiveSourceRefs: ContextSource[] = effectiveProgressions.map((document) => ({
+          type: "codex-progression",
+          id: document.progression.id,
+          revision: document.revision,
+          label: document.progression.summary,
+        }));
+        const effectiveContent = effectiveLines.join("\n");
+        items.push(contextItem({
+          kind: "codex-effective-state",
+          sourceType: "codex-entry",
+          sourceId: projectedEntry.metadata.id,
+          sourceRevision: hashText(JSON.stringify(effectiveSourceRefs) + effectiveContent),
+          sourceLabel: projectedEntry.metadata.name,
+          title: `Effective state: ${projectedEntry.metadata.name}`,
+          content: effectiveContent,
+          inclusion: "derived",
+          inclusionReason: "Only story state effective at the current narrative scene is included.",
+          sourceRefs: effectiveSourceRefs,
+        }));
+      }
+      if (effective.characterKnowledge.length) {
+        const knowledgeContent = effective.characterKnowledge.map((document) =>
+          `${document.knowledge.stance}: ${document.knowledge.summary}`,
+        ).join("\n");
+        const knowledgeSourceRefs: ContextSource[] = effective.characterKnowledge.map((document) => ({
+          type: "codex-knowledge",
+          id: document.knowledge.id,
+          revision: document.revision,
+          label: document.knowledge.summary,
+        }));
+        items.push(contextItem({
+          kind: "character-knowledge",
+          sourceType: "codex-knowledge",
+          sourceId: viewerEntryId ?? null,
+          sourceRevision: hashText(JSON.stringify(knowledgeSourceRefs) + knowledgeContent),
+          sourceLabel: "Character knowledge at this position",
+          title: `Character knowledge: ${projectedEntry.metadata.name}`,
+          content: knowledgeContent,
+          inclusion: "derived",
+          inclusionReason: "Only what the viewpoint character already knows, believes, or misunderstands is included.",
+          sourceRefs: knowledgeSourceRefs,
+        }));
+      }
+      if (effective.hiddenFutureProgressionCount > 0) {
+        excluded.push(exclusion({
+          sourceType: "codex-progression",
+          sourceId: projectedEntry.metadata.id,
+          sourceLabel: projectedEntry.metadata.name,
+          title: `Future story state: ${projectedEntry.metadata.name}`,
+          reason: "future-information",
+          note: `${effective.hiddenFutureProgressionCount} future story state record(s) were hidden.`,
+        }));
+      }
+      if (effective.hiddenFutureKnowledgeCount > 0) {
+        excluded.push(exclusion({
+          sourceType: "codex-knowledge",
+          sourceId: projectedEntry.metadata.id,
+          sourceLabel: projectedEntry.metadata.name,
+          title: `Future character knowledge: ${projectedEntry.metadata.name}`,
+          reason: "future-information",
+          note: `${effective.hiddenFutureKnowledgeCount} future character knowledge record(s) were hidden.`,
+        }));
+      }
+    }
+    for (const item of codexPreview.excluded) {
+      const reason = item.reason === "never"
+        ? "context-policy-never"
+        : item.reason === "manual-only"
+          ? "not-selected"
+          : item.reason;
+      excluded.push(exclusion({
+        sourceType: "codex-entry",
+        sourceId: item.entryId,
+        sourceLabel: item.name,
+        title: `设定条目：${item.name}`,
+        reason,
+        note: item.reason === "never"
+          ? "该设定条目标记为永不提供给模型，即使主动选择也会排除。"
+          : "该设定条目未满足当前模型可读范围。",
       }));
     }
-    if (effective.characterKnowledge.length) {
-      const knowledgeContent = effective.characterKnowledge.map((document) =>
-        `${document.knowledge.stance}: ${document.knowledge.summary}`,
-      ).join("\n");
-      const knowledgeSourceRefs: ContextSource[] = effective.characterKnowledge.map((document) => ({
-        type: "codex-knowledge",
-        id: document.knowledge.id,
-        revision: document.revision,
-        label: document.knowledge.summary,
-      }));
+  } else {
+    for (const entryId of [...new Set(pinnedCodexIds)]) {
+      const entry = await repository.getCodexEntry(seriesId, entryId);
+      if (entry.metadata.archivedAt) {
+        excluded.push(exclusion({
+          sourceType: "codex-entry",
+          sourceId: entry.metadata.id,
+          sourceRevision: entry.revision,
+          sourceLabel: entry.metadata.name,
+          title: `Codex entry: ${entry.metadata.name}`,
+          reason: "archived",
+          note: "Archived Codex entries are not sent to the model.",
+        }));
+        continue;
+      }
+      if (entry.metadata.aiContextPolicy === "never") {
+        excluded.push(exclusion({
+          sourceType: "codex-entry",
+          sourceId: entry.metadata.id,
+          sourceRevision: entry.revision,
+          sourceLabel: entry.metadata.name,
+          title: `Codex entry: ${entry.metadata.name}`,
+          reason: "context-policy-never",
+          note: "This Codex entry is marked never include, even when selected.",
+        }));
+        continue;
+      }
+      const content = await codexEntryContextContent(repository, seriesId, entry);
       items.push(contextItem({
-        kind: "character-knowledge",
-        sourceType: "codex-knowledge",
-        sourceId: viewerEntryId ?? null,
-        sourceRevision: hashText(JSON.stringify(knowledgeSourceRefs) + knowledgeContent),
-        sourceLabel: "Character knowledge at this position",
-        title: `Character knowledge: ${projectedEntry.metadata.name}`,
-        content: knowledgeContent,
-        inclusion: "derived",
-        inclusionReason: "Only what the viewpoint character already knows, believes, or misunderstands is included.",
-        sourceRefs: knowledgeSourceRefs,
+        kind: "codex-entry",
+        sourceType: "codex-entry",
+        sourceId: entry.metadata.id,
+        sourceRevision: hashText(entry.revision + content),
+        sourceLabel: entry.metadata.name,
+        title: `Codex entry: ${entry.metadata.name}`,
+        content,
+        inclusion: "selected",
+        inclusionReason: "The author selected this Codex entry.",
+        contextPolicy: entry.metadata.aiContextPolicy,
+        manuallySelected: true,
+        sourceRefs: [{
+          type: "codex-entry",
+          id: entry.metadata.id,
+          revision: entry.revision,
+          label: entry.metadata.name,
+        }],
       }));
     }
-    if (effective.hiddenFutureProgressionCount > 0) {
-      excluded.push(exclusion({
-        sourceType: "codex-progression",
-        sourceId: projectedEntry.metadata.id,
-        sourceLabel: projectedEntry.metadata.name,
-        title: `Future story state: ${projectedEntry.metadata.name}`,
-        reason: "future-information",
-        note: `${effective.hiddenFutureProgressionCount} future story state record(s) were hidden.`,
-      }));
-    }
-    if (effective.hiddenFutureKnowledgeCount > 0) {
-      excluded.push(exclusion({
-        sourceType: "codex-knowledge",
-        sourceId: projectedEntry.metadata.id,
-        sourceLabel: projectedEntry.metadata.name,
-        title: `Future character knowledge: ${projectedEntry.metadata.name}`,
-        reason: "future-information",
-        note: `${effective.hiddenFutureKnowledgeCount} future character knowledge record(s) were hidden.`,
-      }));
-    }
-  }
-  for (const item of codexPreview.excluded) {
-    const reason = item.reason === "never"
-      ? "context-policy-never"
-      : item.reason === "manual-only"
-        ? "not-selected"
-        : item.reason;
-    excluded.push(exclusion({
-      sourceType: "codex-entry",
-      sourceId: item.entryId,
-      sourceLabel: item.name,
-      title: `设定条目：${item.name}`,
-      reason,
-      note: item.reason === "never"
-        ? "该设定条目标记为永不提供给模型，即使主动选择也会排除。"
-        : "该设定条目未满足当前模型可读范围。",
-    }));
   }
 
   for (const item of items) {
@@ -787,7 +849,7 @@ export async function buildContextBundle(
     schemaVersion: 1,
     id: randomUUID(),
     seriesId,
-    sceneId: currentScene.metadata.id,
+    sceneId: currentScene?.metadata.id ?? null,
     roleId: input.roleId,
     taskKind: input.taskKind,
     userRequest: input.userRequest,

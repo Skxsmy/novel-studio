@@ -74,6 +74,35 @@ describe("M5 Workshop storage", () => {
     });
   });
 
+  it("deletes General Chat messages without leaving stale session timestamps", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopDeleteMessage" });
+    const session = await store.createWorkshopSession(series.manifest.id, {
+      title: "General chat thread",
+      sceneId: series.scenes[0]!.metadata.id,
+    });
+    const first = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Keep this question.",
+    });
+    const second = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "assistant",
+      mode: "general-chat",
+      content: "Delete this answer.",
+    });
+
+    const deleted = await store.deleteWorkshopMessage(series.manifest.id, session.id, second.id);
+    expect(deleted.deletedId).toBe(second.id);
+    expect(deleted.session.lastMessageAt).toBe(first.createdAt);
+    expect((await store.listWorkshopMessages(series.manifest.id, session.id)).map((message) => message.id))
+      .toEqual([first.id]);
+
+    const deletedFirst = await store.deleteWorkshopMessage(series.manifest.id, session.id, first.id);
+    expect(deletedFirst.session.lastMessageAt).toBeNull();
+    expect(await store.listWorkshopMessages(series.manifest.id, session.id)).toEqual([]);
+  });
+
   it("updates context basket refs and rejects missing scene targets", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopBasket" });
@@ -162,6 +191,11 @@ describe("M5 Workshop storage", () => {
     expect(result.message.proposalIds).toEqual([result.proposal.proposal.id]);
     const messages = await store.listWorkshopMessages(series.manifest.id, session.id);
     expect(messages[0]?.proposalIds).toEqual([result.proposal.proposal.id]);
+    await expect(store.deleteWorkshopMessage(series.manifest.id, session.id, message.id))
+      .rejects.toMatchObject<Partial<StorageError>>({
+        code: "INVALID_DATA",
+        message: "Workshop messages linked to Proposals cannot be deleted",
+      });
 
     await store.archiveWorkshopSession(series.manifest.id, session.id);
     const archivedSource = await store.getProposal(series.manifest.id, result.proposal.proposal.id);

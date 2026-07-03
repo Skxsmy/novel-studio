@@ -161,6 +161,20 @@ function jsonResponse(body: unknown, status = 200) {
   );
 }
 
+function sseResponse(events: unknown[], status = 200, delayMs = 0) {
+  const response = new Response(events.map((event) => (
+    `event: ${(event as { type?: string }).type ?? "message"}\n` +
+    `data: ${JSON.stringify(event)}\n\n`
+  )).join(""), {
+    headers: { "content-type": "text/event-stream; charset=utf-8" },
+    status,
+  });
+  if (delayMs <= 0) return Promise.resolve(response);
+  return new Promise<Response>((resolve) => {
+    window.setTimeout(() => resolve(response), delayMs);
+  });
+}
+
 function delayedJsonResponse(body: unknown, status = 200, delayMs = 0) {
   if (delayMs <= 0) return jsonResponse(body, status);
   return new Promise<Response>((resolve) => {
@@ -980,7 +994,7 @@ function mockFetch(options: {
       workshopSessions = [created, ...workshopSessions.filter((session) => session.id !== created.id)];
       currentWorkshopBasket = {
         ...workshopBasket(),
-        sceneId: body.sceneId ?? sceneId,
+        sceneId: body.sceneId ?? null,
       };
       return jsonResponse(created, 201);
     }
@@ -1038,6 +1052,7 @@ function mockFetch(options: {
           mode: body.mode ?? "continuity-check",
           status: "succeeded",
           content: body.content,
+          reasoningContent: "",
           contextBundleId: null,
           modelCallId: null,
           proposalIds: [],
@@ -1092,6 +1107,20 @@ function mockFetch(options: {
         );
         return jsonResponse({ message: updatedMessage, proposal: created }, 201);
       }
+      if (segment === "messages" && action && !subaction && method === "DELETE") {
+        const requestedMessageId = action;
+        const sourceMessage = workshopMessages.find((message) => message.id === requestedMessageId);
+        if (!sourceMessage) return jsonResponse({ message: "Workshop message does not exist" }, 404);
+        workshopMessages = workshopMessages.filter((message) => message.id !== requestedMessageId);
+        const lastMessage = workshopMessages.at(-1) as { createdAt?: string } | undefined;
+        const updatedSession = {
+          ...session,
+          lastMessageAt: lastMessage?.createdAt ?? null,
+          updatedAt: "2026-07-01T00:14:00.000Z",
+        };
+        workshopSessions = workshopSessions.map((item) => item.id === requestedSessionId ? updatedSession : item);
+        return jsonResponse({ deletedId: requestedMessageId, session: updatedSession });
+      }
       if (segment === "branch" && method === "POST") {
         const branchSession = workshopSession({
           id: "95959595-9595-4595-9595-959595959595",
@@ -1131,6 +1160,62 @@ function mockFetch(options: {
           userRequest: body.userRequest,
         });
       }
+      if (segment === "calls" && action === "stream" && method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        const authorMessage = {
+          schemaVersion: 1,
+          id: "97979797-9797-4797-9797-979797979797",
+          seriesId,
+          sessionId: requestedSessionId,
+          role: "author",
+          mode: body.mode ?? "general-chat",
+          status: "succeeded",
+          content: body.userRequest,
+          reasoningContent: "",
+          contextBundleId: null,
+          modelCallId: null,
+          proposalIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: "2026-07-01T00:13:00.000Z",
+        };
+        const assistantMessage = {
+          schemaVersion: 1,
+          id: "98989898-9898-4898-9898-989898989898",
+          seriesId,
+          sessionId: requestedSessionId,
+          role: "assistant",
+          mode: body.mode ?? "general-chat",
+          status: "succeeded",
+          content: "Workshop model response.",
+          reasoningContent: "Checked the selected context before answering.",
+          contextBundleId: workshopContextBundleId,
+          modelCallId: workshopModelCallId,
+          proposalIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: "2026-07-01T00:13:01.000Z",
+        };
+        const result = {
+          authorMessage,
+          assistantMessage,
+          contextBundleId: workshopContextBundleId,
+          modelCallId: workshopModelCallId,
+          status: "succeeded",
+          responseText: "Workshop model response.",
+          estimatedUsage: { inputTokens: 12, outputTokens: 0, totalTokens: 12 },
+          actualUsage: { inputTokens: 12, outputTokens: 4, totalTokens: 16 },
+        };
+        workshopMessages = [authorMessage, assistantMessage];
+        return sseResponse([
+          { type: "author-message", message: authorMessage },
+          { type: "metadata", contextBundleId: workshopContextBundleId, modelCallId: workshopModelCallId },
+          { type: "reasoning-delta", text: "Checked the selected context before answering." },
+          { type: "delta", text: "Workshop model response." },
+          { type: "assistant-message", message: assistantMessage },
+          { type: "done", result },
+        ], 200, workshopCallDelayMs);
+      }
       if (segment === "calls" && method === "POST") {
         const body = JSON.parse(String(init?.body));
         const authorMessage = {
@@ -1142,6 +1227,7 @@ function mockFetch(options: {
           mode: body.mode ?? "continuity-check",
           status: "succeeded",
           content: body.userRequest,
+          reasoningContent: "",
           contextBundleId: null,
           modelCallId: null,
           proposalIds: [],
@@ -1158,6 +1244,7 @@ function mockFetch(options: {
           mode: body.mode ?? "continuity-check",
           status: "succeeded",
           content: "Workshop model response.",
+          reasoningContent: "",
           contextBundleId: workshopContextBundleId,
           modelCallId: workshopModelCallId,
           proposalIds: [],
@@ -3981,10 +4068,14 @@ describe("App shell", () => {
       )).toBe(true);
     });
     expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+    const workshopPage = document.querySelector("#workshop-page") as HTMLElement;
     expect(screen.queryByText("Not connected")).toBeNull();
     expect(screen.queryByText("Context Basket")).toBeNull();
     expect(screen.queryByRole("button", { name: "Preview Context" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Model selector" }));
+    expect(screen.queryByRole("button", { name: "Model selector" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "System Prompt" })).toBeNull();
+    fireEvent.click(within(workshopPage).getByRole("button", { name: "Workshop settings" }));
+    expect(await screen.findByRole("heading", { name: "Workshop settings" })).toBeTruthy();
     expect((screen.getByLabelText("Model setting") as HTMLSelectElement).value).toBe(modelProfileId);
     expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("mock-continuity-v1");
     fireEvent.click(screen.getByRole("button", { name: "Fetch Models" }));
@@ -4003,6 +4094,7 @@ describe("App shell", () => {
       target: { value: "continuity-check" },
     });
     expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("continuity-check");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     const sessionsPanel = screen.getByText("Conversation branches").closest(".panel");
     expect(sessionsPanel).toBeTruthy();
@@ -4022,7 +4114,15 @@ describe("App shell", () => {
       String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/context-basket` &&
       (init as RequestInit | undefined)?.method === "PUT",
     )).toBe(false);
-    expect(screen.getByText("Current scene")).toBeTruthy();
+    expect(screen.getByText("Opening Scene")).toBeTruthy();
+    expect(screen.queryByText("Current scene")).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Opening Scene/u }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/context-basket`,
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
 
     fireEvent.change(screen.getByLabelText("Workshop message"), {
       target: { value: "Check continuity for the opening scene." },
@@ -4091,28 +4191,37 @@ describe("App shell", () => {
     expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
     expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+    const workshopPage = document.querySelector("#workshop-page") as HTMLElement;
+    fireEvent.click(within(workshopPage).getByRole("button", { name: "Workshop settings" }));
+    expect(await screen.findByRole("heading", { name: "Workshop settings" })).toBeTruthy();
     expect(((await screen.findByLabelText("Mode")) as HTMLSelectElement).value).toBe("general-chat");
-
-    fireEvent.click(screen.getByRole("button", { name: "System Prompt" }));
+    expect((screen.getByLabelText("Stream output") as HTMLInputElement).checked).toBe(true);
     fireEvent.change(screen.getByLabelText("General Chat system prompt"), {
       target: { value: "Answer as a context-aware story consultant." },
     });
-    fireEvent.change(screen.getByLabelText("Workshop message"), {
+    fireEvent.click(screen.getByLabelText("Show reasoning by default"));
+    expect((screen.getByLabelText("Show reasoning by default") as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const messageInput = screen.getByLabelText("Workshop message");
+    fireEvent.change(messageInput, {
       target: { value: "Talk through the current scene options." },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const callsBeforeCtrlEnter = fetchMock.mock.calls.length;
+    fireEvent.keyDown(messageInput, { code: "Enter", ctrlKey: true, key: "Enter" });
+    expect(fetchMock.mock.calls).toHaveLength(callsBeforeCtrlEnter);
+    fireEvent.keyDown(messageInput, { code: "Enter", key: "Enter" });
 
     expect(screen.getByText("Talk through the current scene options.")).toBeTruthy();
     expect(screen.queryByText("Workshop model response.")).toBeNull();
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls`,
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls/stream`,
         expect.objectContaining({ method: "POST" }),
       );
     });
     const callRequest = fetchMock.mock.calls.find(([url, init]) =>
-      String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls` &&
+      String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls/stream` &&
       (init as RequestInit | undefined)?.method === "POST",
     );
     expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body))).toMatchObject({
@@ -4123,7 +4232,20 @@ describe("App shell", () => {
     });
 
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
+    expect(screen.getAllByText("Talk through the current scene options.")).toHaveLength(1);
+    expect(screen.getAllByText("Workshop model response.")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
+    expect(screen.getByText("Checked the selected context before answering.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Hide Reasoning" }));
+    expect(screen.queryByText("Checked the selected context before answering.")).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/98989898-9898-4898-9898-989898989898`,
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    expect(screen.queryByText("Workshop model response.")).toBeNull();
   });
 
   it("renders Workshop context selection as nested scene and Codex menus", async () => {

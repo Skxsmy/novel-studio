@@ -65,6 +65,7 @@ export const WorkshopMessageSchema = z.object({
   mode: WorkshopModeSchema.default("continuity-check"),
   status: WorkshopMessageStatusSchema.default("succeeded"),
   content: z.string().max(400000).default(""),
+  reasoningContent: z.string().max(400000).default(""),
   contextBundleId: z.string().uuid().nullable().default(null),
   modelCallId: z.string().uuid().nullable().default(null),
   proposalIds: z.array(z.string().uuid()).default([]),
@@ -166,6 +167,12 @@ export type WorkshopMessageProposalResult = z.infer<
   typeof WorkshopMessageProposalResultSchema
 >;
 
+export const DeleteWorkshopMessageResultSchema = z.object({
+  deletedId: z.string().uuid(),
+  session: WorkshopSessionSchema,
+});
+export type DeleteWorkshopMessageResult = z.infer<typeof DeleteWorkshopMessageResultSchema>;
+
 export const CreateWorkshopBranchInputSchema = z.object({
   sourceMessageId: z.string().uuid(),
   title: z.string().trim().min(1).max(160).optional(),
@@ -213,3 +220,38 @@ export const WorkshopCallResultSchema = z.object({
   actualUsage: TokenUsageSchema.nullable().default(null),
 });
 export type WorkshopCallResult = z.infer<typeof WorkshopCallResultSchema>;
+
+export const WorkshopCallStreamEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("author-message"),
+    message: WorkshopMessageSchema,
+  }),
+  z.object({
+    type: z.literal("metadata"),
+    contextBundleId: z.string().uuid(),
+    modelCallId: z.string().uuid(),
+  }),
+  z.object({
+    type: z.literal("delta"),
+    text: z.string(),
+  }),
+  z.object({
+    type: z.literal("reasoning-delta"),
+    text: z.string(),
+  }),
+  z.object({
+    type: z.literal("assistant-message"),
+    message: WorkshopMessageSchema,
+  }),
+  z.object({
+    type: z.literal("error"),
+    code: z.string().max(120).nullable().default(null),
+    message: z.string().min(1).max(4000),
+    assistantMessage: WorkshopMessageSchema.optional(),
+  }),
+  z.object({
+    type: z.literal("done"),
+    result: WorkshopCallResultSchema,
+  }),
+]);
+export type WorkshopCallStreamEvent = z.infer<typeof WorkshopCallStreamEventSchema>;

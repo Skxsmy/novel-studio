@@ -34,6 +34,17 @@ async function createSeriesWithMockProfile(model = "mock-continuity-v1") {
   return { app, series, profile: profile.json() };
 }
 
+function parseSseEvents(payload: string): Array<Record<string, unknown>> {
+  return payload
+    .trim()
+    .split(/\r?\n\r?\n/u)
+    .map((block) => block
+      .split(/\r?\n/u)
+      .find((line) => line.startsWith("data:")))
+    .filter((line): line is string => Boolean(line))
+    .map((line) => JSON.parse(line.slice(5).trimStart()) as Record<string, unknown>);
+}
+
 describe("M5 Workshop API routes", () => {
   it("persists sessions, previews context, and saves a successful single-role call", async () => {
     const { app, series, profile } = await createSeriesWithMockProfile();
@@ -359,7 +370,7 @@ describe("M5 Workshop API routes", () => {
     const sessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
-      payload: { title: "General chat", sceneId: scene.metadata.id },
+      payload: { title: "General chat" },
     });
     expect(sessionResponse.statusCode).toBe(201);
     const session = sessionResponse.json();
@@ -388,6 +399,7 @@ describe("M5 Workshop API routes", () => {
       url: `/api/v1/series/${series.manifest.id}/context/${call.json().contextBundleId}`,
     });
     expect(context.statusCode).toBe(200);
+    expect(context.json().sceneId).toBeNull();
     expect(context.json().items).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "role-instruction",
@@ -396,6 +408,32 @@ describe("M5 Workshop API routes", () => {
         content: "Answer as a private context-aware story consultant.",
       }),
     ]));
+    expect(context.json().items.some((item: { kind: string }) => item.kind === "prompt-template")).toBe(false);
+
+    const emptyPromptPreview = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/context-preview`,
+      payload: {
+        mode: "general-chat",
+        userRequest: "Use no system prompt.",
+        roleId: "lead-writing-partner",
+        taskKind: "analysis",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
+        promptTemplateVersion: 1,
+        systemPrompt: "",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(emptyPromptPreview.statusCode).toBe(200);
+    expect(emptyPromptPreview.json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "role-instruction",
+        source: expect.objectContaining({ type: "user-input" }),
+        title: "General Chat system prompt",
+        content: "",
+      }),
+    ]));
+    expect(emptyPromptPreview.json().items.some((item: { kind: string }) => item.kind === "prompt-template")).toBe(false);
 
     const assistantMessage = call.json().assistantMessage;
     const target = {
@@ -437,6 +475,63 @@ describe("M5 Workshop API routes", () => {
     });
     expect(blockedProposal.statusCode).not.toBe(201);
     expect(blockedProposal.json().message).toContain("General Chat messages cannot create Proposals");
+
+    await app.close();
+  });
+
+  it("streams General Chat replies with separated reasoning and supports deleting unlinked records", async () => {
+    const { app, series, profile } = await createSeriesWithMockProfile("mock-reasoning-v1");
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Streaming chat" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+
+    const stream = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/stream`,
+      payload: {
+        mode: "general-chat",
+        userRequest: "Talk through the scene without writing.",
+        roleId: "lead-writing-partner",
+        taskKind: "analysis",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
+        promptTemplateVersion: 1,
+        systemPrompt: "Answer as a private context-aware story consultant.",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(stream.statusCode).toBe(200);
+    expect(stream.headers["content-type"]).toContain("text/event-stream");
+    const events = parseSseEvents(stream.payload);
+    expect(events.map((event) => event.type)).toEqual(expect.arrayContaining([
+      "author-message",
+      "metadata",
+      "reasoning-delta",
+      "delta",
+      "assistant-message",
+      "done",
+    ]));
+    const done = events.find((event) => event.type === "done") as {
+      result: { assistantMessage: { id: string; content: string; reasoningContent: string } };
+    };
+    expect(done.result.assistantMessage.content).toContain("公开回复");
+    expect(done.result.assistantMessage.content).not.toContain("<think>");
+    expect(done.result.assistantMessage.reasoningContent).toContain("先检查用户请求");
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${done.result.assistantMessage.id}`,
+    });
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json().deletedId).toBe(done.result.assistantMessage.id);
+    const messages = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+    });
+    expect(messages.json().map((message: { id: string }) => message.id)).not.toContain(done.result.assistantMessage.id);
 
     await app.close();
   });

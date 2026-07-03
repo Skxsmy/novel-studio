@@ -42,6 +42,12 @@ const MOCK_MODELS: ProviderModelDescriptor[] = [
     capabilities: MOCK_CAPABILITIES,
   },
   {
+    id: "mock-reasoning-v1",
+    title: "Mock 思考流模型",
+    contextWindowTokens: 32000,
+    capabilities: MOCK_CAPABILITIES,
+  },
+  {
     id: "mock-small-context",
     title: "Mock 小上下文模型",
     contextWindowTokens: 64,
@@ -116,7 +122,15 @@ export class MockProvider implements ProviderAdapter {
     this.throwForScenario(request.modelProfile);
     this.assertContextFits(request);
     const writingCandidateTasks = new Set(["draft", "rewrite", "expand", "compress"]);
-    const response = writingCandidateTasks.has(request.contextBundle?.taskKind ?? "")
+    const scenario = scenarioFromProfile(request.modelProfile);
+    const response = scenario.includes("reasoning")
+      ? [
+        "<think>",
+        "先检查用户请求、已选上下文和模型边界。",
+        "</think>",
+        "【MockProvider】这是公开回复，不会写入项目文件。",
+      ].join("\n")
+      : writingCandidateTasks.has(request.contextBundle?.taskKind ?? "")
       ? [
         "【MockProvider 候选正文】",
         "旧钟声贴着雨幕往下坠，像有人在城墙深处轻轻合上了一扇门。",

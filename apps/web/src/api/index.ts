@@ -1,5 +1,5 @@
 export { ApiError, createApiClient } from "./client";
-export type { ApiClient, ApiClientOptions, RequestJsonOptions } from "./client";
+export type { ApiClient, ApiClientOptions, RequestEventStreamOptions, RequestJsonOptions } from "./client";
 export { createAiApi } from "./ai";
 export { createCodexApi } from "./codex";
 export { createProposalApi } from "./proposals";
@@ -59,6 +59,7 @@ export type {
   UpdateWorkshopSessionInput,
   WorkshopBranch,
   WorkshopCallResult,
+  WorkshopCallStreamEvent,
   WorkshopContextBasket,
   WorkshopContextPreviewInput,
   WorkshopMessage,
