@@ -227,10 +227,14 @@ function effectiveModelProfile(modelProfile: ModelProfile, modelOverride?: strin
   };
 }
 
-function workshopProviderPrompt(
+async function workshopProviderPrompt(
   contextBundle: ContextBundle,
   input: ReturnType<typeof RunWorkshopCallInputSchema.parse>,
-): ProviderPrompt {
+): Promise<ProviderPrompt> {
+  if (input.mode === "codex-creation") {
+    const { applyCodexCreationSkill } = await import("../workshop/codexCreationSkill.js");
+    return applyCodexCreationSkill(contextPrompt(contextBundle));
+  }
   if (input.mode !== "general-chat") return contextPrompt(contextBundle);
   return {
     system: input.systemPrompt.trim(),
@@ -693,7 +697,7 @@ export function registerWorkshopRoutes(
         await repository.getModelProfile(input.modelProfileId),
         input.modelOverride,
       );
-      const prompt = workshopProviderPrompt(contextBundle, input);
+      const prompt = await workshopProviderPrompt(contextBundle, input);
       const providerContextBundle = workshopProviderContextBundle(contextBundle, input);
 
       reply.hijack();
@@ -846,7 +850,7 @@ export function registerWorkshopRoutes(
         await repository.getModelProfile(input.modelProfileId),
         input.modelOverride,
       );
-      const prompt = workshopProviderPrompt(contextBundle, input);
+      const prompt = await workshopProviderPrompt(contextBundle, input);
       const providerContextBundle = workshopProviderContextBundle(contextBundle, input);
       const { log, responseText } = await executeWorkshopCall({
         repository,

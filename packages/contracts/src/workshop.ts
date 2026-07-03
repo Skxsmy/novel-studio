@@ -35,7 +35,7 @@ export type WorkshopMessageRole = z.infer<typeof WorkshopMessageRoleSchema>;
 export const WorkshopMessageStatusSchema = z.enum(["pending", "succeeded", "failed"]);
 export type WorkshopMessageStatus = z.infer<typeof WorkshopMessageStatusSchema>;
 
-export const WorkshopModeSchema = z.enum(["general-chat", "continuity-check"]);
+export const WorkshopModeSchema = z.enum(["general-chat", "continuity-check", "codex-creation"]);
 export type WorkshopMode = z.infer<typeof WorkshopModeSchema>;
 
 export const WorkshopContextItemKindSchema = z.enum([

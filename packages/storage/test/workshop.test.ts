@@ -492,4 +492,56 @@ describe("M5 Workshop storage", () => {
       message: "General Chat messages cannot create Proposals",
     });
   });
+
+  it("rejects generic scene Proposals from Codex Creation Workshop messages", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopCodexCreationProposal" });
+    const scene = series.scenes[0]!;
+    const session = await store.createWorkshopSession(series.manifest.id, {
+      title: "Codex creation thread",
+      sceneId: scene.metadata.id,
+    });
+    const message = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "assistant",
+      mode: "codex-creation",
+      content: "Codex Draft\nOperation: create\nName: Blue-salt key",
+    });
+    const target = {
+      kind: "scene-content" as const,
+      targetId: scene.metadata.id,
+      label: scene.metadata.title,
+      baseRevision: scene.revision,
+      fieldPath: [],
+      blockId: null,
+      range: null,
+    };
+
+    await expect(store.createProposalFromWorkshopMessage(series.manifest.id, session.id, message.id, {
+      type: "text-insertion",
+      title: "Blocked Codex Creation proposal",
+      summary: "Should not be routed to manuscript Review",
+      target,
+      riskLevel: "medium",
+      confidence: null,
+      reason: "Codex Creation needs a Codex write path.",
+      patches: [{
+        id: "11111111-1111-4111-8111-111111111111",
+        target,
+        action: "insert-text",
+        before: null,
+        after: message.content,
+        unifiedDiff: `+${message.content}`,
+      }],
+      evidence: [{
+        sourceType: "workshop-message",
+        sourceId: message.id,
+        revision: null,
+        quote: "",
+        note: "Codex Creation source.",
+      }],
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      message: "Codex Creation messages require a Codex Proposal or approved Codex tool adapter",
+    });
+  });
 });

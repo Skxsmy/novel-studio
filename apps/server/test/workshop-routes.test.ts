@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { BUILT_IN_PROMPT_IDS } from "../src/prompts/builtIns.js";
+import { applyCodexCreationSkill } from "../src/workshop/codexCreationSkill.js";
 
 const roots: string[] = [];
 
@@ -1276,6 +1277,92 @@ describe("M5 Workshop API routes", () => {
     });
     expect(blockedProposal.statusCode).not.toBe(201);
     expect(blockedProposal.json().message).toContain("General Chat messages cannot create Proposals");
+
+    await app.close();
+  });
+
+  it("runs Codex Creation with a mode-scoped skill and blocks generic scene Proposals", async () => {
+    const { app, series, profile } = await createSeriesWithMockProfile();
+    const scene = series.scenes[0]!;
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Codex creation" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+
+    const skillPrompt = applyCodexCreationSkill({
+      system: "Base",
+      instructions: "Base instructions",
+      user: "User",
+    });
+    expect(skillPrompt.instructions).toContain("Workshop mode: Codex Creation");
+    expect(skillPrompt.instructions).toContain("Codex entries are JSON authority records");
+    expect(skillPrompt.instructions).toContain("Interface boundary");
+    expect(skillPrompt.instructions).toContain("The generic Workshop message-to-Proposal interface currently creates scene-content manuscript Proposals");
+    expect(skillPrompt.instructions).toContain("Before suggesting any write, name the exact target interface required");
+    expect(skillPrompt.instructions).toContain("Base instructions");
+
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "codex-creation",
+        userRequest: "Draft a Codex entry for the blue-salt key.",
+        roleId: "researcher",
+        taskKind: "research",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.researcher,
+        promptTemplateVersion: 1,
+        modelProfileId: profile.id,
+      },
+    });
+    expect(call.statusCode).toBe(200);
+    expect(call.json()).toMatchObject({ status: "succeeded" });
+    expect(call.json().authorMessage).toMatchObject({ mode: "codex-creation" });
+    expect(call.json().assistantMessage).toMatchObject({ mode: "codex-creation" });
+
+    const target = {
+      kind: "scene-content",
+      targetId: scene.metadata.id,
+      label: scene.metadata.title,
+      baseRevision: scene.revision,
+      fieldPath: [],
+      blockId: null,
+      range: null,
+    };
+    const blockedProposal = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${call.json().assistantMessage.id}/proposals`,
+      payload: {
+        type: "text-insertion",
+        title: "Blocked Codex creation proposal",
+        summary: "Should not enter scene Review",
+        target,
+        riskLevel: "medium",
+        confidence: null,
+        reason: "Codex Creation is not a manuscript Proposal source.",
+        patches: [{
+          id: "11111111-1111-4111-8111-111111111111",
+          target,
+          action: "insert-text",
+          before: null,
+          after: call.json().assistantMessage.content,
+          unifiedDiff: `+${call.json().assistantMessage.content}`,
+        }],
+        evidence: [{
+          sourceType: "workshop-message",
+          sourceId: call.json().assistantMessage.id,
+          revision: null,
+          quote: "",
+          note: "Codex Creation source message.",
+        }],
+      },
+    });
+    expect(blockedProposal.statusCode).not.toBe(201);
+    expect(blockedProposal.json().message).toContain(
+      "Codex Creation messages require a Codex Proposal or approved Codex tool adapter",
+    );
 
     await app.close();
   });

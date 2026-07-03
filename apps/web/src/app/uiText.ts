@@ -229,7 +229,7 @@ export const uiText = {
     conversationEmptyTitle: "No messages yet",
     conversationEmptyBody: "Send a request after choosing context and a model profile.",
     defaultGeneralSystemPrompt: "You are a flexible writing partner for this novel. Use the selected context, answer the author's request directly, and do not claim that you changed project files.",
-    inputPlaceholder: "Ask for a rewrite, continuity check, codex update, or planning pass...",
+    inputPlaceholder: "Ask for a rewrite, continuity check, Codex draft, or planning pass...",
     send: "Send",
     contextTrigger: "+ Context",
     insert: "Add",
@@ -257,6 +257,7 @@ export const uiText = {
       scenes: "Scenes",
     },
     modes: {
+      codexCreation: "Codex Creation",
       continuityCheck: "Continuity",
       generalChat: "General Chat",
     },

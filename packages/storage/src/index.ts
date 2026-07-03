@@ -4438,6 +4438,13 @@ export class ProjectRepository {
         messageId,
       });
     }
+    if (message.mode === "codex-creation") {
+      throw new StorageError(
+        "Codex Creation messages require a Codex Proposal or approved Codex tool adapter",
+        "INVALID_DATA",
+        { messageId },
+      );
+    }
 
     const generator = await this.proposalGeneratorForWorkshopMessage(seriesId, message);
     const now = new Date().toISOString();

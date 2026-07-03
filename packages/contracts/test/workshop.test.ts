@@ -140,6 +140,20 @@ describe("M5 Workshop contracts", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts Codex Creation as a Workshop call mode", () => {
+    const parsed = RunWorkshopCallInputSchema.parse({
+      mode: "codex-creation",
+      userRequest: "Draft a Codex entry for the Tide Office.",
+      roleId: "researcher",
+      taskKind: "research",
+      promptTemplateId: "00000000-0000-4000-8000-000000000411",
+      promptTemplateVersion: 1,
+      modelProfileId: "11111111-2222-4333-8444-555555555555",
+    });
+    expect(parsed.mode).toBe("codex-creation");
+    expect(parsed.taskKind).toBe("research");
+  });
+
   it("allows only parsed attachment IDs on Workshop calls", () => {
     const missingDraft = RunWorkshopCallInputSchema.safeParse({
       mode: "general-chat",

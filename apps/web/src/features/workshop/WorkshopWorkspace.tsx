@@ -368,9 +368,18 @@ export function WorkshopWorkspace({
       null,
     [promptTemplates],
   );
+  const codexCreationPromptTemplate = useMemo(
+    () =>
+      newestTemplateForRole(promptTemplates, "researcher") ??
+      newestTemplateForRole(promptTemplates, "character-editor") ??
+      continuityPromptTemplate,
+    [continuityPromptTemplate, promptTemplates],
+  );
   const selectedPromptTemplate = workshopMode === "general-chat"
     ? generalPromptTemplate
-    : continuityPromptTemplate;
+    : workshopMode === "codex-creation"
+      ? codexCreationPromptTemplate
+      : continuityPromptTemplate;
   const contextItems = basket?.items ?? [];
   const contextScene = useMemo(() => {
     if (basket?.sceneId) {
@@ -1031,11 +1040,12 @@ export function WorkshopWorkspace({
   function previewPayload(userRequest = composer.trim() || text.labels.defaultRequest) {
     if (!selectedPromptTemplate) throw new Error(text.labels.noPrompt);
     const isGeneralChat = workshopMode === "general-chat";
+    const isCodexCreation = workshopMode === "codex-creation";
     return {
       mode: workshopMode,
       userRequest,
       roleId: selectedPromptTemplate.roleId,
-      taskKind: isGeneralChat ? "analysis" as const : "continuity-check" as const,
+      taskKind: isGeneralChat ? "analysis" as const : isCodexCreation ? "research" as const : "continuity-check" as const,
       promptTemplateId: selectedPromptTemplate.id,
       promptTemplateVersion: selectedPromptTemplate.version,
       systemPrompt: isGeneralChat ? generalSystemPrompt.trim() : "",
@@ -1181,7 +1191,7 @@ export function WorkshopWorkspace({
       messageCountBeforeSend,
     );
     try {
-      if (payload.mode === "general-chat" && useStreamingResponses) {
+      if ((payload.mode === "general-chat" || payload.mode === "codex-creation") && useStreamingResponses) {
         const localAssistantId = randomId();
         let assistantMessageId = localAssistantId;
         const localAssistantMessage: WorkshopMessage = {
@@ -1850,6 +1860,7 @@ export function WorkshopWorkspace({
                 value={workshopMode}
               >
                 <option value="general-chat">{text.modes.generalChat}</option>
+                <option value="codex-creation">{text.modes.codexCreation}</option>
                 <option value="continuity-check">{text.modes.continuityCheck}</option>
               </select>
             </label>
@@ -2100,7 +2111,7 @@ export function WorkshopWorkspace({
                 ? !hasReasoningOverride
                 : hasReasoningOverride;
               const canDeleteMessage = activeSession?.status === "active" &&
-                message.mode === "general-chat" &&
+                (message.mode === "general-chat" || message.mode === "codex-creation") &&
                 message.proposalIds.length === 0 &&
                 message.status !== "pending";
               return (
@@ -2218,7 +2229,7 @@ export function WorkshopWorkspace({
                 ) : null}
                 {activeSession?.status === "active" &&
                 message.role !== "author" &&
-                message.mode !== "general-chat" &&
+                message.mode === "continuity-check" &&
                 message.status === "succeeded" &&
                 message.content.trim() &&
                 message.proposalIds.length === 0 ? (

@@ -924,20 +924,28 @@ function workshopAttachment(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-function promptTemplate() {
+function promptTemplate(overrides: Partial<{
+  id: string;
+  roleId: string;
+  name: string;
+  description: string;
+  system: string;
+  instructions: string;
+  outputSchemaName: string;
+}> = {}) {
   return {
     schemaVersion: 1 as const,
-    id: promptTemplateId,
-    roleId: "continuity-editor",
-    name: "Continuity check",
+    id: overrides.id ?? promptTemplateId,
+    roleId: overrides.roleId ?? "continuity-editor",
+    name: overrides.name ?? "Continuity check",
     version: 1,
     status: "active" as const,
-    description: "Check continuity.",
-    system: "You are a continuity editor.",
-    instructions: "Check continuity.",
+    description: overrides.description ?? "Check continuity.",
+    system: overrides.system ?? "You are a continuity editor.",
+    instructions: overrides.instructions ?? "Check continuity.",
     components: [],
     variables: [],
-    outputSchemaName: "continuity_report",
+    outputSchemaName: overrides.outputSchemaName ?? "continuity_report",
     createdAt: "2026-07-01T00:00:00.000Z",
     updatedAt: "2026-07-01T00:00:00.000Z",
     archivedAt: null,
@@ -2013,7 +2021,27 @@ function mockFetch(options: {
     }
 
     if (url === `/api/v1/series/${seriesId}/ai/prompts` && method === "GET") {
-      return jsonResponse([promptTemplate()]);
+      return jsonResponse([
+        promptTemplate(),
+        promptTemplate({
+          id: "00000000-0000-4000-8000-000000000401",
+          roleId: "lead-writing-partner",
+          name: "General chat",
+          description: "Talk through writing options.",
+          system: "You are a writing partner.",
+          instructions: "Answer directly.",
+          outputSchemaName: "chat_response",
+        }),
+        promptTemplate({
+          id: "00000000-0000-4000-8000-000000000411",
+          roleId: "researcher",
+          name: "Research and Codex",
+          description: "Draft Codex material.",
+          system: "You are a Codex researcher.",
+          instructions: "Draft Codex entries and evidence notes.",
+          outputSchemaName: "research_notes",
+        }),
+      ]);
     }
 
     if (url === "/api/v1/ai/model-profiles" && method === "GET") {
@@ -4415,6 +4443,54 @@ describe("App shell", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
     expect(await screen.findByText("Accepted")).toBeTruthy();
+  });
+
+  it("runs Workshop Codex Creation as a scoped chat skill without scene Proposal actions", async () => {
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, title: "Codex drafting" })],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+    const workshopPage = document.querySelector("#workshop-page") as HTMLElement;
+
+    fireEvent.click(within(workshopPage).getByRole("button", { name: "Workshop settings" }));
+    expect(await screen.findByRole("heading", { name: "Workshop settings" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Mode"), {
+      target: { value: "codex-creation" },
+    });
+    expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("codex-creation");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    fireEvent.change(screen.getByLabelText("Workshop message"), {
+      target: { value: "Draft a Codex entry for the blue-salt key." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls/stream`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    const callRequest = fetchMock.mock.calls.find(([url, init]) =>
+      String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls/stream` &&
+      (init as RequestInit | undefined)?.method === "POST",
+    );
+    const body = JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body));
+    expect(body).toMatchObject({
+      mode: "codex-creation",
+      roleId: "researcher",
+      taskKind: "research",
+      promptTemplateId: "00000000-0000-4000-8000-000000000411",
+      systemPrompt: "",
+    });
+    expect(await screen.findByText("Workshop model response.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
   });
 
   it("auto-names new Workshop chats and lets authors rename sessions", async () => {

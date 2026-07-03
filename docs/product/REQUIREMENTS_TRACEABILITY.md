@@ -85,6 +85,8 @@
 
 2026-07-03 follow-up trace: Workshop session lifecycle and streaming-session-switch behavior are part of the M5 Workshop acceptance boundary. In-flight stream output must remain attached to its originating session across session switches, and permanent Workshop session delete must be exposed separately from Archive with cascade/reference-blocking behavior.
 
+2026-07-03 follow-up trace: Workshop Codex Creation is a mode-scoped discussion/drafting capability. It loads Codex-specific workflow/interface guidance only when selected, uses the researcher prompt path with a research task kind, and is blocked from the generic scene-content Proposal action until a dedicated Codex Proposal or approved Codex tool adapter exists.
+
 ## M6 资料分析库
 
 覆盖：TXT、Markdown、DOCX、文本 PDF、EPUB、HTML；SourceLocation、FTS5、可选 Embedding、Research Note 和权限。
