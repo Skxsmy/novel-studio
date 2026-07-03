@@ -3,10 +3,12 @@ import path from "node:path";
 import {
   WorkshopBranchSchema,
   WorkshopContextBasketSchema,
+  WorkshopMessageAttachmentSchema,
   WorkshopMessageSchema,
   WorkshopSessionSchema,
   type WorkshopBranch,
   type WorkshopContextBasket,
+  type WorkshopMessageAttachment,
   type WorkshopMessage,
   type WorkshopSession,
 } from "@novel-studio/contracts";
@@ -18,6 +20,7 @@ const WORKSHOP_DIR = "workshop";
 const SESSIONS_DIR = "sessions";
 const BRANCHES_DIR = "branches";
 const MESSAGES_DIR = "messages";
+const ATTACHMENTS_DIR = "attachments";
 const CONTEXT_BASKETS_DIR = "context-baskets";
 
 function workshopRoot(seriesRoot: string): string {
@@ -36,6 +39,10 @@ function messagesRoot(seriesRoot: string): string {
   return assertInside(seriesRoot, path.join(workshopRoot(seriesRoot), MESSAGES_DIR));
 }
 
+function attachmentsRoot(seriesRoot: string): string {
+  return assertInside(seriesRoot, path.join(workshopRoot(seriesRoot), ATTACHMENTS_DIR));
+}
+
 function contextBasketsRoot(seriesRoot: string): string {
   return assertInside(seriesRoot, path.join(workshopRoot(seriesRoot), CONTEXT_BASKETS_DIR));
 }
@@ -50,6 +57,10 @@ export function workshopBranchPath(seriesRoot: string, branchId: string): string
 
 export function workshopMessagePath(seriesRoot: string, messageId: string): string {
   return assertInside(seriesRoot, path.join(messagesRoot(seriesRoot), `${messageId}.json`));
+}
+
+export function workshopAttachmentPath(seriesRoot: string, attachmentId: string): string {
+  return assertInside(seriesRoot, path.join(attachmentsRoot(seriesRoot), `${attachmentId}.json`));
 }
 
 export function workshopContextBasketPath(seriesRoot: string, sessionId: string): string {
@@ -95,6 +106,16 @@ async function readMessageFile(filePath: string): Promise<WorkshopMessage> {
     filePath,
     (value) => WorkshopMessageSchema.parse(value),
     "Workshop message file",
+  );
+  return document.data;
+}
+
+async function readAttachmentFile(filePath: string): Promise<WorkshopMessageAttachment> {
+  const document = await readJsonAuthorityFile(
+    path.dirname(filePath),
+    filePath,
+    (value) => WorkshopMessageAttachmentSchema.parse(value),
+    "Workshop message attachment file",
   );
   return document.data;
 }
@@ -224,6 +245,66 @@ export async function writeWorkshopMessageFile(
     workshopMessagePath(seriesRoot, message.id),
     message,
     (value) => WorkshopMessageSchema.parse(value),
+  );
+  return document.data;
+}
+
+export async function listWorkshopAttachmentFiles(
+  seriesRoot: string,
+  sessionId?: string,
+): Promise<WorkshopMessageAttachment[]> {
+  const attachments = await Promise.all(
+    (await listJsonFiles(attachmentsRoot(seriesRoot))).map(readAttachmentFile),
+  );
+  return attachments
+    .filter((attachment) => !sessionId || attachment.sessionId === sessionId)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+export async function readWorkshopAttachmentFile(
+  seriesRoot: string,
+  attachmentId: string,
+): Promise<WorkshopMessageAttachment> {
+  try {
+    return await readAttachmentFile(workshopAttachmentPath(seriesRoot, attachmentId));
+  } catch (error) {
+    if (error instanceof StorageError && error.code === "NOT_FOUND") {
+      throw new StorageError("Workshop message attachment does not exist", "NOT_FOUND", { attachmentId });
+    }
+    throw error;
+  }
+}
+
+export async function createWorkshopAttachmentFile(
+  seriesRoot: string,
+  attachment: WorkshopMessageAttachment,
+): Promise<WorkshopMessageAttachment> {
+  const parsed = WorkshopMessageAttachmentSchema.parse(attachment);
+  const filePath = workshopAttachmentPath(seriesRoot, parsed.id);
+  if (await pathExists(filePath)) {
+    throw new StorageError("Workshop message attachment already exists", "INVALID_DATA", {
+      attachmentId: parsed.id,
+    });
+  }
+  await mkdir(attachmentsRoot(seriesRoot), { recursive: true });
+  const document = await writeJsonAuthorityFile(
+    seriesRoot,
+    filePath,
+    parsed,
+    (value) => WorkshopMessageAttachmentSchema.parse(value),
+  );
+  return document.data;
+}
+
+export async function writeWorkshopAttachmentFile(
+  seriesRoot: string,
+  attachment: WorkshopMessageAttachment,
+): Promise<WorkshopMessageAttachment> {
+  const document = await writeJsonAuthorityFile(
+    seriesRoot,
+    workshopAttachmentPath(seriesRoot, attachment.id),
+    attachment,
+    (value) => WorkshopMessageAttachmentSchema.parse(value),
   );
   return document.data;
 }

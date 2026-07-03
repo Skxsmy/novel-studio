@@ -1,7 +1,30 @@
 import { z } from "zod";
 import { AiTaskKindSchema, ModelParametersSchema, TokenUsageSchema } from "./ai.js";
+import { RevisionHashSchema } from "./common.js";
 import { ContextPreviewSelectionSchema } from "./context.js";
 import { CreateProposalInputSchema, ProposalDocumentSchema } from "./proposals.js";
+
+export const WORKSHOP_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+export const WORKSHOP_ATTACHMENT_MAX_COUNT = 12;
+
+const WorkshopDraftTokenSchema = z.string().trim().min(1).max(120);
+const WorkshopAttachmentIdsSchema = z
+  .array(z.string().uuid())
+  .max(WORKSHOP_ATTACHMENT_MAX_COUNT)
+  .default([]);
+
+function requireDraftTokenForAttachments(
+  input: { attachmentIds: string[]; draftToken: string | null },
+  context: z.RefinementCtx,
+): void {
+  if (input.attachmentIds.length > 0 && !input.draftToken) {
+    context.addIssue({
+      code: "custom",
+      message: "draftToken is required when attachmentIds are provided",
+      path: ["draftToken"],
+    });
+  }
+}
 
 export const WorkshopSessionStatusSchema = z.enum(["active", "archived"]);
 export type WorkshopSessionStatus = z.infer<typeof WorkshopSessionStatusSchema>;
@@ -27,8 +50,72 @@ export const WorkshopContextItemKindSchema = z.enum([
   "research-note",
   "note",
   "proposal-source",
+  "message-attachment",
 ]);
 export type WorkshopContextItemKind = z.infer<typeof WorkshopContextItemKindSchema>;
+
+export const WorkshopAttachmentParseStatusSchema = z.enum(["parsed", "failed", "rejected"]);
+export type WorkshopAttachmentParseStatus = z.infer<typeof WorkshopAttachmentParseStatusSchema>;
+
+export const WorkshopMessageAttachmentSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    id: z.string().uuid(),
+    seriesId: z.string().uuid(),
+    sessionId: z.string().uuid(),
+    messageId: z.string().uuid().nullable().default(null),
+    draftToken: WorkshopDraftTokenSchema,
+    fileName: z.string().trim().min(1).max(240),
+    mediaType: z.string().trim().min(1).max(120).default("application/octet-stream"),
+    sizeBytes: z.number().int().nonnegative().max(WORKSHOP_ATTACHMENT_MAX_BYTES),
+    textHash: RevisionHashSchema.nullable().default(null),
+    extractedText: z.string().max(400000).default(""),
+    parseStatus: WorkshopAttachmentParseStatusSchema,
+    parseWarnings: z.array(z.string().max(1000)).default([]),
+    parseError: z.string().max(2000).nullable().default(null),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .superRefine((attachment, context) => {
+    if (attachment.parseStatus === "parsed") {
+      if (!attachment.textHash) {
+        context.addIssue({
+          code: "custom",
+          message: "Parsed attachments require textHash",
+          path: ["textHash"],
+        });
+      }
+      if (!attachment.extractedText.trim()) {
+        context.addIssue({
+          code: "custom",
+          message: "Parsed attachments require extractedText",
+          path: ["extractedText"],
+        });
+      }
+      if (attachment.parseError) {
+        context.addIssue({
+          code: "custom",
+          message: "Parsed attachments cannot carry parseError",
+          path: ["parseError"],
+        });
+      }
+    }
+  });
+export type WorkshopMessageAttachment = z.infer<typeof WorkshopMessageAttachmentSchema>;
+
+export const UploadWorkshopAttachmentInputSchema = z.object({
+  draftToken: WorkshopDraftTokenSchema,
+  fileName: z.string().trim().min(1).max(240),
+  mediaType: z.string().trim().min(1).max(120).default("application/octet-stream"),
+  sizeBytes: z.number().int().nonnegative(),
+  base64Content: z.string().max(Math.ceil(WORKSHOP_ATTACHMENT_MAX_BYTES * 1.4)),
+}).strict();
+export type UploadWorkshopAttachmentInput = z.input<typeof UploadWorkshopAttachmentInputSchema>;
+
+export const ListWorkshopAttachmentsQuerySchema = z.object({
+  draftToken: WorkshopDraftTokenSchema.optional(),
+}).strict();
+export type ListWorkshopAttachmentsQuery = z.input<typeof ListWorkshopAttachmentsQuerySchema>;
 
 export const WorkshopSessionSchema = z.object({
   schemaVersion: z.literal(1),
@@ -69,6 +156,7 @@ export const WorkshopMessageSchema = z.object({
   contextBundleId: z.string().uuid().nullable().default(null),
   modelCallId: z.string().uuid().nullable().default(null),
   proposalIds: z.array(z.string().uuid()).default([]),
+  attachmentIds: WorkshopAttachmentIdsSchema,
   errorCode: z.string().max(120).nullable().default(null),
   errorMessage: z.string().max(4000).nullable().default(null),
   createdAt: z.string().datetime(),
@@ -137,11 +225,15 @@ export const UpdateWorkshopSessionInputSchema = z.object({
 });
 export type UpdateWorkshopSessionInput = z.infer<typeof UpdateWorkshopSessionInputSchema>;
 
-export const CreateWorkshopMessageInputSchema = z.object({
+const CreateWorkshopMessageInputBaseSchema = z.object({
   role: WorkshopMessageRoleSchema.default("author"),
   mode: WorkshopModeSchema.default("continuity-check"),
   content: z.string().trim().min(1).max(400000),
-});
+  attachmentIds: WorkshopAttachmentIdsSchema,
+  draftToken: WorkshopDraftTokenSchema.nullable().default(null),
+}).strict();
+export const CreateWorkshopMessageInputSchema =
+  CreateWorkshopMessageInputBaseSchema.superRefine(requireDraftTokenForAttachments);
 export type CreateWorkshopMessageInput = z.input<typeof CreateWorkshopMessageInputSchema>;
 
 export const CreateWorkshopMessageProposalInputSchema = CreateProposalInputSchema.omit({
@@ -169,9 +261,15 @@ export type WorkshopMessageProposalResult = z.infer<
 
 export const DeleteWorkshopMessageResultSchema = z.object({
   deletedId: z.string().uuid(),
+  deletedAttachmentIds: z.array(z.string().uuid()).default([]),
   session: WorkshopSessionSchema,
 });
 export type DeleteWorkshopMessageResult = z.infer<typeof DeleteWorkshopMessageResultSchema>;
+
+export const DeleteWorkshopAttachmentResultSchema = z.object({
+  deletedId: z.string().uuid(),
+});
+export type DeleteWorkshopAttachmentResult = z.infer<typeof DeleteWorkshopAttachmentResultSchema>;
 
 export const CreateWorkshopBranchInputSchema = z.object({
   sourceMessageId: z.string().uuid(),
@@ -189,7 +287,7 @@ export type UpdateWorkshopContextBasketInput = z.infer<
   typeof UpdateWorkshopContextBasketInputSchema
 >;
 
-export const WorkshopContextPreviewInputSchema = z.object({
+const WorkshopContextPreviewInputBaseSchema = z.object({
   mode: WorkshopModeSchema.default("general-chat"),
   userRequest: z.string().trim().min(1).max(16000),
   roleId: z.string().min(1).max(120).default("continuity-editor"),
@@ -200,13 +298,17 @@ export const WorkshopContextPreviewInputSchema = z.object({
   modelProfileId: z.string().uuid().nullable().default(null),
   modelOverride: z.string().trim().min(1).max(200).nullable().default(null),
   tokenBudget: z.number().int().positive().nullable().default(null),
-});
+  attachmentIds: WorkshopAttachmentIdsSchema,
+  draftToken: WorkshopDraftTokenSchema.nullable().default(null),
+}).strict();
+export const WorkshopContextPreviewInputSchema =
+  WorkshopContextPreviewInputBaseSchema.superRefine(requireDraftTokenForAttachments);
 export type WorkshopContextPreviewInput = z.input<typeof WorkshopContextPreviewInputSchema>;
 
-export const RunWorkshopCallInputSchema = WorkshopContextPreviewInputSchema.extend({
+export const RunWorkshopCallInputSchema = WorkshopContextPreviewInputBaseSchema.extend({
   modelProfileId: z.string().uuid(),
   parameters: ModelParametersSchema.default({}),
-});
+}).strict().superRefine(requireDraftTokenForAttachments);
 export type RunWorkshopCallInput = z.input<typeof RunWorkshopCallInputSchema>;
 
 export const WorkshopCallResultSchema = z.object({

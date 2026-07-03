@@ -26,6 +26,7 @@ import {
   DeleteCodexEntryResultSchema,
   DeleteCodexDetailTypeResultSchema,
   DeleteCodexProgressionResultSchema,
+  DeleteWorkshopAttachmentResultSchema,
   DeleteWorkshopMessageResultSchema,
   DeleteSeriesInputSchema,
   DeleteSeriesResultSchema,
@@ -92,6 +93,7 @@ import {
   WorkshopBranchSchema,
   WorkshopContextBasketSchema,
   WorkshopContextItemRefSchema,
+  WorkshopMessageAttachmentSchema,
   WorkshopMessageProposalResultSchema,
   WorkshopMessageSourceSchema,
   WorkshopMessageSchema,
@@ -173,6 +175,7 @@ import {
   type DeleteCodexEntryResult,
   type DeleteCodexDetailTypeResult,
   type DeleteCodexProgressionResult,
+  type DeleteWorkshopAttachmentResult,
   type DeleteWorkshopMessageResult,
   type DeleteSeriesInput,
   type DeleteSeriesResult,
@@ -222,6 +225,7 @@ import {
   type WorkshopBranch,
   type WorkshopContextBasket,
   type WorkshopContextItemRef,
+  type WorkshopMessageAttachment,
   type WorkshopMessage,
   type WorkshopMessageProposalResult,
   type WorkshopMessageSource,
@@ -310,19 +314,21 @@ import {
   writeProposalAuthorityFile,
 } from "./proposalFiles.js";
 import {
+  createWorkshopAttachmentFile,
   createWorkshopBranchFile,
-  createWorkshopMessageFile,
   createWorkshopSessionFile,
+  listWorkshopAttachmentFiles,
   listWorkshopBranchFiles,
   listWorkshopMessageFiles,
   listWorkshopSessionFiles,
+  readWorkshopAttachmentFile,
   readWorkshopContextBasketFile,
   readWorkshopMessageFile,
   readWorkshopSessionFile,
+  workshopAttachmentPath,
   workshopMessagePath,
   workshopSessionPath,
   writeWorkshopContextBasketFile,
-  writeWorkshopMessageFile,
   writeWorkshopSessionFile,
 } from "./workshopFiles.js";
 export * from "./jsonAuthority.js";
@@ -3977,6 +3983,91 @@ export class ProjectRepository {
     return listWorkshopMessageFiles(await this.findSeriesRoot(seriesId), sessionId);
   }
 
+  async listWorkshopAttachments(
+    seriesId: string,
+    sessionId: string,
+    options: { draftToken?: string } = {},
+  ): Promise<WorkshopMessageAttachment[]> {
+    await this.getWorkshopSession(seriesId, sessionId);
+    const attachments = await listWorkshopAttachmentFiles(await this.findSeriesRoot(seriesId), sessionId);
+    return attachments.filter((attachment) =>
+      !options.draftToken || attachment.draftToken === options.draftToken,
+    );
+  }
+
+  async getWorkshopAttachment(
+    seriesId: string,
+    attachmentId: string,
+  ): Promise<WorkshopMessageAttachment> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const attachment = await readWorkshopAttachmentFile(seriesRoot, attachmentId);
+    if (attachment.seriesId !== seriesId) {
+      throw new StorageError("Workshop message attachment belongs to another series", "INVALID_DATA", {
+        attachmentId,
+      });
+    }
+    return attachment;
+  }
+
+  async createWorkshopAttachment(
+    seriesId: string,
+    sessionId: string,
+    rawAttachment: WorkshopMessageAttachment,
+  ): Promise<WorkshopMessageAttachment> {
+    const attachment = WorkshopMessageAttachmentSchema.parse(rawAttachment);
+    if (attachment.seriesId !== seriesId || attachment.sessionId !== sessionId) {
+      throw new StorageError("Workshop message attachment does not belong to the requested session", "INVALID_DATA", {
+        attachmentId: attachment.id,
+        sessionId,
+      });
+    }
+    if (attachment.messageId !== null) {
+      throw new StorageError("Workshop message attachment must be created as a draft", "INVALID_DATA", {
+        attachmentId: attachment.id,
+      });
+    }
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+    if (session.status === "archived") {
+      throw new StorageError("Archived Workshop session cannot receive attachments", "INVALID_DATA", {
+        sessionId,
+      });
+    }
+    return createWorkshopAttachmentFile(seriesRoot, attachment);
+  }
+
+  async deleteWorkshopAttachment(
+    seriesId: string,
+    sessionId: string,
+    attachmentId: string,
+  ): Promise<DeleteWorkshopAttachmentResult> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+    if (session.seriesId !== seriesId) {
+      throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", { sessionId });
+    }
+    if (session.status === "archived") {
+      throw new StorageError("Archived Workshop session cannot delete attachments", "INVALID_DATA", { sessionId });
+    }
+    const attachment = await readWorkshopAttachmentFile(seriesRoot, attachmentId);
+    if (attachment.seriesId !== seriesId || attachment.sessionId !== sessionId) {
+      throw new StorageError("Workshop message attachment does not belong to the requested session", "INVALID_DATA", {
+        attachmentId,
+        sessionId,
+      });
+    }
+    if (attachment.messageId !== null) {
+      throw new StorageError("Message-bound Workshop attachments cannot be deleted directly", "INVALID_DATA", {
+        attachmentId,
+        messageId: attachment.messageId,
+      });
+    }
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: workshopAttachmentPath(seriesRoot, attachment.id), delete: true },
+    ]);
+    return DeleteWorkshopAttachmentResultSchema.parse({ deletedId: attachment.id });
+  }
+
   async getWorkshopMessageSource(
     seriesId: string,
     messageId: string,
@@ -4004,7 +4095,23 @@ export class ProjectRepository {
   ): Promise<WorkshopMessage> {
     const input = CreateWorkshopMessageInputSchema.parse(rawInput);
     const now = new Date().toISOString();
-    return this.saveWorkshopMessage(seriesId, WorkshopMessageSchema.parse({
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+    if (session.seriesId !== seriesId) {
+      throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", { sessionId });
+    }
+    if (session.status === "archived") {
+      throw new StorageError("Archived Workshop session cannot receive messages", "INVALID_DATA", {
+        sessionId: session.id,
+      });
+    }
+    const attachmentIds = [...new Set(input.attachmentIds)];
+    if (attachmentIds.length !== input.attachmentIds.length) {
+      throw new StorageError("Workshop message cannot reference duplicate attachments", "INVALID_DATA", {
+        attachmentIds: input.attachmentIds,
+      });
+    }
+    const message = WorkshopMessageSchema.parse({
       schemaVersion: 1,
       id: randomUUID(),
       seriesId,
@@ -4016,10 +4123,61 @@ export class ProjectRepository {
       contextBundleId: null,
       modelCallId: null,
       proposalIds: [],
+      attachmentIds,
       errorCode: null,
       errorMessage: null,
       createdAt: now,
-    }));
+    });
+    const attachmentWrites: WorkshopMessageAttachment[] = [];
+    for (const attachmentId of attachmentIds) {
+      const attachment = await readWorkshopAttachmentFile(seriesRoot, attachmentId);
+      if (attachment.seriesId !== seriesId || attachment.sessionId !== sessionId) {
+        throw new StorageError("Workshop message attachment does not belong to the requested session", "INVALID_DATA", {
+          attachmentId,
+          sessionId,
+        });
+      }
+      if (attachment.draftToken !== input.draftToken) {
+        throw new StorageError("Workshop message attachment belongs to another draft", "INVALID_DATA", {
+          attachmentId,
+        });
+      }
+      if (attachment.messageId !== null) {
+        throw new StorageError("Workshop message attachment is already bound to a message", "INVALID_DATA", {
+          attachmentId,
+          messageId: attachment.messageId,
+        });
+      }
+      if (attachment.parseStatus !== "parsed") {
+        throw new StorageError("Workshop message attachment has not parsed successfully", "INVALID_DATA", {
+          attachmentId,
+          parseStatus: attachment.parseStatus,
+        });
+      }
+      attachmentWrites.push(WorkshopMessageAttachmentSchema.parse({
+        ...attachment,
+        messageId: message.id,
+        updatedAt: now,
+      }));
+    }
+    const messagePath = workshopMessagePath(seriesRoot, message.id);
+    if (await pathExists(messagePath)) {
+      throw new StorageError("Workshop message already exists", "INVALID_DATA", { messageId: message.id });
+    }
+    const nextSession = WorkshopSessionSchema.parse({
+      ...session,
+      lastMessageAt: message.createdAt,
+      updatedAt: message.createdAt,
+    });
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: messagePath, content: serializeJsonAuthority(message) },
+      ...attachmentWrites.map((attachment) => ({
+        targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
+        content: serializeJsonAuthority(attachment),
+      })),
+      { targetPath: workshopSessionPath(seriesRoot, session.id), content: serializeJsonAuthority(nextSession) },
+    ]);
+    return readWorkshopMessageFile(seriesRoot, message.id);
   }
 
   async saveWorkshopMessage(seriesId: string, message: WorkshopMessage): Promise<WorkshopMessage> {
@@ -4036,13 +4194,35 @@ export class ProjectRepository {
         sessionId: session.id,
       });
     }
-    const created = await createWorkshopMessageFile(seriesRoot, parsed);
-    await writeWorkshopSessionFile(seriesRoot, {
+    for (const attachmentId of parsed.attachmentIds) {
+      const attachment = await readWorkshopAttachmentFile(seriesRoot, attachmentId);
+      if (attachment.seriesId !== seriesId || attachment.sessionId !== parsed.sessionId) {
+        throw new StorageError("Workshop message attachment does not belong to the message session", "INVALID_DATA", {
+          attachmentId,
+          sessionId: parsed.sessionId,
+        });
+      }
+      if (attachment.messageId !== parsed.id) {
+        throw new StorageError("Workshop message attachment is not bound to this message", "INVALID_DATA", {
+          attachmentId,
+          messageId: parsed.id,
+        });
+      }
+    }
+    const messagePath = workshopMessagePath(seriesRoot, parsed.id);
+    if (await pathExists(messagePath)) {
+      throw new StorageError("Workshop message already exists", "INVALID_DATA", { messageId: parsed.id });
+    }
+    const nextSession = WorkshopSessionSchema.parse({
       ...session,
-      lastMessageAt: created.createdAt,
-      updatedAt: created.createdAt,
+      lastMessageAt: parsed.createdAt,
+      updatedAt: parsed.createdAt,
     });
-    return created;
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: messagePath, content: serializeJsonAuthority(parsed) },
+      { targetPath: workshopSessionPath(seriesRoot, session.id), content: serializeJsonAuthority(nextSession) },
+    ]);
+    return readWorkshopMessageFile(seriesRoot, parsed.id);
   }
 
   async deleteWorkshopMessage(
@@ -4078,6 +4258,8 @@ export class ProjectRepository {
 
     const remainingMessages = (await listWorkshopMessageFiles(seriesRoot, sessionId))
       .filter((item) => item.id !== message.id);
+    const attached = (await listWorkshopAttachmentFiles(seriesRoot, sessionId))
+      .filter((attachment) => attachment.messageId === message.id || message.attachmentIds.includes(attachment.id));
     const lastMessage = remainingMessages.at(-1) ?? null;
     const now = new Date().toISOString();
     const nextSession = WorkshopSessionSchema.parse({
@@ -4087,10 +4269,15 @@ export class ProjectRepository {
     });
     await applyFileTransaction(seriesRoot, [
       { targetPath: workshopMessagePath(seriesRoot, message.id), delete: true },
+      ...attached.map((attachment) => ({
+        targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
+        delete: true,
+      })),
       { targetPath: workshopSessionPath(seriesRoot, session.id), content: serializeJsonAuthority(nextSession) },
     ]);
     return DeleteWorkshopMessageResultSchema.parse({
       deletedId: message.id,
+      deletedAttachmentIds: attached.map((attachment) => attachment.id),
       session: await readWorkshopSessionFile(seriesRoot, session.id),
     });
   }

@@ -419,6 +419,9 @@ describe("ProviderAdapter core and MockProvider", () => {
       temperature: 0.3,
       max_tokens: 128,
     });
+    const chatBodyText = JSON.stringify(chatRequest?.body);
+    expect(chatBodyText).toContain("## 当前场景");
+    expect(chatBodyText).toContain("当前场景：雨夜，主角发现信件。");
   });
 
   it("keeps generic OpenAI-compatible profiles separate from DeepSeek defaults", async () => {
@@ -502,6 +505,9 @@ describe("ProviderAdapter core and MockProvider", () => {
         { role: "user" },
       ],
     });
+    const chatBodyText = JSON.stringify(chatRequest?.body);
+    expect(chatBodyText).toContain("## 当前场景");
+    expect(chatBodyText).toContain("当前场景：雨夜，主角发现信件。");
     expect(JSON.stringify(chatRequest?.body)).not.toContain("max_tokens");
   });
 
@@ -568,6 +574,9 @@ describe("ProviderAdapter core and MockProvider", () => {
         { role: "user" },
       ],
     });
+    const chatBodyText = JSON.stringify(chatRequest?.body);
+    expect(chatBodyText).toContain("## 当前场景");
+    expect(chatBodyText).toContain("当前场景：雨夜，主角发现信件。");
   });
 
   it("uses Ollama OpenAI-compatible endpoints without requiring an Authorization header", async () => {
@@ -629,6 +638,9 @@ describe("ProviderAdapter core and MockProvider", () => {
         { role: "user" },
       ],
     });
+    const chatBodyText = JSON.stringify(chatRequest?.body);
+    expect(chatBodyText).toContain("## 当前场景");
+    expect(chatBodyText).toContain("当前场景：雨夜，主角发现信件。");
   });
 
   it("uses official Anthropic Messages fields, stream events, and model list shape", async () => {
@@ -855,6 +867,46 @@ describe("ProviderAdapter core and MockProvider", () => {
       ok: false,
       error: { code: "provider-error", message: "请先填写模型服务地址。" },
     });
+  });
+
+  it("preserves official OpenAI-compatible reasoning fields in streamed text", async () => {
+    const provider = new OpenAiCompatibleProvider({
+      credentialStore: fakeCredentialStore("generic-key"),
+      fetchImpl: async (input) => {
+        if (String(input).endsWith("/chat/completions")) {
+          return sseResponse(
+            JSON.stringify({ choices: [{ delta: { reasoning_content: "deepseek trace." } }] }),
+            JSON.stringify({ choices: [{ delta: { reasoning: "openrouter trace." } }] }),
+            JSON.stringify({ choices: [{ delta: { reasoning_details: [{ type: "reasoning.text", text: "details trace." }] } }] }),
+            JSON.stringify({ choices: [{ delta: { thinking: "ollama trace." } }] }),
+            JSON.stringify({ choices: [{ delta: { content: "Final answer." } }] }),
+            "[DONE]",
+          );
+        }
+        return new Response(JSON.stringify({ object: "list", data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const profile = modelProfile({
+      provider: "openai-compatible",
+      baseUrl: "https://example.test/v1",
+      model: "provider-reasoner",
+      credentialRef: "novel-studio/model-profile/generic",
+    });
+
+    await expect(collect(provider.streamText({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+    }))).resolves.toBe(
+      "<think>deepseek trace.</think>" +
+      "<think>openrouter trace.</think>" +
+      "<think>details trace.</think>" +
+      "<think>ollama trace.</think>" +
+      "Final answer.",
+    );
   });
 
   it("classifies DeepSeek auth failures without leaking secrets", async () => {

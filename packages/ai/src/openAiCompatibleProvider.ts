@@ -66,6 +66,10 @@ interface OpenAiChatCompletionBody {
   choices?: Array<{
     message?: {
       content?: unknown;
+      reasoning?: unknown;
+      reasoning_content?: unknown;
+      reasoning_details?: unknown;
+      thinking?: unknown;
     };
   }>;
   usage?: {
@@ -73,6 +77,20 @@ interface OpenAiChatCompletionBody {
     completion_tokens?: unknown;
     total_tokens?: unknown;
   };
+}
+
+interface OpenAiCompatibleMessageDelta {
+  content?: unknown;
+  reasoning?: unknown;
+  reasoning_content?: unknown;
+  reasoning_details?: unknown;
+  thinking?: unknown;
+}
+
+interface OpenAiCompatibleChoice {
+  delta?: OpenAiCompatibleMessageDelta;
+  message?: OpenAiCompatibleMessageDelta;
+  text?: unknown;
 }
 
 const OPENAI_COMPATIBLE_CAPABILITIES = {
@@ -121,9 +139,55 @@ function promptText(prompt: ProviderPrompt): string {
   return [prompt.system, prompt.instructions, prompt.user].join("\n\n");
 }
 
+function contextItemsText(contextBundle: ContextBundle | null): string {
+  if (!contextBundle) return "";
+  return contextBundle.items
+    .map((item) => `## ${item.title}\n${item.content}`)
+    .join("\n\n");
+}
+
 function contextText(request: ProviderTextRequest): string {
-  const context = request.contextBundle?.items.map((item) => item.content).join("\n\n") ?? "";
-  return [promptText(request.prompt), context].filter(Boolean).join("\n\n");
+  return [
+    promptText(request.prompt),
+    contextItemsText(request.contextBundle),
+  ].filter(Boolean).join("\n\n");
+}
+
+function textFromProviderField(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => textFromProviderField(item)).filter(Boolean).join("");
+  }
+  if (value && typeof value === "object") {
+    const object = value as Record<string, unknown>;
+    return textFromProviderField(object.text ?? object.content ?? object.summary ?? object.reasoning);
+  }
+  return "";
+}
+
+function reasoningTextFromDetails(value: unknown): string {
+  if (!Array.isArray(value)) return textFromProviderField(value);
+  return value
+    .map((detail) => {
+      if (!detail || typeof detail !== "object") return textFromProviderField(detail);
+      const object = detail as Record<string, unknown>;
+      return textFromProviderField(object.text ?? object.content ?? object.summary ?? object.reasoning);
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function reasoningTextFromDelta(delta: OpenAiCompatibleMessageDelta | undefined): string {
+  if (!delta) return "";
+  const rawReasoning = textFromProviderField(
+    delta.reasoning_content ?? delta.reasoning ?? delta.thinking,
+  );
+  const detailReasoning = reasoningTextFromDetails(delta.reasoning_details);
+  return [rawReasoning, detailReasoning].filter(Boolean).join("\n");
+}
+
+function taggedReasoning(value: string): string {
+  return value ? `<think>${value}</think>` : "";
 }
 
 function endpoint(baseUrl: string | null | undefined, defaultBaseUrl: string | null, pathname: string): string {
@@ -148,6 +212,7 @@ function mergedParameters(profile: ModelProfile, requestParameters?: ModelParame
 function chatBody(
   modelProfile: ModelProfile,
   prompt: ProviderPrompt,
+  contextBundle: ContextBundle | null,
   parameters: ModelParameters | undefined,
   stream: boolean,
   options: { instructionRole: InstructionRole; maxOutputTokenField: MaxOutputTokenField },
@@ -163,7 +228,10 @@ function chatBody(
       },
       {
         role: "user",
-        content: prompt.user,
+        content: [
+          contextItemsText(contextBundle),
+          prompt.user,
+        ].filter(Boolean).join("\n\n"),
       },
     ],
   };
@@ -315,7 +383,7 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
     const init: RequestInit = {
       method: "POST",
       headers: this.headers(secret),
-      body: JSON.stringify(chatBody(request.modelProfile, request.prompt, request.parameters, true, {
+      body: JSON.stringify(chatBody(request.modelProfile, request.prompt, request.contextBundle, request.parameters, true, {
         instructionRole: this.instructionRole,
         maxOutputTokenField: this.maxOutputTokenField,
       })),
@@ -363,7 +431,7 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
       method: "POST",
       headers: this.headers(secret),
       body: JSON.stringify({
-        ...chatBody(request.modelProfile, request.prompt, request.parameters, false, {
+        ...chatBody(request.modelProfile, request.prompt, request.contextBundle, request.parameters, false, {
           instructionRole: this.instructionRole,
           maxOutputTokenField: this.maxOutputTokenField,
         }),
@@ -478,11 +546,12 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
       const data = line.slice("data:".length).trim();
       if (!data || data === "[DONE]") continue;
       try {
-        const event = JSON.parse(data) as {
-          choices?: Array<{ delta?: { content?: unknown }; text?: unknown }>;
-        };
-        const content = event.choices?.[0]?.delta?.content ?? event.choices?.[0]?.text;
-        if (typeof content === "string") text += content;
+        const event = JSON.parse(data) as { choices?: OpenAiCompatibleChoice[] };
+        const choice = event.choices?.[0];
+        const delta = choice?.delta ?? choice?.message;
+        const reasoning = reasoningTextFromDelta(delta);
+        const content = textFromProviderField(delta?.content ?? choice?.text);
+        text += `${taggedReasoning(reasoning)}${content}`;
       } catch (error) {
         throw new ProviderAdapterError("provider-error", "Provider 返回了无法解析的流式事件。", {
           retryable: false,

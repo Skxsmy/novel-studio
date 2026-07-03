@@ -17,6 +17,8 @@ import {
   type SceneDocument,
   type SceneSectionDocument,
   type SeriesDetail,
+  type WorkshopMessage,
+  type WorkshopMessageAttachment,
 } from "@novel-studio/contracts";
 import type { ProviderRegistry } from "@novel-studio/ai";
 import { StorageError, type ProjectRepository } from "@novel-studio/storage";
@@ -28,6 +30,8 @@ import { PromptRenderError, renderPromptTemplate } from "../prompts/render.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const CONTEXT_ITEM_CONTENT_LIMIT = 399000;
+const WORKSHOP_CHAT_HISTORY_MESSAGE_LIMIT = 40;
+const WORKSHOP_CHAT_HISTORY_SEGMENT_LIMIT = 60000;
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -159,6 +163,64 @@ function manualIdMatches(
 function boundedContextContent(content: string): string {
   if (content.length <= CONTEXT_ITEM_CONTENT_LIMIT) return content;
   return `${content.slice(0, CONTEXT_ITEM_CONTENT_LIMIT)}\n\n[Context truncated to fit the maximum item size.]`;
+}
+
+function boundedHistorySegment(content: string): string {
+  if (content.length <= WORKSHOP_CHAT_HISTORY_SEGMENT_LIMIT) return content;
+  return `${content.slice(0, WORKSHOP_CHAT_HISTORY_SEGMENT_LIMIT)}\n\n[History segment truncated.]`;
+}
+
+function workshopRoleLabel(role: WorkshopMessage["role"]): string {
+  switch (role) {
+    case "author":
+      return "Author";
+    case "assistant":
+      return "Assistant";
+    case "system":
+      return "System";
+    case "tool":
+      return "Tool";
+    case "result":
+      return "Result";
+  }
+}
+
+function workshopChatHistoryContent(input: {
+  messages: WorkshopMessage[];
+  attachments: WorkshopMessageAttachment[];
+  excludeMessageId: string | null;
+}): string {
+  const attachmentsByMessage = new Map<string, WorkshopMessageAttachment[]>();
+  for (const attachment of input.attachments) {
+    if (!attachment.messageId || attachment.parseStatus !== "parsed") continue;
+    const current = attachmentsByMessage.get(attachment.messageId) ?? [];
+    current.push(attachment);
+    attachmentsByMessage.set(attachment.messageId, current);
+  }
+  const messages = [...input.messages]
+    .filter((message) => message.id !== input.excludeMessageId)
+    .filter((message) =>
+      Boolean(message.content.trim()) ||
+      (message.attachmentIds ?? []).some((attachmentId) =>
+        attachmentsByMessage.get(message.id)?.some((attachment) => attachment.id === attachmentId),
+      )
+    )
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .slice(-WORKSHOP_CHAT_HISTORY_MESSAGE_LIMIT);
+  return boundedContextContent(messages.map((message, index) => {
+    const messageAttachments = (message.attachmentIds ?? [])
+      .map((attachmentId) => attachmentsByMessage.get(message.id)?.find((attachment) => attachment.id === attachmentId))
+      .filter((attachment): attachment is WorkshopMessageAttachment => Boolean(attachment));
+    const parts = [
+      `[${index + 1}] ${workshopRoleLabel(message.role)}${message.status === "failed" ? " (failed)" : ""}`,
+      message.content.trim() ? `Message:\n${boundedHistorySegment(message.content.trim())}` : "",
+      ...messageAttachments.map((attachment, attachmentIndex) => [
+        `Attachment ${attachmentIndex + 1}: ${attachment.fileName}`,
+        boundedHistorySegment(attachment.extractedText.trim()),
+      ].filter(Boolean).join("\n")),
+    ].filter(Boolean);
+    return parts.join("\n\n");
+  }).filter(Boolean).join("\n\n---\n\n"));
 }
 
 function sortedByOrder<T extends { order: number }>(items: T[]): T[] {
@@ -432,6 +494,68 @@ export async function buildContextBundle(
     inclusion: "required",
     inclusionReason: "作者本次提出的明确任务。",
   }));
+
+  if (input.workshopSessionId) {
+    const [messages, attachments] = await Promise.all([
+      repository.listWorkshopMessages(seriesId, input.workshopSessionId),
+      repository.listWorkshopAttachments(seriesId, input.workshopSessionId),
+    ]);
+    const historyContent = workshopChatHistoryContent({
+      messages,
+      attachments,
+      excludeMessageId: input.excludeWorkshopMessageId,
+    });
+    if (historyContent.trim()) {
+      items.push(contextItem({
+        kind: "workshop-chat-history",
+        sourceType: "workshop-session",
+        sourceId: input.workshopSessionId,
+        title: "Workshop chat history",
+        content: historyContent,
+        inclusion: "derived",
+        inclusionReason: "Earlier messages and message-bound attachments in this Workshop session are needed for conversational continuity.",
+      }));
+    }
+  }
+
+  for (const attachmentId of [...new Set(input.attachmentIds)]) {
+    const attachment = await repository.getWorkshopAttachment(seriesId, attachmentId);
+    if (attachment.parseStatus !== "parsed") {
+      throw new StorageError("Workshop message attachment has not parsed successfully", "INVALID_DATA", {
+        attachmentId,
+        parseStatus: attachment.parseStatus,
+      });
+    }
+    if (attachment.messageId === null && attachment.draftToken !== input.draftToken) {
+      throw new StorageError("Workshop message attachment belongs to another draft", "INVALID_DATA", {
+        attachmentId,
+      });
+    }
+    const content = boundedContextContent([
+      `Attachment: ${attachment.fileName}`,
+      "",
+      attachment.extractedText,
+    ].join("\n"));
+    const source: ContextSource = {
+      type: "workshop-message-attachment",
+      id: attachment.id,
+      revision: attachment.textHash,
+      label: attachment.fileName,
+    };
+    items.push(contextItem({
+      kind: "message-attachment",
+      sourceType: "workshop-message-attachment",
+      sourceId: attachment.id,
+      sourceRevision: attachment.textHash,
+      sourceLabel: attachment.fileName,
+      title: `Attachment: ${attachment.fileName}`,
+      content,
+      inclusion: "selected",
+      inclusionReason: "The author attached this parsed file to the Workshop message.",
+      manuallySelected: true,
+      sourceRefs: [source],
+    }));
+  }
 
   if (input.selection && currentScene) {
     items.push(contextItem({

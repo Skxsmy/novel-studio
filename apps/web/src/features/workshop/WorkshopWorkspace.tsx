@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CodexCategoryDocument,
   CodexDetailTypeDocument,
@@ -12,6 +12,7 @@ import type {
   WorkshopContextBasket,
   WorkshopContextItemRef,
   WorkshopCallStreamEvent,
+  WorkshopMessageAttachment,
   WorkshopMessage,
   WorkshopMode,
   WorkshopSession,
@@ -41,6 +42,10 @@ type ContextMenuView =
   | { kind: "entryDetailEntries"; detailTypeId: string; label: string }
   | { kind: "entryCategories" }
   | { kind: "entryCategoryEntries"; categoryId: string; label: string };
+
+type ComposerAttachment = Omit<WorkshopMessageAttachment, "parseStatus"> & {
+  parseStatus: WorkshopMessageAttachment["parseStatus"] | "parsing";
+};
 
 const LINKED_CODEX_NOTE = "Linked from selected context.";
 
@@ -220,6 +225,25 @@ function selectedScopeTexts(
   return texts.filter((value) => value.trim().length > 0);
 }
 
+function attachmentStatusLabel(
+  status: ComposerAttachment["parseStatus"] | WorkshopMessageAttachment["parseStatus"],
+  text: typeof uiText.workshop,
+): string {
+  if (status === "parsing") return text.labels.attachmentParsing;
+  if (status === "parsed") return text.labels.attachmentReady;
+  if (status === "rejected") return text.labels.attachmentRejected;
+  return text.labels.attachmentFailed;
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.slice(index, index + 0x8000));
+  }
+  return btoa(binary);
+}
+
 export function WorkshopWorkspace({
   onOpenProposal,
   selectedMessageId,
@@ -231,6 +255,9 @@ export function WorkshopWorkspace({
   const [sessions, setSessions] = useState<WorkshopSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<WorkshopMessage[]>([]);
+  const [attachments, setAttachments] = useState<WorkshopMessageAttachment[]>([]);
+  const [draftAttachments, setDraftAttachments] = useState<ComposerAttachment[]>([]);
+  const [draftToken, setDraftToken] = useState(() => randomId());
   const [proposalDocuments, setProposalDocuments] = useState<ProposalDocument[]>([]);
   const [codexCategories, setCodexCategories] = useState<CodexCategoryDocument[]>([]);
   const [codexDetailTypes, setCodexDetailTypes] = useState<CodexDetailTypeDocument[]>([]);
@@ -258,6 +285,9 @@ export function WorkshopWorkspace({
   const [useStreamingResponses, setUseStreamingResponses] = useState(true);
   const [showReasoningByDefault, setShowReasoningByDefault] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const attachmentInputId = useMemo(() => `workshop-attachment-${randomId()}`, []);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const callAbortRef = useRef<AbortController | null>(null);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
@@ -266,6 +296,10 @@ export function WorkshopWorkspace({
   const proposalMap = useMemo(
     () => new Map(proposalDocuments.map((document) => [document.proposal.id, document])),
     [proposalDocuments],
+  );
+  const attachmentMap = useMemo(
+    () => new Map(attachments.map((attachment) => [attachment.id, attachment])),
+    [attachments],
   );
   const activeModelProfiles = useMemo(
     () => modelProfiles.filter((profile) => profile.archivedAt === null),
@@ -415,13 +449,17 @@ export function WorkshopWorkspace({
     basket?.selection ||
     contextItems.length > 0,
   );
+  const hasBlockedDraftAttachment = draftAttachments.some((attachment) => attachment.parseStatus !== "parsed");
+  const hasComposerText = composer.trim().length > 0;
+  const hasParsedDraftAttachment = draftAttachments.some((attachment) => attachment.parseStatus === "parsed");
   const canCall = Boolean(
     activeSession &&
     activeSession.status === "active" &&
     selectedPromptTemplate &&
     selectedModelProfile &&
     selectedModelId &&
-    composer.trim() &&
+    (hasComposerText || hasParsedDraftAttachment) &&
+    !hasBlockedDraftAttachment &&
     !isCalling,
   );
   const selectedModelLabel =
@@ -473,7 +511,16 @@ export function WorkshopWorkspace({
       const withAuthor = replaceMessageByIdentity(current, localAuthorId, result.authorMessage);
       return replaceMessageByIdentity(withAuthor, localAssistantId, result.assistantMessage);
     });
+    bindAttachmentsToMessage(result.authorMessage);
     updateSessionFromMessage(result.assistantMessage);
+  }
+
+  function bindAttachmentsToMessage(message: WorkshopMessage) {
+    const boundIds = new Set(message.attachmentIds ?? []);
+    if (boundIds.size === 0) return;
+    setAttachments((current) => current.map((attachment) => (
+      boundIds.has(attachment.id) ? { ...attachment, messageId: message.id } : attachment
+    )));
   }
 
   async function loadShell(preferredSessionId?: string) {
@@ -550,6 +597,9 @@ export function WorkshopWorkspace({
       ]);
       setBasket(detail.basket);
       setMessages(detail.messages);
+      setAttachments(detail.attachments ?? []);
+      setDraftAttachments([]);
+      setDraftToken(randomId());
       setProposalDocuments(inbox.items);
       setCodexCategories(nextCodexCategories);
       setCodexDetailTypes(nextCodexDetailTypes);
@@ -794,12 +844,103 @@ export function WorkshopWorkspace({
     };
   }
 
+  async function uploadComposerFile(file: File) {
+    if (!activeSession) return;
+    const localId = randomId();
+    const mediaType = file.type || "application/octet-stream";
+    const pending: ComposerAttachment = {
+      schemaVersion: 1,
+      id: localId,
+      seriesId,
+      sessionId: activeSession.id,
+      messageId: null,
+      draftToken,
+      fileName: file.name,
+      mediaType,
+      sizeBytes: file.size,
+      textHash: null,
+      extractedText: "",
+      parseStatus: "parsing",
+      parseWarnings: [],
+      parseError: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    setDraftAttachments((current) => [...current, pending]);
+    setError(null);
+    try {
+      const uploaded = await api.workshop.uploadAttachment(seriesId, activeSession.id, {
+        draftToken,
+        fileName: file.name,
+        mediaType,
+        sizeBytes: file.size,
+        base64Content: await fileToBase64(file),
+      });
+      setDraftAttachments((current) => current.map((attachment) =>
+        attachment.id === localId ? uploaded : attachment,
+      ));
+      setAttachments((current) => [
+        ...current.filter((attachment) => attachment.id !== uploaded.id),
+        uploaded,
+      ]);
+    } catch (caught) {
+      const message = apiErrorMessage(caught);
+      setDraftAttachments((current) => current.map((attachment) =>
+        attachment.id === localId
+          ? {
+            ...attachment,
+            parseStatus: "failed",
+            parseError: message,
+            updatedAt: new Date().toISOString(),
+          }
+          : attachment,
+      ));
+      setError(message);
+    }
+  }
+
+  function handleAttachmentInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    for (const file of files) {
+      void uploadComposerFile(file);
+    }
+  }
+
+  async function removeDraftAttachment(attachment: ComposerAttachment) {
+    setDraftAttachments((current) => current.filter((item) => item.id !== attachment.id));
+    if (attachment.parseStatus === "parsing" || !attachmentMap.has(attachment.id)) return;
+    try {
+      await api.workshop.deleteAttachment(seriesId, attachment.sessionId, attachment.id);
+      setAttachments((current) => current.filter((item) => item.id !== attachment.id));
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    }
+  }
+
+  function isAbortError(caught: unknown): boolean {
+    return caught instanceof DOMException && caught.name === "AbortError";
+  }
+
+  function stopSending() {
+    callAbortRef.current?.abort();
+  }
+
   async function sendMessage() {
-    if (!activeSession || !selectedModelProfile || !selectedPromptTemplate || !composer.trim() || isCalling) return;
-    const requestText = composer.trim();
+    if (!activeSession || !selectedModelProfile || !selectedPromptTemplate || isCalling) return;
+    const parsedDraftAttachments = draftAttachments.filter((attachment) => attachment.parseStatus === "parsed");
+    if (parsedDraftAttachments.length !== draftAttachments.length) return;
+    if (!composer.trim() && parsedDraftAttachments.length === 0) return;
+    const sentAttachmentIds = parsedDraftAttachments.map((attachment) => attachment.id);
+    const sentDraftToken = sentAttachmentIds.length ? draftToken : null;
+    const requestText = composer.trim() || text.labels.attachmentOnlyRequest;
+    const abortController = new AbortController();
+    callAbortRef.current = abortController;
     const payload = {
       ...previewPayload(requestText),
       modelProfileId: selectedModelProfile.id,
+      draftToken: sentDraftToken,
+      attachmentIds: sentAttachmentIds,
     };
     const now = new Date().toISOString();
     const localAuthorMessage: WorkshopMessage = {
@@ -815,6 +956,7 @@ export function WorkshopWorkspace({
       contextBundleId: null,
       modelCallId: null,
       proposalIds: [],
+      attachmentIds: sentAttachmentIds,
       errorCode: null,
       errorMessage: null,
       createdAt: now,
@@ -823,6 +965,8 @@ export function WorkshopWorkspace({
     setError(null);
     setMessages((current) => [...current, localAuthorMessage]);
     setComposer("");
+    setDraftAttachments([]);
+    setDraftToken(randomId());
     setIsContextMenuOpen(false);
     setIsSettingsOpen(false);
     try {
@@ -842,6 +986,7 @@ export function WorkshopWorkspace({
           contextBundleId: null,
           modelCallId: null,
           proposalIds: [],
+          attachmentIds: [],
           errorCode: null,
           errorMessage: null,
           createdAt: now,
@@ -854,6 +999,7 @@ export function WorkshopWorkspace({
           (event: WorkshopCallStreamEvent) => {
             if (event.type === "author-message") {
               setMessages((current) => replaceMessageByIdentity(current, localAuthorMessage.id, event.message));
+              bindAttachmentsToMessage(event.message);
               return;
             }
             if (event.type === "metadata") {
@@ -898,12 +1044,44 @@ export function WorkshopWorkspace({
               applyCallResult(event.result, localAuthorMessage.id, localAssistantId);
             }
           },
+          abortController.signal,
         );
         return;
       }
-      const result = await api.workshop.runCall(seriesId, activeSession.id, payload);
+      const result = await api.workshop.runCall(seriesId, activeSession.id, payload, abortController.signal);
       applyCallResult(result, localAuthorMessage.id);
     } catch (caught) {
+      if (isAbortError(caught)) {
+        setError(null);
+        setMessages((current) => {
+          const stopped = {
+            schemaVersion: 1 as const,
+            id: randomId(),
+            seriesId,
+            sessionId: activeSession.id,
+            role: "assistant" as const,
+            mode: payload.mode,
+            status: "failed" as const,
+            content: "",
+            reasoningContent: "",
+            contextBundleId: null,
+            modelCallId: null,
+            proposalIds: [],
+            attachmentIds: [],
+            errorCode: "WORKSHOP_CALL_ABORTED",
+            errorMessage: text.labels.sendingStopped,
+            createdAt: new Date().toISOString(),
+          };
+          const pendingIndex = current.findIndex((message) =>
+            message.role === "assistant" &&
+            message.status === "pending" &&
+            message.sessionId === activeSession.id,
+          );
+          if (pendingIndex < 0) return [...current, stopped];
+          return current.map((message, index) => index === pendingIndex ? stopped : message);
+        });
+        return;
+      }
       const message = apiErrorMessage(caught);
       setError(message);
       setMessages((current) => [
@@ -921,6 +1099,7 @@ export function WorkshopWorkspace({
           contextBundleId: null,
           modelCallId: null,
           proposalIds: [],
+          attachmentIds: [],
           errorCode: "WORKSHOP_CALL_FAILED",
           errorMessage: message,
           createdAt: new Date().toISOString(),
@@ -928,6 +1107,9 @@ export function WorkshopWorkspace({
       ]);
     } finally {
       setIsCalling(false);
+      if (callAbortRef.current === abortController) {
+        callAbortRef.current = null;
+      }
     }
   }
 
@@ -1011,6 +1193,9 @@ export function WorkshopWorkspace({
     try {
       const result = await api.workshop.deleteMessage(seriesId, activeSession.id, message.id);
       setMessages((current) => current.filter((item) => item.id !== result.deletedId));
+      setAttachments((current) => current.filter((attachment) =>
+        !result.deletedAttachmentIds.includes(attachment.id),
+      ));
       setSessions((current) => current.map((session) => (
         session.id === result.session.id ? result.session : session
       )));
@@ -1629,6 +1814,9 @@ export function WorkshopWorkspace({
             ) : null}
             {messages.map((message) => {
               const reasoningContent = (message.reasoningContent ?? "").trim();
+              const messageAttachments = (message.attachmentIds ?? [])
+                .map((attachmentId) => attachmentMap.get(attachmentId))
+                .filter((attachment): attachment is WorkshopMessageAttachment => Boolean(attachment));
               const hasReasoningOverride = reasoningOverrideIds.has(message.id);
               const isReasoningExpanded = showReasoningByDefault
                 ? !hasReasoningOverride
@@ -1650,7 +1838,8 @@ export function WorkshopWorkspace({
                     <div className="message-toolbar">
                       {reasoningContent ? (
                         <button
-                          className="btn compact subtle"
+                          aria-expanded={isReasoningExpanded}
+                          className="btn compact subtle message-reasoning-toggle"
                           onClick={() => toggleReasoning(message.id)}
                           type="button"
                         >
@@ -1674,8 +1863,23 @@ export function WorkshopWorkspace({
                       <div>{text.labels.reasoning}</div>
                       <p>{reasoningContent}</p>
                     </div>
+                  ) : reasoningContent ? (
+                    <div className="message-reasoning-collapsed">
+                      {text.labels.reasoningAvailable}
+                    </div>
                   ) : null}
-                  <p>{message.content || (message.status === "pending" ? text.labels.streaming : "")}</p>
+                  {message.content || message.status === "pending" ? (
+                    <p>{message.content || text.labels.streaming}</p>
+                  ) : null}
+                {messageAttachments.length ? (
+                  <div className="message-attachments" aria-label={text.labels.messageAttachments}>
+                    {messageAttachments.map((attachment) => (
+                      <span className="pill muted message-attachment-pill" key={attachment.id}>
+                        {attachment.fileName}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
                 {message.status === "failed" ? (
                   <p className="message-error">{message.errorMessage ?? text.labels.assistantFailed}</p>
                 ) : null}
@@ -1791,8 +1995,73 @@ export function WorkshopWorkspace({
               value={composer}
             />
             <div className="workshop-composer-foot">
-              <div className="workshop-footer-controls" />
+              <div className="workshop-footer-controls">
+                <input
+                  accept=".txt,.md,.markdown,.doc,.docx,.pdf,text/plain,text/markdown,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+                  aria-label={text.labels.attachmentInput}
+                  className="workshop-attachment-input"
+                  disabled={!activeSession || activeSession.status !== "active" || isCalling}
+                  id={attachmentInputId}
+                  multiple
+                  onChange={handleAttachmentInputChange}
+                  ref={attachmentInputRef}
+                  type="file"
+                />
+                <button
+                  aria-label={text.labels.attachFile}
+                  className="btn compact workshop-attachment-button"
+                  disabled={!activeSession || activeSession.status !== "active" || isCalling}
+                  onClick={() => attachmentInputRef.current?.click()}
+                  title={text.labels.attachFile}
+                  type="button"
+                >
+                  <svg aria-hidden="true" height="18" viewBox="0 0 24 24" width="18">
+                    <path
+                      d="M8.5 12.5 13 8a3.5 3.5 0 0 1 5 5l-6.5 6.5a5 5 0 0 1-7-7L11 6"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                    />
+                  </svg>
+                </button>
+                {draftAttachments.length ? (
+                  <div className="workshop-attachment-chips" aria-label={text.labels.draftAttachments}>
+                    {draftAttachments.map((attachment) => {
+                      const status = attachmentStatusLabel(attachment.parseStatus, text);
+                      const chipClass = attachment.parseStatus === "parsed"
+                        ? "pill green"
+                        : attachment.parseStatus === "parsing"
+                          ? "pill blue"
+                          : "pill amber";
+                      return (
+                        <span className="workshop-attachment-chip" key={attachment.id}>
+                          <span className="workshop-attachment-name">{attachment.fileName}</span>
+                          <span className={chipClass}>{status}</span>
+                          <button
+                            aria-label={`${text.labels.removeAttachment}: ${attachment.fileName}`}
+                            className="workshop-attachment-remove"
+                            onClick={() => void removeDraftAttachment(attachment)}
+                            type="button"
+                          >
+                            x
+                          </button>
+                          {attachment.parseStatus !== "parsed" && attachment.parseStatus !== "parsing" && attachment.parseError ? (
+                            <span className="workshop-attachment-error">{attachment.parseError}</span>
+                          ) : null}
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
               <div className="workshop-composer-actions">
+                {isCalling ? (
+                  <button className="btn workshop-stop-button" onClick={stopSending} type="button">
+                    {text.labels.stopSending}
+                  </button>
+                ) : null}
                 <button className="btn primary workshop-send-button" disabled={!canCall} onClick={sendMessage} type="button">
                   {isCalling ? text.labels.sending : text.send}
                 </button>

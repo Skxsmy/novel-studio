@@ -6,13 +6,17 @@ import {
   CreateWorkshopMessageInputSchema,
   CreateWorkshopSessionInputSchema,
   ContextBundleSchema,
+  DeleteWorkshopAttachmentResultSchema,
+  ListWorkshopAttachmentsQuerySchema,
   ModelCallLogSchema,
   RunWorkshopCallInputSchema,
   UpdateWorkshopContextBasketInputSchema,
   UpdateWorkshopSessionInputSchema,
+  UploadWorkshopAttachmentInputSchema,
   WorkshopCallResultSchema,
   WorkshopCallStreamEventSchema,
   WorkshopContextPreviewInputSchema,
+  WorkshopMessageAttachmentSchema,
   WorkshopMessageSchema,
   type ContextBundle,
   type ModelCallError,
@@ -33,6 +37,7 @@ import { ensureBuiltInPrompts } from "../prompts/builtIns.js";
 import { PromptRenderError } from "../prompts/render.js";
 import { buildContextBundle } from "./context.js";
 import { contextPrompt, requestHash, usage } from "./modelCalls.js";
+import { parseWorkshopAttachmentUpload } from "./workshopAttachments.js";
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -171,6 +176,7 @@ async function workshopContextPayload(
   seriesId: string,
   basket: WorkshopContextBasket,
   input: ReturnType<typeof WorkshopContextPreviewInputSchema.parse>,
+  options: { excludeWorkshopMessageId?: string | null } = {},
 ): Promise<Record<string, unknown>> {
   return {
     sceneId: basket.sceneId ?? null,
@@ -185,6 +191,10 @@ async function workshopContextPayload(
     systemPromptOverride: input.mode === "general-chat" ? input.systemPrompt : null,
     modelProfileId: input.modelProfileId,
     tokenBudget: input.tokenBudget,
+    attachmentIds: input.attachmentIds,
+    draftToken: input.draftToken,
+    workshopSessionId: basket.sessionId,
+    excludeWorkshopMessageId: options.excludeWorkshopMessageId ?? null,
   };
 }
 
@@ -448,12 +458,13 @@ export function registerWorkshopRoutes(
   app.get<{ Params: { seriesId: string; sessionId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId",
     async (request) => {
-      const [session, basket, messages] = await Promise.all([
+      const [session, basket, messages, attachments] = await Promise.all([
         repository.getWorkshopSession(request.params.seriesId, request.params.sessionId),
         repository.getWorkshopContextBasket(request.params.seriesId, request.params.sessionId),
         repository.listWorkshopMessages(request.params.seriesId, request.params.sessionId),
+        repository.listWorkshopAttachments(request.params.seriesId, request.params.sessionId),
       ]);
-      return { session, basket, messages };
+      return { session, basket, messages, attachments };
     },
   );
 
@@ -481,6 +492,59 @@ export function registerWorkshopRoutes(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages",
     async (request) =>
       repository.listWorkshopMessages(request.params.seriesId, request.params.sessionId),
+  );
+
+  app.get<{ Params: { seriesId: string; sessionId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/attachments",
+    async (request) => {
+      const query = ListWorkshopAttachmentsQuerySchema.parse(request.query ?? {});
+      return repository.listWorkshopAttachments(
+        request.params.seriesId,
+        request.params.sessionId,
+        query.draftToken ? { draftToken: query.draftToken } : {},
+      );
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; sessionId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/attachments",
+    async (request, reply) => {
+      const input = UploadWorkshopAttachmentInputSchema.parse(request.body);
+      const parseResult = await parseWorkshopAttachmentUpload(input);
+      const now = new Date().toISOString();
+      const attachment = WorkshopMessageAttachmentSchema.parse({
+        schemaVersion: 1,
+        id: randomUUID(),
+        seriesId: request.params.seriesId,
+        sessionId: request.params.sessionId,
+        messageId: null,
+        draftToken: input.draftToken,
+        fileName: input.fileName,
+        mediaType: input.mediaType,
+        sizeBytes: input.sizeBytes,
+        ...parseResult,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return reply.status(201).send(
+        await repository.createWorkshopAttachment(
+          request.params.seriesId,
+          request.params.sessionId,
+          attachment,
+        ),
+      );
+    },
+  );
+
+  app.delete<{ Params: { seriesId: string; sessionId: string; attachmentId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/attachments/:attachmentId",
+    async (request) => DeleteWorkshopAttachmentResultSchema.parse(
+      await repository.deleteWorkshopAttachment(
+        request.params.seriesId,
+        request.params.sessionId,
+        request.params.attachmentId,
+      ),
+    ),
   );
 
   app.get<{ Params: { seriesId: string; messageId: string } }>(
@@ -591,7 +655,13 @@ export function registerWorkshopRoutes(
       const authorMessage = await repository.createWorkshopMessage(
         request.params.seriesId,
         request.params.sessionId,
-        { role: "author", mode: input.mode, content: input.userRequest },
+        {
+          role: "author",
+          mode: input.mode,
+          content: input.userRequest,
+          attachmentIds: input.attachmentIds,
+          draftToken: input.draftToken,
+        },
       );
       let contextBundle;
       try {
@@ -603,7 +673,9 @@ export function registerWorkshopRoutes(
           repository,
           providerRegistry,
           request.params.seriesId,
-          await workshopContextPayload(repository, request.params.seriesId, basket, input),
+          await workshopContextPayload(repository, request.params.seriesId, basket, input, {
+            excludeWorkshopMessageId: authorMessage.id,
+          }),
         );
       } catch (error) {
         if (sendContextError(reply, error)) return reply;
@@ -736,7 +808,13 @@ export function registerWorkshopRoutes(
       const authorMessage = await repository.createWorkshopMessage(
         request.params.seriesId,
         request.params.sessionId,
-        { role: "author", mode: input.mode, content: input.userRequest },
+        {
+          role: "author",
+          mode: input.mode,
+          content: input.userRequest,
+          attachmentIds: input.attachmentIds,
+          draftToken: input.draftToken,
+        },
       );
       let contextBundle;
       try {
@@ -748,7 +826,9 @@ export function registerWorkshopRoutes(
           repository,
           providerRegistry,
           request.params.seriesId,
-          await workshopContextPayload(repository, request.params.seriesId, basket, input),
+          await workshopContextPayload(repository, request.params.seriesId, basket, input, {
+            excludeWorkshopMessageId: authorMessage.id,
+          }),
         );
       } catch (error) {
         if (sendContextError(reply, error)) return reply;

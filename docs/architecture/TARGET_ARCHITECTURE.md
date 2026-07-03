@@ -60,7 +60,7 @@ packages/
 
 - 系列、书、幕、章清单：JSON。
 - 场景、Codex、Progression、角色知识、Snippet、Style、Prompt 和 Research Note：JSON。NS-410 起，场景正文的内部权威是 `SceneBlockDocument`，Markdown/Word 只是导入、导出、镜像和迁移边界格式；旧 `codex/progressions/*.yaml` 退役。
-- Workshop：M5 起按 `workshop/sessions/<session-id>.json`、`workshop/messages/<message-id>.json` 和会话上下文选择 JSON 保存结构化权威数据；索引必须可重建，不使用 JSONL 作为权威存储。当前内部对象名仍可保留 `WorkshopContextBasket`，但 UI 不再把它呈现为常驻右侧篮子面板，而是通过折叠菜单编辑同一份会话上下文选择数据。Workshop 会话不得把当前场景作为默认上下文；流式调用通过事件流传递作者消息、metadata、正式回答增量、reasoning 增量、最终消息、错误和完成事件；普通未关联 Proposal 的消息可删除，已关联 Proposal 的消息必须由存储层阻止删除。
+- Workshop：M5 起按 `workshop/sessions/<session-id>.json`、`workshop/messages/<message-id>.json`、`workshop/attachments/<attachment-id>.json` 和会话上下文选择 JSON 保存结构化权威数据；索引必须可重建，不使用 JSONL 作为权威存储。当前内部对象名仍可保留 `WorkshopContextBasket`，但 UI 不再把它呈现为常驻右侧篮子面板，而是通过折叠菜单编辑同一份会话上下文选择数据。Workshop 会话不得把当前场景作为默认上下文；流式调用通过事件流传递作者消息、metadata、正式回答增量、reasoning 增量、最终消息、错误和完成事件；普通未关联 Proposal 的消息可删除，已关联 Proposal 的消息必须由存储层阻止删除。Workshop message attachments are parsed draft/message-bound context files, not Reference Library SourceDocuments or retrieval index records; deleting an unlinked message cascades its attachment JSON after the ContextBundle has already snapshotted the extracted text it used. Workshop model calls include same-session visible prior messages as `workshop-chat-history` context, including extracted text from historical message-bound attachments, while excluding the current author message from that history item to avoid duplicating `userRequest`.
 - Proposal、Evidence、调用审计和版本元数据：`.studio` 下可导出的结构化文件。
 - JSON authority 是 Project/File Service 的内部职责；API 层应在可行处继续提供当前前端所需的兼容投影，例如场景 `content`。
 

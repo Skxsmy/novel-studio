@@ -3,6 +3,7 @@ import {
   RunWorkshopCallInputSchema,
   WorkshopCallStreamEventSchema,
   WorkshopContextBasketSchema,
+  WorkshopMessageAttachmentSchema,
   WorkshopMessageSchema,
   WorkshopSessionSchema,
 } from "../src/workshop.js";
@@ -33,7 +34,35 @@ describe("M5 Workshop contracts", () => {
       createdAt: now,
     });
     expect(message.proposalIds).toEqual([]);
+    expect(message.attachmentIds).toEqual([]);
     expect(message.reasoningContent).toBe("");
+  });
+
+  it("validates Workshop message attachments in draft and message-bound states", () => {
+    const draft = WorkshopMessageAttachmentSchema.parse({
+      schemaVersion: 1,
+      id: "77777777-7777-4777-8777-777777777777",
+      seriesId: "22222222-2222-4222-8222-222222222222",
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      messageId: null,
+      draftToken: "draft-1",
+      fileName: "notes.md",
+      mediaType: "text/markdown",
+      sizeBytes: 12,
+      textHash: "a".repeat(64),
+      extractedText: "Attachment text.",
+      parseStatus: "parsed",
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(draft.messageId).toBeNull();
+
+    const bound = WorkshopMessageAttachmentSchema.parse({
+      ...draft,
+      id: "88888888-8888-4888-8888-888888888888",
+      messageId: "33333333-3333-4333-8333-333333333333",
+    });
+    expect(bound.messageId).toBe("33333333-3333-4333-8333-333333333333");
   });
 
   it("validates Workshop stream events with visible reasoning deltas", () => {
@@ -91,5 +120,46 @@ describe("M5 Workshop contracts", () => {
       modelProfileId: null,
     });
     expect(result.success).toBe(false);
+  });
+
+  it("allows only parsed attachment IDs on Workshop calls", () => {
+    const missingDraft = RunWorkshopCallInputSchema.safeParse({
+      mode: "general-chat",
+      userRequest: "Use this attachment.",
+      roleId: "lead-writing-partner",
+      taskKind: "analysis",
+      promptTemplateId: "00000000-0000-4000-8000-000000000405",
+      promptTemplateVersion: 1,
+      modelProfileId: "11111111-2222-4333-8444-555555555555",
+      attachmentIds: ["77777777-7777-4777-8777-777777777777"],
+    });
+    expect(missingDraft.success).toBe(false);
+
+    const rawContent = RunWorkshopCallInputSchema.safeParse({
+      mode: "general-chat",
+      userRequest: "Use this attachment.",
+      roleId: "lead-writing-partner",
+      taskKind: "analysis",
+      promptTemplateId: "00000000-0000-4000-8000-000000000405",
+      promptTemplateVersion: 1,
+      modelProfileId: "11111111-2222-4333-8444-555555555555",
+      draftToken: "draft-1",
+      attachmentIds: ["77777777-7777-4777-8777-777777777777"],
+      base64Content: "SGVsbG8=",
+    });
+    expect(rawContent.success).toBe(false);
+
+    const parsed = RunWorkshopCallInputSchema.parse({
+      mode: "general-chat",
+      userRequest: "Use this attachment.",
+      roleId: "lead-writing-partner",
+      taskKind: "analysis",
+      promptTemplateId: "00000000-0000-4000-8000-000000000405",
+      promptTemplateVersion: 1,
+      modelProfileId: "11111111-2222-4333-8444-555555555555",
+      draftToken: "draft-1",
+      attachmentIds: ["77777777-7777-4777-8777-777777777777"],
+    });
+    expect(parsed.attachmentIds).toEqual(["77777777-7777-4777-8777-777777777777"]);
   });
 });

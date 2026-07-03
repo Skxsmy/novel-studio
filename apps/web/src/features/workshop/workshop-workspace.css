@@ -299,6 +299,12 @@
   padding-inline: 10px;
 }
 
+.message-reasoning-toggle[aria-expanded="false"] {
+  border-color: rgba(59, 101, 214, 0.28);
+  background: #eef3ff;
+  color: #25448f;
+}
+
 .message p {
   margin: 0;
   white-space: pre-wrap;
@@ -350,6 +356,19 @@
   line-height: 19px;
 }
 
+.message-reasoning-collapsed {
+  width: max-content;
+  max-width: 100%;
+  padding: 5px 9px;
+  border: 1px solid rgba(59, 101, 214, 0.24);
+  border-radius: 999px;
+  background: #eef3ff;
+  color: #25448f;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
 .message-actions {
   display: flex;
   flex-wrap: wrap;
@@ -359,6 +378,18 @@
 .message-proposals {
   display: grid;
   gap: 8px;
+}
+
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.message-attachment-pill {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .workshop-grid .proposal-row {
@@ -469,9 +500,92 @@
 
 .workshop-footer-controls {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   min-width: 0;
+}
+
+.workshop-attachment-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.workshop-attachment-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0;
+  color: var(--quiet);
+}
+
+.workshop-attachment-button:disabled {
+  opacity: 0.55;
+}
+
+.workshop-attachment-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workshop-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(420px, 100%);
+  min-height: 34px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fffefa;
+}
+
+.workshop-attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workshop-attachment-remove {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--quiet);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+
+.workshop-attachment-remove:hover {
+  background: #eef2f7;
+  color: var(--ink);
+}
+
+.workshop-attachment-error {
+  flex-basis: 100%;
+  min-width: 0;
+  color: var(--red);
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .workshop-composer-actions {
@@ -484,6 +598,18 @@
 .workshop-send-button {
   width: 76px;
   min-height: 44px;
+}
+
+.workshop-stop-button {
+  width: 72px;
+  min-height: 44px;
+  border-color: rgba(180, 71, 71, 0.35);
+  color: #8d3434;
+}
+
+.workshop-stop-button:hover:not(:disabled) {
+  border-color: rgba(180, 71, 71, 0.58);
+  background: #fff1ee;
 }
 
 .workshop-context-menu {

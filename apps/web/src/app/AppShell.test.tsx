@@ -53,6 +53,7 @@ const workshopProposalId = "79797979-7979-4797-8797-797979797979";
 const workshopBasketItemId = "90909090-9090-4090-9090-909090909090";
 const workshopContextBundleId = "91919191-9191-4191-9191-919191919191";
 const workshopModelCallId = "92929292-9292-4292-9292-929292929292";
+const workshopAttachmentId = "93939393-9393-4393-8393-939393939393";
 const promptTemplateId = "00000000-0000-4000-8000-000000000405";
 const revision = "a".repeat(64);
 const updatedRevision = "b".repeat(64);
@@ -161,7 +162,11 @@ function jsonResponse(body: unknown, status = 200) {
   );
 }
 
-function sseResponse(events: unknown[], status = 200, delayMs = 0) {
+function abortError(): DOMException {
+  return new DOMException("Aborted", "AbortError");
+}
+
+function sseResponse(events: unknown[], status = 200, delayMs = 0, signal?: AbortSignal | null) {
   const response = new Response(events.map((event) => (
     `event: ${(event as { type?: string }).type ?? "message"}\n` +
     `data: ${JSON.stringify(event)}\n\n`
@@ -170,20 +175,44 @@ function sseResponse(events: unknown[], status = 200, delayMs = 0) {
     status,
   });
   if (delayMs <= 0) return Promise.resolve(response);
-  return new Promise<Response>((resolve) => {
-    window.setTimeout(() => resolve(response), delayMs);
+  return new Promise<Response>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError());
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(response);
+    }, delayMs);
+    function onAbort() {
+      window.clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(abortError());
+    }
+    signal?.addEventListener("abort", onAbort);
   });
 }
 
-function delayedJsonResponse(body: unknown, status = 200, delayMs = 0) {
+function delayedJsonResponse(body: unknown, status = 200, delayMs = 0, signal?: AbortSignal | null) {
   if (delayMs <= 0) return jsonResponse(body, status);
-  return new Promise<Response>((resolve) => {
-    window.setTimeout(() => {
+  return new Promise<Response>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError());
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
       resolve(new Response(JSON.stringify(body), {
         headers: { "content-type": "application/json" },
         status,
       }));
     }, delayMs);
+    function onAbort() {
+      window.clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(abortError());
+    }
+    signal?.addEventListener("abort", onAbort);
   });
 }
 
@@ -855,6 +884,32 @@ function workshopContextBundle() {
   };
 }
 
+function workshopAttachment(overrides: Partial<Record<string, unknown>> = {}) {
+  const extractedText = typeof overrides.extractedText === "string"
+    ? overrides.extractedText
+    : "Parsed Workshop attachment text.";
+  const parseStatus = typeof overrides.parseStatus === "string" ? overrides.parseStatus : "parsed";
+  return {
+    schemaVersion: 1,
+    id: overrides.id ?? workshopAttachmentId,
+    seriesId,
+    sessionId: overrides.sessionId ?? workshopSessionId,
+    messageId: overrides.messageId ?? null,
+    draftToken: overrides.draftToken ?? "draft-token",
+    fileName: overrides.fileName ?? "draft.md",
+    mediaType: overrides.mediaType ?? "text/markdown",
+    sizeBytes: overrides.sizeBytes ?? 32,
+    textHash: parseStatus === "parsed" ? revision : null,
+    extractedText: parseStatus === "parsed" ? extractedText : "",
+    parseStatus,
+    parseWarnings: [],
+    parseError: parseStatus === "parsed" ? null : "Attachment parse failed.",
+    createdAt: "2026-07-01T00:12:30.000Z",
+    updatedAt: "2026-07-01T00:12:30.000Z",
+    ...overrides,
+  };
+}
+
 function promptTemplate() {
   return {
     schemaVersion: 1 as const,
@@ -884,6 +939,7 @@ function mockFetch(options: {
   initialCodexRelations?: ReturnType<typeof codexRelationDocument>[];
   initialModelProfiles?: ReturnType<typeof modelProfile>[];
   initialProposals?: ReturnType<typeof proposalDocument>[];
+  initialWorkshopAttachments?: Array<Record<string, unknown>>;
   initialWorkshopMessages?: Array<Record<string, unknown>>;
   initialWorkshopSessions?: ReturnType<typeof workshopSession>[];
   initialSeriesDetail?: ReturnType<typeof seriesDetail>;
@@ -902,6 +958,7 @@ function mockFetch(options: {
   let modelProfiles: ReturnType<typeof modelProfile>[] = options.initialModelProfiles ?? [];
   let proposals = options.initialProposals ?? [proposalDocument()];
   let workshopSessions = options.initialWorkshopSessions ?? [];
+  let workshopAttachments: Array<Record<string, unknown>> = options.initialWorkshopAttachments ?? [];
   let workshopMessages: Array<Record<string, unknown>> = options.initialWorkshopMessages ?? [];
   let currentWorkshopBasket = workshopBasket();
   const workshopCallDelayMs = options.workshopCallDelayMs ?? 0;
@@ -1020,6 +1077,7 @@ function mockFetch(options: {
           session,
           basket: currentWorkshopBasket,
           messages: workshopMessages,
+          attachments: workshopAttachments,
         });
       }
       if (!segment && method === "PUT") {
@@ -1041,6 +1099,32 @@ function mockFetch(options: {
       if (segment === "messages" && !action && method === "GET") {
         return jsonResponse(workshopMessages);
       }
+      if (segment === "attachments" && !action && method === "GET") {
+        return jsonResponse(workshopAttachments.filter((attachment) =>
+          attachment.sessionId === requestedSessionId,
+        ));
+      }
+      if (segment === "attachments" && !action && method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        const created = workshopAttachment({
+          id: workshopAttachments.length === 0
+            ? workshopAttachmentId
+            : `93939393-9393-4393-8393-${String(workshopAttachments.length).padStart(12, "0").slice(0, 12)}`,
+          sessionId: requestedSessionId,
+          draftToken: body.draftToken,
+          fileName: body.fileName,
+          mediaType: body.mediaType,
+          sizeBytes: body.sizeBytes,
+          extractedText: `Parsed text from ${body.fileName}.`,
+        });
+        workshopAttachments = [...workshopAttachments, created];
+        return jsonResponse(created, 201);
+      }
+      if (segment === "attachments" && action && method === "DELETE") {
+        const deletedId = action;
+        workshopAttachments = workshopAttachments.filter((attachment) => attachment.id !== deletedId);
+        return jsonResponse({ deletedId });
+      }
       if (segment === "messages" && !action && method === "POST") {
         const body = JSON.parse(String(init?.body));
         const message = {
@@ -1056,6 +1140,7 @@ function mockFetch(options: {
           contextBundleId: null,
           modelCallId: null,
           proposalIds: [],
+          attachmentIds: body.attachmentIds ?? [],
           errorCode: null,
           errorMessage: null,
           createdAt: "2026-07-01T00:11:00.000Z",
@@ -1111,6 +1196,12 @@ function mockFetch(options: {
         const requestedMessageId = action;
         const sourceMessage = workshopMessages.find((message) => message.id === requestedMessageId);
         if (!sourceMessage) return jsonResponse({ message: "Workshop message does not exist" }, 404);
+        const deletedAttachmentIds = workshopAttachments
+          .filter((attachment) => attachment.messageId === requestedMessageId)
+          .map((attachment) => String(attachment.id));
+        workshopAttachments = workshopAttachments.filter((attachment) =>
+          attachment.messageId !== requestedMessageId,
+        );
         workshopMessages = workshopMessages.filter((message) => message.id !== requestedMessageId);
         const lastMessage = workshopMessages.at(-1) as { createdAt?: string } | undefined;
         const updatedSession = {
@@ -1119,7 +1210,7 @@ function mockFetch(options: {
           updatedAt: "2026-07-01T00:14:00.000Z",
         };
         workshopSessions = workshopSessions.map((item) => item.id === requestedSessionId ? updatedSession : item);
-        return jsonResponse({ deletedId: requestedMessageId, session: updatedSession });
+        return jsonResponse({ deletedId: requestedMessageId, deletedAttachmentIds, session: updatedSession });
       }
       if (segment === "branch" && method === "POST") {
         const branchSession = workshopSession({
@@ -1162,6 +1253,7 @@ function mockFetch(options: {
       }
       if (segment === "calls" && action === "stream" && method === "POST") {
         const body = JSON.parse(String(init?.body));
+        const attachmentIds = body.attachmentIds ?? [];
         const authorMessage = {
           schemaVersion: 1,
           id: "97979797-9797-4797-9797-979797979797",
@@ -1175,6 +1267,7 @@ function mockFetch(options: {
           contextBundleId: null,
           modelCallId: null,
           proposalIds: [],
+          attachmentIds,
           errorCode: null,
           errorMessage: null,
           createdAt: "2026-07-01T00:13:00.000Z",
@@ -1192,6 +1285,7 @@ function mockFetch(options: {
           contextBundleId: workshopContextBundleId,
           modelCallId: workshopModelCallId,
           proposalIds: [],
+          attachmentIds: [],
           errorCode: null,
           errorMessage: null,
           createdAt: "2026-07-01T00:13:01.000Z",
@@ -1206,6 +1300,9 @@ function mockFetch(options: {
           estimatedUsage: { inputTokens: 12, outputTokens: 0, totalTokens: 12 },
           actualUsage: { inputTokens: 12, outputTokens: 4, totalTokens: 16 },
         };
+        workshopAttachments = workshopAttachments.map((attachment) =>
+          attachmentIds.includes(attachment.id) ? { ...attachment, messageId: authorMessage.id } : attachment,
+        );
         workshopMessages = [authorMessage, assistantMessage];
         return sseResponse([
           { type: "author-message", message: authorMessage },
@@ -1214,10 +1311,11 @@ function mockFetch(options: {
           { type: "delta", text: "Workshop model response." },
           { type: "assistant-message", message: assistantMessage },
           { type: "done", result },
-        ], 200, workshopCallDelayMs);
+        ], 200, workshopCallDelayMs, init?.signal);
       }
       if (segment === "calls" && method === "POST") {
         const body = JSON.parse(String(init?.body));
+        const attachmentIds = body.attachmentIds ?? [];
         const authorMessage = {
           schemaVersion: 1,
           id: "97979797-9797-4797-9797-979797979797",
@@ -1231,6 +1329,7 @@ function mockFetch(options: {
           contextBundleId: null,
           modelCallId: null,
           proposalIds: [],
+          attachmentIds,
           errorCode: null,
           errorMessage: null,
           createdAt: "2026-07-01T00:13:00.000Z",
@@ -1248,6 +1347,7 @@ function mockFetch(options: {
           contextBundleId: workshopContextBundleId,
           modelCallId: workshopModelCallId,
           proposalIds: [],
+          attachmentIds: [],
           errorCode: null,
           errorMessage: null,
           createdAt: "2026-07-01T00:13:01.000Z",
@@ -1263,13 +1363,19 @@ function mockFetch(options: {
           actualUsage: { inputTokens: 12, outputTokens: 4, totalTokens: 16 },
         };
         if (workshopCallDelayMs > 0) {
-          return new Promise<Response>((resolve) => {
-            setTimeout(() => {
+          return delayedJsonResponse(responseBody, 200, workshopCallDelayMs, init?.signal).then((response) => {
+            if (!init?.signal?.aborted) {
               workshopMessages = [authorMessage, assistantMessage];
-              resolve(jsonResponse(responseBody));
-            }, workshopCallDelayMs);
+              workshopAttachments = workshopAttachments.map((attachment) =>
+                attachmentIds.includes(attachment.id) ? { ...attachment, messageId: authorMessage.id } : attachment,
+              );
+            }
+            return response;
           });
         }
+        workshopAttachments = workshopAttachments.map((attachment) =>
+          attachmentIds.includes(attachment.id) ? { ...attachment, messageId: authorMessage.id } : attachment,
+        );
         workshopMessages = [authorMessage, assistantMessage];
         return jsonResponse(responseBody);
       }
@@ -4199,9 +4305,32 @@ describe("App shell", () => {
     fireEvent.change(screen.getByLabelText("General Chat system prompt"), {
       target: { value: "Answer as a context-aware story consultant." },
     });
-    fireEvent.click(screen.getByLabelText("Show reasoning by default"));
-    expect((screen.getByLabelText("Show reasoning by default") as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const attachmentInput = screen.getByLabelText("Choose Workshop attachment") as HTMLInputElement;
+    const attachButton = within(workshopPage).getByRole("button", { name: "Attach file" }) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(attachButton.disabled).toBe(false);
+    });
+    const attachmentClick = vi.spyOn(attachmentInput, "click");
+    fireEvent.click(attachButton);
+    expect(attachmentClick).toHaveBeenCalled();
+    const attachmentFile = new File(["Attachment note for this request."], "draft.md", {
+      type: "text/markdown",
+    });
+    fireEvent.change(attachmentInput, {
+      target: { files: [attachmentFile] },
+    });
+    expect(await screen.findByText("draft.md")).toBeTruthy();
+    expect(await screen.findByText("Ready")).toBeTruthy();
+    const attachmentUpload = fetchMock.mock.calls.find(([url, init]) =>
+      String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/attachments` &&
+      (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(JSON.parse(String((attachmentUpload?.[1] as RequestInit | undefined)?.body))).toMatchObject({
+      fileName: "draft.md",
+      mediaType: "text/markdown",
+      sizeBytes: attachmentFile.size,
+    });
     const messageInput = screen.getByLabelText("Workshop message");
     fireEvent.change(messageInput, {
       target: { value: "Talk through the current scene options." },
@@ -4226,17 +4355,27 @@ describe("App shell", () => {
     );
     expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body))).toMatchObject({
       mode: "general-chat",
+      attachmentIds: [workshopAttachmentId],
       systemPrompt: "Answer as a context-aware story consultant.",
       taskKind: "analysis",
       userRequest: "Talk through the current scene options.",
     });
+    expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body)))
+      .not.toHaveProperty("base64Content");
 
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
     expect(screen.getAllByText("Talk through the current scene options.")).toHaveLength(1);
     expect(screen.getAllByText("Workshop model response.")).toHaveLength(1);
+    expect(screen.getByText("draft.md")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
+    expect(screen.getByText("Reasoning available")).toBeTruthy();
+    const showReasoning = screen.getByRole("button", { name: "Show Reasoning" });
+    expect(showReasoning.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(showReasoning);
     expect(screen.getByText("Checked the selected context before answering.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Hide Reasoning" }));
+    const hideReasoning = screen.getByRole("button", { name: "Hide Reasoning" });
+    expect(hideReasoning.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(hideReasoning);
     expect(screen.queryByText("Checked the selected context before answering.")).toBeNull();
     fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
     await waitFor(() => {
@@ -4245,6 +4384,69 @@ describe("App shell", () => {
         expect.objectContaining({ method: "DELETE" }),
       );
     });
+    expect(screen.queryByText("Workshop model response.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/97979797-9797-4797-9797-979797979797`,
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    expect(screen.queryByText("draft.md")).toBeNull();
+  });
+
+  it("allows attachment-only Workshop sends and lets the author stop an in-flight call", async () => {
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, title: "Attachment-only thread" })],
+      workshopCallDelayMs: 120,
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+
+    const attachmentInput = screen.getByLabelText("Choose Workshop attachment") as HTMLInputElement;
+    const attachButton = screen.getByRole("button", { name: "Attach file" }) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(attachButton.disabled).toBe(false);
+    });
+    fireEvent.change(attachmentInput, {
+      target: {
+        files: [new File(["Attachment-only note."], "only-file.txt", { type: "text/plain" })],
+      },
+    });
+    expect(await screen.findByText("only-file.txt")).toBeTruthy();
+    expect(await screen.findByText("Ready")).toBeTruthy();
+
+    const sendButton = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    expect(sendButton.disabled).toBe(false);
+    fireEvent.click(sendButton);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls/stream`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    const callRequest = fetchMock.mock.calls.find(([url, init]) =>
+      String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/calls/stream` &&
+      (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body))).toMatchObject({
+      attachmentIds: [workshopAttachmentId],
+      userRequest: "Review the attached files.",
+    });
+
+    expect(screen.getByText("Review the attached files.")).toBeTruthy();
+    const stopButton = screen.getByRole("button", { name: "Stop" });
+    expect((screen.getByRole("button", { name: "Sending" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Attach file" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(stopButton);
+
+    expect(await screen.findByText("Sending stopped.")).toBeTruthy();
     expect(screen.queryByText("Workshop model response.")).toBeNull();
   });
 

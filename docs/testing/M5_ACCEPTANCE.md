@@ -1,6 +1,6 @@
 # M5 Acceptance Record
 
-Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings repairs; M5.6 next; user visual acceptance pending
+Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings, message-attachment, context-delivery, UI-interaction, and provider-reasoning repairs; M5.6 next; user visual acceptance pending
 Created: 2026-06-30  
 Task: `docs/tasks/M5.md`
 
@@ -33,12 +33,12 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5-A15 | passed | Review accept/reject/edit/stale actions call real APIs and update state. Review displays all patches before accepting and shows batch accept results. Covered by web/API tests. |
 | M5-A16 | passed | Review main path hides engineering audit fields while keeping details reachable. Covered by web tests and source review. |
 | M5-A17 | function passed; visual pending | Review implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
-| M5-A18 | passed | Workshop sessions and messages persist as schema-versioned JSON and reload after restart. Unlinked messages can be deleted through storage/API/UI, while Proposal-linked messages are protected. Covered by storage/server/web tests. |
+| M5-A18 | passed | Workshop sessions, messages, and message attachments persist as schema-versioned JSON and reload after restart. Unlinked messages can be deleted through storage/API/UI, while Proposal-linked messages remain protected. Draft attachment reload/delete, message binding, and message-delete cascade are covered by storage/server/web tests. |
 | M5-A19 | passed | Workshop selected context can add/remove/toggle allowed references through the compact composer menu, including full novel text, full outline, act, chapter, multiple scenes, direct Codex entries, and Codex grouped by type/detail/category. The internal storage object is still `WorkshopContextBasket`; the visible right-side basket panel has been removed. Covered by storage/server/web tests. |
-| M5-A20 | passed | Context assembly shows included/excluded items and respects permissions, future-story isolation, auto-linked Codex policy, and per-detail Send to AI switches. The Codex detail `Send to AI` audit confirmed the UI writes `detailAiContext`, storage persists it, and Context Builder omits disabled detail text from `ContextBundle` content. Covered by Workshop route/context tests. |
-| M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog. Workshop can choose a library-global model setting and send a provider model override for that call. General Chat is the default mode, sends only the visible user-edited system prompt without a hidden fallback prompt, can use streaming, and separates `<think>`/`<thinking>` reasoning from visible answer text. Covered by contract/server/web tests. |
-| M5-A22 | passed | Model failure preserves the input/context, displays the author's sent message immediately, and appends a failed assistant message instead of creating an empty Proposal. Streaming failure also leaves a recoverable failed assistant message. Covered by server/web tests. |
-| M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Mode, model setting, provider model override, system prompt, streaming, and reasoning-display controls are centralized in one settings dialog; reasoning is distinct and collapsible; Enter sends and Ctrl+Enter inserts a newline. Covered by web tests and source review. |
+| M5-A20 | passed | Context assembly shows included/excluded items and respects permissions, future-story isolation, auto-linked Codex policy, per-detail Send to AI switches, parsed `message-attachment` ContextBundle snapshots, and prior same-session `workshop-chat-history`. Attachments do not create SourceDocuments or retrieval index records. Covered by contract/server/storage tests and source review. |
+| M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog from IDs rather than raw files, and provider request bodies receive ContextBundle item text. Workshop can choose a library-global model setting and send a provider model override for that call. Call input accepts `attachmentIds` plus `draftToken`, rejects raw file content, and rejects invalid attachment references. Covered by contract/server/AI-provider/web tests. |
+| M5-A22 | passed | Model failure preserves the input, parsed attachments, bound author message, and context, then appends a failed assistant message instead of creating an empty Proposal. Covered by server/web tests and the storage binding invariants. |
+| M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Mode, model setting, provider model override, system prompt, streaming, and reasoning-display controls are centralized in one settings dialog; reasoning is distinct and collapsible; Enter sends and Ctrl+Enter inserts a newline. The composer has one attachment icon, removable parse-state chips, send blocking for parsing/failed chips, and attachment names on sent user messages. Covered by web tests and source review. |
 | M5-A24 | function passed; visual pending | Workshop implementation must be checked against the Figma structure checklist. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
 | M5-A25 | passed | Workshop message output can create a Proposal linked to that exact source message. Proposal creation and message `proposalIds` update are written transactionally. Covered by storage/server/web tests. |
 | M5-A26 | passed | Proposal cards deep-link to exact Review Proposal Detail by Proposal ID. Covered by web tests. |
@@ -269,6 +269,70 @@ The 2026-07-03 repair closed these Workshop chat/settings gaps:
 - The duplicate user-message regression was fixed by merging local optimistic IDs and server IDs into one message.
 - Enter sends the composer message; Ctrl+Enter preserves newline insertion; IME composition Enter is not treated as Send.
 - Mode, model setting, provider model override, system prompt, streaming, and reasoning-display controls are centralized in a settings dialog instead of scattered through header/footer controls.
+
+Focused command results during the 2026-07-03 Workshop message-attachment slice:
+
+- `npm.cmd run test -w @novel-studio/contracts -- test/workshop.test.ts`: passed, 1 file / 6 tests.
+- `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts`: passed, 1 file / 8 tests.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts`: passed, 1 file / 6 tests.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx -t "Workshop"`: passed, 1 file / 4 selected tests, 50 skipped by filter.
+- `npm.cmd run build`: passed.
+- `git diff --check`: passed with Windows line-ending warnings only.
+
+The attachment slice closed these Workshop gaps:
+
+- Workshop attachment contracts now support draft and message-bound attachment states. `RunWorkshopCallInput` and message creation inputs carry `attachmentIds` plus `draftToken`, not raw file contents.
+- Server upload/list/delete attachment APIs parse `.txt`, `.md`, `.doc`, `.docx`, and text-extractable `.pdf` during upload. Text and Markdown attachments decode mainstream encodings such as UTF-8, UTF-16, GB18030/GBK, Big5, Shift_JIS, and Windows-1252 instead of requiring manual UTF-8 conversion. Damaged Word files, empty files, oversized files, binary disguised as text, and OCR-required PDFs fail or reject with explicit reasons.
+- Storage persists parsed attachment JSON, reloads it, deletes draft attachments, binds parsed draft attachments to the created author message, rejects cross-session/wrong-draft/failed/already-bound references, and cascades unlinked message attachment deletion.
+- Context Builder adds parsed attachments as `message-attachment` items with immutable extracted-text snapshots and `workshop-message-attachment` source type; attachments are not SourceDocuments and are not retrieval-index inputs.
+- Workshop UI uses one composer attachment icon, parse-state chips, send blocking for parsing/failed chips, attachment names on sent user messages, draft removal deletion, and message-delete cleanup. Agent-owned screenshot acceptance was not run; user visual acceptance remains separate.
+
+Focused command results during the 2026-07-03 Workshop context-delivery repair:
+
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run build -w @novel-studio/ai`: passed.
+- `npm.cmd run test -w @novel-studio/contracts -- test/workshop.test.ts`: passed, 1 file / 6 tests.
+- `npm.cmd run test -w @novel-studio/ai -- test/mockProvider.test.ts`: passed, 1 file / 20 tests.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts`: passed after rebuilding stale contracts/AI dist, 1 file / 7 tests.
+
+The context-delivery repair closed these Workshop gaps:
+
+- OpenAI-compatible provider requests now include ContextBundle item text in the actual chat-completions user message, instead of only using it for audit and token estimation.
+- Workshop ContextBundle assembly now adds prior visible same-session messages as `workshop-chat-history`, excludes the just-created current author message, and includes extracted text from historical message-bound attachments so follow-up questions about an earlier upload retain file context.
+- Provider-request regression tests assert that the first actual OpenAI-compatible request contains the current attachment text and the second actual request contains the previous author message, previous assistant reply, and previous attachment text. Model reasoning content is not fed back into chat history.
+
+Focused command results during the 2026-07-03 Workshop UI interaction repair:
+
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx -t "attachment-only"`: passed, 1 file / 1 selected test, 54 skipped by filter.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx -t "shows the author message"`: passed, 1 file / 1 selected test, 54 skipped by filter.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx -t "Workshop"`: passed, 1 file / 5 selected tests, 50 skipped by filter.
+- `npm.cmd run build`: initially failed because the optional `AbortSignal` field was passed as `undefined` under `exactOptionalPropertyTypes`; after conditionally adding `signal` only when present, rerun passed.
+- `git diff --check`: passed with Windows line-ending warnings only.
+
+The UI interaction repair closed these Workshop gaps:
+
+- A parsed draft attachment alone can send a Workshop request. The frontend uses the explicit attachment-review request text, sends parsed `attachmentIds`, creates the author message, and binds the attachment without requiring redundant composer text.
+- The composer attachment icon is a real button that invokes the hidden file input and is disabled during an in-flight call.
+- Streamed and non-streamed Workshop calls pass `AbortSignal`; the Stop button aborts the active request/stream, preserves the author message and attachment chip on the sent message, and renders one stopped assistant state instead of duplicate stopped/error text.
+- Collapsed reasoning now has a visible per-message state and an explicit expanded/collapsed toggle state; reasoning content remains visually separate from answer text.
+
+Focused command results during the 2026-07-03 Workshop provider-reasoning repair:
+
+- `npm.cmd run test -w @novel-studio/ai -- test/mockProvider.test.ts`: passed, 1 file / 21 tests.
+- `npm.cmd run build -w @novel-studio/ai`: passed.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts -t "reasoning fields"`: passed, 1 selected test / 7 skipped.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts`: passed, 1 file / 8 tests.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx -t "Workshop"`: passed, 1 file / 5 selected tests, 50 skipped by filter.
+- `npm.cmd run build`: passed.
+- `git diff --check`: passed with Windows line-ending warnings only.
+
+The provider-reasoning repair closed these Workshop gaps:
+
+- Official DeepSeek `reasoning_content` streaming fields are normalized into Workshop `reasoning-delta` events and saved as `assistantMessage.reasoningContent`.
+- Official OpenRouter `reasoning`, `reasoning_content`, and `reasoning_details` fields are preserved instead of being dropped by the OpenAI-compatible adapter.
+- Official Ollama `thinking`-style chunks are preserved when returned through the compatible adapter.
+- OpenAI reasoning that is only exposed through the Responses API is documented as a future explicit integration; this repair does not fabricate private reasoning on the current Chat Completions-compatible adapter path.
+- Official source basis: DeepSeek reasoning model docs, OpenRouter reasoning token docs, Ollama thinking docs, and OpenAI reasoning model docs as checked on 2026-07-03.
 
 ## M5.0 Startup Protection Mapping
 

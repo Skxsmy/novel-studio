@@ -5,9 +5,11 @@ import type {
   CreateWorkshopMessageProposalInput,
   CreateWorkshopMessageInput,
   CreateWorkshopSessionInput,
+  DeleteWorkshopAttachmentResult,
   DeleteWorkshopMessageResult,
   PromptTemplate,
   RunWorkshopCallInput,
+  UploadWorkshopAttachmentInput,
   UpdateWorkshopContextBasketInput,
   UpdateWorkshopSessionInput,
   WorkshopBranch,
@@ -15,6 +17,7 @@ import type {
   WorkshopCallStreamEvent,
   WorkshopContextBasket,
   WorkshopContextPreviewInput,
+  WorkshopMessageAttachment,
   WorkshopMessage,
   WorkshopMessageProposalResult,
   WorkshopMessageSource,
@@ -26,6 +29,7 @@ export interface WorkshopSessionDetail {
   session: WorkshopSession;
   basket: WorkshopContextBasket;
   messages: WorkshopMessage[];
+  attachments: WorkshopMessageAttachment[];
 }
 
 export interface WorkshopBranchResult {
@@ -65,6 +69,27 @@ export function createWorkshopApi(client: ApiClient) {
     },
     listMessages(seriesId: string, sessionId: string) {
       return client.requestJson<WorkshopMessage[]>(`/series/${seriesId}/workshop/sessions/${sessionId}/messages`);
+    },
+    listAttachments(seriesId: string, sessionId: string, draftToken?: string) {
+      const query = draftToken ? `?draftToken=${encodeURIComponent(draftToken)}` : "";
+      return client.requestJson<WorkshopMessageAttachment[]>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/attachments${query}`,
+      );
+    },
+    uploadAttachment(seriesId: string, sessionId: string, input: UploadWorkshopAttachmentInput) {
+      return client.requestJson<WorkshopMessageAttachment>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/attachments`,
+        {
+          body: input,
+          method: "POST",
+        },
+      );
+    },
+    deleteAttachment(seriesId: string, sessionId: string, attachmentId: string) {
+      return client.requestJson<DeleteWorkshopAttachmentResult>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/attachments/${attachmentId}`,
+        { method: "DELETE" },
+      );
     },
     getMessageSource(seriesId: string, messageId: string) {
       return client.requestJson<WorkshopMessageSource>(`/series/${seriesId}/workshop/messages/${messageId}/source`);
@@ -124,13 +149,14 @@ export function createWorkshopApi(client: ApiClient) {
         },
       );
     },
-    runCall(seriesId: string, sessionId: string, input: RunWorkshopCallInput) {
+    runCall(seriesId: string, sessionId: string, input: RunWorkshopCallInput, signal?: AbortSignal) {
+      const options = {
+        body: input,
+        method: "POST",
+      };
       return client.requestJson<WorkshopCallResult>(
         `/series/${seriesId}/workshop/sessions/${sessionId}/calls`,
-        {
-          body: input,
-          method: "POST",
-        },
+        signal ? { ...options, signal } : options,
       );
     },
     runCallStream(
@@ -138,12 +164,17 @@ export function createWorkshopApi(client: ApiClient) {
       sessionId: string,
       input: RunWorkshopCallInput,
       onEvent: (event: WorkshopCallStreamEvent) => void,
+      signal?: AbortSignal,
     ) {
-      return client.requestEventStream(`/series/${seriesId}/workshop/sessions/${sessionId}/calls/stream`, {
+      const options = {
         body: input,
         method: "POST",
-        onEvent: (event) => onEvent(event as WorkshopCallStreamEvent),
-      });
+        onEvent: (event: unknown) => onEvent(event as WorkshopCallStreamEvent),
+      };
+      return client.requestEventStream(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/calls/stream`,
+        signal ? { ...options, signal } : options,
+      );
     },
   };
 }
@@ -155,9 +186,11 @@ export type {
   CreateWorkshopMessageProposalInput,
   CreateWorkshopMessageInput,
   CreateWorkshopSessionInput,
+  DeleteWorkshopAttachmentResult,
   DeleteWorkshopMessageResult,
   PromptTemplate,
   RunWorkshopCallInput,
+  UploadWorkshopAttachmentInput,
   UpdateWorkshopContextBasketInput,
   UpdateWorkshopSessionInput,
   WorkshopBranch,
@@ -165,6 +198,7 @@ export type {
   WorkshopCallStreamEvent,
   WorkshopContextBasket,
   WorkshopContextPreviewInput,
+  WorkshopMessageAttachment,
   WorkshopMessage,
   WorkshopMessageProposalResult,
   WorkshopMessageSource,
