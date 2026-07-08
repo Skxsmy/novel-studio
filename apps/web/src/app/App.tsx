@@ -47,6 +47,32 @@ interface WorkshopRoute {
   messageId: string;
 }
 
+type RailIconId = WorkspaceId | "projects";
+
+function railLabel(id: WorkspaceId) {
+  if (id === "overview") return "Home";
+  if (id === "workshop") return "Work";
+  return workspaces.find((workspace) => workspace.id === id)?.label ?? id;
+}
+
+function RailIcon({ id }: { id: RailIconId }) {
+  let path: string;
+  if (id === "overview") path = "M4 5h16M4 12h10M4 19h16";
+  else if (id === "plan") path = "M4 6h7v12H4zM13 6h7v5h-7zM13 13h7v5h-7z";
+  else if (id === "write") path = "M5 19l4-1 10-10-3-3L6 15zM14 5l3 3";
+  else if (id === "codex") path = "M6 4h12v16H6zM9 8h6M9 12h6M9 16h4";
+  else if (id === "workshop") path = "M4 7h16M7 7v12M17 7v12M4 19h16M8 11h8";
+  else if (id === "review") path = "M5 5h14v14H5zM8 12l3 3 5-6";
+  else if (id === "settings") path = "M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM19 12h2M3 12h2M12 3v2M12 19v2M17.66 6.34l1.41-1.41M4.93 19.07l1.41-1.41M17.66 17.66l1.41 1.41M4.93 4.93l1.41 1.41";
+  else path = "M4 7h16v12H4zM4 7l2-3h12l2 3";
+
+  return (
+    <svg aria-hidden="true" className="rail-icon" viewBox="0 0 24 24">
+      <path d={path} />
+    </svg>
+  );
+}
+
 function workshopRouteFromLocation(): WorkshopRoute | null {
   const hashMatch = window.location.hash.match(/^#\/workshop\/sessions\/([^/]+)\/messages\/([^/]+)$/u);
   if (hashMatch?.[1] && hashMatch[2]) {
@@ -281,7 +307,8 @@ export function App() {
               title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               type="button"
             >
-              {isSidebarCollapsed ? ">" : "<"}
+              <span className="sidebar-toggle-arrow">{isSidebarCollapsed ? ">" : "<"}</span>
+              <span className="sidebar-toggle-brand">{projectInitials(projectTitle)}</span>
             </button>
             <div className="cover-row">
               <div className="cover">{projectInitials(projectTitle)}</div>
@@ -326,8 +353,9 @@ export function App() {
                         title={workspace.label}
                         type="button"
                       >
-                        <span>
-                          <span className="row-title">{workspace.label}</span>
+                        <span className="nav-copy">
+                          <RailIcon id={workspace.id} />
+                          <span className="row-title">{isSidebarCollapsed ? railLabel(workspace.id) : workspace.label}</span>
                           <span className="row-meta">
                             {isUnavailableShell ? uiText.navigation.notConnected : workspace.description}
                           </span>
@@ -342,7 +370,8 @@ export function App() {
 
           <footer className="project-foot">
             <button className={`btn${isLibraryOpen ? " primary" : ""}`} onClick={openLibrary} title="Switch Project" type="button">
-              Switch Project
+              <RailIcon id="projects" />
+              <span className="footer-label">Switch Project</span>
             </button>
             <button
               className={`btn${activeWorkspace === "settings" && !isLibraryOpen ? " primary" : ""}`}
@@ -350,7 +379,8 @@ export function App() {
               title="Settings"
               type="button"
             >
-              Settings
+              <RailIcon id="settings" />
+              <span className="footer-label">Settings</span>
             </button>
           </footer>
         </aside>

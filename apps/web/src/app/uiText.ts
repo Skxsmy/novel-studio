@@ -237,6 +237,11 @@ export const uiText = {
     archive: "Archive",
     restore: "Restore",
     branch: "Branch",
+    sessionMenu: {
+      export: "Export",
+      more: "More",
+      thread: "Thread",
+    },
     fetchModels: "Fetch Models",
     pin: "Pin",
     unpin: "Unpin",

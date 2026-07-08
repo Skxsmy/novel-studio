@@ -1,5 +1,5 @@
 .workshop-grid {
-  grid-template-columns: 292px minmax(0, 1fr);
+  grid-template-columns: 276px minmax(0, 1fr);
   align-items: stretch;
   height: calc(100vh - 124px);
   min-height: 640px;
@@ -102,21 +102,31 @@
 .workshop-grid > .panel {
   min-height: 0;
   overflow: hidden;
-  border-radius: 6px;
-  background: #fbfaf6;
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 
 .workshop-sessions {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: visible;
+  background: var(--surface);
+}
+
+.workshop-grid > .panel.workshop-sessions {
+  overflow: visible;
+}
+
+.workshop-sessions.panel.no-shadow {
+  box-shadow: var(--shadow);
 }
 
 .workshop-session-list {
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: 2px;
   min-height: 0;
-  padding: 13px;
+  padding: 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -125,25 +135,30 @@
 .workshop-session-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: start;
-  min-height: 80px;
+  gap: 8px;
+  align-items: center;
+  min-height: 54px;
   width: 100%;
-  padding: 11px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fff;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--ink);
   text-align: left;
 }
 
+.workshop-session-row:hover,
 .workshop-session-row.is-active {
-  border-color: #9fb8f3;
   background: #edf2fd;
 }
 
+.workshop-session-row:focus-visible {
+  outline: 2px solid rgba(47, 100, 214, 0.36);
+  outline-offset: 2px;
+}
+
 .workshop-session-row .pill {
-  align-self: start;
+  align-self: center;
 }
 
 .workshop-session-row.is-editing {
@@ -152,7 +167,7 @@
 
 .workshop-session-copy {
   display: grid;
-  gap: 6px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -166,24 +181,24 @@
 
 .workshop-session-copy .row-title {
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
-  line-height: 20px;
+  line-height: 18px;
 }
 
 .workshop-session-title-input {
   min-width: 0;
   width: 100%;
-  height: 30px;
-  padding: 4px 7px;
-  border: 1px solid #9fb8f3;
-  border-radius: 5px;
+  height: 28px;
+  padding: 4px 6px;
+  border: 1px solid rgba(47, 100, 214, 0.42);
+  border-radius: var(--radius-sm);
   background: #fff;
   color: var(--ink);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
-  line-height: 20px;
+  line-height: 18px;
 }
 
 .workshop-session-title-input:focus {
@@ -194,20 +209,7 @@
 .workshop-session-copy .row-meta {
   color: var(--quiet);
   font-size: 12px;
-  line-height: 16px;
-}
-
-.workshop-session-foot {
-  display: grid;
-  gap: 10px;
-  padding: 12px 13px;
-  border-top: 1px solid var(--line);
-}
-
-.workshop-session-tools {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) 34px;
-  gap: 8px;
+  line-height: 15px;
 }
 
 .workshop-session-create {
@@ -218,36 +220,49 @@
 
 .workshop-sessions > .panel-head {
   position: relative;
-  z-index: 10;
+  z-index: 30;
   overflow: visible;
+  min-height: 46px;
+  background: var(--surface);
 }
 
-.workshop-session-create-trigger {
-  min-width: 64px;
+.workshop-session-head-actions {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.workshop-session-create-trigger,
+.workshop-session-actions-trigger {
+  min-width: 58px;
 }
 
 .workshop-session-create-menu {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   right: 0;
-  z-index: 20;
+  z-index: 40;
   display: grid;
   gap: 4px;
-  min-width: 190px;
-  padding: 6px;
+  width: 230px;
+  padding: 8px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: #fff;
-  box-shadow: 0 12px 26px rgba(31, 38, 47, 0.16);
+  box-shadow: 0 14px 28px rgba(31, 37, 35, 0.16);
 }
 
 .workshop-session-create-menu button {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   width: 100%;
-  padding: 8px 9px;
+  min-height: 42px;
+  padding: 7px 8px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
   font: inherit;
@@ -255,7 +270,7 @@
 }
 
 .workshop-session-create-menu button:hover {
-  background: #f4f6f1;
+  background: var(--surface-2);
 }
 
 .workshop-session-create-menu span {
@@ -275,60 +290,87 @@
 }
 
 .workshop-session-actions-trigger {
-  width: 34px;
-  min-width: 34px;
-  padding-inline: 0;
+  padding-inline: 10px;
 }
 
 .workshop-session-action-menu {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 6px);
-  z-index: 15;
-  min-width: 172px;
-  padding: 6px;
+  top: calc(100% + 8px);
+  z-index: 40;
+  display: grid;
+  gap: 4px;
+  width: 260px;
+  padding: 8px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: #fff;
-  box-shadow: 0 12px 26px rgba(31, 38, 47, 0.16);
+  box-shadow: 0 14px 28px rgba(31, 37, 35, 0.16);
 }
 
-.workshop-session-action-menu button {
-  width: 100%;
+.workshop-session-menu-section {
+  display: grid;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.workshop-session-menu-section + .workshop-session-menu-section {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.workshop-session-menu-label {
+  padding: 4px 8px 2px;
+  color: var(--quiet);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 15px;
+  text-transform: uppercase;
+}
+
+.workshop-session-action-menu button,
+.workshop-session-action-menu label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   min-height: 34px;
+  padding: 7px 8px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
 }
 
 .workshop-session-action-menu button:hover:not(:disabled) {
-  background: #f4f6f1;
+  background: var(--surface-2);
+}
+
+.workshop-session-action-menu label:hover {
+  background: var(--surface-2);
+}
+
+.workshop-session-action-menu button:disabled {
+  color: var(--quiet);
+  cursor: not-allowed;
 }
 
 .workshop-session-action-menu button.danger {
   color: #9f2727;
 }
 
-.workshop-session-export {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-  align-items: stretch;
-}
-
 .workshop-export-toggle {
-  display: inline-flex;
+  display: flex;
   gap: 8px;
   align-items: center;
   min-width: 0;
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--ink);
+  font-size: 13px;
   font-weight: 700;
-  line-height: 16px;
+  line-height: 18px;
 }
 
 .workshop-export-toggle input {
@@ -342,11 +384,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.workshop-import-thread {
-  width: 100%;
-  min-height: 42px;
 }
 
 .workshop-chat {
@@ -1101,11 +1138,6 @@
   .workshop-footer-controls {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .workshop-session-export {
-    align-items: stretch;
-    grid-template-columns: 1fr;
   }
 
   .workshop-settings-trigger {

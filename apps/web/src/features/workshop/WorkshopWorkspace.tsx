@@ -381,6 +381,17 @@ export function WorkshopWorkspace({
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeSessionId, sessions],
   );
+  function sessionPillClass(session: WorkshopSession) {
+    if (session.status === "archived") return "pill muted";
+    return session.kind === "agent" ? "pill amber" : "pill blue";
+  }
+
+  function sessionPillLabel(session: WorkshopSession) {
+    return session.status === "archived"
+      ? text.statusLabels[session.status]
+      : text.sessionKinds[session.kind];
+  }
+
   const proposalMap = useMemo(
     () => new Map(proposalDocuments.map((document) => [document.proposal.id, document])),
     [proposalDocuments],
@@ -2241,28 +2252,108 @@ export function WorkshopWorkspace({
               <div className="panel-title">{text.sessionsTitle}</div>
               <div className="panel-kicker">{text.sessionsKicker}</div>
             </div>
-            <div className="workshop-session-create">
-              <button
-                aria-expanded={isSessionCreateOpen}
-                aria-label={text.labels.addSession}
-                className="btn compact workshop-session-create-trigger"
-                onClick={() => setIsSessionCreateOpen((current) => !current)}
-                type="button"
-              >
-                {text.addSession}
-              </button>
-              {isSessionCreateOpen ? (
-                <div className="workshop-session-create-menu" role="menu">
-                  <button onClick={() => void createSession("chat")} role="menuitem" type="button">
-                    <span>{text.sessionKinds.chat}</span>
-                    <small>{text.sessionKindDescriptions.chat}</small>
-                  </button>
-                  <button onClick={() => void createSession("agent")} role="menuitem" type="button">
-                    <span>{text.sessionKinds.agent}</span>
-                    <small>{text.sessionKindDescriptions.agent}</small>
-                  </button>
-                </div>
-              ) : null}
+            <div className="workshop-session-head-actions">
+              <div className="workshop-session-create">
+                <button
+                  aria-expanded={isSessionCreateOpen}
+                  aria-label={text.labels.addSession}
+                  className="btn compact workshop-session-create-trigger"
+                  onClick={() => setIsSessionCreateOpen((current) => !current)}
+                  type="button"
+                >
+                  {text.addSession}
+                </button>
+                {isSessionCreateOpen ? (
+                  <div className="workshop-session-create-menu" role="menu">
+                    <button onClick={() => void createSession("chat")} role="menuitem" type="button">
+                      <span>{text.sessionKinds.chat}</span>
+                      <small>{text.sessionKindDescriptions.chat}</small>
+                    </button>
+                    <button onClick={() => void createSession("agent")} role="menuitem" type="button">
+                      <span>{text.sessionKinds.agent}</span>
+                      <small>{text.sessionKindDescriptions.agent}</small>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              <div className="workshop-session-actions">
+                <button
+                  aria-expanded={isSessionActionsOpen}
+                  aria-label={text.labels.sessionActions}
+                  className="btn compact workshop-session-actions-trigger"
+                  disabled={!activeSession || deletingSessionId !== null || isCalling}
+                  onClick={() => setIsSessionActionsOpen((current) => !current)}
+                  type="button"
+                >
+                  {text.sessionMenu.more}
+                </button>
+                {isSessionActionsOpen ? (
+                  <div className="workshop-session-action-menu" role="menu">
+                    <div className="workshop-session-menu-section">
+                      <div className="workshop-session-menu-label">{text.sessionMenu.thread}</div>
+                      <button
+                        disabled={!activeSession || deletingSessionId !== null || isCalling}
+                        onClick={archiveSession}
+                        role="menuitem"
+                        type="button"
+                      >
+                        {activeSession?.status === "archived" ? text.restore : text.archive}
+                      </button>
+                      <button
+                        disabled={!activeSession || messages.length === 0 || deletingSessionId !== null || isCalling}
+                        onClick={branchFromLastMessage}
+                        role="menuitem"
+                        type="button"
+                      >
+                        {text.branch}
+                      </button>
+                      <button
+                        className="danger"
+                        disabled={!activeSession || deletingSessionId !== null || isCalling}
+                        onClick={() => void deleteSessionPermanently()}
+                        role="menuitem"
+                        type="button"
+                      >
+                        {deletingSessionId === activeSession?.id
+                          ? text.labels.deletingSession
+                          : text.labels.deleteSession}
+                      </button>
+                      <button disabled role="menuitem" type="button">{text.importThread}</button>
+                    </div>
+                    <div className="workshop-session-menu-section">
+                      <div className="workshop-session-menu-label">{text.sessionMenu.export}</div>
+                      <label className="workshop-export-toggle">
+                        <input
+                          checked={includeReasoningInExport}
+                          disabled={!activeSession || isExportingSession}
+                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                            setIncludeReasoningInExport(event.target.checked)}
+                          type="checkbox"
+                        />
+                        <span>{text.labels.includeReasoningInExport}</span>
+                      </label>
+                      <label className="workshop-export-toggle">
+                        <input
+                          checked={includePromptAuditInExport}
+                          disabled={!activeSession || isExportingSession}
+                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                            setIncludePromptAuditInExport(event.target.checked)}
+                          type="checkbox"
+                        />
+                        <span>{text.labels.includePromptAuditInExport}</span>
+                      </label>
+                      <button
+                        disabled={!activeSession || isDetailLoading || isExportingSession || isCalling}
+                        onClick={() => void exportActiveSession()}
+                        role="menuitem"
+                        type="button"
+                      >
+                        {isExportingSession ? text.labels.exportingSession : text.labels.exportSession}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
           <div className="panel-body workshop-session-list">
@@ -2300,8 +2391,8 @@ export function WorkshopWorkspace({
                       {session.lastMessageAt ? ` / ${formatDate(session.lastMessageAt)}` : ""}
                     </span>
                   </span>
-                  <span className={session.status === "active" ? "pill blue" : "pill muted"}>
-                    {text.statusLabels[session.status]}
+                  <span className={sessionPillClass(session)}>
+                    {sessionPillLabel(session)}
                   </span>
                 </form>
               ) : (
@@ -2321,90 +2412,12 @@ export function WorkshopWorkspace({
                       {session.lastMessageAt ? ` / ${formatDate(session.lastMessageAt)}` : ""}
                     </span>
                   </span>
-                  <span className={session.status === "active" ? "pill blue" : "pill muted"}>
-                    {text.statusLabels[session.status]}
+                  <span className={sessionPillClass(session)}>
+                    {sessionPillLabel(session)}
                   </span>
                 </button>
               )
             ))}
-          </div>
-          <div className="workshop-session-foot">
-            <div className="workshop-session-tools">
-              <button
-                className="btn compact"
-                disabled={!activeSession || deletingSessionId !== null || isCalling}
-                onClick={archiveSession}
-                type="button"
-              >
-                {activeSession?.status === "archived" ? text.restore : text.archive}
-              </button>
-              <button
-                className="btn compact"
-                disabled={!activeSession || messages.length === 0 || deletingSessionId !== null || isCalling}
-                onClick={branchFromLastMessage}
-                type="button"
-              >
-                {text.branch}
-              </button>
-              <div className="workshop-session-actions">
-                <button
-                  aria-expanded={isSessionActionsOpen}
-                  aria-label={text.labels.sessionActions}
-                  className="btn compact workshop-session-actions-trigger"
-                  disabled={!activeSession || deletingSessionId !== null || isCalling}
-                  onClick={() => setIsSessionActionsOpen((current) => !current)}
-                  type="button"
-                >
-                  ...
-                </button>
-                {isSessionActionsOpen ? (
-                  <div className="workshop-session-action-menu" role="menu">
-                    <button
-                      className="danger"
-                      disabled={!activeSession || deletingSessionId !== null || isCalling}
-                      onClick={() => void deleteSessionPermanently()}
-                      role="menuitem"
-                      type="button"
-                    >
-                      {deletingSessionId === activeSession?.id
-                        ? text.labels.deletingSession
-                        : text.labels.deleteSession}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <div className="workshop-session-export">
-              <label className="workshop-export-toggle">
-                <input
-                  checked={includeReasoningInExport}
-                  disabled={!activeSession || isExportingSession}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                    setIncludeReasoningInExport(event.target.checked)}
-                  type="checkbox"
-                />
-                <span>{text.labels.includeReasoningInExport}</span>
-              </label>
-              <label className="workshop-export-toggle">
-                <input
-                  checked={includePromptAuditInExport}
-                  disabled={!activeSession || isExportingSession}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                    setIncludePromptAuditInExport(event.target.checked)}
-                  type="checkbox"
-                />
-                <span>{text.labels.includePromptAuditInExport}</span>
-              </label>
-              <button
-                className="btn compact"
-                disabled={!activeSession || isDetailLoading || isExportingSession || isCalling}
-                onClick={() => void exportActiveSession()}
-                type="button"
-              >
-                {isExportingSession ? text.labels.exportingSession : text.labels.exportSession}
-              </button>
-            </div>
-            <button className="btn workshop-import-thread" disabled type="button">{text.importThread}</button>
           </div>
         </aside>
 

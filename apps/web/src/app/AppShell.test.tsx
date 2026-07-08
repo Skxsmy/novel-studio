@@ -4833,7 +4833,8 @@ describe("App shell", () => {
     expect(await screen.findByText("Original branch answer.")).toBeTruthy();
 
     const sessionsPanel = screen.getByText("Conversation branches").closest(".panel") as HTMLElement;
-    fireEvent.click(within(sessionsPanel).getByRole("button", { name: "Branch" }));
+    fireEvent.click(within(sessionsPanel).getByRole("button", { name: "Session actions" }));
+    fireEvent.click(await within(sessionsPanel).findByRole("menuitem", { name: "Branch" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/branch`,
@@ -4934,11 +4935,12 @@ describe("App shell", () => {
       expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
       expect(await screen.findByText("Original export request.")).toBeTruthy();
       const sessionsPanel = screen.getByText("Conversation branches").closest(".panel") as HTMLElement;
+      fireEvent.click(within(sessionsPanel).getByRole("button", { name: "Session actions" }));
       const includeReasoning = within(sessionsPanel).getByLabelText("Include reasoning") as HTMLInputElement;
       const includePromptAudit = within(sessionsPanel).getByLabelText("Include prompt audit") as HTMLInputElement;
       expect(includeReasoning.checked).toBe(false);
       expect(includePromptAudit.checked).toBe(false);
-      const exportButton = within(sessionsPanel).getByRole("button", { name: "Export" }) as HTMLButtonElement;
+      const exportButton = within(sessionsPanel).getByRole("menuitem", { name: "Export" }) as HTMLButtonElement;
       await waitFor(() => {
         expect(exportButton.disabled).toBe(false);
       });
