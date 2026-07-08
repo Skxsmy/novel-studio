@@ -103,6 +103,92 @@ export const ModelProfileSchema = z.object({
 });
 export type ModelProfile = z.infer<typeof ModelProfileSchema>;
 
+export const EmbeddingProviderSchema = z.enum([
+  "mock",
+  "local-http",
+  "openai-compatible",
+  "custom-http",
+]);
+export type EmbeddingProvider = z.infer<typeof EmbeddingProviderSchema>;
+
+export const EmbeddingUseCaseIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120)
+  .regex(
+    /^[a-z][a-z0-9.-]*$/u,
+    "Embedding use case must use a stable lower-case dotted id",
+  );
+export type EmbeddingUseCaseId = z.infer<typeof EmbeddingUseCaseIdSchema>;
+
+export const EmbeddingModelProfileSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  title: z.string().min(1).max(160),
+  provider: EmbeddingProviderSchema,
+  baseUrl: z.string().url().nullable().default(null),
+  endpointPath: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .regex(/^\/[A-Za-z0-9._~!$&'()*+,;=:@/-]*$/u, "endpointPath must be an absolute HTTP path")
+    .default("/embed"),
+  model: z.string().min(1).max(200),
+  credentialRef: CredentialRefSchema.nullable().default(null),
+  dimensions: z.number().int().positive().max(65536),
+  maxInputTokens: z.number().int().positive().max(1_000_000).default(512),
+  maxBatchSize: z.number().int().positive().max(2048).default(32),
+  maxConcurrentBatches: z.number().int().positive().max(128).default(2),
+  normalize: z.boolean().default(true),
+  supportsCustomDimensions: z.boolean().default(false),
+  license: z.string().trim().min(1).max(120).nullable().default(null),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  archivedAt: z.string().datetime().nullable().default(null),
+});
+export type EmbeddingModelProfile = z.infer<typeof EmbeddingModelProfileSchema>;
+
+const EmbeddingModelProfileEditableInputSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  provider: EmbeddingProviderSchema,
+  baseUrl: z.string().trim().url().nullable().default(null),
+  endpointPath: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .regex(/^\/[A-Za-z0-9._~!$&'()*+,;=:@/-]*$/u, "endpointPath must be an absolute HTTP path")
+    .default("/embed"),
+  model: z.string().trim().min(1).max(200),
+  dimensions: z.number().int().positive().max(65536),
+  maxInputTokens: z.number().int().positive().max(1_000_000).default(512),
+  maxBatchSize: z.number().int().positive().max(2048).default(32),
+  maxConcurrentBatches: z.number().int().positive().max(128).default(2),
+  normalize: z.boolean().default(true),
+  supportsCustomDimensions: z.boolean().default(false),
+  license: z.string().trim().min(1).max(120).nullable().default(null),
+}).strict();
+
+export const CreateEmbeddingModelProfileInputSchema = EmbeddingModelProfileEditableInputSchema;
+export type CreateEmbeddingModelProfileInput = z.input<typeof CreateEmbeddingModelProfileInputSchema>;
+
+export const UpdateEmbeddingModelProfileInputSchema = EmbeddingModelProfileEditableInputSchema.partial().superRefine(
+  (input, context) => {
+    if (Object.keys(input).length === 0) {
+      context.addIssue({ code: "custom", message: "至少提供一个 Embedding 配置字段" });
+    }
+  },
+);
+export type UpdateEmbeddingModelProfileInput = z.infer<typeof UpdateEmbeddingModelProfileInputSchema>;
+
+export const EmbeddingUseCaseBindingSchema = z.object({
+  useCase: EmbeddingUseCaseIdSchema,
+  profileId: z.string().uuid(),
+});
+export type EmbeddingUseCaseBinding = z.infer<typeof EmbeddingUseCaseBindingSchema>;
+
 const ModelProfileEditableInputSchema = z.object({
   title: z.string().trim().min(1).max(160),
   provider: AiProviderSchema,

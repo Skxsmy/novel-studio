@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   CreateWorkshopSessionInputSchema,
   DeleteWorkshopSessionResultSchema,
+  ExportWorkshopSessionQuerySchema,
+  ResendWorkshopMessageInputSchema,
+  ResendWorkshopMessageResultSchema,
   RunWorkshopCallInputSchema,
   WorkshopCallStreamEventSchema,
   WorkshopContextBasketSchema,
@@ -140,9 +143,15 @@ describe("M5 Workshop contracts", () => {
     expect(result.success).toBe(false);
   });
 
-  it("accepts Codex Creation as a Workshop call mode", () => {
+  it("accepts Agent as a Workshop session kind and call mode", () => {
+    const session = CreateWorkshopSessionInputSchema.parse({
+      kind: "agent",
+      title: "Codex agent",
+    });
+    expect(session.kind).toBe("agent");
+
     const parsed = RunWorkshopCallInputSchema.parse({
-      mode: "codex-creation",
+      mode: "agent",
       userRequest: "Draft a Codex entry for the Tide Office.",
       roleId: "researcher",
       taskKind: "research",
@@ -150,8 +159,59 @@ describe("M5 Workshop contracts", () => {
       promptTemplateVersion: 1,
       modelProfileId: "11111111-2222-4333-8444-555555555555",
     });
-    expect(parsed.mode).toBe("codex-creation");
+    expect(parsed.mode).toBe("agent");
     expect(parsed.taskKind).toBe("research");
+  });
+
+  it("validates General Chat resend inputs and replacement results", () => {
+    const input = ResendWorkshopMessageInputSchema.parse({
+      content: "Updated request.",
+      promptTemplateId: "00000000-0000-4000-8000-000000000405",
+      promptTemplateVersion: 1,
+      modelProfileId: "11111111-2222-4333-8444-555555555555",
+    });
+    expect(input.taskKind).toBe("analysis");
+    expect(input.content).toBe("Updated request.");
+
+    const result = ResendWorkshopMessageResultSchema.parse({
+      authorMessage: {
+        schemaVersion: 1,
+        id: "33333333-3333-4333-8333-333333333333",
+        seriesId: "22222222-2222-4222-8222-222222222222",
+        sessionId: "11111111-1111-4111-8111-111111111111",
+        role: "author",
+        mode: "general-chat",
+        content: "Updated request.",
+        createdAt: now,
+      },
+      assistantMessage: {
+        schemaVersion: 1,
+        id: "44444444-4444-4444-8444-444444444444",
+        seriesId: "22222222-2222-4222-8222-222222222222",
+        sessionId: "11111111-1111-4111-8111-111111111111",
+        role: "assistant",
+        mode: "general-chat",
+        content: "Updated response.",
+        createdAt: now,
+      },
+      contextBundleId: "55555555-5555-4555-8555-555555555555",
+      modelCallId: "66666666-6666-4666-8666-666666666666",
+      status: "succeeded",
+      estimatedUsage: { inputTokens: 1, outputTokens: 0, totalTokens: 1 },
+      deletedMessageIds: ["77777777-7777-4777-8777-777777777777"],
+    });
+    expect(result.deletedMessageIds).toEqual(["77777777-7777-4777-8777-777777777777"]);
+  });
+
+  it("validates Workshop session export query toggles", () => {
+    expect(ExportWorkshopSessionQuerySchema.parse({}).includeReasoning).toBe(false);
+    expect(ExportWorkshopSessionQuerySchema.parse({}).includePromptAudit).toBe(false);
+    expect(ExportWorkshopSessionQuerySchema.parse({ includeReasoning: "false" }).includeReasoning).toBe(false);
+    expect(ExportWorkshopSessionQuerySchema.parse({ includeReasoning: "true" }).includeReasoning).toBe(true);
+    expect(ExportWorkshopSessionQuerySchema.parse({ includeReasoning: true }).includeReasoning).toBe(true);
+    expect(ExportWorkshopSessionQuerySchema.parse({ includePromptAudit: "false" }).includePromptAudit).toBe(false);
+    expect(ExportWorkshopSessionQuerySchema.parse({ includePromptAudit: "true" }).includePromptAudit).toBe(true);
+    expect(ExportWorkshopSessionQuerySchema.parse({ includePromptAudit: true }).includePromptAudit).toBe(true);
   });
 
   it("allows only parsed attachment IDs on Workshop calls", () => {

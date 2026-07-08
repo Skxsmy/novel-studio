@@ -217,6 +217,137 @@ describe("M5 Workshop storage", () => {
     expect(await store.listWorkshopMessages(series.manifest.id, session.id)).toEqual([]);
   });
 
+  it("resends a General Chat author message by replacing it and truncating later history", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopResendMessage" });
+    const session = await store.createWorkshopSession(series.manifest.id, {
+      title: "General chat thread",
+      sceneId: series.scenes[0]!.metadata.id,
+    });
+    const first = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Original question.",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const firstAnswer = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "assistant",
+      mode: "general-chat",
+      content: "Original answer.",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const laterAttachment = await store.createWorkshopAttachment(series.manifest.id, session.id, workshopAttachment({
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      draftToken: "resend-draft",
+      extractedText: "Later attachment should be removed.",
+      textHash: textHash("Later attachment should be removed."),
+    }));
+    const laterQuestion = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Later question.",
+      attachmentIds: [laterAttachment.id],
+      draftToken: "resend-draft",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const laterAnswer = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "assistant",
+      mode: "general-chat",
+      content: "Later answer.",
+    });
+    const branch = await store.branchWorkshopSession(series.manifest.id, session.id, {
+      sourceMessageId: firstAnswer.id,
+      title: "Old answer branch",
+    });
+
+    const result = await store.replaceWorkshopGeneralChatAuthorMessage(
+      series.manifest.id,
+      session.id,
+      first.id,
+      "  Updated question.  ",
+    );
+
+    expect(result.message).toMatchObject({
+      id: first.id,
+      content: "Updated question.",
+      role: "author",
+      mode: "general-chat",
+    });
+    expect(result.session.lastMessageAt).toBe(first.createdAt);
+    expect(result.deletedMessageIds).toEqual([firstAnswer.id, laterQuestion.id, laterAnswer.id]);
+    expect(result.deletedAttachmentIds).toEqual([laterAttachment.id]);
+    expect(result.deletedBranchIds).toEqual([branch.branch.id]);
+    expect((await store.listWorkshopMessages(series.manifest.id, session.id)).map((message) => message.content))
+      .toEqual(["Updated question."]);
+    await expect(store.getWorkshopAttachment(series.manifest.id, laterAttachment.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+    expect(await store.listWorkshopBranches(series.manifest.id)).toEqual([]);
+    expect((await store.getWorkshopSession(series.manifest.id, branch.session.id)).branchOfMessageId).toBeNull();
+    expect(await store.listWorkshopMessages(series.manifest.id, branch.session.id)).toHaveLength(2);
+  });
+
+  it("rejects resend outside General Chat and when later protected records would be erased", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopResendGuard" });
+    const chatSession = await store.createWorkshopSession(series.manifest.id, {
+      title: "Guarded chat",
+    });
+    const first = await store.createWorkshopMessage(series.manifest.id, chatSession.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Original question.",
+    });
+    const protectedResult = await store.saveWorkshopMessage(series.manifest.id, {
+      schemaVersion: 1,
+      id: randomUUID(),
+      seriesId: series.manifest.id,
+      sessionId: chatSession.id,
+      role: "result",
+      mode: "general-chat",
+      status: "succeeded",
+      content: "Protected tool result.",
+      reasoningContent: "",
+      contextBundleId: null,
+      modelCallId: null,
+      proposalIds: [],
+      attachmentIds: [],
+      errorCode: null,
+      errorMessage: null,
+      createdAt: new Date(new Date(first.createdAt).getTime() + 1_000).toISOString(),
+    });
+    await expect(store.replaceWorkshopGeneralChatAuthorMessage(
+      series.manifest.id,
+      chatSession.id,
+      first.id,
+      "Updated question.",
+    )).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      message: "Workshop history after this message contains protected records",
+    });
+    expect((await store.listWorkshopMessages(series.manifest.id, chatSession.id)).map((message) => message.id))
+      .toEqual([first.id, protectedResult.id]);
+
+    const agentSession = await store.createWorkshopSession(series.manifest.id, {
+      kind: "agent",
+      title: "Agent thread",
+    });
+    const agentAuthor = await store.createWorkshopMessage(series.manifest.id, agentSession.id, {
+      role: "author",
+      mode: "agent",
+      content: "Draft a Codex entry.",
+    });
+    await expect(store.replaceWorkshopGeneralChatAuthorMessage(
+      series.manifest.id,
+      agentSession.id,
+      agentAuthor.id,
+      "Updated Agent request.",
+    )).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      message: "Only General Chat sessions can resend messages",
+    });
+  });
+
   it("persists and deletes draft Workshop message attachments", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopAttachmentDraft" });
@@ -493,18 +624,56 @@ describe("M5 Workshop storage", () => {
     });
   });
 
-  it("rejects generic scene Proposals from Codex Creation Workshop messages", async () => {
+  it("keeps Workshop Agent and chat messages isolated by session kind", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopAgentIsolation" });
+    const chatSession = await store.createWorkshopSession(series.manifest.id, {
+      title: "Chat thread",
+    });
+    const agentSession = await store.createWorkshopSession(series.manifest.id, {
+      kind: "agent",
+      title: "Agent thread",
+    });
+
+    await expect(store.createWorkshopMessage(series.manifest.id, chatSession.id, {
+      role: "author",
+      mode: "agent",
+      content: "Create a Codex entry.",
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      message: "General Workshop chat sessions cannot receive Agent messages",
+    });
+
+    await expect(store.createWorkshopMessage(series.manifest.id, agentSession.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Talk normally.",
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      message: "Agent Workshop sessions can only receive Agent messages",
+    });
+
+    const message = await store.createWorkshopMessage(series.manifest.id, agentSession.id, {
+      role: "author",
+      mode: "agent",
+      content: "Create a Codex entry.",
+    });
+    expect(message.mode).toBe("agent");
+  });
+
+  it("rejects generic scene Proposals from Agent Workshop messages", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopCodexCreationProposal" });
     const scene = series.scenes[0]!;
     const session = await store.createWorkshopSession(series.manifest.id, {
-      title: "Codex creation thread",
+      kind: "agent",
+      title: "Agent thread",
       sceneId: scene.metadata.id,
     });
     const message = await store.createWorkshopMessage(series.manifest.id, session.id, {
       role: "assistant",
-      mode: "codex-creation",
-      content: "Codex Draft\nOperation: create\nName: Blue-salt key",
+      mode: "agent",
+      content: "Prepared an Agent-only Codex draft.",
     });
     const target = {
       kind: "scene-content" as const,
@@ -518,12 +687,12 @@ describe("M5 Workshop storage", () => {
 
     await expect(store.createProposalFromWorkshopMessage(series.manifest.id, session.id, message.id, {
       type: "text-insertion",
-      title: "Blocked Codex Creation proposal",
+      title: "Blocked Agent proposal",
       summary: "Should not be routed to manuscript Review",
       target,
       riskLevel: "medium",
       confidence: null,
-      reason: "Codex Creation needs a Codex write path.",
+      reason: "Agent needs a tool adapter.",
       patches: [{
         id: "11111111-1111-4111-8111-111111111111",
         target,
@@ -537,11 +706,11 @@ describe("M5 Workshop storage", () => {
         sourceId: message.id,
         revision: null,
         quote: "",
-        note: "Codex Creation source.",
+        note: "Agent source.",
       }],
     })).rejects.toMatchObject<Partial<StorageError>>({
       code: "INVALID_DATA",
-      message: "Codex Creation messages require a Codex Proposal or approved Codex tool adapter",
+      message: "Agent messages require an approved tool adapter or dedicated Proposal path",
     });
   });
 });

@@ -1,4 +1,5 @@
 export * from "./errors.js";
+export * from "./embeddings.js";
 export * from "./provider.js";
 export * from "./registry.js";
 export * from "./mockProvider.js";

@@ -4,7 +4,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { BUILT_IN_PROMPT_IDS } from "../src/prompts/builtIns.js";
-import { applyCodexCreationSkill } from "../src/workshop/codexCreationSkill.js";
+import {
+  serializeCodexCreateEntryToolRequest,
+  serializeCodexUpdateEntryToolRequest,
+} from "../src/workshop/codexDraft.js";
+import { applyWorkshopAgentPrompt } from "../src/workshop/workshopAgent.js";
 
 const roots: string[] = [];
 
@@ -549,7 +553,7 @@ describe("M5 Workshop API routes", () => {
         modelProfileId: profile.id,
       },
     });
-    expect(call.statusCode).toBe(200);
+    expect(call.statusCode, call.payload).toBe(200);
     expect(call.json()).toMatchObject({ status: "succeeded" });
     expect(call.json().responseText).toContain("MockProvider");
 
@@ -765,7 +769,7 @@ describe("M5 Workshop API routes", () => {
         attachmentIds,
       },
     });
-    expect(call.statusCode).toBe(200);
+    expect(call.statusCode, call.payload).toBe(200);
     expect(call.json().authorMessage.attachmentIds).toEqual(attachmentIds);
     const context = await app.inject({
       method: "GET",
@@ -1177,6 +1181,29 @@ describe("M5 Workshop API routes", () => {
     expect(sessionResponse.statusCode).toBe(201);
     const session = sessionResponse.json();
 
+    const otherSessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Other export chat" },
+    });
+    expect(otherSessionResponse.statusCode).toBe(201);
+    const otherSession = otherSessionResponse.json();
+    const otherCall = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${otherSession.id}/calls`,
+      payload: {
+        mode: "general-chat",
+        userRequest: "Other session private export text.",
+        roleId: "lead-writing-partner",
+        taskKind: "analysis",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
+        promptTemplateVersion: 1,
+        systemPrompt: "This prompt belongs to the other session.",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(otherCall.statusCode).toBe(200);
+
     const call = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
@@ -1281,34 +1308,174 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
-  it("runs Codex Creation with a mode-scoped skill and blocks generic scene Proposals", async () => {
+  it("resends General Chat author messages by overwriting later history only in chat sessions", async () => {
+    const { app, series, profile } = await createSeriesWithMockProfile();
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Resend chat" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "author",
+        mode: "general-chat",
+        content: "Original request.",
+      },
+    });
+    expect(first.statusCode).toBe(201);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const firstAnswer = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "assistant",
+        mode: "general-chat",
+        content: "Old answer.",
+      },
+    });
+    expect(firstAnswer.statusCode).toBe(201);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const later = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "author",
+        mode: "general-chat",
+        content: "Later request.",
+      },
+    });
+    expect(later.statusCode).toBe(201);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const laterAnswer = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "assistant",
+        mode: "general-chat",
+        content: "Later answer.",
+      },
+    });
+    expect(laterAnswer.statusCode).toBe(201);
+
+    const resend = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${first.json().id}/resend`,
+      payload: {
+        content: "Updated request.",
+        roleId: "lead-writing-partner",
+        taskKind: "analysis",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
+        promptTemplateVersion: 1,
+        systemPrompt: "Answer as a private context-aware story consultant.",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(resend.statusCode).toBe(200);
+    expect(resend.json().authorMessage).toMatchObject({
+      id: first.json().id,
+      mode: "general-chat",
+      role: "author",
+      content: "Updated request.",
+    });
+    expect(resend.json().assistantMessage).toMatchObject({
+      mode: "general-chat",
+      role: "assistant",
+      status: "succeeded",
+    });
+    expect(resend.json().toolMessages).toEqual([]);
+    expect(resend.json().deletedMessageIds).toEqual([
+      firstAnswer.json().id,
+      later.json().id,
+      laterAnswer.json().id,
+    ]);
+
+    const messages = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+    });
+    expect(messages.statusCode).toBe(200);
+    expect(messages.json().map((message: { id: string }) => message.id)).toEqual([
+      first.json().id,
+      resend.json().assistantMessage.id,
+    ]);
+    expect(messages.json().map((message: { content: string }) => message.content)).not.toContain("Old answer.");
+    expect(messages.json().map((message: { content: string }) => message.content)).not.toContain("Later request.");
+
+    const context = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/context/${resend.json().contextBundleId}`,
+    });
+    expect(context.statusCode).toBe(200);
+    expect(context.json().userRequest).toBe("Updated request.");
+
+    const agentSessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent no resend" },
+    });
+    expect(agentSessionResponse.statusCode).toBe(201);
+    const agentSession = agentSessionResponse.json();
+    const agentAuthor = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${agentSession.id}/messages`,
+      payload: {
+        role: "author",
+        mode: "agent",
+        content: "Draft a Codex entry.",
+      },
+    });
+    expect(agentAuthor.statusCode).toBe(201);
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${agentSession.id}/messages/${agentAuthor.json().id}/resend`,
+      payload: {
+        content: "Updated Agent request.",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.researcher,
+        promptTemplateVersion: 1,
+        modelProfileId: profile.id,
+      },
+    });
+    expect(rejected.statusCode).toBe(422);
+    expect(rejected.json().message).toContain("Only General Chat sessions can resend messages");
+
+    await app.close();
+  });
+
+  it("runs Agent sessions with a structured step protocol and blocks generic scene Proposals", async () => {
     const { app, series, profile } = await createSeriesWithMockProfile();
     const scene = series.scenes[0]!;
     const sessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
-      payload: { title: "Codex creation" },
+      payload: { kind: "agent", title: "Agent" },
     });
     expect(sessionResponse.statusCode).toBe(201);
     const session = sessionResponse.json();
+    expect(session.kind).toBe("agent");
 
-    const skillPrompt = applyCodexCreationSkill({
+    const agentPrompt = applyWorkshopAgentPrompt({
       system: "Base",
       instructions: "Base instructions",
       user: "User",
     });
-    expect(skillPrompt.instructions).toContain("Workshop mode: Codex Creation");
-    expect(skillPrompt.instructions).toContain("Codex entries are JSON authority records");
-    expect(skillPrompt.instructions).toContain("Interface boundary");
-    expect(skillPrompt.instructions).toContain("The generic Workshop message-to-Proposal interface currently creates scene-content manuscript Proposals");
-    expect(skillPrompt.instructions).toContain("Before suggesting any write, name the exact target interface required");
-    expect(skillPrompt.instructions).toContain("Base instructions");
+    expect(agentPrompt.instructions).toContain("Workshop surface: Dialogue Agent");
+    expect(agentPrompt.instructions).toContain('"type":"request_tool"');
+    expect(agentPrompt.instructions).toContain('"tool":"codex.create_entry"');
+    expect(agentPrompt.instructions).toContain('"tool":"codex.update_entry"');
+    expect(agentPrompt.instructions).toContain("patch.progressions");
+    expect(agentPrompt.instructions).toContain("已授权");
+    expect(agentPrompt.instructions).toContain("Do not write Tool Call text");
+    expect(agentPrompt.instructions).toContain("Base instructions");
 
     const call = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
       payload: {
-        mode: "codex-creation",
+        mode: "agent",
         userRequest: "Draft a Codex entry for the blue-salt key.",
         roleId: "researcher",
         taskKind: "research",
@@ -1319,8 +1486,8 @@ describe("M5 Workshop API routes", () => {
     });
     expect(call.statusCode).toBe(200);
     expect(call.json()).toMatchObject({ status: "succeeded" });
-    expect(call.json().authorMessage).toMatchObject({ mode: "codex-creation" });
-    expect(call.json().assistantMessage).toMatchObject({ mode: "codex-creation" });
+    expect(call.json().authorMessage).toMatchObject({ mode: "agent" });
+    expect(call.json().assistantMessage).toMatchObject({ mode: "agent" });
 
     const target = {
       kind: "scene-content",
@@ -1336,12 +1503,12 @@ describe("M5 Workshop API routes", () => {
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${call.json().assistantMessage.id}/proposals`,
       payload: {
         type: "text-insertion",
-        title: "Blocked Codex creation proposal",
+        title: "Blocked Agent proposal",
         summary: "Should not enter scene Review",
         target,
         riskLevel: "medium",
         confidence: null,
-        reason: "Codex Creation is not a manuscript Proposal source.",
+        reason: "Agent is not a manuscript Proposal source.",
         patches: [{
           id: "11111111-1111-4111-8111-111111111111",
           target,
@@ -1355,14 +1522,799 @@ describe("M5 Workshop API routes", () => {
           sourceId: call.json().assistantMessage.id,
           revision: null,
           quote: "",
-          note: "Codex Creation source message.",
+          note: "Agent source message.",
         }],
       },
     });
     expect(blockedProposal.statusCode).not.toBe(201);
     expect(blockedProposal.json().message).toContain(
-      "Codex Creation messages require a Codex Proposal or approved Codex tool adapter",
+      "Agent messages require an approved tool adapter or dedicated Proposal path",
     );
+
+    const legacyMode = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "codex-creation",
+        userRequest: "Draft a Codex entry for the blue-salt key.",
+        roleId: "researcher",
+        taskKind: "research",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.researcher,
+        promptTemplateVersion: 1,
+        modelProfileId: profile.id,
+      },
+    });
+    expect(legacyMode.statusCode).toBe(400);
+    expect(legacyMode.json().message).toContain("Codex Creation is no longer a Workshop mode");
+
+    await app.close();
+  });
+
+  it("repairs authorized Agent evidence refusals into structured Codex tool requests", async () => {
+    const providerResponses: string[] = [
+      "研究员无法继续。当前证据不足，不能创建 Codex 条目。",
+      JSON.stringify({
+        schemaVersion: 1,
+        type: "request_tool",
+        tool: "codex.create_entry",
+        message: "已按作者授权整理为待确认的 Codex 草稿。",
+        draft: {
+          categoryId: "object",
+          name: "星坠晶",
+          aliases: ["夜空泪"],
+          description: "星坠晶是一种蓝紫色矿石，来自作者授权的世界设定。",
+          details: [],
+          research: "Author decision recorded in this Agent session.",
+        },
+      }),
+    ];
+    let requestCount = 0;
+    const providerFetch: typeof fetch = async (input) => {
+      if (String(input) === "https://example.test/v1/chat/completions") {
+        const responseText = providerResponses[Math.min(requestCount, providerResponses.length - 1)]!;
+        requestCount += 1;
+        return new Response([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: responseText } }] })}`,
+          "",
+          "data: [DONE]",
+          "",
+          "",
+        ].join("\n"), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      return new Response(JSON.stringify({ object: "list", data: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(providerFetch);
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent authorized repair" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "agent",
+        userRequest: "已授权你创建 Codex 条目：星坠晶。自由发挥，直接创建待确认草稿。",
+        roleId: "researcher",
+        taskKind: "research",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.researcher,
+        promptTemplateVersion: 1,
+        modelProfileId: profile.id,
+      },
+    });
+    expect(call.statusCode).toBe(200);
+    expect(requestCount).toBe(2);
+    expect(call.json().assistantMessage.content).toContain("已按作者授权整理");
+    expect(call.json().assistantMessage.content).not.toContain("证据不足");
+    expect(call.json().toolMessages).toHaveLength(1);
+    expect(JSON.parse(call.json().toolMessages[0].content)).toMatchObject({
+      schemaVersion: 1,
+      tool: "codex.create_entry",
+      draft: {
+        name: "星坠晶",
+        research: "Author decision recorded in this Agent session.",
+      },
+    });
+
+    await app.close();
+  });
+
+  it("does not stream or execute simulated Agent tool-call text", async () => {
+    const providerFetch: typeof fetch = async (input) => {
+      if (String(input) === "https://example.test/v1/chat/completions") {
+        const responseText = [
+          "好的，我现在直接创建。",
+          "",
+          "Tool Call: codex-create",
+          "```json",
+          JSON.stringify({
+            entry: {
+              name: "星辉晶",
+              aliases: ["夜空泪"],
+              category: "矿物/魔法材料",
+              description: "星辉晶是一种半透明的蓝紫色矿石，只在千年一次的星落之夜自然析出。",
+              details: {
+                硬度: "摩氏6.5",
+                产出地: "仅出现于陨石坑的熔壳层",
+              },
+              confidence: "speculative—无任何来源",
+              evidence: "无外部资料、无故事内部参考，纯推测。",
+            },
+          }),
+          "```",
+        ].join("\n");
+        return new Response([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: responseText } }] })}`,
+          "",
+          "data: [DONE]",
+          "",
+          "",
+        ].join("\n"), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      return new Response(JSON.stringify({ error: { message: "not found" } }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(providerFetch);
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent run" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/stream`,
+      payload: {
+        mode: "agent",
+        userRequest: "创建一个 Codex 条目：星辉晶。",
+        roleId: "researcher",
+        taskKind: "research",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.researcher,
+        promptTemplateVersion: 1,
+        modelProfileId: profile.id,
+      },
+    });
+    expect(call.statusCode).toBe(200);
+    const events = parseSseEvents(call.body);
+    expect(events.filter((event) => event.type === "delta")).toHaveLength(0);
+    expect(JSON.stringify(events)).not.toContain("codex-create");
+    const done = events.find((event) => event.type === "done") as {
+      result: {
+        assistantMessage: { content: string };
+        toolMessages: Array<{ role: string; mode: string; content: string }>;
+      };
+    };
+    expect(done.result.assistantMessage.content).toContain("structured response");
+    expect(done.result.assistantMessage.content).not.toContain("Tool Call");
+    expect(done.result.toolMessages).toHaveLength(0);
+
+    const messages = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+    });
+    expect(messages.statusCode).toBe(200);
+    expect(messages.json().map((message: { role: string }) => message.role)).toEqual([
+      "author",
+      "assistant",
+    ]);
+
+    await app.close();
+  });
+
+  it("creates a server-owned Codex tool message from a structured Agent step", async () => {
+    const providerFetch: typeof fetch = async (input) => {
+      if (String(input) === "https://example.test/v1/chat/completions") {
+        const responseText = JSON.stringify({
+          schemaVersion: 1,
+          type: "request_tool",
+          tool: "codex.create_entry",
+          message: "已整理为待确认的 Codex 草稿。",
+          draft: {
+            categoryId: "object",
+            name: "星辉晶",
+            aliases: ["夜空泪"],
+            description: "星辉晶是一种半透明的蓝紫色矿石，只在千年一次的星落之夜自然析出。",
+            details: [
+              { label: "硬度", value: "摩氏6.5" },
+              { label: "产出地", value: "仅出现于陨石坑的熔壳层" },
+            ],
+            research: "Author decision recorded in this Agent session.",
+          },
+        });
+        return new Response([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: responseText } }] })}`,
+          "",
+          "data: [DONE]",
+          "",
+          "",
+        ].join("\n"), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      return new Response(JSON.stringify({ error: { message: "not found" } }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(providerFetch);
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent run" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/stream`,
+      payload: {
+        mode: "agent",
+        userRequest: "创建一个 Codex 条目：星辉晶。",
+        roleId: "researcher",
+        taskKind: "research",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.researcher,
+        promptTemplateVersion: 1,
+        modelProfileId: profile.id,
+      },
+    });
+    expect(call.statusCode).toBe(200);
+    const events = parseSseEvents(call.body);
+    expect(events.filter((event) => event.type === "delta")).toHaveLength(0);
+    const done = events.find((event) => event.type === "done") as {
+      result: {
+        assistantMessage: { content: string };
+        toolMessages: Array<{ role: string; mode: string; content: string }>;
+      };
+    };
+    expect(done.result.assistantMessage.content).toContain("已整理为待确认的 Codex 草稿");
+    expect(done.result.toolMessages).toHaveLength(1);
+    expect(done.result.toolMessages[0]).toMatchObject({ role: "tool", mode: "agent" });
+    expect(JSON.parse(done.result.toolMessages[0]!.content)).toMatchObject({
+      schemaVersion: 1,
+      tool: "codex.create_entry",
+      draft: {
+        categoryId: "object",
+        name: "星辉晶",
+      },
+    });
+
+    await app.close();
+  });
+
+  it("executes an author-approved Agent codex.create_entry tool call as a new Codex entry", async () => {
+    const { app, series } = await createSeriesWithMockProfile();
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent create entry" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+    const statusDetailType = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: { categoryId: "character", name: "Status" },
+    });
+    const propDetailType = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: { categoryId: "character", name: "Prop" },
+    });
+    expect(statusDetailType.statusCode).toBe(201);
+    expect(propDetailType.statusCode).toBe(201);
+    const draftMessage = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "tool",
+        mode: "agent",
+        content: serializeCodexCreateEntryToolRequest({
+          aliases: ["Lin Alice", "Alice"],
+          categoryId: "character",
+          description: "Alice is Lin Che's sister. She is alive and imprisoned in the Clocktower of Tides.",
+          details: [
+            { label: "Status", value: "Alive, real, and imprisoned." },
+            { label: "Prop", value: "A modified old harbor measuring rod." },
+          ],
+          name: "Alice",
+          research: "Source: author-approved Workshop character ruling.",
+        }),
+      },
+    });
+    expect(draftMessage.statusCode).toBe(201);
+
+    const apply = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.create_entry/execute`,
+      payload: {
+        confirm: true,
+      },
+    });
+    expect(apply.statusCode).toBe(201);
+    expect(apply.json().entry.metadata).toMatchObject({
+      aliases: ["Lin Alice", "Alice"],
+      categoryId: "character",
+      name: "Alice",
+    });
+    expect(apply.json().entry.description).toContain("Lin Che's sister");
+    expect(apply.json().entry.metadata.details).toEqual({
+      [statusDetailType.json().detailType.id]: "Alive, real, and imprisoned.",
+      [propDetailType.json().detailType.id]: "A modified old harbor measuring rod.",
+    });
+    expect(apply.json().entry.metadata.detailAiContext).toEqual({
+      [statusDetailType.json().detailType.id]: true,
+      [propDetailType.json().detailType.id]: true,
+    });
+    expect(apply.json().entry.metadata.details.Status).toBeUndefined();
+    expect(apply.json().entry.metadata.details.Prop).toBeUndefined();
+    expect(apply.json().entry.research.content).toContain("author-approved Workshop character ruling");
+    expect(apply.json().resultMessage).toMatchObject({
+      role: "result",
+      mode: "agent",
+      content: "codex.create_entry created Codex entry: Alice",
+    });
+    const messages = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+    });
+    expect(messages.statusCode).toBe(200);
+    expect(messages.json().map((message: { role: string }) => message.role)).toContain("result");
+
+    await app.close();
+  });
+
+  it("requires structured tool requests before executing Agent Codex drafts", async () => {
+    const { app, series } = await createSeriesWithMockProfile();
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent plain draft" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+    const draftMessage = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "tool",
+        mode: "agent",
+        content: [
+          "Tool Call: codex.create_entry",
+          "Codex Draft",
+          "Operation: create",
+          "Category: character",
+          "Name: Alice",
+        ].join("\n"),
+      },
+    });
+    expect(draftMessage.statusCode).toBe(201);
+
+    const apply = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.create_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(apply.statusCode).toBe(400);
+    expect(apply.json().message).toContain("structured tool request");
+
+    await app.close();
+  });
+
+  it("rejects executing draft Details when the category has no reusable detail types", async () => {
+    const { app, series } = await createSeriesWithMockProfile();
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent missing detail types" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+    const draftMessage = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "tool",
+        mode: "agent",
+        content: serializeCodexCreateEntryToolRequest({
+          aliases: [],
+          categoryId: "character",
+          description: "Alice is alive.",
+          details: [{ label: "Status", value: "Alive." }],
+          name: "Alice",
+          research: "Author decision recorded in this Agent session.",
+        }),
+      },
+    });
+    expect(draftMessage.statusCode).toBe(201);
+
+    const apply = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.create_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(apply.statusCode).toBe(409);
+    expect(apply.json()).toMatchObject({
+      code: "CODEX_DETAIL_TYPE_CREATION_REQUIRED",
+      missingDetailTypes: [{ label: "Status", valuePreview: "Alive." }],
+      availableDetailTypes: [],
+    });
+
+    const entries = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+    });
+    expect(entries.statusCode).toBe(200);
+    expect(entries.json()).toHaveLength(0);
+
+    const confirmedApply = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.create_entry/execute`,
+      payload: {
+        confirm: true,
+        createMissingDetailTypes: true,
+      },
+    });
+    expect(confirmedApply.statusCode).toBe(201);
+    expect(confirmedApply.json().createdDetailTypes).toHaveLength(1);
+    expect(confirmedApply.json().createdDetailTypes[0].detailType).toMatchObject({
+      categoryId: "character",
+      name: "Status",
+    });
+    expect(confirmedApply.json().entry.metadata.details).toEqual({
+      [confirmedApply.json().createdDetailTypes[0].detailType.id]: "Alive.",
+    });
+
+    await app.close();
+  });
+
+  it("creates unmatched Agent draft detail types only after author confirmation", async () => {
+    const { app, series } = await createSeriesWithMockProfile();
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent similar detail labels" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+    const appearanceDetailType = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: { categoryId: "character", name: "Appearance" },
+    });
+    expect(appearanceDetailType.statusCode).toBe(201);
+    const draftMessage = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "tool",
+        mode: "agent",
+        content: serializeCodexCreateEntryToolRequest({
+          aliases: [],
+          categoryId: "character",
+          description: "Alice is alive.",
+          details: [{ label: "Looks", value: "Blonde hair." }],
+          name: "Alice",
+          research: "Author decision recorded in this Agent session.",
+        }),
+      },
+    });
+    expect(draftMessage.statusCode).toBe(201);
+
+    const apply = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.create_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(apply.statusCode).toBe(409);
+    expect(apply.json()).toMatchObject({
+      code: "CODEX_DETAIL_TYPE_CREATION_REQUIRED",
+      missingDetailTypes: [{ label: "Looks", valuePreview: "Blonde hair." }],
+    });
+    expect(apply.json().availableDetailTypes.map((item: { detailType: { name: string } }) =>
+      item.detailType.name,
+    )).toEqual(["Appearance"]);
+
+    const entries = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+    });
+    expect(entries.statusCode).toBe(200);
+    expect(entries.json()).toHaveLength(0);
+
+    const confirmedApply = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.create_entry/execute`,
+      payload: {
+        confirm: true,
+        createMissingDetailTypes: true,
+      },
+    });
+    expect(confirmedApply.statusCode).toBe(201);
+    expect(confirmedApply.json().createdDetailTypes).toHaveLength(1);
+    expect(confirmedApply.json().createdDetailTypes[0].detailType).toMatchObject({
+      categoryId: "character",
+      name: "Looks",
+    });
+    expect(confirmedApply.json().entry.metadata.details).toEqual({
+      [confirmedApply.json().createdDetailTypes[0].detailType.id]: "Blonde hair.",
+    });
+    expect(confirmedApply.json().entry.metadata.details.Looks).toBeUndefined();
+    expect(confirmedApply.json().entry.metadata.details.Appearance).toBeUndefined();
+
+    await app.close();
+  });
+
+  it("executes Agent codex.update_entry progression create update and delete operations", async () => {
+    const { app, series } = await createSeriesWithMockProfile();
+    const scene = series.scenes[0]!;
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent update progressions" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+    const entryResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: {
+        categoryId: "character",
+        name: "Alice",
+        description: "Alice baseline.",
+      },
+    });
+    expect(entryResponse.statusCode).toBe(201);
+    const entry = entryResponse.json();
+    const progressionBase = {
+      kind: "field",
+      entryId: entry.metadata.id,
+      relationId: null,
+      field: { kind: "description", detailTypeId: null },
+      fieldKey: null,
+      operation: "replace",
+      effectiveFromSceneId: scene.metadata.id,
+      effectiveToSceneId: null,
+      source: { kind: "codex-page", sceneId: null, blockId: null, sourceId: null },
+      evidence: [],
+    };
+    const progressionToUpdate = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        ...progressionBase,
+        body: "Old progression body.",
+        summary: "Old summary.",
+      },
+    });
+    const progressionToDelete = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        ...progressionBase,
+        body: "Delete this progression.",
+        summary: "Delete summary.",
+      },
+    });
+    expect(progressionToUpdate.statusCode).toBe(201);
+    expect(progressionToDelete.statusCode).toBe(201);
+
+    const draftMessage = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "tool",
+        mode: "agent",
+        content: serializeCodexUpdateEntryToolRequest({
+          target: { entryId: entry.metadata.id },
+          patch: {
+            progressions: [
+              {
+                action: "create",
+                input: {
+                  kind: "field",
+                  field: { kind: "description", detailTypeId: null },
+                  operation: "replace",
+                  body: "Alice is alive in the Clocktower.",
+                  summary: "Alice living Clocktower state.",
+                  effectiveFromSceneId: scene.metadata.id,
+                },
+              },
+              {
+                action: "update",
+                progressionId: progressionToUpdate.json().progression.id,
+                input: {
+                  baseRevision: progressionToUpdate.json().revision,
+                  body: "Updated progression body.",
+                  summary: "Updated summary.",
+                },
+              },
+              {
+                action: "delete",
+                progressionId: progressionToDelete.json().progression.id,
+                input: {
+                  baseRevision: progressionToDelete.json().revision,
+                },
+              },
+            ],
+          },
+        }),
+      },
+    });
+    expect(draftMessage.statusCode).toBe(201);
+
+    const apply = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.update_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(apply.statusCode).toBe(201);
+    expect(apply.json().entry.metadata.id).toBe(entry.metadata.id);
+    expect(apply.json().createdProgressions).toHaveLength(1);
+    expect(apply.json().createdProgressions[0].progression).toMatchObject({
+      entryId: entry.metadata.id,
+      body: "Alice is alive in the Clocktower.",
+      source: { kind: "codex-page" },
+    });
+    expect(apply.json().updatedProgressions).toHaveLength(1);
+    expect(apply.json().updatedProgressions[0].progression).toMatchObject({
+      id: progressionToUpdate.json().progression.id,
+      body: "Updated progression body.",
+      summary: "Updated summary.",
+    });
+    expect(apply.json().deletedProgressions).toEqual([
+      { deletedId: progressionToDelete.json().progression.id, blockers: [] },
+    ]);
+    expect(apply.json().resultMessage.content).toContain("1 progression(s) created");
+    expect(apply.json().resultMessage.content).toContain("1 progression(s) updated");
+    expect(apply.json().resultMessage.content).toContain("1 progression(s) deleted");
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions?kind=field&entryId=${entry.metadata.id}`,
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().map((document: { progression: { id: string } }) => document.progression.id))
+      .not.toContain(progressionToDelete.json().progression.id);
+
+    await app.close();
+  });
+
+  it("exports Workshop session history with optional reasoning and reconstructed provider prompts", async () => {
+    const { app, series, profile } = await createSeriesWithMockProfile("mock-reasoning-v1");
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Export chat" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+
+    const otherSessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Other export chat" },
+    });
+    expect(otherSessionResponse.statusCode).toBe(201);
+    const otherSession = otherSessionResponse.json();
+    const otherCall = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${otherSession.id}/calls`,
+      payload: {
+        mode: "general-chat",
+        userRequest: "Other session private export text.",
+        roleId: "lead-writing-partner",
+        taskKind: "analysis",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
+        promptTemplateVersion: 1,
+        systemPrompt: "This prompt belongs to the other session.",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(otherCall.statusCode).toBe(200);
+
+    const attachmentBody = Buffer.from("Attachment export body must not appear.", "utf8");
+    const upload = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/attachments`,
+      payload: {
+        draftToken: "export-draft",
+        fileName: "export-secret.txt",
+        mediaType: "text/plain",
+        sizeBytes: attachmentBody.length,
+        base64Content: base64(attachmentBody),
+      },
+    });
+    expect(upload.statusCode).toBe(201);
+
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "general-chat",
+        userRequest: "Talk through the scene without writing.",
+        roleId: "lead-writing-partner",
+        taskKind: "analysis",
+        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
+        promptTemplateVersion: 1,
+        systemPrompt: "Answer as a private context-aware story consultant.",
+        modelProfileId: profile.id,
+        attachmentIds: [upload.json().id],
+        draftToken: "export-draft",
+      },
+    });
+    expect(call.statusCode, call.payload).toBe(200);
+    const result = call.json() as {
+      assistantMessage: { reasoningContent: string };
+    };
+    expect(result.assistantMessage.reasoningContent.trim()).not.toBe("");
+
+    const withoutReasoning = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/export`,
+    });
+      expect(withoutReasoning.statusCode, withoutReasoning.payload).toBe(200);
+      expect(withoutReasoning.headers["content-type"]).toContain("text/markdown");
+      expect(withoutReasoning.headers["content-disposition"]).toContain(`workshop-${session.id}.md`);
+      expect(withoutReasoning.payload.charCodeAt(0)).toBe(0xfeff);
+      expect(withoutReasoning.payload).toContain("# Workshop Export: Export chat");
+      expect(withoutReasoning.payload).toContain("- Include prompt audit: no");
+      expect(withoutReasoning.payload).toContain("Talk through the scene without writing.");
+      expect(withoutReasoning.payload).toContain(`export-secret.txt (parsed, text/plain, ${attachmentBody.length} bytes)`);
+      expect(withoutReasoning.payload).not.toContain("Provider Prompt:");
+      expect(withoutReasoning.payload).not.toContain("Context Items Sent To Provider:");
+      expect(withoutReasoning.payload).not.toContain("Answer as a private context-aware story consultant.");
+      expect(withoutReasoning.payload).not.toContain("[attachment content omitted from export; see attachment records]");
+      expect(withoutReasoning.payload).not.toContain("Attachment export body must not appear.");
+      expect(withoutReasoning.payload).not.toContain("Other session private export text.");
+      expect(withoutReasoning.payload).not.toContain("This prompt belongs to the other session.");
+      expect(withoutReasoning.payload).not.toContain(result.assistantMessage.reasoningContent);
+
+    const withReasoning = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/export?includeReasoning=true`,
+    });
+    expect(withReasoning.statusCode).toBe(200);
+    expect(withReasoning.payload.charCodeAt(0)).toBe(0xfeff);
+    expect(withReasoning.payload).toContain("Reasoning:");
+    expect(withReasoning.payload).toContain(result.assistantMessage.reasoningContent);
+    expect(withReasoning.payload).toContain(`export-secret.txt (parsed, text/plain, ${attachmentBody.length} bytes)`);
+    expect(withReasoning.payload).not.toContain("Provider Prompt:");
+    expect(withReasoning.payload).not.toContain("Attachment export body must not appear.");
+    expect(withReasoning.payload).not.toContain("Other session private export text.");
+    expect(withReasoning.payload).not.toContain("This prompt belongs to the other session.");
+
+    const withPromptAudit = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/export?includePromptAudit=true`,
+    });
+    expect(withPromptAudit.statusCode).toBe(200);
+    expect(withPromptAudit.payload.charCodeAt(0)).toBe(0xfeff);
+    expect(withPromptAudit.payload).toContain("- Include prompt audit: yes");
+    expect(withPromptAudit.payload).toContain("Provider Prompt:");
+    expect(withPromptAudit.payload).toContain("Context Items Sent To Provider:");
+    expect(withPromptAudit.payload).toContain("Answer as a private context-aware story consultant.");
+    expect(withPromptAudit.payload).toContain("[attachment content omitted from export; see attachment records]");
+    expect(withPromptAudit.payload).not.toContain("Attachment export body must not appear.");
+    expect(withPromptAudit.payload).not.toContain("Other session private export text.");
+    expect(withPromptAudit.payload).not.toContain("This prompt belongs to the other session.");
 
     await app.close();
   });

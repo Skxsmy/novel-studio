@@ -3,12 +3,16 @@ import type {
   ContextBundle,
   CreateWorkshopBranchInput,
   CreateWorkshopMessageProposalInput,
+  ExecuteWorkshopCodexCreateEntryToolInput,
+  ExecuteWorkshopCodexUpdateEntryToolInput,
   CreateWorkshopMessageInput,
   CreateWorkshopSessionInput,
   DeleteWorkshopAttachmentResult,
   DeleteWorkshopMessageResult,
   DeleteWorkshopSessionResult,
   PromptTemplate,
+  ResendWorkshopMessageInput,
+  ResendWorkshopMessageResult,
   RunWorkshopCallInput,
   UploadWorkshopAttachmentInput,
   UpdateWorkshopContextBasketInput,
@@ -16,6 +20,10 @@ import type {
   WorkshopBranch,
   WorkshopCallResult,
   WorkshopCallStreamEvent,
+  WorkshopCodexCreateEntryToolError,
+  WorkshopCodexCreateEntryToolResult,
+  WorkshopCodexUpdateEntryToolResult,
+  WorkshopCodexDraftDetailMapping,
   WorkshopContextBasket,
   WorkshopContextPreviewInput,
   WorkshopMessageAttachment,
@@ -51,6 +59,19 @@ export function createWorkshopApi(client: ApiClient) {
     },
     getSession(seriesId: string, sessionId: string) {
       return client.requestJson<WorkshopSessionDetail>(`/series/${seriesId}/workshop/sessions/${sessionId}`);
+    },
+    exportSession(
+      seriesId: string,
+      sessionId: string,
+      options: { includePromptAudit?: boolean; includeReasoning?: boolean } = {},
+    ) {
+      const params = new URLSearchParams({
+        includePromptAudit: options.includePromptAudit ? "true" : "false",
+        includeReasoning: options.includeReasoning ? "true" : "false",
+      });
+      return client.requestJson<string>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/export?${params.toString()}`,
+      );
     },
     updateSession(seriesId: string, sessionId: string, input: UpdateWorkshopSessionInput) {
       return client.requestJson<WorkshopSession>(`/series/${seriesId}/workshop/sessions/${sessionId}`, {
@@ -113,6 +134,20 @@ export function createWorkshopApi(client: ApiClient) {
         { method: "DELETE" },
       );
     },
+    resendMessage(
+      seriesId: string,
+      sessionId: string,
+      messageId: string,
+      input: ResendWorkshopMessageInput,
+    ) {
+      return client.requestJson<ResendWorkshopMessageResult>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/messages/${messageId}/resend`,
+        {
+          body: input,
+          method: "POST",
+        },
+      );
+    },
     createMessageProposal(
       seriesId: string,
       sessionId: string,
@@ -121,6 +156,34 @@ export function createWorkshopApi(client: ApiClient) {
     ) {
       return client.requestJson<WorkshopMessageProposalResult>(
         `/series/${seriesId}/workshop/sessions/${sessionId}/messages/${messageId}/proposals`,
+        {
+          body: input,
+          method: "POST",
+        },
+      );
+    },
+    executeCodexCreateEntryTool(
+      seriesId: string,
+      sessionId: string,
+      messageId: string,
+      input: ExecuteWorkshopCodexCreateEntryToolInput,
+    ) {
+      return client.requestJson<WorkshopCodexCreateEntryToolResult>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/messages/${messageId}/tools/codex.create_entry/execute`,
+        {
+          body: input,
+          method: "POST",
+        },
+      );
+    },
+    executeCodexUpdateEntryTool(
+      seriesId: string,
+      sessionId: string,
+      messageId: string,
+      input: ExecuteWorkshopCodexUpdateEntryToolInput,
+    ) {
+      return client.requestJson<WorkshopCodexUpdateEntryToolResult>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/messages/${messageId}/tools/codex.update_entry/execute`,
         {
           body: input,
           method: "POST",
@@ -191,12 +254,16 @@ export type {
   ContextBundle,
   CreateWorkshopBranchInput,
   CreateWorkshopMessageProposalInput,
+  ExecuteWorkshopCodexCreateEntryToolInput,
+  ExecuteWorkshopCodexUpdateEntryToolInput,
   CreateWorkshopMessageInput,
   CreateWorkshopSessionInput,
   DeleteWorkshopAttachmentResult,
   DeleteWorkshopMessageResult,
   DeleteWorkshopSessionResult,
   PromptTemplate,
+  ResendWorkshopMessageInput,
+  ResendWorkshopMessageResult,
   RunWorkshopCallInput,
   UploadWorkshopAttachmentInput,
   UpdateWorkshopContextBasketInput,
@@ -204,6 +271,10 @@ export type {
   WorkshopBranch,
   WorkshopCallResult,
   WorkshopCallStreamEvent,
+  WorkshopCodexCreateEntryToolError,
+  WorkshopCodexCreateEntryToolResult,
+  WorkshopCodexUpdateEntryToolResult,
+  WorkshopCodexDraftDetailMapping,
   WorkshopContextBasket,
   WorkshopContextPreviewInput,
   WorkshopMessageAttachment,

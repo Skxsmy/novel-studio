@@ -118,6 +118,24 @@ Progression 是统一 JSON 权威系统，存放于 `codex/progressions/`。它�
 
 Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复要求自身 `baseRevision`。有效状态查询只按当前叙事位置返回已生效记录；未来记录只返回数量，不返回摘要、证据或 ID。
 
+## Workshop Agent Tools
+
+- `POST /series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/resend`
+
+This route edits/resends a previous General Chat author message. It is valid only for active `chat` sessions and successful `author` / `general-chat` messages that are not Proposal-linked. The request may provide replacement `content` plus the General Chat prompt/model options for the new call. The server updates the source author message, deletes later unprotected General Chat messages, deletes message-bound attachments attached to those deleted messages, clears branch records/pointers that depended on deleted messages, creates a new ContextBundle/ModelCallLog from the revised history, and appends the new assistant message. Agent sessions and Agent/tool/result histories are not supported by this route in the current slice; protected later records return an error instead of being silently erased.
+
+- `GET /series/:seriesId/workshop/sessions/:sessionId/export?includeReasoning=&includePromptAudit=`
+
+This route exports one Workshop session as `text/markdown`. `includeReasoning` and `includePromptAudit` default to false. The export reads persisted session, message, and attachment records filtered to the requested session; default output is visible message history plus attachment file records only. Saved provider reasoning content is included only when `includeReasoning=true`. Model-call metadata and reconstructed provider prompt/context records are included only when `includePromptAudit=true` and durable links exist. Extracted attachment body text is omitted from the export. The route is read-only, emits UTF-8 Markdown with a BOM for local Windows readers, and must not fabricate tool calls, hidden prompts, unsaved reasoning, or attachment bodies.
+
+- `POST /series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/tools/codex.create_entry/execute`
+
+This route is a limited author-confirmed execution path for server-owned Agent `role: tool` messages whose content is a structured JSON `codex.create_entry` request. It creates a new Codex entry only. Assistant prose, fake `Tool Call` text, and plain `Codex Draft` text are not executable tool protocol. Draft Details must resolve to reusable detail type IDs by stable ID or exact normalized type name. If any draft detail labels are unmatched, the first request returns `409 CODEX_DETAIL_TYPE_CREATION_REQUIRED` without writing; a later request with `createMissingDetailTypes: true` creates those missing detail types and then writes the entry with stable detail type IDs. The route is not a general Tool Plan, does not update existing entries, and does not write relations, progressions, knowledge, or world facts.
+
+- `POST /series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/tools/codex.update_entry/execute`
+
+This route is the matching author-confirmed execution path for server-owned Agent `role: tool` messages whose content is a structured JSON `codex.update_entry` request. It can update one existing Codex entry's name, aliases, Canon description, reusable Details, research notes, and unified Codex Progression operations in `patch.progressions`. Progression operations support `create`, `update`, and `delete` by calling the same validated Codex Progression repository commands used by the normal Codex API, including `baseRevision` checks for updates/deletes. The route may fill the target entry ID for field/world progression drafts that clearly target the same entry, but it does not execute assistant prose, fake tool-call text, relation writes, character knowledge writes, category edits, or broad Tool Plans. Explicit author authorization in the Agent conversation is a valid source basis for the Agent to draft a structured tool request; the write still requires this route's explicit confirmation before authority changes.
+
 ## M4 AI 基础设施
 
 `NS-404` 至 `NS-408` 已实现模型配置、凭据边界、上下文预览、角色与提示词模板版本、MockProvider 流式调用、真实 Provider 协议路径和调用日志。DeepSeek、OpenAI、OpenRouter、Ollama、Anthropic、Google Gemini 与通用 OpenAI-compatible 路径已接入协议层；真实外部非写入调用验收和完整调用记录 UI 仍在后续 M4 任务中完成。M4 的第一条纵向闭环已使用 MockProvider 完成“上下文预览 → 流式调用 → 调用日志 → 写作页结果展示”。
@@ -148,6 +166,22 @@ Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复�
 `POST /ai/model-profiles/:profileId/test` 只做连接测试和能力读取。Provider 认证失败、余额不足、限流、模型不可用和服务不可达会返回对应错误分类；不会自动换用其它 Provider。
 
 `GET /ai/model-profiles/:profileId/models` 返回 Provider 可见模型列表。若 Provider 不支持模型列表，返回能力声明中的静态模型或明确的“不支持”，不能伪造动态列表。
+
+### Embedding 配置与调用边界
+
+`EmbeddingModelProfile` 是独立于生成模型 `ModelProfile` 的全局配置对象，保存 Provider、服务地址、endpoint、模型、维度、输入上限、批量上限、profile 级并发上限、归一化策略、模型许可证和凭据引用。它用于 Codex schema planner、资料库语义检索、上下文检索和未来 M6 向量索引等 use case 的共享 embedding 调用。
+
+当前基础设施已提供 contracts、storage 和 `@novel-studio/ai` embedding router；M6 或后续 Settings UI 再公开正式 REST 设置路由。REST 路由不得把 embedding profile 混进生成模型 profile，也不得把某个 use case 的模型选择写死。未来候选路由应保持在作品库级 Settings 下：
+
+- `GET /ai/embedding-profiles`
+- `POST /ai/embedding-profiles`
+- `PUT /ai/embedding-profiles/:profileId`
+- `POST /ai/embedding-profiles/:profileId/credential`
+- `GET /ai/embedding-profiles/:profileId/credential`
+- `DELETE /ai/embedding-profiles/:profileId/credential`
+- `POST /ai/embedding-profiles/:profileId/test`
+
+Embedding router 调用不直接写权威数据。索引调用者负责在向量记录中保存来源 revision/hash、profile、模型、维度和归一化策略，并在这些字段变化时重建。Codex 或 Agent 调用者只可把 embedding 结果用于匹配/建议，不可把语义相似度当作事实证据或 Canon 写入许可。
 
 ### 提示词、角色与版本
 

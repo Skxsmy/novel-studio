@@ -11,10 +11,11 @@ import type {
   SeriesDetail,
   WorkshopContextBasket,
   WorkshopContextItemRef,
+  WorkshopConversationKind,
   WorkshopCallStreamEvent,
+  WorkshopCodexCreateEntryToolError,
   WorkshopMessageAttachment,
   WorkshopMessage,
-  WorkshopMode,
   WorkshopSession,
 } from "@novel-studio/contracts";
 import { ApiError, api } from "../../api";
@@ -47,6 +48,15 @@ type ComposerAttachment = Omit<WorkshopMessageAttachment, "parseStatus"> & {
   parseStatus: WorkshopMessageAttachment["parseStatus"] | "parsing";
 };
 
+interface CodexDraftResolutionState {
+  availableDetailTypes: WorkshopCodexCreateEntryToolError["availableDetailTypes"];
+  messageId: string;
+  missingDetailTypes: WorkshopCodexCreateEntryToolError["missingDetailTypes"];
+  toolName: CodexToolName;
+}
+
+type CodexToolName = "codex.create_entry" | "codex.update_entry";
+
 const LINKED_CODEX_NOTE = "Linked from selected context.";
 const AUTO_SESSION_TITLE_MAX = 56;
 
@@ -63,6 +73,37 @@ function apiErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Request failed";
 }
 
+function codexCreateEntryToolError(error: unknown): WorkshopCodexCreateEntryToolError | null {
+  if (!(error instanceof ApiError) || typeof error.payload !== "object" || error.payload === null) {
+    return null;
+  }
+  const payload = error.payload as Partial<WorkshopCodexCreateEntryToolError>;
+  if (
+    payload.code === "CODEX_DETAIL_TYPE_CREATION_REQUIRED" &&
+    Array.isArray(payload.missingDetailTypes) &&
+    Array.isArray(payload.availableDetailTypes) &&
+    typeof payload.message === "string"
+  ) {
+    return payload as WorkshopCodexCreateEntryToolError;
+  }
+  return null;
+}
+
+function codexToolRequestName(content: string): CodexToolName | null {
+  try {
+    const parsed = JSON.parse(content) as { schemaVersion?: unknown; tool?: unknown };
+    if (
+      parsed.schemaVersion === 1 &&
+      (parsed.tool === "codex.create_entry" || parsed.tool === "codex.update_entry")
+    ) {
+      return parsed.tool;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function formatDate(value: string | null): string {
   if (!value) return "";
   return new Intl.DateTimeFormat(undefined, {
@@ -71,6 +112,17 @@ function formatDate(value: string | null): string {
     month: "short",
     day: "numeric",
   }).format(new Date(value));
+}
+
+function workshopExportFileName(session: WorkshopSession): string {
+  const safeTitle = session.title
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/gu, "-")
+    .replace(/\s+/gu, "-")
+    .replace(/-+/gu, "-")
+    .replace(/[. -]+$/gu, "")
+    .slice(0, 64);
+  return `workshop-${safeTitle || "session"}-${session.id.slice(0, 8)}.md`;
 }
 
 function statusClass(status: ProposalDocument["proposal"]["status"]) {
@@ -287,6 +339,7 @@ export function WorkshopWorkspace({
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const [contextMenuView, setContextMenuView] = useState<ContextMenuView>({ kind: "root" });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSessionCreateOpen, setIsSessionCreateOpen] = useState(false);
   const [isSessionActionsOpen, setIsSessionActionsOpen] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingSessionTitle, setEditingSessionTitle] = useState("");
@@ -296,7 +349,6 @@ export function WorkshopWorkspace({
   const [providerModels, setProviderModels] = useState<ProviderModelDescriptor[]>([]);
   const [providerModelsProfileId, setProviderModelsProfileId] = useState<string | null>(null);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
-  const [workshopMode, setWorkshopMode] = useState<WorkshopMode>("general-chat");
   const [generalSystemPrompt, setGeneralSystemPrompt] = useState<string>(text.defaultGeneralSystemPrompt);
   const [composer, setComposer] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -304,12 +356,21 @@ export function WorkshopWorkspace({
   const [isCalling, setIsCalling] = useState(false);
   const [isFetchingProviderModels, setIsFetchingProviderModels] = useState(false);
   const [creatingProposalMessageId, setCreatingProposalMessageId] = useState<string | null>(null);
+  const [applyingCodexDraftMessageId, setApplyingCodexDraftMessageId] = useState<string | null>(null);
+  const [codexDraftResolution, setCodexDraftResolution] = useState<CodexDraftResolutionState | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [editingMessageContent, setEditingMessageContent] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [resendingMessageId, setResendingMessageId] = useState<string | null>(null);
+  const [isExportingSession, setIsExportingSession] = useState(false);
+  const [includeReasoningInExport, setIncludeReasoningInExport] = useState(false);
+  const [includePromptAuditInExport, setIncludePromptAuditInExport] = useState(false);
   const [reasoningOverrideIds, setReasoningOverrideIds] = useState<Set<string>>(() => new Set());
   const [useStreamingResponses, setUseStreamingResponses] = useState(true);
   const [showReasoningByDefault, setShowReasoningByDefault] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const attachmentInputId = useMemo(() => `workshop-attachment-${randomId()}`, []);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const callAbortRef = useRef<AbortController | null>(null);
@@ -368,18 +429,17 @@ export function WorkshopWorkspace({
       null,
     [promptTemplates],
   );
-  const codexCreationPromptTemplate = useMemo(
+  const agentPromptTemplate = useMemo(
     () =>
       newestTemplateForRole(promptTemplates, "researcher") ??
+      newestTemplateForRole(promptTemplates, "lead-writing-partner") ??
       newestTemplateForRole(promptTemplates, "character-editor") ??
       continuityPromptTemplate,
     [continuityPromptTemplate, promptTemplates],
   );
-  const selectedPromptTemplate = workshopMode === "general-chat"
-    ? generalPromptTemplate
-    : workshopMode === "codex-creation"
-      ? codexCreationPromptTemplate
-      : continuityPromptTemplate;
+  const selectedPromptTemplate = activeSession?.kind === "agent"
+    ? agentPromptTemplate
+    : generalPromptTemplate;
   const contextItems = basket?.items ?? [];
   const contextScene = useMemo(() => {
     if (basket?.sceneId) {
@@ -506,6 +566,7 @@ export function WorkshopWorkspace({
   function activateSession(sessionId: string | null) {
     activeSessionIdRef.current = sessionId;
     setActiveSessionId(sessionId);
+    setIsSessionCreateOpen(false);
     setIsSessionActionsOpen(false);
   }
 
@@ -669,13 +730,18 @@ export function WorkshopWorkspace({
 
   function applyCallResult(
     sessionId: string,
-    result: { authorMessage: WorkshopMessage; assistantMessage: WorkshopMessage },
+    result: { authorMessage: WorkshopMessage; assistantMessage: WorkshopMessage; toolMessages?: WorkshopMessage[] },
     localAuthorId = result.authorMessage.id,
     localAssistantId = result.assistantMessage.id,
   ) {
     updateSessionMessages(sessionId, (current) => {
       const withAuthor = replaceMessageByIdentity(current, localAuthorId, result.authorMessage);
-      return replaceMessageByIdentity(withAuthor, localAssistantId, result.assistantMessage);
+      const withAssistant = replaceMessageByIdentity(withAuthor, localAssistantId, result.assistantMessage);
+      const toolMessages = result.toolMessages ?? [];
+      return toolMessages.reduce(
+        (next, message) => replaceMessageByIdentity(next, message.id, message),
+        withAssistant,
+      );
     });
     clearLiveSessionMessages(sessionId);
     bindAttachmentsToMessage(result.authorMessage);
@@ -720,6 +786,7 @@ export function WorkshopWorkspace({
           : nextSessions.find((session) => session.status === "active")?.id ?? nextSessions[0]?.id ?? null);
       activateSession(nextActive);
       setIsSettingsOpen(false);
+      setIsSessionCreateOpen(false);
     } catch (caught) {
       setError(apiErrorMessage(caught));
     } finally {
@@ -774,6 +841,9 @@ export function WorkshopWorkspace({
       setCodexEntries(nextCodexEntries);
       setIsContextMenuOpen(false);
       setContextMenuView({ kind: "root" });
+      setCodexDraftResolution(null);
+      setEditingMessageContent("");
+      setEditingMessageId(null);
     } catch (caught) {
       setError(apiErrorMessage(caught));
     } finally {
@@ -804,17 +874,22 @@ export function WorkshopWorkspace({
       setMessages([]);
       setIsDetailLoading(false);
       setIsContextMenuOpen(false);
+      setCodexDraftResolution(null);
+      setEditingMessageContent("");
+      setEditingMessageId(null);
       return;
     }
     void loadSession(activeSessionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId, seriesId]);
 
-  async function createSession() {
+  async function createSession(kind: WorkshopConversationKind) {
     setError(null);
+    setIsSessionCreateOpen(false);
     try {
       const created = await api.workshop.createSession(seriesId, {
         title: text.defaultSessionTitle,
+        kind,
         sceneId: null,
       });
       await loadShell(created.id);
@@ -1038,17 +1113,17 @@ export function WorkshopWorkspace({
   }
 
   function previewPayload(userRequest = composer.trim() || text.labels.defaultRequest) {
+    if (!activeSession) throw new Error(text.labels.noSession);
     if (!selectedPromptTemplate) throw new Error(text.labels.noPrompt);
-    const isGeneralChat = workshopMode === "general-chat";
-    const isCodexCreation = workshopMode === "codex-creation";
+    const isAgent = activeSession.kind === "agent";
     return {
-      mode: workshopMode,
+      mode: isAgent ? "agent" as const : "general-chat" as const,
       userRequest,
       roleId: selectedPromptTemplate.roleId,
-      taskKind: isGeneralChat ? "analysis" as const : isCodexCreation ? "research" as const : "continuity-check" as const,
+      taskKind: isAgent ? "research" as const : "analysis" as const,
       promptTemplateId: selectedPromptTemplate.id,
       promptTemplateVersion: selectedPromptTemplate.version,
-      systemPrompt: isGeneralChat ? generalSystemPrompt.trim() : "",
+      systemPrompt: isAgent ? "" : generalSystemPrompt.trim(),
       modelProfileId: selectedModelProfile?.id ?? null,
       modelOverride:
         selectedModelProfile && selectedModelId && selectedModelId !== selectedModelProfile.model
@@ -1178,6 +1253,7 @@ export function WorkshopWorkspace({
     };
     setIsCalling(true);
     setError(null);
+    setStatusMessage(null);
     appendLiveSessionMessages(callSessionId, [localAuthorMessage]);
     setComposer("");
     setDraftAttachments([]);
@@ -1191,7 +1267,7 @@ export function WorkshopWorkspace({
       messageCountBeforeSend,
     );
     try {
-      if ((payload.mode === "general-chat" || payload.mode === "codex-creation") && useStreamingResponses) {
+      if ((payload.mode === "general-chat" || payload.mode === "agent") && useStreamingResponses) {
         const localAssistantId = randomId();
         let assistantMessageId = localAssistantId;
         const localAssistantMessage: WorkshopMessage = {
@@ -1397,6 +1473,7 @@ export function WorkshopWorkspace({
     if (!activeSession) return;
     setCreatingProposalMessageId(message.id);
     setError(null);
+    setStatusMessage(null);
     try {
       const result = await api.workshop.createMessageProposal(
         seriesId,
@@ -1416,13 +1493,184 @@ export function WorkshopWorkspace({
     }
   }
 
+  async function executeCodexToolFromMessage(
+    message: WorkshopMessage,
+    createMissingDetailTypes = false,
+    requireConfirm = true,
+  ) {
+    if (!activeSession) return;
+    const toolName = codexToolRequestName(message.content);
+    if (!toolName) return;
+    const confirmMessage = toolName === "codex.create_entry"
+      ? text.codexDraft.confirmCreate
+      : text.codexDraft.confirmUpdate;
+    if (requireConfirm && !window.confirm(confirmMessage)) return;
+    setApplyingCodexDraftMessageId(message.id);
+    setError(null);
+    setStatusMessage(null);
+    try {
+      const result = toolName === "codex.create_entry"
+        ? await api.workshop.executeCodexCreateEntryTool(seriesId, activeSession.id, message.id, {
+          confirm: true,
+          createMissingDetailTypes,
+        })
+        : await api.workshop.executeCodexUpdateEntryTool(seriesId, activeSession.id, message.id, {
+          confirm: true,
+          createMissingDetailTypes,
+        });
+      if (result.createdDetailTypes.length) {
+        setCodexDetailTypes((current) => [
+          ...current,
+          ...result.createdDetailTypes.filter((created) =>
+            !current.some((existing) => existing.detailType.id === created.detailType.id),
+          ),
+        ]);
+      }
+      setCodexEntries((current) => [
+        result.entry,
+        ...current.filter((entry) => entry.metadata.id !== result.entry.metadata.id),
+      ]);
+      setMessages((current) => {
+        if (current.some((item) => item.id === result.resultMessage.id)) return current;
+        return [...current, result.resultMessage].sort((left, right) =>
+          left.createdAt.localeCompare(right.createdAt),
+        );
+      });
+      updateSessionFromMessage(result.resultMessage);
+      setCodexDraftResolution(null);
+      setStatusMessage(
+        toolName === "codex.create_entry"
+          ? text.codexDraft.created(result.entry.metadata.name)
+          : text.codexDraft.updated(result.entry.metadata.name),
+      );
+    } catch (caught) {
+      const mappingError = codexCreateEntryToolError(caught);
+      if (mappingError) {
+        setCodexDraftResolution({
+          availableDetailTypes: mappingError.availableDetailTypes,
+          messageId: message.id,
+          missingDetailTypes: mappingError.missingDetailTypes,
+          toolName,
+        });
+        setError(null);
+        return;
+      }
+      setError(apiErrorMessage(caught));
+    } finally {
+      setApplyingCodexDraftMessageId(null);
+    }
+  }
+
+  async function applyResolvedCodexDraft() {
+    if (!codexDraftResolution) return;
+    const message = messages.find((item) => item.id === codexDraftResolution.messageId);
+    if (!message) {
+      setCodexDraftResolution(null);
+      setError(text.codexDraft.creationMessageMissing);
+      return;
+    }
+    await executeCodexToolFromMessage(message, true, false);
+  }
+
+  function beginEditMessage(message: WorkshopMessage) {
+    setEditingMessageId(message.id);
+    setEditingMessageContent(message.content);
+    setError(null);
+    setStatusMessage(null);
+  }
+
+  function cancelEditMessage() {
+    setEditingMessageId(null);
+    setEditingMessageContent("");
+  }
+
+  async function exportActiveSession() {
+    if (!activeSession || isExportingSession) return;
+    setIsExportingSession(true);
+    setError(null);
+    setStatusMessage(null);
+    try {
+      const markdown = await api.workshop.exportSession(seriesId, activeSession.id, {
+        includePromptAudit: includePromptAuditInExport,
+        includeReasoning: includeReasoningInExport,
+      });
+      const markdownWithBom = markdown.startsWith("\uFEFF") ? markdown : `\uFEFF${markdown}`;
+      const blob = new Blob([markdownWithBom], { type: "text/markdown;charset=utf-8" });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = workshopExportFileName(activeSession);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+      setStatusMessage(text.labels.exportReady);
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setIsExportingSession(false);
+    }
+  }
+
+  async function resendGeneralChatMessage(message: WorkshopMessage, content = message.content) {
+    if (!activeSession || activeSession.kind !== "chat" || !selectedModelProfile || !selectedPromptTemplate) return;
+    const nextContent = content.trim();
+    if (!nextContent) return;
+    setResendingMessageId(message.id);
+    setError(null);
+    setStatusMessage(null);
+    try {
+      const result = await api.workshop.resendMessage(seriesId, activeSession.id, message.id, {
+        content: nextContent,
+        roleId: selectedPromptTemplate.roleId,
+        taskKind: "analysis",
+        promptTemplateId: selectedPromptTemplate.id,
+        promptTemplateVersion: selectedPromptTemplate.version,
+        systemPrompt: generalSystemPrompt.trim(),
+        modelProfileId: selectedModelProfile.id,
+        modelOverride:
+          selectedModelId && selectedModelId !== selectedModelProfile.model
+            ? selectedModelId
+            : null,
+      });
+      const deletedMessageIds = new Set(result.deletedMessageIds);
+      setMessages((current) => {
+        const kept = current.filter((item) => !deletedMessageIds.has(item.id));
+        const withAuthor = replaceMessageByIdentity(kept, message.id, result.authorMessage);
+        const withAssistant = replaceMessageByIdentity(withAuthor, result.assistantMessage.id, result.assistantMessage);
+        return (result.toolMessages ?? []).reduce(
+          (next, item) => replaceMessageByIdentity(next, item.id, item),
+          withAssistant,
+        ).sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+      });
+      setAttachments((current) => current.filter((attachment) =>
+        !result.deletedAttachmentIds.includes(attachment.id),
+      ));
+      setCodexDraftResolution((current) =>
+        current && deletedMessageIds.has(current.messageId) ? null : current,
+      );
+      bindAttachmentsToMessage(result.authorMessage);
+      updateSessionFromMessage(result.assistantMessage);
+      setEditingMessageId(null);
+      setEditingMessageContent("");
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setResendingMessageId(null);
+    }
+  }
+
   async function deleteMessage(message: WorkshopMessage) {
     if (!activeSession) return;
     setDeletingMessageId(message.id);
     setError(null);
+    setStatusMessage(null);
     try {
       const result = await api.workshop.deleteMessage(seriesId, activeSession.id, message.id);
       setMessages((current) => current.filter((item) => item.id !== result.deletedId));
+      setCodexDraftResolution((current) =>
+        current?.messageId === result.deletedId ? null : current,
+      );
       setAttachments((current) => current.filter((attachment) =>
         !result.deletedAttachmentIds.includes(attachment.id),
       ));
@@ -1851,20 +2099,6 @@ export function WorkshopWorkspace({
           </div>
           <div className="workshop-settings-body">
             <label className="workshop-settings-field">
-              <span>{text.labels.mode}</span>
-              <select
-                aria-label={text.labels.mode}
-                className="input"
-                disabled={!activeSession || activeSession.status !== "active"}
-                onChange={(event) => setWorkshopMode(event.target.value as WorkshopMode)}
-                value={workshopMode}
-              >
-                <option value="general-chat">{text.modes.generalChat}</option>
-                <option value="codex-creation">{text.modes.codexCreation}</option>
-                <option value="continuity-check">{text.modes.continuityCheck}</option>
-              </select>
-            </label>
-            <label className="workshop-settings-field">
               <span>{text.labels.modelSetting}</span>
               <select
                 aria-label={text.labels.modelSetting}
@@ -1915,7 +2149,7 @@ export function WorkshopWorkspace({
               <textarea
                 aria-label={text.labels.generalSystemPrompt}
                 className="input workshop-settings-prompt"
-                disabled={workshopMode !== "general-chat"}
+                disabled={activeSession?.kind !== "chat"}
                 onChange={(event) => setGeneralSystemPrompt(event.target.value)}
                 value={generalSystemPrompt}
               />
@@ -1952,6 +2186,54 @@ export function WorkshopWorkspace({
       </div>
       {renderSettingsDialog()}
       {error ? <p className="alert">{error}</p> : null}
+      {statusMessage ? <p className="workshop-status-message">{statusMessage}</p> : null}
+      {codexDraftResolution ? (
+        <section className="workshop-codex-resolution" aria-label={text.codexDraft.creationTitle}>
+          <div>
+            <strong>{text.codexDraft.creationTitle}</strong>
+            <p>{text.codexDraft.creationBody}</p>
+          </div>
+          <div className="workshop-codex-resolution-list">
+            {codexDraftResolution.missingDetailTypes.map((detail) => (
+              <div className="workshop-codex-resolution-row" key={detail.label}>
+                <span>
+                  <strong>{detail.label}</strong>
+                  {detail.valuePreview ? <small>{detail.valuePreview}</small> : null}
+                </span>
+                <span className="pill amber">{text.codexDraft.creationPending}</span>
+              </div>
+            ))}
+          </div>
+          {codexDraftResolution.availableDetailTypes.length ? (
+            <p className="brief-text">
+              {text.codexDraft.creationExisting(
+                codexDraftResolution.availableDetailTypes
+                  .map((document) => document.detailType.name)
+                  .join(", "),
+              )}
+            </p>
+          ) : null}
+          <div className="workshop-codex-resolution-actions">
+            <button
+              className="btn compact subtle"
+              onClick={() => setCodexDraftResolution(null)}
+              type="button"
+            >
+              {text.codexDraft.creationCancel}
+            </button>
+            <button
+              className="btn compact"
+              disabled={applyingCodexDraftMessageId !== null}
+              onClick={() => void applyResolvedCodexDraft()}
+              type="button"
+            >
+              {applyingCodexDraftMessageId === codexDraftResolution.messageId
+                ? text.codexDraft.applying
+                : text.codexDraft.creationApply}
+            </button>
+          </div>
+        </section>
+      ) : null}
       <div className="workshop-grid">
         <aside className="panel no-shadow workshop-sessions">
           <div className="panel-head">
@@ -1959,7 +2241,29 @@ export function WorkshopWorkspace({
               <div className="panel-title">{text.sessionsTitle}</div>
               <div className="panel-kicker">{text.sessionsKicker}</div>
             </div>
-            <button className="btn compact" onClick={createSession} type="button">{text.insert}</button>
+            <div className="workshop-session-create">
+              <button
+                aria-expanded={isSessionCreateOpen}
+                aria-label={text.labels.addSession}
+                className="btn compact workshop-session-create-trigger"
+                onClick={() => setIsSessionCreateOpen((current) => !current)}
+                type="button"
+              >
+                {text.addSession}
+              </button>
+              {isSessionCreateOpen ? (
+                <div className="workshop-session-create-menu" role="menu">
+                  <button onClick={() => void createSession("chat")} role="menuitem" type="button">
+                    <span>{text.sessionKinds.chat}</span>
+                    <small>{text.sessionKindDescriptions.chat}</small>
+                  </button>
+                  <button onClick={() => void createSession("agent")} role="menuitem" type="button">
+                    <span>{text.sessionKinds.agent}</span>
+                    <small>{text.sessionKindDescriptions.agent}</small>
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
           <div className="panel-body workshop-session-list">
             {isLoading ? <p className="brief-text">{text.labels.loadingWorkshop}</p> : null}
@@ -1990,6 +2294,8 @@ export function WorkshopWorkspace({
                       value={editingSessionTitle}
                     />
                     <span className="row-meta">
+                      {text.sessionKinds[session.kind]}
+                      {" / "}
                       {session.branchOfMessageId ? text.labels.branchSession : text.labels.threadSession}
                       {session.lastMessageAt ? ` / ${formatDate(session.lastMessageAt)}` : ""}
                     </span>
@@ -2009,6 +2315,8 @@ export function WorkshopWorkspace({
                   <span className="workshop-session-copy">
                     <span className="row-title">{session.title}</span>
                     <span className="row-meta">
+                      {text.sessionKinds[session.kind]}
+                      {" / "}
                       {session.branchOfMessageId ? text.labels.branchSession : text.labels.threadSession}
                       {session.lastMessageAt ? ` / ${formatDate(session.lastMessageAt)}` : ""}
                     </span>
@@ -2066,6 +2374,36 @@ export function WorkshopWorkspace({
                 ) : null}
               </div>
             </div>
+            <div className="workshop-session-export">
+              <label className="workshop-export-toggle">
+                <input
+                  checked={includeReasoningInExport}
+                  disabled={!activeSession || isExportingSession}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                    setIncludeReasoningInExport(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>{text.labels.includeReasoningInExport}</span>
+              </label>
+              <label className="workshop-export-toggle">
+                <input
+                  checked={includePromptAuditInExport}
+                  disabled={!activeSession || isExportingSession}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                    setIncludePromptAuditInExport(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>{text.labels.includePromptAuditInExport}</span>
+              </label>
+              <button
+                className="btn compact"
+                disabled={!activeSession || isDetailLoading || isExportingSession || isCalling}
+                onClick={() => void exportActiveSession()}
+                type="button"
+              >
+                {isExportingSession ? text.labels.exportingSession : text.labels.exportSession}
+              </button>
+            </div>
             <button className="btn workshop-import-thread" disabled type="button">{text.importThread}</button>
           </div>
         </aside>
@@ -2111,9 +2449,20 @@ export function WorkshopWorkspace({
                 ? !hasReasoningOverride
                 : hasReasoningOverride;
               const canDeleteMessage = activeSession?.status === "active" &&
-                (message.mode === "general-chat" || message.mode === "codex-creation") &&
+                (message.mode === "general-chat" || message.mode === "agent") &&
                 message.proposalIds.length === 0 &&
                 message.status !== "pending";
+              const canEditMessage = activeSession?.status === "active" &&
+                activeSession.kind === "chat" &&
+                message.role === "author" &&
+                message.mode === "general-chat" &&
+                message.status === "succeeded" &&
+                message.proposalIds.length === 0 &&
+                !isCalling;
+              const isEditingMessage = editingMessageId === message.id;
+              const codexToolName = message.role === "tool" && message.mode === "agent"
+                ? codexToolRequestName(message.content)
+                : null;
               return (
                 <article
                   className={`message${message.role === "author" ? " user" : ""}${message.status === "failed" ? " is-failed" : ""}${message.status === "pending" ? " is-streaming" : ""}${message.id === selectedMessageId ? " is-target" : ""}`}
@@ -2145,6 +2494,28 @@ export function WorkshopWorkspace({
                           {deletingMessageId === message.id ? text.labels.deletingMessage : text.labels.deleteMessage}
                         </button>
                       ) : null}
+                      {canEditMessage && !isEditingMessage ? (
+                        <button
+                          className="btn compact subtle"
+                          disabled={resendingMessageId !== null}
+                          onClick={() => beginEditMessage(message)}
+                          type="button"
+                        >
+                          {text.labels.editMessage}
+                        </button>
+                      ) : null}
+                      {canEditMessage && !isEditingMessage ? (
+                        <button
+                          className="btn compact subtle"
+                          disabled={resendingMessageId !== null}
+                          onClick={() => void resendGeneralChatMessage(message)}
+                          type="button"
+                        >
+                          {resendingMessageId === message.id
+                            ? text.labels.resendingMessage
+                            : text.labels.resendMessage}
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                   {reasoningContent && isReasoningExpanded ? (
@@ -2157,7 +2528,36 @@ export function WorkshopWorkspace({
                       {text.labels.reasoningAvailable}
                     </div>
                   ) : null}
-                  {message.content || message.status === "pending" ? (
+                  {isEditingMessage ? (
+                    <div className="workshop-message-edit">
+                      <textarea
+                        aria-label={text.labels.editMessageLabel}
+                        className="input workshop-message-edit-input"
+                        onChange={(event) => setEditingMessageContent(event.target.value)}
+                        value={editingMessageContent}
+                      />
+                      <div className="workshop-message-edit-actions">
+                        <button
+                          className="btn primary compact"
+                          disabled={resendingMessageId !== null || !editingMessageContent.trim()}
+                          onClick={() => void resendGeneralChatMessage(message, editingMessageContent)}
+                          type="button"
+                        >
+                          {resendingMessageId === message.id
+                            ? text.labels.resendingMessage
+                            : text.labels.resendMessage}
+                        </button>
+                        <button
+                          className="btn compact"
+                          disabled={resendingMessageId !== null}
+                          onClick={cancelEditMessage}
+                          type="button"
+                        >
+                          {text.labels.cancelEditMessage}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (message.role !== "tool" && message.content) || message.status === "pending" ? (
                     <p>{message.content || text.labels.streaming}</p>
                   ) : null}
                 {messageAttachments.length ? (
@@ -2243,6 +2643,32 @@ export function WorkshopWorkspace({
                       {creatingProposalMessageId === message.id
                         ? text.proposals.creating
                         : text.proposals.create}
+                    </button>
+                  </div>
+                ) : null}
+                {activeSession?.status === "active" &&
+                message.role === "tool" &&
+                message.mode === "agent" &&
+                message.status === "succeeded" &&
+                codexToolName ? (
+                  <div className="workshop-tool-call" aria-label={text.codexDraft.toolCallTitle}>
+                    <div>
+                      <strong>{text.codexDraft.toolCallTitle}</strong>
+                      <span>
+                        {codexToolName === "codex.create_entry"
+                          ? text.codexDraft.toolNameCreateEntry
+                          : text.codexDraft.toolNameUpdateEntry}
+                      </span>
+                    </div>
+                    <button
+                      className="btn success compact"
+                      disabled={applyingCodexDraftMessageId !== null}
+                      onClick={() => void executeCodexToolFromMessage(message)}
+                      type="button"
+                    >
+                      {applyingCodexDraftMessageId === message.id
+                        ? text.codexDraft.applying
+                        : text.codexDraft.apply}
                     </button>
                   </div>
                 ) : null}

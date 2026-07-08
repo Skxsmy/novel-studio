@@ -19,6 +19,7 @@ Fastify Local Host (127.0.0.1)
       +---- Proposal/Revision Service - inbox, diff, snapshots
       +---- Context Service ----------- story-time and permission filtering
       +---- AI Orchestrator ----------- roles, council, provider adapters
+      +---- Embedding Router ---------- use-case routing + profile-level concurrency
       +---- Import Worker Pool -------- DOCX/PDF/EPUB/HTML isolation
       +---- Backup Service ------------ independent user-selected directory
       +---- Credential Service -------- Windows Credential Manager
@@ -62,14 +63,17 @@ packages/
 - 场景、Codex、Progression、角色知识、Snippet、Style、Prompt 和 Research Note：JSON。NS-410 起，场景正文的内部权威是 `SceneBlockDocument`，Markdown/Word 只是导入、导出、镜像和迁移边界格式；旧 `codex/progressions/*.yaml` 退役。
 - Workshop：M5 起按 `workshop/sessions/<session-id>.json`、`workshop/messages/<message-id>.json`、`workshop/attachments/<attachment-id>.json` 和会话上下文选择 JSON 保存结构化权威数据；索引必须可重建，不使用 JSONL 作为权威存储。当前内部对象名仍可保留 `WorkshopContextBasket`，但 UI 不再把它呈现为常驻右侧篮子面板，而是通过折叠菜单编辑同一份会话上下文选择数据。Workshop 会话不得把当前场景作为默认上下文；新会话默认标题中性，首条作者消息或附件发送后可更新会话标题，作者手动重命名通过 session 更新命令持久化。分支创建必须在新 session 中复制源会话从开头到源消息的消息历史和消息附件快照，复制记录使用新 ID 并清除旧 Proposal/model-call/context 审计链接；不能只创建一个空 session。流式调用通过事件流传递作者消息、metadata、正式回答增量、reasoning 增量、最终消息、错误和完成事件；普通未关联 Proposal 的消息可删除，已关联 Proposal 的消息必须由存储层阻止删除。Workshop message attachments are parsed draft/message-bound context files, not Reference Library SourceDocuments or retrieval index records; deleting an unlinked message cascades its attachment JSON after the ContextBundle has already snapshotted the extracted text it used. Workshop model calls include same-session visible prior messages as `workshop-chat-history` context, including extracted text from historical message-bound attachments, while excluding the current author message from that history item to avoid duplicating `userRequest`.
 - In-flight Workshop stream state is keyed by session and merged with persisted session detail when the author switches back before completion. Permanent Workshop session delete is a separate lifecycle operation from archive: it removes unlinked session records, messages, attachments, context basket, and branch records, but blocks sessions with Proposal-linked messages rather than breaking audit/source references.
-- Workshop mode-specific capabilities are loaded only when the selected mode needs them. The current Codex Creation mode dynamically adds Codex workflow/interface guidance to the provider prompt, remains a discussion/drafting path, and is blocked from the generic scene-content Proposal action until a dedicated Codex Proposal or approved Codex command adapter exists.
+- General Chat resend is a storage/API history replacement operation, not a UI-only retry. It is valid only in `chat` sessions for successful author General Chat messages. The repository updates the selected author message, removes later unprotected General Chat messages, deletes their bound attachments, clears branch records/pointers for deleted source messages, and then the server creates a new ContextBundle/ModelCallLog/assistant message from the revised history. Agent sessions and protected later histories are rejected in the current slice.
+- Workshop conversations are created as fixed `chat` or `agent` sessions. Chat sessions use the visible author-editable discussion prompt and expose no write actions. Agent sessions run through a server-side structured-step protocol: provider output is buffered and parsed into assistant text or server-owned `role: tool` request messages. The current limited Agent tools are `codex.create_entry` and `codex.update_entry`; they execute only from structured JSON tool request messages after author confirmation. `codex.update_entry` may update entry fields/research/details and create/update/delete unified Codex Progression records through the existing validated repository commands. If an explicitly authorized Agent call refuses only for lack of external evidence, the server performs a repair pass instead of surfacing that refusal as the final Agent reply. Broader Write/Codex mutations, relation writes, character knowledge writes, and full command grants still require Proposal or future Tool Plan/Grant adapters.
+- Workshop session export is a derived read path from persisted session, message, attachment, ContextBundle, and ModelCallLog records. It creates no authority state. The export route filters records to the requested session and defaults to readable chat history plus attachment file records only. It includes saved reasoning only when the author explicitly requests it, includes reconstructed provider prompt/context audit only behind a separate explicit option, emits UTF-8 Markdown with a BOM for local Windows readers, and omits extracted attachment body text.
+- Embedding model profiles are library-global JSON settings under `.studio/embedding-profiles/`. They are separate from generation `ModelProfile` records and store Provider, endpoint, model, dimensions, batch limits, profile-level concurrency, normalization, license, and credential reference. They do not contain vectors or source text.
 - Proposal、Evidence、调用审计和版本元数据：`.studio` 下可导出的结构化文件。
 - JSON authority 是 Project/File Service 的内部职责；API 层应在可行处继续提供当前前端所需的兼容投影，例如场景 `content`。
 
 ### 可重建数据
 
 - SQLite 实体投影和 FTS5。
-- Embedding 和向量索引。
+- Embedding 和向量索引。向量索引记录必须包含来源 revision/hash、Embedding profile、模型、维度和归一化策略；这些字段变化时对应向量可删除并重建。
 - 提及、关系邻接、统计和派生警告。
 - 解析缓存、缩略图和 Prompt 预览。
 
@@ -96,7 +100,7 @@ Archive is not a data-retention substitute for deletion. Every archive-capable d
 
 - AI 流式生成和编辑会审。
 - 大型文档解析。
-- 全项目索引和 Embedding 重建。
+- 全项目索引和 Embedding 重建。Embedding 调用通过 profile 级并发限制调度，不同 use case 绑定不同 profile 时不得共享一个全局单线程队列。
 - Word 导入差异计算。
 - 备份验证和大型迁移。
 
@@ -124,6 +128,8 @@ User Task
 模型输出在写入 Proposal 前使用 Zod 校验。修复失败时保留原始结果为诊断附件，不创建看似完整的结构化更新。
 
 ProviderAdapter 实现必须以该 Provider 的官方 API 入口和官方文档为准。任何新增或变更 Provider 路径，都必须在任务与验收记录中写明官方来源 URL、采用的 endpoint 族、请求/响应形状、认证方式、流式协议以及模型列表行为；不得从第三方示例、其他 Provider 的兼容层或记忆中的接口形状推断语义。
+
+Embedding Router 是 ProviderAdapter 之外的共享向量调用层。它接收 use case、profile、文本批次和取消信号，按 profile 批量拆分和限流，并返回向量、文本哈希、模型、维度和归一化状态。首个默认 profile 面向本地 `BAAI/bge-small-zh-v1.5` HTTP 服务；云端 embedding 或用户自定义 embedding 模型必须通过显式 profile 和凭据引用接入，不能作为失败回退。
 
 ## 8. 导入数据流
 

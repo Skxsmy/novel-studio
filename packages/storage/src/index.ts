@@ -29,6 +29,7 @@ import {
   DeleteWorkshopAttachmentResultSchema,
   DeleteWorkshopMessageResultSchema,
   DeleteWorkshopSessionResultSchema,
+  ReplaceWorkshopMessageResultSchema,
   DeleteSeriesInputSchema,
   DeleteSeriesResultSchema,
   DeleteSceneProgressionBlockInputSchema,
@@ -179,6 +180,7 @@ import {
   type DeleteWorkshopAttachmentResult,
   type DeleteWorkshopMessageResult,
   type DeleteWorkshopSessionResult,
+  type ReplaceWorkshopMessageResult,
   type DeleteSeriesInput,
   type DeleteSeriesResult,
   type DeleteSceneProgressionBlockInput,
@@ -193,6 +195,7 @@ import {
   type HierarchyValidationResult,
   type MoveSceneInput,
   type ContextBundle,
+  type EmbeddingModelProfile,
   type ModelCallLog,
   type ModelProfile,
   type PlanningBoard,
@@ -282,12 +285,14 @@ import {
   ensureAiIndexTables,
   getAgentRole,
   getContextBundle,
+  getEmbeddingModelProfile,
   getModelCallLog,
   getModelProfile,
   getPromptPreset,
   getPromptTemplate,
   listAgentRoles,
   listContextBundles,
+  listEmbeddingModelProfiles,
   listModelCallLogs,
   listModelProfiles,
   listPromptPresets,
@@ -295,6 +300,7 @@ import {
   rebuildAiIndex,
   saveAgentRole,
   saveContextBundle,
+  saveEmbeddingModelProfile,
   saveModelCallLog,
   saveModelProfile,
   savePromptPreset,
@@ -3767,6 +3773,18 @@ export class ProjectRepository {
     return listModelProfiles(this.libraryRoot);
   }
 
+  async saveEmbeddingModelProfile(profile: EmbeddingModelProfile): Promise<EmbeddingModelProfile> {
+    return saveEmbeddingModelProfile(this.libraryRoot, profile);
+  }
+
+  async getEmbeddingModelProfile(profileId: string): Promise<EmbeddingModelProfile> {
+    return getEmbeddingModelProfile(this.libraryRoot, profileId);
+  }
+
+  async listEmbeddingModelProfiles(): Promise<EmbeddingModelProfile[]> {
+    return listEmbeddingModelProfiles(this.libraryRoot);
+  }
+
   async saveAgentRole(seriesId: string, role: AgentRole): Promise<AgentRole> {
     return saveAgentRole(await this.findSeriesRoot(seriesId), role);
   }
@@ -3845,6 +3863,7 @@ export class ProjectRepository {
       schemaVersion: 1,
       id: randomUUID(),
       seriesId,
+      kind: input.kind,
       title: input.title,
       status: "active",
       branchOfMessageId: null,
@@ -4024,6 +4043,7 @@ export class ProjectRepository {
       schemaVersion: 1,
       id: randomUUID(),
       seriesId,
+      kind: sourceSession.kind,
       title: input.title ?? `${sourceSession.title} branch`,
       status: "active",
       branchOfMessageId: sourceMessage.id,
@@ -4231,6 +4251,22 @@ export class ProjectRepository {
         sessionId: session.id,
       });
     }
+    if (input.mode === "codex-creation") {
+      throw new StorageError("Codex Creation is no longer a Workshop message mode; use an Agent session", "INVALID_DATA", {
+        sessionId,
+      });
+    }
+    if (session.kind === "agent" && input.mode !== "agent") {
+      throw new StorageError("Agent Workshop sessions can only receive Agent messages", "INVALID_DATA", {
+        sessionId,
+        mode: input.mode,
+      });
+    }
+    if (session.kind === "chat" && input.mode === "agent") {
+      throw new StorageError("General Workshop chat sessions cannot receive Agent messages", "INVALID_DATA", {
+        sessionId,
+      });
+    }
     const attachmentIds = [...new Set(input.attachmentIds)];
     if (attachmentIds.length !== input.attachmentIds.length) {
       throw new StorageError("Workshop message cannot reference duplicate attachments", "INVALID_DATA", {
@@ -4318,6 +4354,22 @@ export class ProjectRepository {
     if (session.status === "archived") {
       throw new StorageError("Archived Workshop session cannot receive messages", "INVALID_DATA", {
         sessionId: session.id,
+      });
+    }
+    if (parsed.mode === "codex-creation") {
+      throw new StorageError("Codex Creation is no longer a Workshop message mode; use an Agent session", "INVALID_DATA", {
+        sessionId: parsed.sessionId,
+      });
+    }
+    if (session.kind === "agent" && parsed.mode !== "agent") {
+      throw new StorageError("Agent Workshop sessions can only receive Agent messages", "INVALID_DATA", {
+        sessionId: parsed.sessionId,
+        mode: parsed.mode,
+      });
+    }
+    if (session.kind === "chat" && parsed.mode === "agent") {
+      throw new StorageError("General Workshop chat sessions cannot receive Agent messages", "INVALID_DATA", {
+        sessionId: parsed.sessionId,
       });
     }
     for (const attachmentId of parsed.attachmentIds) {
@@ -4408,6 +4460,124 @@ export class ProjectRepository {
     });
   }
 
+  async replaceWorkshopGeneralChatAuthorMessage(
+    seriesId: string,
+    sessionId: string,
+    messageId: string,
+    content: string,
+  ): Promise<ReplaceWorkshopMessageResult> {
+    const nextContent = content.trim();
+    if (!nextContent) {
+      throw new StorageError("Workshop message content is required", "INVALID_DATA", { messageId });
+    }
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+    if (session.seriesId !== seriesId) {
+      throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", { sessionId });
+    }
+    if (session.status === "archived") {
+      throw new StorageError("Archived Workshop session cannot resend messages", "INVALID_DATA", { sessionId });
+    }
+    if (session.kind !== "chat") {
+      throw new StorageError("Only General Chat sessions can resend messages", "INVALID_DATA", { sessionId });
+    }
+    const messages = await listWorkshopMessageFiles(seriesRoot, sessionId);
+    const messageIndex = messages.findIndex((item) => item.id === messageId);
+    if (messageIndex < 0) {
+      throw new StorageError("Workshop message does not exist", "NOT_FOUND", { messageId });
+    }
+    const message = messages[messageIndex]!;
+    if (message.seriesId !== seriesId || message.sessionId !== sessionId) {
+      throw new StorageError("Workshop message does not belong to the requested session", "INVALID_DATA", {
+        sessionId,
+        messageId,
+      });
+    }
+    if (message.role !== "author" || message.mode !== "general-chat") {
+      throw new StorageError("Only General Chat author messages can be resent", "INVALID_DATA", {
+        messageId,
+        role: message.role,
+        mode: message.mode,
+      });
+    }
+    if (message.proposalIds.length > 0) {
+      throw new StorageError("Proposal-linked Workshop messages cannot be resent", "INVALID_DATA", {
+        messageId,
+        proposalIds: message.proposalIds,
+      });
+    }
+    const deletedMessages = messages.slice(messageIndex + 1);
+    const protectedMessages = deletedMessages.filter((item) =>
+      item.proposalIds.length > 0 ||
+      item.mode !== "general-chat" ||
+      item.role === "tool" ||
+      item.role === "result",
+    );
+    if (protectedMessages.length > 0) {
+      throw new StorageError("Workshop history after this message contains protected records", "INVALID_DATA", {
+        messageId,
+        protectedMessageIds: protectedMessages.map((item) => item.id),
+      });
+    }
+    const deletedMessageIds = deletedMessages.map((item) => item.id);
+    const deletedMessageIdSet = new Set(deletedMessageIds);
+    const deletedAttachments = (await listWorkshopAttachmentFiles(seriesRoot, sessionId))
+      .filter((attachment) =>
+        attachment.messageId !== null &&
+        deletedMessageIdSet.has(attachment.messageId),
+      );
+    const branches = (await listWorkshopBranchFiles(seriesRoot)).filter((branch) =>
+      deletedMessageIdSet.has(branch.sourceMessageId),
+    );
+    const now = new Date().toISOString();
+    const relatedSessions = (await listWorkshopSessionFiles(seriesRoot))
+      .filter((item) =>
+        item.branchOfMessageId !== null &&
+        deletedMessageIdSet.has(item.branchOfMessageId),
+      )
+      .map((item) => WorkshopSessionSchema.parse({
+        ...item,
+        branchOfMessageId: null,
+        updatedAt: now,
+      }));
+    const nextMessage = WorkshopMessageSchema.parse({
+      ...message,
+      content: nextContent,
+    });
+    const nextSession = WorkshopSessionSchema.parse({
+      ...session,
+      lastMessageAt: nextMessage.createdAt,
+      updatedAt: now,
+    });
+    await applyFileTransaction(seriesRoot, [
+      { targetPath: workshopMessagePath(seriesRoot, nextMessage.id), content: serializeJsonAuthority(nextMessage) },
+      ...deletedMessages.map((item) => ({
+        targetPath: workshopMessagePath(seriesRoot, item.id),
+        delete: true,
+      })),
+      ...deletedAttachments.map((attachment) => ({
+        targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
+        delete: true,
+      })),
+      ...branches.map((branch) => ({
+        targetPath: workshopBranchPath(seriesRoot, branch.id),
+        delete: true,
+      })),
+      ...relatedSessions.map((item) => ({
+        targetPath: workshopSessionPath(seriesRoot, item.id),
+        content: serializeJsonAuthority(item),
+      })),
+      { targetPath: workshopSessionPath(seriesRoot, session.id), content: serializeJsonAuthority(nextSession) },
+    ]);
+    return ReplaceWorkshopMessageResultSchema.parse({
+      deletedAttachmentIds: deletedAttachments.map((attachment) => attachment.id),
+      deletedBranchIds: branches.map((branch) => branch.id),
+      deletedMessageIds,
+      message: await readWorkshopMessageFile(seriesRoot, nextMessage.id),
+      session: await readWorkshopSessionFile(seriesRoot, session.id),
+    });
+  }
+
   async createProposalFromWorkshopMessage(
     seriesId: string,
     sessionId: string,
@@ -4435,6 +4605,11 @@ export class ProjectRepository {
     }
     if (message.mode === "general-chat") {
       throw new StorageError("General Chat messages cannot create Proposals", "INVALID_DATA", {
+        messageId,
+      });
+    }
+    if (message.mode === "agent") {
+      throw new StorageError("Agent messages require an approved tool adapter or dedicated Proposal path", "INVALID_DATA", {
         messageId,
       });
     }

@@ -832,6 +832,7 @@ function proposalDocumentWithStatus(
 function workshopSession(overrides: Partial<{
   branchOfMessageId: string | null;
   id: string;
+  kind: "chat" | "agent";
   lastMessageAt: string | null;
   status: "active" | "archived";
   title: string;
@@ -840,6 +841,7 @@ function workshopSession(overrides: Partial<{
     schemaVersion: 1 as const,
     id: overrides.id ?? workshopSessionId,
     seriesId,
+    kind: overrides.kind ?? "chat",
     title: overrides.title ?? "New chat",
     status: overrides.status ?? "active",
     branchOfMessageId: overrides.branchOfMessageId ?? null,
@@ -1069,7 +1071,10 @@ function mockFetch(options: {
 
     if (url === `/api/v1/series/${seriesId}/workshop/sessions` && method === "POST") {
       const body = JSON.parse(String(init?.body));
-      const created = workshopSession({ title: body.title ?? "New chat" });
+      const created = workshopSession({
+        kind: body.kind ?? "chat",
+        title: body.title ?? "New chat",
+      });
       workshopSessions = [created, ...workshopSessions.filter((session) => session.id !== created.id)];
       currentWorkshopBasket = {
         ...workshopBasket(),
@@ -1085,6 +1090,127 @@ function mockFetch(options: {
       if (!message) return jsonResponse({ message: "Workshop message does not exist" }, 404);
       const session = workshopSessions.find((item) => item.id === message.sessionId) ?? workshopSession();
       return jsonResponse({ session, message });
+    }
+
+    const workshopCodexToolExecuteMatch = url.match(
+      new RegExp(`^/api/v1/series/${seriesId}/workshop/sessions/([^/]+)/messages/([^/]+)/tools/codex\\.create_entry/execute$`),
+    );
+    if (workshopCodexToolExecuteMatch && method === "POST") {
+      const [, requestedSessionId, requestedMessageId] = workshopCodexToolExecuteMatch;
+      const body = JSON.parse(String(init?.body));
+      const message = workshopMessages.find((item) =>
+        item.id === requestedMessageId && item.sessionId === requestedSessionId,
+      );
+      if (!message) return jsonResponse({ message: "Workshop message does not exist" }, 404);
+      if (body.confirm !== true) {
+        return jsonResponse({ message: "codex.create_entry requires explicit confirmation" }, 400);
+      }
+      if (!body.createMissingDetailTypes) {
+        return jsonResponse({
+          code: "CODEX_DETAIL_TYPE_CREATION_REQUIRED",
+          message: "Codex Draft needs new detail types before writing: Looks.",
+          missingDetailTypes: [{ label: "Looks", valuePreview: "Blonde hair." }],
+          availableDetailTypes: codexDetailTypes,
+        }, 409);
+      }
+      const createdDetailType = codexDetailTypeDocument("Looks", "character", secondDetailTypeId);
+      codexDetailTypes = [...codexDetailTypes, createdDetailType];
+      const created = codexEntryDocument(
+        "Alice",
+        "character",
+        "Alice is alive.",
+        relatedCodexEntryId,
+        {
+          aliases: ["Lin Alice", "Alice"],
+          details: { [createdDetailType.detailType.id]: "Blonde hair." },
+          detailAiContext: { [createdDetailType.detailType.id]: true },
+          research: "Source: author-approved Workshop character ruling.",
+        },
+      );
+      codexEntries = [created, ...codexEntries.filter((entry) => entry.metadata.id !== created.metadata.id)];
+      const resultMessage = {
+        schemaVersion: 1,
+        id: "94949494-9494-4494-8494-949494949494",
+        seriesId,
+        sessionId: requestedSessionId,
+        role: "result",
+        mode: "agent",
+        status: "succeeded",
+        content: "codex.create_entry created Codex entry: Alice",
+        reasoningContent: "",
+        contextBundleId: null,
+        modelCallId: null,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:12:30.000Z",
+      };
+      workshopMessages = [...workshopMessages, resultMessage];
+      return jsonResponse({
+        createdDetailTypes: [createdDetailType],
+        message,
+        resultMessage,
+        entry: created,
+      }, 201);
+    }
+
+    const workshopSessionExportMatch = url.match(
+      new RegExp(`^/api/v1/series/${seriesId}/workshop/sessions/([^/]+)/export\\?includePromptAudit=(true|false)&includeReasoning=(true|false)$`),
+    );
+    if (workshopSessionExportMatch && method === "GET") {
+      const [, requestedSessionId, includePromptAudit, includeReasoning] = workshopSessionExportMatch;
+      const session = workshopSessions.find((item) => item.id === requestedSessionId);
+      if (!session) return jsonResponse({ code: "NOT_FOUND", message: "Workshop session does not exist" }, 404);
+      const sessionMessages = workshopMessages
+        .filter((message) => message.sessionId === requestedSessionId)
+        .sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)));
+      const sessionAttachments = workshopAttachments.filter((attachment) =>
+        attachment.sessionId === requestedSessionId,
+      );
+      const markdown = [
+        `# Workshop Export: ${session.title}`,
+        `- Include reasoning: ${includeReasoning === "true" ? "yes" : "no"}`,
+        `- Include prompt audit: ${includePromptAudit === "true" ? "yes" : "no"}`,
+        "",
+        "## Messages",
+        "",
+        ...sessionMessages.flatMap((message, index) => {
+          const lines = [
+            `### ${index + 1}. ${message.role}`,
+            "",
+            "```text",
+            String(message.content ?? ""),
+            "```",
+            "",
+          ];
+          const messageAttachments = (Array.isArray(message.attachmentIds) ? message.attachmentIds : [])
+            .map((attachmentId) => sessionAttachments.find((attachment) => attachment.id === attachmentId))
+            .filter(Boolean);
+          if (messageAttachments.length > 0) {
+            lines.push("Attachments:");
+            for (const attachment of messageAttachments) {
+              lines.push(
+                `- ${String(attachment?.fileName)} (${String(attachment?.parseStatus)}, ${String(attachment?.mediaType)}, ${String(attachment?.sizeBytes)} bytes)`,
+              );
+            }
+            lines.push("");
+          }
+          if (includeReasoning === "true" && String(message.reasoningContent ?? "").trim()) {
+            lines.push("Reasoning:", "```text", String(message.reasoningContent), "```", "");
+          }
+          if (includePromptAudit === "true" && message.contextBundleId) {
+            lines.push("Provider Prompt:", "```text", "Mock provider prompt.", "```", "");
+          }
+          return lines;
+        }),
+      ].join("\n");
+      return Promise.resolve(
+        new Response(markdown, {
+          headers: { "content-type": "text/markdown; charset=utf-8" },
+          status: 200,
+        }),
+      );
     }
 
     const workshopSessionMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/workshop/sessions/([^/]+)(?:/([^/]+))?(?:/([^/]+))?(?:/([^/]+))?$`));
@@ -1248,6 +1374,85 @@ function mockFetch(options: {
         );
         return jsonResponse({ message: updatedMessage, proposal: created }, 201);
       }
+      if (segment === "messages" && action && subaction === "resend" && method === "POST") {
+        const requestedMessageId = action;
+        const body = JSON.parse(String(init?.body));
+        const sessionMessages = workshopMessages
+          .filter((message) => message.sessionId === requestedSessionId)
+          .sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)));
+        const sourceIndex = sessionMessages.findIndex((message) => message.id === requestedMessageId);
+        if (sourceIndex < 0) return jsonResponse({ message: "Workshop message does not exist" }, 404);
+        const sourceMessage = sessionMessages[sourceIndex]!;
+        if (
+          session.kind !== "chat" ||
+          sourceMessage.role !== "author" ||
+          sourceMessage.mode !== "general-chat"
+        ) {
+          return jsonResponse({ message: "Only General Chat author messages can be resent" }, 422);
+        }
+        const deletedMessages = sessionMessages.slice(sourceIndex + 1);
+        const deletedMessageIds = deletedMessages.map((message) => String(message.id));
+        const deletedMessageIdSet = new Set(deletedMessageIds);
+        const deletedAttachmentIds = workshopAttachments
+          .filter((attachment) =>
+            typeof attachment.messageId === "string" &&
+            deletedMessageIdSet.has(attachment.messageId),
+          )
+          .map((attachment) => String(attachment.id));
+        const updatedAuthor = {
+          ...sourceMessage,
+          content: String(body.content ?? sourceMessage.content).trim(),
+        };
+        const assistantMessage = {
+          schemaVersion: 1,
+          id: "98989898-9898-4898-9898-989898989898",
+          seriesId,
+          sessionId: requestedSessionId,
+          role: "assistant",
+          mode: "general-chat",
+          status: "succeeded",
+          content: "Workshop model response.",
+          reasoningContent: "",
+          contextBundleId: workshopContextBundleId,
+          modelCallId: workshopModelCallId,
+          proposalIds: [],
+          attachmentIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: "2026-07-01T00:15:00.000Z",
+        };
+        workshopMessages = [
+          ...workshopMessages.filter((message) =>
+            message.id !== requestedMessageId &&
+            !deletedMessageIdSet.has(String(message.id)) &&
+            message.id !== assistantMessage.id,
+          ),
+          updatedAuthor,
+          assistantMessage,
+        ];
+        workshopAttachments = workshopAttachments.filter((attachment) =>
+          !deletedAttachmentIds.includes(String(attachment.id)),
+        );
+        workshopSessions = workshopSessions.map((item) =>
+          item.id === requestedSessionId
+            ? { ...item, lastMessageAt: assistantMessage.createdAt, updatedAt: assistantMessage.createdAt }
+            : item,
+        );
+        return jsonResponse({
+          authorMessage: updatedAuthor,
+          assistantMessage,
+          toolMessages: [],
+          contextBundleId: workshopContextBundleId,
+          modelCallId: workshopModelCallId,
+          status: "succeeded",
+          responseText: "Workshop model response.",
+          estimatedUsage: { inputTokens: 12, outputTokens: 0, totalTokens: 12 },
+          actualUsage: { inputTokens: 12, outputTokens: 4, totalTokens: 16 },
+          deletedAttachmentIds,
+          deletedBranchIds: [],
+          deletedMessageIds,
+        });
+      }
       if (segment === "messages" && action && !subaction && method === "DELETE") {
         const requestedMessageId = action;
         const sourceMessage = workshopMessages.find((message) => message.id === requestedMessageId);
@@ -1279,6 +1484,7 @@ function mockFetch(options: {
         const branchSession = workshopSession({
           branchOfMessageId: sourceMessageId,
           id: "95959595-9595-4595-9595-959595959595",
+          kind: session.kind as "chat" | "agent",
           lastMessageAt: (clonedSourceMessages.at(-1)?.createdAt as string | undefined) ?? null,
           title: body.title ?? `${session.title} branch`,
         });
@@ -1386,6 +1592,7 @@ function mockFetch(options: {
         const result = {
           authorMessage,
           assistantMessage,
+          toolMessages: [],
           contextBundleId: workshopContextBundleId,
           modelCallId: workshopModelCallId,
           status: "succeeded",
@@ -1462,6 +1669,7 @@ function mockFetch(options: {
         const responseBody = {
           authorMessage,
           assistantMessage,
+          toolMessages: [],
           contextBundleId: workshopContextBundleId,
           modelCallId: workshopModelCallId,
           status: "succeeded",
@@ -4354,21 +4562,26 @@ describe("App shell", () => {
       target: { value: "fetched-long-context-model" },
     });
     expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("fetched-long-context-model");
-    expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("general-chat");
-    fireEvent.change(screen.getByLabelText("Mode"), {
-      target: { value: "continuity-check" },
-    });
-    expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("continuity-check");
+    expect(screen.queryByLabelText("Mode")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Stream output"));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     const sessionsPanel = screen.getByText("Conversation branches").closest(".panel");
     expect(sessionsPanel).toBeTruthy();
-    fireEvent.click(within(sessionsPanel as HTMLElement).getByRole("button", { name: "Add" }));
+    fireEvent.click(within(sessionsPanel as HTMLElement).getByRole("button", { name: "Add session" }));
+    fireEvent.click(within(sessionsPanel as HTMLElement).getByRole("menuitem", { name: /Chat/u }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/v1/series/${seriesId}/workshop/sessions`,
         expect.objectContaining({ method: "POST" }),
       );
+    });
+    const createCall = fetchMock.mock.calls.find(([url, init]) =>
+      String(url) === `/api/v1/series/${seriesId}/workshop/sessions` &&
+      (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(JSON.parse(String((createCall?.[1] as RequestInit | undefined)?.body))).toMatchObject({
+      kind: "chat",
     });
     expect(await screen.findByText("New chat")).toBeTruthy();
 
@@ -4407,48 +4620,20 @@ describe("App shell", () => {
     expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body)).modelOverride).toBe(
       "fetched-long-context-model",
     );
-    expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body)).mode).toBe("continuity-check");
+    expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body))).toMatchObject({
+      mode: "general-chat",
+      taskKind: "analysis",
+    });
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
     expect(screen.queryByText(workshopModelCallId)).toBeNull();
     expect(screen.queryByText(workshopContextBundleId)).toBeNull();
-
-    fireEvent.click(await screen.findByRole("button", { name: "Create Proposal" }));
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/98989898-9898-4898-9898-989898989898/proposals`,
-        expect.objectContaining({ method: "POST" }),
-      );
-    });
-    fireEvent.click(await screen.findByRole("button", { name: "Open Proposal" }));
-    expect(window.location.hash).toBe(`#/review/proposals/${workshopProposalId}`);
-    expect(await screen.findByRole("heading", { name: "Review" })).toBeTruthy();
-    expect(screen.getAllByText("Workshop model response.").length).toBeGreaterThan(0);
-
-    fireEvent.click(screen.getByText("Source and evidence"));
-    fireEvent.click(screen.getByRole("button", { name: "Go to Chat" }));
-    await waitFor(() => {
-      expect(window.location.hash).toBe(
-        `#/workshop/sessions/${workshopSessionId}/messages/98989898-9898-4898-9898-989898989898`,
-      );
-    });
-    expect(await screen.findByText("Pending")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Open Proposal" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/review/proposals/${workshopProposalId}/accept`,
-        expect.objectContaining({ method: "POST" }),
-      );
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
-    expect(await screen.findByText("Accepted")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
   });
 
-  it("runs Workshop Codex Creation as a scoped chat skill without scene Proposal actions", async () => {
+  it("runs Workshop Agent sessions without scene Proposal actions", async () => {
     const fetchMock = mockFetch({
       initialModelProfiles: [modelProfile()],
-      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, title: "Codex drafting" })],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, kind: "agent", title: "Agent drafting" })],
     });
     render(<App />);
 
@@ -4456,20 +4641,15 @@ describe("App shell", () => {
     expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
     expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
-    const workshopPage = document.querySelector("#workshop-page") as HTMLElement;
-
-    fireEvent.click(within(workshopPage).getByRole("button", { name: "Workshop settings" }));
-    expect(await screen.findByRole("heading", { name: "Workshop settings" })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Mode"), {
-      target: { value: "codex-creation" },
-    });
-    expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("codex-creation");
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     fireEvent.change(screen.getByLabelText("Workshop message"), {
       target: { value: "Draft a Codex entry for the blue-salt key." },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const sendButton = screen.getByRole("button", { name: "Send" });
+    await waitFor(() => {
+      expect(sendButton).toHaveProperty("disabled", false);
+    });
+    fireEvent.click(sendButton);
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -4483,13 +4663,78 @@ describe("App shell", () => {
     );
     const body = JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body));
     expect(body).toMatchObject({
-      mode: "codex-creation",
+      mode: "agent",
       roleId: "researcher",
       taskKind: "research",
       promptTemplateId: "00000000-0000-4000-8000-000000000411",
       systemPrompt: "",
     });
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Resend" })).toBeNull();
+  });
+
+  it("confirms missing Workshop Agent codex.create_entry detail type creation before writing entries", async () => {
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, kind: "agent", title: "Agent drafting" })],
+      initialWorkshopMessages: [{
+        schemaVersion: 1,
+        id: "98989898-9898-4898-9898-989898989898",
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "tool",
+        mode: "agent",
+        status: "succeeded",
+        content: JSON.stringify({
+          schemaVersion: 1,
+          tool: "codex.create_entry",
+          draft: {
+            aliases: [],
+            categoryId: "character",
+            description: "Alice is alive.",
+            details: [{ label: "Looks", value: "Blonde hair." }],
+            name: "Alice",
+            research: "Author decision recorded in this Agent session.",
+          },
+        }),
+        reasoningContent: "",
+        contextBundleId: null,
+        modelCallId: null,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:12:00.000Z",
+      }],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Workshop" }));
+    expect(await screen.findByText("codex.create_entry")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Tool Call" }));
+    expect(await screen.findByText("Create Missing Detail Types")).toBeTruthy();
+    expect(screen.getByText("Will create")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create Detail Types and Run Tool" }));
+
+    await waitFor(() => {
+      const applyCall = fetchMock.mock.calls.find(([url, init]) => (
+        String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/98989898-9898-4898-9898-989898989898/tools/codex.create_entry/execute` &&
+        (init as RequestInit | undefined)?.method === "POST" &&
+        JSON.parse(String((init as RequestInit).body)).createMissingDetailTypes === true
+      ));
+      expect(applyCall).toBeTruthy();
+      expect(JSON.parse(String((applyCall![1] as RequestInit).body))).toMatchObject({
+        confirm: true,
+        createMissingDetailTypes: true,
+      });
+    });
+    expect(await screen.findByText("Created Codex entry: Alice")).toBeTruthy();
+    expect(await screen.findByText("codex.create_entry created Codex entry: Alice")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
   });
 
@@ -4600,6 +4845,291 @@ describe("App shell", () => {
     expect(await screen.findByText("Original branch answer.")).toBeTruthy();
   });
 
+  it("exports Workshop sessions with the selected reasoning option", async () => {
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const createObjectURL = vi.fn((blob: Blob) => {
+      void blob;
+      return "blob:workshop-export";
+    });
+    const revokeObjectURL = vi.fn();
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL });
+    try {
+      const otherWorkshopSessionId = "13131313-1313-4131-8131-131313131313";
+      const fetchMock = mockFetch({
+        initialModelProfiles: [modelProfile()],
+        initialWorkshopSessions: [
+          workshopSession({ id: workshopSessionId, title: "Export thread" }),
+          workshopSession({ id: otherWorkshopSessionId, title: "Other export thread" }),
+        ],
+        initialWorkshopAttachments: [workshopAttachment({
+          id: workshopAttachmentId,
+          sessionId: workshopSessionId,
+          messageId: "91919191-9191-4191-9191-919191919191",
+          fileName: "export-secret.txt",
+          mediaType: "text/plain",
+          sizeBytes: 44,
+          extractedText: "Attachment export body must not appear.",
+        })],
+        initialWorkshopMessages: [{
+          schemaVersion: 1,
+          id: "91919191-9191-4191-9191-919191919191",
+          seriesId,
+          sessionId: workshopSessionId,
+          role: "author",
+          mode: "general-chat",
+          status: "succeeded",
+          content: "Original export request.",
+          reasoningContent: "",
+          contextBundleId: null,
+          modelCallId: null,
+          proposalIds: [],
+          attachmentIds: [workshopAttachmentId],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: "2026-07-01T00:10:00.000Z",
+        }, {
+          schemaVersion: 1,
+          id: "92929292-9292-4292-9292-929292929292",
+          seriesId,
+          sessionId: workshopSessionId,
+          role: "assistant",
+          mode: "general-chat",
+          status: "succeeded",
+          content: "Exported answer.",
+          reasoningContent: "Checked the selected context before answering.",
+          contextBundleId: workshopContextBundleId,
+          modelCallId: workshopModelCallId,
+          proposalIds: [],
+          attachmentIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: "2026-07-01T00:11:00.000Z",
+        }, {
+          schemaVersion: 1,
+          id: "96969696-9696-4696-9696-969696969696",
+          seriesId,
+          sessionId: otherWorkshopSessionId,
+          role: "author",
+          mode: "general-chat",
+          status: "succeeded",
+          content: "Other session export leak text.",
+          reasoningContent: "",
+          contextBundleId: null,
+          modelCallId: null,
+          proposalIds: [],
+          attachmentIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: "2026-07-01T00:12:00.000Z",
+        }],
+      });
+      render(<App />);
+
+      fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+      expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+      expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+      expect(await screen.findByText("Original export request.")).toBeTruthy();
+      const sessionsPanel = screen.getByText("Conversation branches").closest(".panel") as HTMLElement;
+      const includeReasoning = within(sessionsPanel).getByLabelText("Include reasoning") as HTMLInputElement;
+      const includePromptAudit = within(sessionsPanel).getByLabelText("Include prompt audit") as HTMLInputElement;
+      expect(includeReasoning.checked).toBe(false);
+      expect(includePromptAudit.checked).toBe(false);
+      const exportButton = within(sessionsPanel).getByRole("button", { name: "Export" }) as HTMLButtonElement;
+      await waitFor(() => {
+        expect(exportButton.disabled).toBe(false);
+      });
+      fireEvent.click(exportButton);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/export?includePromptAudit=false&includeReasoning=false`,
+          expect.objectContaining({ method: "GET" }),
+        );
+        expect(createObjectURL).toHaveBeenCalled();
+      });
+      const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
+      const markdown = await blob.text();
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      expect(Array.from(bytes.slice(0, 3))).toEqual([0xef, 0xbb, 0xbf]);
+      expect(markdown).toContain("export-secret.txt (parsed, text/plain, 44 bytes)");
+      expect(markdown).not.toContain("Reasoning:");
+      expect(markdown).not.toContain("Provider Prompt:");
+      expect(markdown).not.toContain("Attachment export body must not appear.");
+      expect(markdown).not.toContain("Other session export leak text.");
+      await waitFor(() => {
+        expect(exportButton.disabled).toBe(false);
+      });
+      fireEvent.click(includeReasoning);
+      fireEvent.click(includePromptAudit);
+      fireEvent.click(exportButton);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/export?includePromptAudit=true&includeReasoning=true`,
+          expect.objectContaining({ method: "GET" }),
+        );
+        expect(createObjectURL).toHaveBeenCalledTimes(2);
+      });
+      const auditedBlob = createObjectURL.mock.calls[1]?.[0] as Blob;
+      const auditedMarkdown = await auditedBlob.text();
+      const auditedBytes = new Uint8Array(await auditedBlob.arrayBuffer());
+      expect(Array.from(auditedBytes.slice(0, 3))).toEqual([0xef, 0xbb, 0xbf]);
+      expect(auditedMarkdown).toContain("Reasoning:");
+      expect(auditedMarkdown).toContain("Checked the selected context before answering.");
+      expect(auditedMarkdown).toContain("Provider Prompt:");
+      expect(auditedMarkdown).not.toContain("Attachment export body must not appear.");
+      expect(auditedMarkdown).not.toContain("Other session export leak text.");
+      expect(clickSpy).toHaveBeenCalled();
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:workshop-export");
+    } finally {
+      clickSpy.mockRestore();
+      if (originalCreateObjectURL) {
+        Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreateObjectURL });
+      } else {
+        Reflect.deleteProperty(URL, "createObjectURL");
+      }
+      if (originalRevokeObjectURL) {
+        Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: originalRevokeObjectURL });
+      } else {
+        Reflect.deleteProperty(URL, "revokeObjectURL");
+      }
+    }
+  });
+
+  it("edits and resends previous General Chat author messages by replacing later history", async () => {
+    const firstMessageId = "91919191-9191-4191-9191-919191919191";
+    const oldAnswerId = "92929292-9292-4292-9292-929292929292";
+    const laterMessageId = "93939393-9393-4393-8393-939393939391";
+    const laterAnswerId = "94949494-9494-4494-8494-949494949492";
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, title: "Resend thread" })],
+      initialWorkshopAttachments: [workshopAttachment({
+        id: workshopAttachmentId,
+        sessionId: workshopSessionId,
+        messageId: laterMessageId,
+        fileName: "old-note.md",
+      })],
+      initialWorkshopMessages: [{
+        schemaVersion: 1,
+        id: firstMessageId,
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "author",
+        mode: "general-chat",
+        status: "succeeded",
+        content: "Original request.",
+        reasoningContent: "",
+        contextBundleId: null,
+        modelCallId: null,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:10:00.000Z",
+      }, {
+        schemaVersion: 1,
+        id: oldAnswerId,
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "assistant",
+        mode: "general-chat",
+        status: "succeeded",
+        content: "Old answer.",
+        reasoningContent: "",
+        contextBundleId: workshopContextBundleId,
+        modelCallId: workshopModelCallId,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:10:01.000Z",
+      }, {
+        schemaVersion: 1,
+        id: laterMessageId,
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "author",
+        mode: "general-chat",
+        status: "succeeded",
+        content: "Later request.",
+        reasoningContent: "",
+        contextBundleId: null,
+        modelCallId: null,
+        proposalIds: [],
+        attachmentIds: [workshopAttachmentId],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:10:02.000Z",
+      }, {
+        schemaVersion: 1,
+        id: laterAnswerId,
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "assistant",
+        mode: "general-chat",
+        status: "succeeded",
+        content: "Later answer.",
+        reasoningContent: "",
+        contextBundleId: workshopContextBundleId,
+        modelCallId: workshopModelCallId,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:10:03.000Z",
+      }],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+    expect(await screen.findByText("Original request.")).toBeTruthy();
+    expect(screen.getByText("Old answer.")).toBeTruthy();
+    expect(screen.getByText("Later request.")).toBeTruthy();
+    expect(screen.getByText("Later answer.")).toBeTruthy();
+    expect(screen.getByText("old-note.md")).toBeTruthy();
+
+    const firstArticle = screen.getByText("Original request.").closest("article") as HTMLElement;
+    fireEvent.click(within(firstArticle).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(firstArticle).getByLabelText("Edit message"), {
+      target: { value: "Updated request." },
+    });
+    fireEvent.click(within(firstArticle).getByRole("button", { name: "Resend" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/${firstMessageId}/resend`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    const resendCall = fetchMock.mock.calls.find(([url, init]) =>
+      String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/${firstMessageId}/resend` &&
+      (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(JSON.parse(String((resendCall?.[1] as RequestInit | undefined)?.body))).toMatchObject({
+      content: "Updated request.",
+      modelProfileId,
+      promptTemplateId: "00000000-0000-4000-8000-000000000401",
+      taskKind: "analysis",
+    });
+    expect(await screen.findByText("Updated request.")).toBeTruthy();
+    expect(await screen.findByText("Workshop model response.")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByText("Original request.")).toBeNull();
+      expect(screen.queryByText("Old answer.")).toBeNull();
+      expect(screen.queryByText("Later request.")).toBeNull();
+      expect(screen.queryByText("Later answer.")).toBeNull();
+      expect(screen.queryByText("old-note.md")).toBeNull();
+    });
+  });
+
   it("shows the author message immediately and keeps General Chat out of Proposal creation", async () => {
     const fetchMock = mockFetch({
       initialModelProfiles: [modelProfile()],
@@ -4615,7 +5145,7 @@ describe("App shell", () => {
     const workshopPage = document.querySelector("#workshop-page") as HTMLElement;
     fireEvent.click(within(workshopPage).getByRole("button", { name: "Workshop settings" }));
     expect(await screen.findByRole("heading", { name: "Workshop settings" })).toBeTruthy();
-    expect(((await screen.findByLabelText("Mode")) as HTMLSelectElement).value).toBe("general-chat");
+    expect(screen.queryByLabelText("Mode")).toBeNull();
     expect((screen.getByLabelText("Stream output") as HTMLInputElement).checked).toBe(true);
     fireEvent.change(screen.getByLabelText("General Chat system prompt"), {
       target: { value: "Answer as a context-aware story consultant." },

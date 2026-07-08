@@ -5,9 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  EmbeddingModelProfileSchema,
   ModelProfileSchema,
   type AgentRole,
   type ContextBundle,
+  type EmbeddingModelProfile,
   type ModelCallLog,
   type ModelProfile,
   type PromptPreset,
@@ -44,6 +46,7 @@ describe("M4 AI file persistence", () => {
     const scene = series.scenes[0]!;
     const now = new Date().toISOString();
     const modelProfileId = randomUUID();
+    const embeddingProfileId = randomUUID();
     const promptTemplateId = randomUUID();
     const promptPresetId = randomUUID();
     const contextBundleId = randomUUID();
@@ -65,6 +68,26 @@ describe("M4 AI file persistence", () => {
         modelList: true,
       },
       contextWindowTokens: 32000,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    };
+    const embeddingProfile: EmbeddingModelProfile = {
+      schemaVersion: 1,
+      id: embeddingProfileId,
+      title: "BGE Small zh",
+      provider: "local-http",
+      baseUrl: "http://127.0.0.1:8080",
+      endpointPath: "/embed",
+      model: "BAAI/bge-small-zh-v1.5",
+      credentialRef: "novel-studio:embedding:credential-ref",
+      dimensions: 512,
+      maxInputTokens: 512,
+      maxBatchSize: 32,
+      maxConcurrentBatches: 2,
+      normalize: true,
+      supportsCustomDimensions: false,
+      license: "MIT",
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -187,6 +210,7 @@ describe("M4 AI file persistence", () => {
     };
 
     await store.saveModelProfile(profile);
+    await store.saveEmbeddingModelProfile(embeddingProfile);
     await store.saveAgentRole(series.manifest.id, role);
     await store.savePromptTemplate(series.manifest.id, templateV1);
     await store.savePromptTemplate(series.manifest.id, templateV2);
@@ -198,6 +222,15 @@ describe("M4 AI file persistence", () => {
       id: modelProfileId,
       credentialRef: "novel-studio:test:credential-ref",
     });
+    expect(await store.getEmbeddingModelProfile(embeddingProfileId)).toMatchObject({
+      id: embeddingProfileId,
+      model: "BAAI/bge-small-zh-v1.5",
+      dimensions: 512,
+      credentialRef: "novel-studio:embedding:credential-ref",
+    });
+    expect((await store.listEmbeddingModelProfiles()).map((item) => item.id)).toEqual([
+      embeddingProfileId,
+    ]);
     expect(await store.getAgentRole(series.manifest.id, role.id)).toMatchObject({ title: "连续性编辑" });
     expect((await store.listPromptTemplates(series.manifest.id)).map((template) => template.version)).toEqual([1, 2]);
     expect(await store.getPromptPreset(series.manifest.id, promptPresetId)).toMatchObject({
@@ -215,10 +248,19 @@ describe("M4 AI file persistence", () => {
       path.join(store.libraryRoot, ".studio", "model-profiles", `${modelProfileId}.json`),
       "utf8",
     );
+    const embeddingProfileFile = await readFile(
+      path.join(store.libraryRoot, ".studio", "embedding-profiles", `${embeddingProfileId}.json`),
+      "utf8",
+    );
     expect(JSON.parse(profileFile)).toMatchObject({
       credentialRef: "novel-studio:test:credential-ref",
     });
+    expect(JSON.parse(embeddingProfileFile)).toMatchObject({
+      credentialRef: "novel-studio:embedding:credential-ref",
+      dimensions: 512,
+    });
     expect(profileFile).not.toContain("sk-");
+    expect(embeddingProfileFile).not.toContain("sk-");
 
     await rm(path.join(root, ".studio", "index.sqlite"), { force: true });
     await rm(path.join(root, ".studio", "index.sqlite-shm"), { force: true });
@@ -260,6 +302,20 @@ describe("M4 AI file persistence", () => {
         modelList: false,
       },
       contextWindowTokens: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).success).toBe(false);
+
+    expect(EmbeddingModelProfileSchema.safeParse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      title: "坏 Embedding 权限",
+      provider: "local-http",
+      baseUrl: "http://127.0.0.1:8080",
+      endpointPath: "/embed",
+      model: "BAAI/bge-small-zh-v1.5",
+      credentialRef: "Bearer very-secret-token",
+      dimensions: 512,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }).success).toBe(false);

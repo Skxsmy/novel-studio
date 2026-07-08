@@ -6,10 +6,18 @@ import {
   CreateWorkshopMessageInputSchema,
   CreateWorkshopSessionInputSchema,
   ContextBundleSchema,
+  ExecuteWorkshopCodexCreateEntryToolInputSchema,
+  ExecuteWorkshopCodexUpdateEntryToolInputSchema,
+  WorkshopCodexCreateEntryToolErrorSchema,
+  WorkshopCodexCreateEntryToolResultSchema,
+  WorkshopCodexUpdateEntryToolResultSchema,
   DeleteWorkshopAttachmentResultSchema,
   DeleteWorkshopSessionResultSchema,
+  ExportWorkshopSessionQuerySchema,
   ListWorkshopAttachmentsQuerySchema,
   ModelCallLogSchema,
+  ResendWorkshopMessageInputSchema,
+  ResendWorkshopMessageResultSchema,
   RunWorkshopCallInputSchema,
   UpdateWorkshopContextBasketInputSchema,
   UpdateWorkshopSessionInputSchema,
@@ -19,7 +27,14 @@ import {
   WorkshopContextPreviewInputSchema,
   WorkshopMessageAttachmentSchema,
   WorkshopMessageSchema,
+  CreateCodexProgressionInputSchema,
+  UpdateCodexProgressionInputSchema,
+  DeleteCodexDocumentInputSchema,
+  type CodexDetailTypeDocument,
+  type CodexEntryDocument,
+  type CodexProgressionDocument,
   type ContextBundle,
+  type DeleteCodexProgressionResult,
   type ModelCallError,
   type ModelCallLog,
   type ModelParameters,
@@ -27,6 +42,9 @@ import {
   type TokenUsage,
   type WorkshopContextBasket,
   type WorkshopCallStreamEvent,
+  type WorkshopCodexDraftDetailMapping,
+  type WorkshopCodexDraftMissingDetailType,
+  type WorkshopMessage,
 } from "@novel-studio/contracts";
 import type { ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
 import type { ProjectRepository } from "@novel-studio/storage";
@@ -39,6 +57,19 @@ import { PromptRenderError } from "../prompts/render.js";
 import { buildContextBundle } from "./context.js";
 import { contextPrompt, requestHash, usage } from "./modelCalls.js";
 import { parseWorkshopAttachmentUpload } from "./workshopAttachments.js";
+import {
+  codexCreateEntryInputFromWorkshopDraft,
+  codexUpdateEntryInputFromWorkshopDraft,
+  parseCodexCreateEntryToolRequest,
+  parseCodexUpdateEntryToolRequest,
+  serializeCodexCreateEntryToolRequest,
+  serializeCodexUpdateEntryToolRequest,
+  type CodexUpdateEntryToolRequest,
+  type WorkshopCodexProgressionDraft,
+  WorkshopCodexDetailTypeCreationRequiredError,
+} from "../workshop/codexDraft.js";
+import { exportWorkshopSessionMarkdown } from "../workshop/sessionExport.js";
+import { applyWorkshopAgentPrompt, parseWorkshopAgentStep } from "../workshop/workshopAgent.js";
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -231,10 +262,7 @@ async function workshopProviderPrompt(
   contextBundle: ContextBundle,
   input: ReturnType<typeof RunWorkshopCallInputSchema.parse>,
 ): Promise<ProviderPrompt> {
-  if (input.mode === "codex-creation") {
-    const { applyCodexCreationSkill } = await import("../workshop/codexCreationSkill.js");
-    return applyCodexCreationSkill(contextPrompt(contextBundle));
-  }
+  if (input.mode === "agent") return applyWorkshopAgentPrompt(contextPrompt(contextBundle));
   if (input.mode !== "general-chat") return contextPrompt(contextBundle);
   return {
     system: input.systemPrompt.trim(),
@@ -440,6 +468,178 @@ function sendContextError(reply: FastifyReply, error: unknown): boolean {
   return false;
 }
 
+class CodexUpdateTargetResolutionError extends Error {
+  readonly statusCode: number;
+  readonly code: string;
+
+  constructor(message: string, statusCode: number, code = "INVALID_DATA") {
+    super(message);
+    this.name = "CodexUpdateTargetResolutionError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+function normalizeCodexLookupName(value: string): string {
+  return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("und");
+}
+
+function hasExplicitAgentAuthorization(value: string): boolean {
+  return /(?:已授权|授权你|授权给你|自由发挥|随便|你决定|你来决定|直接创建|直接更新|直接写|按你的判断)/iu.test(value);
+}
+
+function hasCodexWriteIntent(value: string): boolean {
+  return /(?:codex|canon|词条|条目|设定|story-memory|故事记忆|创建|新建|更新|修改|改写|补充|写入)/iu.test(value);
+}
+
+function isEvidenceRefusal(value: string): boolean {
+  return /(?:证据不足|来源不足|没有(?:外部)?证据|无(?:外部)?来源|不能(?:直接)?(?:创建|写入|更新|定稿)|无法(?:直接)?(?:创建|写入|更新|定稿)|insufficient evidence|no evidence|no source|cannot .*evidence)/iu.test(value);
+}
+
+function shouldRepairAuthorizedAgentStep(input: {
+  mode: string;
+  userRequest: string;
+  responseText: string;
+  log: ModelCallLog;
+}): boolean {
+  if (input.mode !== "agent" || input.log.status !== "succeeded") return false;
+  if (!hasExplicitAgentAuthorization(input.userRequest) || !hasCodexWriteIntent(input.userRequest)) return false;
+  if (!isEvidenceRefusal(input.responseText)) return false;
+  return parseWorkshopAgentStep(input.responseText).type === "respond";
+}
+
+function authorizedAgentRepairPrompt(input: {
+  prompt: ProviderPrompt;
+  userRequest: string;
+  responseText: string;
+}): ProviderPrompt {
+  return {
+    ...input.prompt,
+    instructions: [
+      input.prompt.instructions,
+      [
+        "Repair instruction:",
+        "The previous Agent response refused a Codex write because it treated author-invented fiction as lacking evidence.",
+        "That refusal is invalid for this Workshop Agent run because the author explicitly authorized the Codex write.",
+        "Return exactly one structured JSON agent step. Use codex.create_entry or codex.update_entry when the request identifies enough target/content. Do not ask for external evidence solely because the story material is fictional.",
+      ].join("\n"),
+    ].filter(Boolean).join("\n\n"),
+    user: [
+      input.prompt.user,
+      "Author request:",
+      input.userRequest,
+      "Previous invalid response:",
+      input.responseText,
+    ].join("\n\n"),
+  };
+}
+
+async function resolveCodexUpdateTarget(input: {
+  entryId?: string;
+  name?: string;
+  repository: ProjectRepository;
+  seriesId: string;
+}): Promise<CodexEntryDocument> {
+  if (input.entryId) {
+    return input.repository.getCodexEntry(input.seriesId, input.entryId);
+  }
+  const targetName = input.name?.trim();
+  if (!targetName) {
+    throw new CodexUpdateTargetResolutionError("codex.update_entry requires a target entry id or exact name.", 400);
+  }
+  const targetKey = normalizeCodexLookupName(targetName);
+  const entries = await input.repository.listCodexEntries(input.seriesId, { includeArchived: false });
+  const matches = entries.filter((entry) => {
+    const names = [entry.metadata.name, ...entry.metadata.aliases].map(normalizeCodexLookupName);
+    return names.includes(targetKey);
+  });
+  if (matches.length === 0) {
+    throw new CodexUpdateTargetResolutionError(
+      `No active Codex entry exactly matches "${targetName}".`,
+      404,
+      "NOT_FOUND",
+    );
+  }
+  if (matches.length > 1) {
+    throw new CodexUpdateTargetResolutionError(
+      `Codex entry target "${targetName}" is ambiguous. Use an entry id.`,
+      409,
+      "CONFLICT",
+    );
+  }
+  return matches[0]!;
+}
+
+function codexProgressionCreateInputFromDraft(
+  draft: Extract<WorkshopCodexProgressionDraft, { action: "create" }>,
+  targetEntry: CodexEntryDocument,
+) {
+  const input: Record<string, unknown> = { ...draft.input };
+  if (
+    (input.kind === "field" || input.kind === "world") &&
+    input.entryId === undefined
+  ) {
+    input.entryId = targetEntry.metadata.id;
+  }
+  if (input.source === undefined) {
+    input.source = {
+      kind: "codex-page",
+      sceneId: null,
+      blockId: null,
+      sourceId: null,
+    };
+  }
+  return CreateCodexProgressionInputSchema.parse(input);
+}
+
+function codexProgressionUpdateInputFromDraft(
+  draft: Extract<WorkshopCodexProgressionDraft, { action: "update" }>,
+) {
+  return UpdateCodexProgressionInputSchema.parse(draft.input);
+}
+
+function codexProgressionDeleteInputFromDraft(
+  draft: Extract<WorkshopCodexProgressionDraft, { action: "delete" }>,
+) {
+  return DeleteCodexDocumentInputSchema.parse(draft.input);
+}
+
+async function executeCodexProgressionDrafts(input: {
+  drafts: WorkshopCodexProgressionDraft[];
+  entry: CodexEntryDocument;
+  repository: ProjectRepository;
+  seriesId: string;
+}): Promise<{
+  createdProgressions: CodexProgressionDocument[];
+  deletedProgressions: DeleteCodexProgressionResult[];
+  updatedProgressions: CodexProgressionDocument[];
+}> {
+  const createdProgressions: CodexProgressionDocument[] = [];
+  const updatedProgressions: CodexProgressionDocument[] = [];
+  const deletedProgressions: DeleteCodexProgressionResult[] = [];
+  for (const draft of input.drafts) {
+    if (draft.action === "create") {
+      createdProgressions.push(await input.repository.createCodexProgression(
+        input.seriesId,
+        codexProgressionCreateInputFromDraft(draft, input.entry),
+      ));
+    } else if (draft.action === "update") {
+      updatedProgressions.push(await input.repository.updateCodexProgression(
+        input.seriesId,
+        draft.progressionId,
+        codexProgressionUpdateInputFromDraft(draft),
+      ));
+    } else {
+      deletedProgressions.push(await input.repository.deleteCodexProgression(
+        input.seriesId,
+        draft.progressionId,
+        codexProgressionDeleteInputFromDraft(draft),
+      ));
+    }
+  }
+  return { createdProgressions, deletedProgressions, updatedProgressions };
+}
+
 export function registerWorkshopRoutes(
   app: FastifyInstance,
   repository: ProjectRepository,
@@ -470,6 +670,26 @@ export function registerWorkshopRoutes(
         repository.listWorkshopAttachments(request.params.seriesId, request.params.sessionId),
       ]);
       return { session, basket, messages, attachments };
+    },
+  );
+
+  app.get<{ Params: { seriesId: string; sessionId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/export",
+    async (request, reply) => {
+      const query = ExportWorkshopSessionQuerySchema.parse(request.query ?? {});
+      const markdown = await exportWorkshopSessionMarkdown(
+        repository,
+        request.params.seriesId,
+        request.params.sessionId,
+        {
+          includePromptAudit: query.includePromptAudit,
+          includeReasoning: query.includeReasoning,
+        },
+      );
+      return reply
+        .header("content-type", "text/markdown; charset=utf-8")
+        .header("content-disposition", `attachment; filename="workshop-${request.params.sessionId}.md"`)
+        .send(`\uFEFF${markdown}`);
     },
   );
 
@@ -590,6 +810,97 @@ export function registerWorkshopRoutes(
   );
 
   app.post<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/resend",
+    async (request, reply) => {
+      await ensureBuiltInPrompts(repository, request.params.seriesId);
+      const input = ResendWorkshopMessageInputSchema.parse(request.body);
+      const source = await repository.getWorkshopMessageSource(
+        request.params.seriesId,
+        request.params.messageId,
+      );
+      const replacement = await repository.replaceWorkshopGeneralChatAuthorMessage(
+        request.params.seriesId,
+        request.params.sessionId,
+        request.params.messageId,
+        input.content ?? source.message.content,
+      );
+      const callInput = RunWorkshopCallInputSchema.parse({
+        mode: "general-chat",
+        userRequest: replacement.message.content,
+        roleId: input.roleId,
+        taskKind: input.taskKind,
+        promptTemplateId: input.promptTemplateId,
+        promptTemplateVersion: input.promptTemplateVersion,
+        systemPrompt: input.systemPrompt,
+        modelProfileId: input.modelProfileId,
+        modelOverride: input.modelOverride,
+        tokenBudget: input.tokenBudget,
+        attachmentIds: replacement.message.attachmentIds,
+        draftToken: null,
+        parameters: input.parameters,
+      });
+      const basket = await repository.getWorkshopContextBasket(
+        request.params.seriesId,
+        request.params.sessionId,
+      );
+      let contextBundle;
+      try {
+        contextBundle = await buildContextBundle(
+          repository,
+          providerRegistry,
+          request.params.seriesId,
+          await workshopContextPayload(repository, request.params.seriesId, basket, callInput, {
+            excludeWorkshopMessageId: replacement.message.id,
+          }),
+        );
+      } catch (error) {
+        if (sendContextError(reply, error)) return reply;
+        throw error;
+      }
+      const modelProfile = effectiveModelProfile(
+        await repository.getModelProfile(callInput.modelProfileId),
+        callInput.modelOverride,
+      );
+      const prompt = await workshopProviderPrompt(contextBundle, callInput);
+      const providerContextBundle = workshopProviderContextBundle(contextBundle, callInput);
+      let { log, responseText } = await executeWorkshopCall({
+        repository,
+        providerRegistry,
+        seriesId: request.params.seriesId,
+        sessionId: request.params.sessionId,
+        contextBundle,
+        providerContextBundle,
+        modelProfile,
+        prompt,
+        parameters: callInput.parameters,
+      });
+      const { assistantMessage, toolMessages, responseText: finalResponseText } = await saveWorkshopAssistantTurn({
+        seriesId: request.params.seriesId,
+        sessionId: request.params.sessionId,
+        mode: "general-chat",
+        userRequest: replacement.message.content,
+        log,
+        contextBundle,
+        responseText,
+      });
+      return ResendWorkshopMessageResultSchema.parse({
+        authorMessage: replacement.message,
+        assistantMessage,
+        toolMessages,
+        contextBundleId: contextBundle.id,
+        modelCallId: log.id,
+        status: assistantMessage.status,
+        responseText: finalResponseText,
+        estimatedUsage: log.estimatedUsage,
+        actualUsage: log.actualUsage,
+        deletedAttachmentIds: replacement.deletedAttachmentIds,
+        deletedBranchIds: replacement.deletedBranchIds,
+        deletedMessageIds: replacement.deletedMessageIds,
+      });
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/proposals",
     async (request, reply) => {
       const input = CreateWorkshopMessageProposalInputSchema.parse(request.body);
@@ -600,6 +911,249 @@ export function registerWorkshopRoutes(
           request.params.messageId,
           input,
         ),
+      );
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/tools/codex.create_entry/execute",
+    async (request, reply) => {
+      const input = ExecuteWorkshopCodexCreateEntryToolInputSchema.parse(request.body);
+      const source = await repository.getWorkshopMessageSource(
+        request.params.seriesId,
+        request.params.messageId,
+      );
+      if (source.session.id !== request.params.sessionId) {
+        return reply.status(404).send({
+          code: "NOT_FOUND",
+          message: "Workshop message is not in this session",
+        });
+      }
+      if (
+        source.message.role !== "tool" ||
+        source.message.mode !== "agent" ||
+        source.session.kind !== "agent" ||
+        source.message.status !== "succeeded" ||
+        !source.message.content.trim()
+      ) {
+        return reply.status(400).send({
+          code: "INVALID_DATA",
+          message: "Only successful Agent tool request messages can execute codex.create_entry",
+        });
+      }
+      let codexInput;
+      let createdDetailTypes: CodexDetailTypeDocument[] = [];
+      try {
+        const toolRequest = parseCodexCreateEntryToolRequest(source.message.content);
+        const draft = toolRequest.draft;
+        const detailTypes = await repository.listCodexDetailTypes(request.params.seriesId, {
+          categoryId: draft.categoryId,
+        });
+        try {
+          codexInput = codexCreateEntryInputFromWorkshopDraft(
+            draft,
+            detailTypes,
+            input.detailMappings,
+          );
+        } catch (error) {
+          if (!(error instanceof WorkshopCodexDetailTypeCreationRequiredError)) throw error;
+          if (!input.createMissingDetailTypes) {
+            return reply.status(409).send(
+              WorkshopCodexCreateEntryToolErrorSchema.parse({
+                code: error.code,
+                message: error.message,
+                missingDetailTypes: error.missingDetailTypes,
+                availableDetailTypes: error.availableDetailTypes,
+              }),
+            );
+          }
+          createdDetailTypes = [];
+          for (const missingDetailType of error.missingDetailTypes) {
+            createdDetailTypes.push(
+              await repository.createCodexDetailType(request.params.seriesId, {
+                categoryId: draft.categoryId,
+                name: missingDetailType.label,
+                nsfw: false,
+              }),
+            );
+          }
+          codexInput = codexCreateEntryInputFromWorkshopDraft(
+            draft,
+            [...detailTypes, ...createdDetailTypes],
+            input.detailMappings,
+          );
+        }
+      } catch (error) {
+        return reply.status(400).send({
+          code: "INVALID_DATA",
+          message: error instanceof Error ? error.message : "Codex Draft could not be parsed.",
+        });
+      }
+      const entry = await repository.createCodexEntry(request.params.seriesId, codexInput);
+      const resultMessage = await repository.createWorkshopMessage(
+        request.params.seriesId,
+        source.session.id,
+        {
+          role: "result",
+          mode: "agent",
+          content: `codex.create_entry created Codex entry: ${entry.metadata.name}`,
+        },
+      );
+      return reply.status(201).send(
+        WorkshopCodexCreateEntryToolResultSchema.parse({
+          createdDetailTypes,
+          message: source.message,
+          resultMessage,
+          entry,
+        }),
+      );
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/tools/codex.update_entry/execute",
+    async (request, reply) => {
+      const input = ExecuteWorkshopCodexUpdateEntryToolInputSchema.parse(request.body);
+      const source = await repository.getWorkshopMessageSource(
+        request.params.seriesId,
+        request.params.messageId,
+      );
+      if (source.session.id !== request.params.sessionId) {
+        return reply.status(404).send({
+          code: "NOT_FOUND",
+          message: "Workshop message is not in this session",
+        });
+      }
+      if (
+        source.message.role !== "tool" ||
+        source.message.mode !== "agent" ||
+        source.session.kind !== "agent" ||
+        source.message.status !== "succeeded" ||
+        !source.message.content.trim()
+      ) {
+        return reply.status(400).send({
+          code: "INVALID_DATA",
+          message: "Only successful Agent tool request messages can execute codex.update_entry",
+        });
+      }
+      let codexInput;
+      let entry: CodexEntryDocument | null = null;
+      let createdDetailTypes: CodexDetailTypeDocument[] = [];
+      let createdProgressions: CodexProgressionDocument[] = [];
+      let updatedProgressions: CodexProgressionDocument[] = [];
+      let deletedProgressions: DeleteCodexProgressionResult[] = [];
+      let toolRequest: CodexUpdateEntryToolRequest | null = null;
+      try {
+        toolRequest = parseCodexUpdateEntryToolRequest(source.message.content);
+        entry = await resolveCodexUpdateTarget({
+          ...(toolRequest.draft.target.entryId ? { entryId: toolRequest.draft.target.entryId } : {}),
+          ...(toolRequest.draft.target.name ? { name: toolRequest.draft.target.name } : {}),
+          repository,
+          seriesId: request.params.seriesId,
+        });
+        const detailTypes = await repository.listCodexDetailTypes(request.params.seriesId, {
+          categoryId: entry.metadata.categoryId,
+        });
+        try {
+          codexInput = codexUpdateEntryInputFromWorkshopDraft(
+            entry,
+            toolRequest.draft,
+            detailTypes,
+            input.detailMappings,
+          );
+        } catch (error) {
+          if (!(error instanceof WorkshopCodexDetailTypeCreationRequiredError)) throw error;
+          if (!input.createMissingDetailTypes) {
+            return reply.status(409).send(
+              WorkshopCodexCreateEntryToolErrorSchema.parse({
+                code: error.code,
+                message: error.message,
+                missingDetailTypes: error.missingDetailTypes,
+                availableDetailTypes: error.availableDetailTypes,
+              }),
+            );
+          }
+          createdDetailTypes = [];
+          for (const missingDetailType of error.missingDetailTypes) {
+            createdDetailTypes.push(
+              await repository.createCodexDetailType(request.params.seriesId, {
+                categoryId: entry.metadata.categoryId,
+                name: missingDetailType.label,
+                nsfw: false,
+              }),
+            );
+          }
+          codexInput = codexUpdateEntryInputFromWorkshopDraft(
+            entry,
+            toolRequest.draft,
+            [...detailTypes, ...createdDetailTypes],
+            input.detailMappings,
+          );
+        }
+      } catch (error) {
+        if (error instanceof CodexUpdateTargetResolutionError) {
+          return reply.status(error.statusCode).send({
+            code: error.code,
+            message: error.message,
+          });
+        }
+        return reply.status(400).send({
+          code: "INVALID_DATA",
+          message: error instanceof Error ? error.message : "Codex update draft could not be parsed.",
+        });
+      }
+      if (!toolRequest || !entry) {
+        return reply.status(400).send({
+          code: "INVALID_DATA",
+          message: "Codex update draft could not be parsed.",
+        });
+      }
+      let updatedEntry = entry;
+      try {
+        if (codexInput) {
+          updatedEntry = await repository.updateCodexEntry(request.params.seriesId, entry.metadata.id, codexInput);
+        }
+        const progressionResult = await executeCodexProgressionDrafts({
+          drafts: toolRequest.draft.patch.progressions ?? [],
+          entry,
+          repository,
+          seriesId: request.params.seriesId,
+        });
+        createdProgressions = progressionResult.createdProgressions;
+        updatedProgressions = progressionResult.updatedProgressions;
+        deletedProgressions = progressionResult.deletedProgressions;
+      } catch (error) {
+        return reply.status(400).send({
+          code: "INVALID_DATA",
+          message: error instanceof Error ? error.message : "Codex progression update draft could not be applied.",
+        });
+      }
+      const progressionSummary = [
+        createdProgressions.length ? `${createdProgressions.length} progression(s) created` : "",
+        updatedProgressions.length ? `${updatedProgressions.length} progression(s) updated` : "",
+        deletedProgressions.length ? `${deletedProgressions.length} progression(s) deleted` : "",
+      ].filter(Boolean).join("; ");
+      const resultMessage = await repository.createWorkshopMessage(
+        request.params.seriesId,
+        source.session.id,
+        {
+          role: "result",
+          mode: "agent",
+          content: progressionSummary
+            ? `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name} (${progressionSummary})`
+            : `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name}`,
+        },
+      );
+      return reply.status(201).send(
+        WorkshopCodexUpdateEntryToolResultSchema.parse({
+          createdDetailTypes,
+          createdProgressions,
+          deletedProgressions,
+          message: source.message,
+          resultMessage,
+          entry: updatedEntry,
+          updatedProgressions,
+        }),
       );
     },
   );
@@ -636,12 +1190,109 @@ export function registerWorkshopRoutes(
     },
   );
 
+  function rejectLegacyCodexCreationMode(input: { mode: string }, reply: FastifyReply): boolean {
+    if (input.mode !== "codex-creation") return false;
+    void reply.status(400).send({
+      code: "INVALID_DATA",
+      message: "Codex Creation is no longer a Workshop mode. Use an Agent session and codex.create_entry tool requests.",
+    });
+    return true;
+  }
+
+  async function saveWorkshopAssistantTurn(input: {
+    seriesId: string;
+    sessionId: string;
+    mode: string;
+    userRequest: string;
+    log: ModelCallLog;
+    contextBundle: ContextBundle;
+    responseText: string;
+    visibleText?: string;
+    reasoningText?: string;
+  }): Promise<{ assistantMessage: WorkshopMessage; toolMessages: WorkshopMessage[]; responseText: string }> {
+    const parsedResponse = splitReasoningContent(input.responseText);
+    const rawAssistantContent =
+      input.visibleText ||
+      parsedResponse.content ||
+      input.log.errorMessage ||
+      "Model call failed.";
+    let assistantContent = rawAssistantContent;
+    let responseText = parsedResponse.content || input.visibleText || "";
+    let toolRequestContent: string | null = null;
+
+    if (input.mode === "agent" && input.log.status === "succeeded") {
+      const step = parseWorkshopAgentStep(rawAssistantContent);
+      if (step.type === "request_tool" && step.tool === "codex.create_entry") {
+        assistantContent = step.message.trim() || "Prepared a Codex entry creation tool request.";
+        responseText = assistantContent;
+        toolRequestContent = serializeCodexCreateEntryToolRequest(step.draft);
+      } else if (step.type === "request_tool" && step.tool === "codex.update_entry") {
+        assistantContent = step.message.trim() || "Prepared a Codex entry update tool request.";
+        responseText = assistantContent;
+        toolRequestContent = serializeCodexUpdateEntryToolRequest(step.draft);
+      } else {
+        assistantContent = step.message;
+        responseText = step.message;
+      }
+    }
+
+    const assistantMessage = await repository.saveWorkshopMessage(
+      input.seriesId,
+      WorkshopMessageSchema.parse({
+        schemaVersion: 1,
+        id: randomUUID(),
+        seriesId: input.seriesId,
+        sessionId: input.sessionId,
+        role: "assistant",
+        mode: input.mode,
+        status: input.log.status === "succeeded" ? "succeeded" : "failed",
+        content: assistantContent || input.log.errorMessage || "Model call failed.",
+        reasoningContent: input.reasoningText || parsedResponse.reasoningContent,
+        contextBundleId: input.contextBundle.id,
+        modelCallId: input.log.id,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: input.log.errorCode,
+        errorMessage: input.log.errorMessage,
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    const toolMessages = [];
+    if (toolRequestContent) {
+      const toolMessage = await repository.saveWorkshopMessage(
+        input.seriesId,
+        WorkshopMessageSchema.parse({
+          schemaVersion: 1,
+          id: randomUUID(),
+          seriesId: input.seriesId,
+          sessionId: input.sessionId,
+          role: "tool",
+          mode: "agent",
+          status: "succeeded",
+          content: toolRequestContent,
+          reasoningContent: "",
+          contextBundleId: input.contextBundle.id,
+          modelCallId: input.log.id,
+          proposalIds: [],
+          attachmentIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: new Date(Date.now() + 1).toISOString(),
+        }),
+      );
+      toolMessages.push(toolMessage);
+    }
+    return { assistantMessage, toolMessages, responseText };
+  }
+
+
   app.post<{ Params: { seriesId: string; sessionId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/context-preview",
     async (request, reply) => {
       try {
         await ensureBuiltInPrompts(repository, request.params.seriesId);
         const input = WorkshopContextPreviewInputSchema.parse(request.body);
+        if (rejectLegacyCodexCreationMode(input, reply)) return reply;
         const basket = await repository.getWorkshopContextBasket(
           request.params.seriesId,
           request.params.sessionId,
@@ -664,6 +1315,7 @@ export function registerWorkshopRoutes(
     async (request, reply) => {
       await ensureBuiltInPrompts(repository, request.params.seriesId);
       const input = RunWorkshopCallInputSchema.parse(request.body);
+      if (rejectLegacyCodexCreationMode(input, reply)) return reply;
       const authorMessage = await repository.createWorkshopMessage(
         request.params.seriesId,
         request.params.sessionId,
@@ -712,10 +1364,11 @@ export function registerWorkshopRoutes(
       let metadataSent = false;
       let visibleText = "";
       let reasoningText = "";
+      const suppressRawAgentStream = input.mode === "agent";
       const parser = createReasoningParser();
       writeWorkshopEvent(reply, { type: "author-message", message: authorMessage });
 
-      const { log, responseText } = await executeWorkshopCall({
+      let { log, responseText } = await executeWorkshopCall({
         repository,
         providerRegistry,
         seriesId: request.params.seriesId,
@@ -738,10 +1391,10 @@ export function registerWorkshopRoutes(
           for (const event of parser.push(chunk)) {
             if (event.type === "reasoning-delta") {
               reasoningText += event.text;
-              writeWorkshopEvent(reply, event);
+              if (!suppressRawAgentStream) writeWorkshopEvent(reply, event);
             } else {
               visibleText += event.text;
-              writeWorkshopEvent(reply, event);
+              if (!suppressRawAgentStream) writeWorkshopEvent(reply, event);
             }
           }
         },
@@ -750,10 +1403,60 @@ export function registerWorkshopRoutes(
       for (const event of parser.finish()) {
         if (event.type === "reasoning-delta") {
           reasoningText += event.text;
-          writeWorkshopEvent(reply, event);
+          if (!suppressRawAgentStream) writeWorkshopEvent(reply, event);
         } else {
           visibleText += event.text;
-          writeWorkshopEvent(reply, event);
+          if (!suppressRawAgentStream) writeWorkshopEvent(reply, event);
+        }
+      }
+      if (shouldRepairAuthorizedAgentStep({
+        mode: input.mode,
+        userRequest: input.userRequest,
+        responseText,
+        log,
+      })) {
+        visibleText = "";
+        reasoningText = "";
+        const repairParser = createReasoningParser();
+        ({ log, responseText } = await executeWorkshopCall({
+          repository,
+          providerRegistry,
+          seriesId: request.params.seriesId,
+          sessionId: request.params.sessionId,
+          contextBundle,
+          providerContextBundle,
+          modelProfile,
+          prompt: authorizedAgentRepairPrompt({
+            prompt,
+            userRequest: input.userRequest,
+            responseText,
+          }),
+          parameters: input.parameters,
+          abortSignal: abortController.signal,
+          onStreamingLog: (streamingLog) => {
+            metadataSent = true;
+            writeWorkshopEvent(reply, {
+              type: "metadata",
+              contextBundleId: contextBundle.id,
+              modelCallId: streamingLog.id,
+            });
+          },
+          onChunk: (chunk) => {
+            for (const event of repairParser.push(chunk)) {
+              if (event.type === "reasoning-delta") {
+                reasoningText += event.text;
+              } else {
+                visibleText += event.text;
+              }
+            }
+          },
+        }));
+        for (const event of repairParser.finish()) {
+          if (event.type === "reasoning-delta") {
+            reasoningText += event.text;
+          } else {
+            visibleText += event.text;
+          }
         }
       }
       if (!metadataSent) {
@@ -764,36 +1467,25 @@ export function registerWorkshopRoutes(
         });
       }
 
-      const parsedResponse = splitReasoningContent(responseText);
-      const assistantContent = visibleText || parsedResponse.content || log.errorMessage || "Model call failed.";
-      const assistantReasoning = reasoningText || parsedResponse.reasoningContent;
-      const assistantMessage = await repository.saveWorkshopMessage(
-        request.params.seriesId,
-        WorkshopMessageSchema.parse({
-          schemaVersion: 1,
-          id: randomUUID(),
-          seriesId: request.params.seriesId,
-          sessionId: request.params.sessionId,
-          role: "assistant",
-          mode: input.mode,
-          status: log.status === "succeeded" ? "succeeded" : "failed",
-          content: assistantContent,
-          reasoningContent: assistantReasoning,
-          contextBundleId: contextBundle.id,
-          modelCallId: log.id,
-          proposalIds: [],
-          errorCode: log.errorCode,
-          errorMessage: log.errorMessage,
-          createdAt: new Date().toISOString(),
-        }),
-      );
+      const { assistantMessage, toolMessages, responseText: finalResponseText } = await saveWorkshopAssistantTurn({
+        seriesId: request.params.seriesId,
+        sessionId: request.params.sessionId,
+        mode: input.mode,
+        userRequest: input.userRequest,
+        log,
+        contextBundle,
+        responseText,
+        visibleText,
+        reasoningText,
+      });
       const result = WorkshopCallResultSchema.parse({
         authorMessage,
         assistantMessage,
+        toolMessages,
         contextBundleId: contextBundle.id,
         modelCallId: log.id,
         status: assistantMessage.status,
-        responseText: parsedResponse.content || visibleText,
+        responseText: finalResponseText,
         estimatedUsage: log.estimatedUsage,
         actualUsage: log.actualUsage,
       });
@@ -817,6 +1509,7 @@ export function registerWorkshopRoutes(
     async (request, reply) => {
       await ensureBuiltInPrompts(repository, request.params.seriesId);
       const input = RunWorkshopCallInputSchema.parse(request.body);
+      if (rejectLegacyCodexCreationMode(input, reply)) return reply;
       const authorMessage = await repository.createWorkshopMessage(
         request.params.seriesId,
         request.params.sessionId,
@@ -852,7 +1545,7 @@ export function registerWorkshopRoutes(
       );
       const prompt = await workshopProviderPrompt(contextBundle, input);
       const providerContextBundle = workshopProviderContextBundle(contextBundle, input);
-      const { log, responseText } = await executeWorkshopCall({
+      let { log, responseText } = await executeWorkshopCall({
         repository,
         providerRegistry,
         seriesId: request.params.seriesId,
@@ -863,34 +1556,45 @@ export function registerWorkshopRoutes(
         prompt,
         parameters: input.parameters,
       });
-      const parsedResponse = splitReasoningContent(responseText);
-      const assistantMessage = await repository.saveWorkshopMessage(
-        request.params.seriesId,
-        WorkshopMessageSchema.parse({
-          schemaVersion: 1,
-          id: randomUUID(),
+      if (shouldRepairAuthorizedAgentStep({
+        mode: input.mode,
+        userRequest: input.userRequest,
+        responseText,
+        log,
+      })) {
+        ({ log, responseText } = await executeWorkshopCall({
+          repository,
+          providerRegistry,
           seriesId: request.params.seriesId,
           sessionId: request.params.sessionId,
-          role: "assistant",
-          mode: input.mode,
-          status: log.status === "succeeded" ? "succeeded" : "failed",
-          content: parsedResponse.content || log.errorMessage || "Model call failed.",
-          reasoningContent: parsedResponse.reasoningContent,
-          contextBundleId: contextBundle.id,
-          modelCallId: log.id,
-          proposalIds: [],
-          errorCode: log.errorCode,
-          errorMessage: log.errorMessage,
-          createdAt: new Date().toISOString(),
-        }),
-      );
+          contextBundle,
+          providerContextBundle,
+          modelProfile,
+          prompt: authorizedAgentRepairPrompt({
+            prompt,
+            userRequest: input.userRequest,
+            responseText,
+          }),
+          parameters: input.parameters,
+        }));
+      }
+      const { assistantMessage, toolMessages, responseText: finalResponseText } = await saveWorkshopAssistantTurn({
+        seriesId: request.params.seriesId,
+        sessionId: request.params.sessionId,
+        mode: input.mode,
+        userRequest: input.userRequest,
+        log,
+        contextBundle,
+        responseText,
+      });
       return WorkshopCallResultSchema.parse({
         authorMessage,
         assistantMessage,
+        toolMessages,
         contextBundleId: contextBundle.id,
         modelCallId: log.id,
         status: assistantMessage.status,
-        responseText: parsedResponse.content,
+        responseText: finalResponseText,
         estimatedUsage: log.estimatedUsage,
         actualUsage: log.actualUsage,
       });

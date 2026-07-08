@@ -85,13 +85,21 @@
 
 2026-07-03 follow-up trace: Workshop session lifecycle and streaming-session-switch behavior are part of the M5 Workshop acceptance boundary. In-flight stream output must remain attached to its originating session across session switches, and permanent Workshop session delete must be exposed separately from Archive with cascade/reference-blocking behavior.
 
-2026-07-03 follow-up trace: Workshop Codex Creation is a mode-scoped discussion/drafting capability. It loads Codex-specific workflow/interface guidance only when selected, uses the researcher prompt path with a research task kind, and is blocked from the generic scene-content Proposal action until a dedicated Codex Proposal or approved Codex tool adapter exists.
+2026-07-06 follow-up trace: Workshop no longer treats Codex creation as a mutable chat mode. Sessions are created as fixed `chat` or `agent` conversations. Agent sessions use a server-side runner: the model produces draft content, while tool requests are server-owned `role: tool` messages. The `codex.create_entry` workflow is invoked only from Agent Codex creation intent, suppresses raw simulated tool-call text from streaming into the UI, and creates a pending tool request that must be author-confirmed before writing. Details match existing reusable detail types by stable ID or exact normalized name; unmatched labels require explicit detail-type creation confirmation; unknown categories do not silently fall back. The create-only limitation in this 2026-07-06 record is superseded by the 2026-07-08 limited `codex.update_entry` repair below; relations, knowledge, and broader Codex tools still require a dedicated Codex Proposal or approved Tool Plan/Grant adapter.
+
+2026-07-07 follow-up trace: General Chat author-message edit/resend is intentionally limited to `chat` sessions. Resend updates the selected successful `author` / `general-chat` message, removes later unprotected General Chat messages plus their bound attachments and branch records from the durable history, then creates a new ContextBundle/ModelCallLog/assistant reply from the revised history. Agent sessions do not expose or accept this feature in the current slice. Protected later records block resend instead of requiring the author to create or repair storage records manually.
+
+2026-07-07 follow-up trace: Workshop session export is a session-level read path for stored conversation records. Markdown export defaults to visible messages without reasoning and without prompt/context audit dumps; the explicit `includeReasoning` option adds saved provider reasoning content, and the separate `includePromptAudit` option reconstructs provider prompt/context records from durable ContextBundle and ModelCallLog links when available. Exported Markdown must be UTF-8 portable for local Windows readers. Attachment files are represented only as records and extracted attachment body text is omitted. Export must not fabricate tool calls, hidden prompts, unsaved reasoning, or attachment bodies.
+
+2026-07-08 follow-up trace: Agent authorization and limited Codex update execution are now part of the M5 Workshop boundary. When the author explicitly grants permission in an Agent session, the Agent must not refuse solely for missing external evidence; the server performs a repair pass for that refusal pattern before saving the final Agent turn. `codex.update_entry` is available as a server-owned Agent tool request beside `codex.create_entry`; after author confirmation it can update one existing Codex entry's fields/research/details and can create, update, or delete unified Codex Progression records through the existing validated Progression commands. This remains below full M5.6 Tool Plan/Grant scope and does not authorize relation, character knowledge, category, or broad Write mutations.
 
 ## M6 资料分析库
 
 覆盖：TXT、Markdown、DOCX、文本 PDF、EPUB、HTML；SourceLocation、FTS5、可选 Embedding、Research Note 和权限。
 
 完成标准：六种 fixture 解析；多语言检索；结果回指来源；扫描 PDF 诚实失败；危险文件隔离；资料不能越权进入模型。
+
+2026-07-08 foundation trace: Embedding is now a shared infrastructure concept with `EmbeddingModelProfile`, use-case routing, local HTTP adapter, profile-level concurrency, and library-global storage methods. M6 semantic search must build on this layer instead of introducing a Reference-Library-only embedding path. This foundation does not implement SourceDocument parsing or vector indexes yet.
 
 ## M7 Word、版本与备份
 

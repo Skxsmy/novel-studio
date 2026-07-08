@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { AiTaskKindSchema, ModelParametersSchema, TokenUsageSchema } from "./ai.js";
+import {
+  CodexDetailTypeDocumentSchema,
+  CodexEntryDocumentSchema,
+  CodexProgressionDocumentSchema,
+  DeleteCodexProgressionResultSchema,
+} from "./codex.js";
 import { RevisionHashSchema } from "./common.js";
 import { ContextPreviewSelectionSchema } from "./context.js";
 import { CreateProposalInputSchema, ProposalDocumentSchema } from "./proposals.js";
@@ -35,7 +41,15 @@ export type WorkshopMessageRole = z.infer<typeof WorkshopMessageRoleSchema>;
 export const WorkshopMessageStatusSchema = z.enum(["pending", "succeeded", "failed"]);
 export type WorkshopMessageStatus = z.infer<typeof WorkshopMessageStatusSchema>;
 
-export const WorkshopModeSchema = z.enum(["general-chat", "continuity-check", "codex-creation"]);
+export const WorkshopConversationKindSchema = z.enum(["chat", "agent"]);
+export type WorkshopConversationKind = z.infer<typeof WorkshopConversationKindSchema>;
+
+export const WorkshopModeSchema = z.enum([
+  "general-chat",
+  "continuity-check",
+  "agent",
+  "codex-creation",
+]);
 export type WorkshopMode = z.infer<typeof WorkshopModeSchema>;
 
 export const WorkshopContextItemKindSchema = z.enum([
@@ -121,6 +135,7 @@ export const WorkshopSessionSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string().uuid(),
   seriesId: z.string().uuid(),
+  kind: WorkshopConversationKindSchema.default("chat"),
   title: z.string().trim().min(1).max(160),
   status: WorkshopSessionStatusSchema.default("active"),
   branchOfMessageId: z.string().uuid().nullable().default(null),
@@ -212,6 +227,7 @@ export type WorkshopContextBasket = z.infer<typeof WorkshopContextBasketSchema>;
 
 export const CreateWorkshopSessionInputSchema = z.object({
   title: z.string().trim().min(1).max(160).default("New chat"),
+  kind: WorkshopConversationKindSchema.default("chat"),
   sceneId: z.string().uuid().nullable().optional(),
 });
 export type CreateWorkshopSessionInput = z.input<typeof CreateWorkshopSessionInputSchema>;
@@ -236,6 +252,37 @@ export const CreateWorkshopMessageInputSchema =
   CreateWorkshopMessageInputBaseSchema.superRefine(requireDraftTokenForAttachments);
 export type CreateWorkshopMessageInput = z.input<typeof CreateWorkshopMessageInputSchema>;
 
+export const ResendWorkshopMessageInputSchema = z.object({
+  content: z.string().trim().min(1).max(16000).optional(),
+  roleId: z.string().min(1).max(120).default("lead-writing-partner"),
+  taskKind: AiTaskKindSchema.default("analysis"),
+  promptTemplateId: z.string().uuid(),
+  promptTemplateVersion: z.number().int().positive().default(1),
+  systemPrompt: z.string().trim().max(8000).default(""),
+  modelProfileId: z.string().uuid(),
+  modelOverride: z.string().trim().min(1).max(200).nullable().default(null),
+  tokenBudget: z.number().int().positive().nullable().default(null),
+  parameters: ModelParametersSchema.default({}),
+}).strict();
+export type ResendWorkshopMessageInput = z.input<typeof ResendWorkshopMessageInputSchema>;
+
+export const ExportWorkshopSessionQuerySchema = z.object({
+  includeReasoning: z.union([z.boolean(), z.enum(["true", "false"])]).default(false)
+    .transform((value) => value === true || value === "true"),
+  includePromptAudit: z.union([z.boolean(), z.enum(["true", "false"])]).default(false)
+    .transform((value) => value === true || value === "true"),
+}).strict();
+export type ExportWorkshopSessionQuery = z.input<typeof ExportWorkshopSessionQuerySchema>;
+
+export const ReplaceWorkshopMessageResultSchema = z.object({
+  deletedAttachmentIds: z.array(z.string().uuid()).default([]),
+  deletedBranchIds: z.array(z.string().uuid()).default([]),
+  deletedMessageIds: z.array(z.string().uuid()).default([]),
+  message: WorkshopMessageSchema,
+  session: WorkshopSessionSchema,
+});
+export type ReplaceWorkshopMessageResult = z.infer<typeof ReplaceWorkshopMessageResultSchema>;
+
 export const CreateWorkshopMessageProposalInputSchema = CreateProposalInputSchema.omit({
   contextBundleId: true,
   generator: true,
@@ -257,6 +304,78 @@ export const WorkshopMessageProposalResultSchema = z.object({
 });
 export type WorkshopMessageProposalResult = z.infer<
   typeof WorkshopMessageProposalResultSchema
+>;
+
+export const WorkshopCodexDraftDetailMappingSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+  detailTypeId: z.string().uuid(),
+}).strict();
+export type WorkshopCodexDraftDetailMapping = z.input<
+  typeof WorkshopCodexDraftDetailMappingSchema
+>;
+
+export const WorkshopCodexDraftDetailCreationSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+  name: z.string().trim().min(1).max(120),
+}).strict();
+export type WorkshopCodexDraftDetailCreation = z.input<
+  typeof WorkshopCodexDraftDetailCreationSchema
+>;
+
+export const ExecuteWorkshopCodexCreateEntryToolInputSchema = z.object({
+  confirm: z.literal(true),
+  createMissingDetailTypes: z.boolean().default(false),
+  detailCreations: z.array(WorkshopCodexDraftDetailCreationSchema).default([]),
+  detailMappings: z.array(WorkshopCodexDraftDetailMappingSchema).default([]),
+}).strict();
+export type ExecuteWorkshopCodexCreateEntryToolInput = z.input<
+  typeof ExecuteWorkshopCodexCreateEntryToolInputSchema
+>;
+
+export const ExecuteWorkshopCodexUpdateEntryToolInputSchema = ExecuteWorkshopCodexCreateEntryToolInputSchema;
+export type ExecuteWorkshopCodexUpdateEntryToolInput = z.input<
+  typeof ExecuteWorkshopCodexUpdateEntryToolInputSchema
+>;
+
+export const WorkshopCodexCreateEntryToolResultSchema = z.object({
+  createdDetailTypes: z.array(CodexDetailTypeDocumentSchema).default([]),
+  message: WorkshopMessageSchema,
+  resultMessage: WorkshopMessageSchema,
+  entry: CodexEntryDocumentSchema,
+});
+export type WorkshopCodexCreateEntryToolResult = z.infer<
+  typeof WorkshopCodexCreateEntryToolResultSchema
+>;
+
+export const WorkshopCodexUpdateEntryToolResultSchema = z.object({
+  createdProgressions: z.array(CodexProgressionDocumentSchema).default([]),
+  createdDetailTypes: z.array(CodexDetailTypeDocumentSchema).default([]),
+  deletedProgressions: z.array(DeleteCodexProgressionResultSchema).default([]),
+  message: WorkshopMessageSchema,
+  resultMessage: WorkshopMessageSchema,
+  entry: CodexEntryDocumentSchema,
+  updatedProgressions: z.array(CodexProgressionDocumentSchema).default([]),
+});
+export type WorkshopCodexUpdateEntryToolResult = z.infer<
+  typeof WorkshopCodexUpdateEntryToolResultSchema
+>;
+
+export const WorkshopCodexDraftMissingDetailTypeSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+  valuePreview: z.string().max(240),
+});
+export type WorkshopCodexDraftMissingDetailType = z.infer<
+  typeof WorkshopCodexDraftMissingDetailTypeSchema
+>;
+
+export const WorkshopCodexCreateEntryToolErrorSchema = z.object({
+  code: z.literal("CODEX_DETAIL_TYPE_CREATION_REQUIRED"),
+  message: z.string().min(1).max(4000),
+  missingDetailTypes: z.array(WorkshopCodexDraftMissingDetailTypeSchema),
+  availableDetailTypes: z.array(CodexDetailTypeDocumentSchema),
+});
+export type WorkshopCodexCreateEntryToolError = z.infer<
+  typeof WorkshopCodexCreateEntryToolErrorSchema
 >;
 
 export const DeleteWorkshopMessageResultSchema = z.object({
@@ -322,6 +441,7 @@ export type RunWorkshopCallInput = z.input<typeof RunWorkshopCallInputSchema>;
 export const WorkshopCallResultSchema = z.object({
   authorMessage: WorkshopMessageSchema,
   assistantMessage: WorkshopMessageSchema,
+  toolMessages: z.array(WorkshopMessageSchema).default([]),
   contextBundleId: z.string().uuid(),
   modelCallId: z.string().uuid(),
   status: WorkshopMessageStatusSchema,
@@ -330,6 +450,13 @@ export const WorkshopCallResultSchema = z.object({
   actualUsage: TokenUsageSchema.nullable().default(null),
 });
 export type WorkshopCallResult = z.infer<typeof WorkshopCallResultSchema>;
+
+export const ResendWorkshopMessageResultSchema = WorkshopCallResultSchema.extend({
+  deletedAttachmentIds: z.array(z.string().uuid()).default([]),
+  deletedBranchIds: z.array(z.string().uuid()).default([]),
+  deletedMessageIds: z.array(z.string().uuid()).default([]),
+});
+export type ResendWorkshopMessageResult = z.infer<typeof ResendWorkshopMessageResultSchema>;
 
 export const WorkshopCallStreamEventSchema = z.discriminatedUnion("type", [
   z.object({

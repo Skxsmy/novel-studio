@@ -84,7 +84,9 @@
 - 默认不开启，用户配置本地或云端 Embedding 后启用。
 - 本地模型以可选下载形式提供，不把大型模型捆进基础安装包。
 - 云端 Embedding 必须遵守作品和资料源权限。
-- Embedding 记录模型、维度、版本和 Chunk 哈希；任一变化触发对应重建。
+- Embedding 通过全局 `EmbeddingModelProfile` 调用，不复用生成模型 `ModelProfile` 的 prompt/角色配置。资料库语义检索可以绑定自己的 profile，不得阻塞 Codex schema planner、上下文检索或其它 embedding use case。
+- Embedding 记录 profile、模型、维度、归一化策略、版本和 Chunk 哈希；任一变化触发对应重建。
+- 向量索引是可重建数据，不是资料来源。删除向量索引后必须能从 SourceDocument/Chunk 权威记录重新生成。
 
 ### 混合排序
 

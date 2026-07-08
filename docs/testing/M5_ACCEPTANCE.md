@@ -1,6 +1,6 @@
 # M5 Acceptance Record
 
-Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings, message-attachment, context-delivery, UI-interaction, provider-reasoning, chat-layout, session-lifecycle, streaming-session-switch, and Review diff-workspace repairs; M5.6 next; user visual acceptance pending
+Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings, message-attachment, context-delivery, UI-interaction, provider-reasoning, chat-layout, session-lifecycle, streaming-session-switch, session-export, and Review diff-workspace repairs; M5.6 next; user visual acceptance pending
 Created: 2026-06-30  
 Task: `docs/tasks/M5.md`
 
@@ -33,12 +33,12 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5-A15 | passed | Review accept/reject/edit/stale actions call real APIs and update state. Review displays all patches before accepting, focuses the main path on before/after diff review, and keeps batch/impact dashboard controls out of the main review surface. Covered by web/API tests and source review. |
 | M5-A16 | passed | Review main path hides engineering audit fields while keeping details reachable. Covered by web tests and source review. |
 | M5-A17 | function passed; visual pending | Review implementation was reset to the Figma-aligned pending queue plus before/after workspace direction and checked by component/source review plus web tests. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
-| M5-A18 | passed | Workshop sessions, messages, branches, and message attachments persist as schema-versioned JSON and reload after restart. Branch copies source message history through the branch point plus attachment snapshots into the new session instead of opening an empty chat. Unlinked messages can be deleted through storage/API/UI, while Proposal-linked messages remain protected. Whole Workshop sessions can now be permanently deleted through the session route/UI when no message is Proposal-linked; deletion cascades messages, attachments, context baskets, and branch records, and blocks Proposal-linked sessions. Draft attachment reload/delete, message binding, branch cloning, message-delete cascade, and session-delete cascade/blocking are covered by storage/server/web tests. |
+| M5-A18 | passed | Workshop sessions, messages, branches, and message attachments persist as schema-versioned JSON and reload after restart. Branch copies source message history through the branch point plus attachment snapshots into the new session instead of opening an empty chat. Unlinked messages can be deleted through storage/API/UI, while Proposal-linked messages remain protected. General Chat author-message resend updates the selected durable author message, truncates later unprotected General Chat history, deletes later message-bound attachments, and clears deleted-message branch records/pointers; Agent sessions and protected later records are rejected. Whole Workshop sessions can now be permanently deleted through the session route/UI when no message is Proposal-linked; deletion cascades messages, attachments, context baskets, and branch records, and blocks Proposal-linked sessions. Draft attachment reload/delete, message binding, branch cloning, message-delete cascade, resend truncation, and session-delete cascade/blocking are covered by storage/server/web tests. |
 | M5-A19 | passed | Workshop selected context can add/remove/toggle allowed references through the compact composer menu, including full novel text, full outline, act, chapter, multiple scenes, direct Codex entries, and Codex grouped by type/detail/category. The internal storage object is still `WorkshopContextBasket`; the visible right-side basket panel has been removed. Covered by storage/server/web tests. |
 | M5-A20 | passed | Context assembly shows included/excluded items and respects permissions, future-story isolation, auto-linked Codex policy, per-detail Send to AI switches, parsed `message-attachment` ContextBundle snapshots, and prior same-session `workshop-chat-history`. Attachments do not create SourceDocuments or retrieval index records. Covered by contract/server/storage tests and source review. |
-| M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog from IDs rather than raw files, and provider request bodies receive ContextBundle item text. Workshop can choose a library-global model setting and send a provider model override for that call. Call input accepts `attachmentIds` plus `draftToken`, rejects raw file content, and rejects invalid attachment references. Codex Creation is accepted as a Workshop mode, uses the researcher/research call path, dynamically loads Codex workflow/interface guidance only for that mode, includes an explicit boundary map for context selection, attachments, mention detection, detail Send to AI, scene-content Proposals, Review, entries, categories, detail types, relations, progressions, knowledge, and world facts, and is blocked from the generic scene-content Proposal action. Covered by contract/server/AI-provider/web tests. |
+| M5-A21 | passed | Single-role Workshop call creates ContextBundle and ModelCallLog from IDs rather than raw files, and provider request bodies receive ContextBundle item text. Workshop can choose a library-global model setting and send a provider model override for that call. Call input accepts `attachmentIds` plus `draftToken`, rejects raw file content, and rejects invalid attachment references. General Chat resend creates a new ContextBundle and ModelCallLog from the revised author message/history after truncating old forward history. Session export defaults to readable chat history without saved reasoning or prompt/context audit, reconstructs provider prompt/context records from persisted ContextBundle and ModelCallLog links only when `includePromptAudit=true`, includes saved reasoning only when `includeReasoning=true`, and omits extracted attachment body text while retaining attachment records. Workshop sessions are now created as fixed `chat` or `agent` conversations. Agent calls use a server-side structured-step protocol: raw provider output is buffered, fake `Tool Call` text is suppressed from streaming, and only a valid structured Agent step can create a server-owned `role: tool` request message. The limited `codex.create_entry` execution route accepts only structured JSON tool request messages from Agent sessions; plain assistant prose, fake `Tool Call` text, and plain `Codex Draft` text cannot execute. Detail-type matching still uses stable IDs or exact normalized names; unmatched draft labels first return `CODEX_DETAIL_TYPE_CREATION_REQUIRED` without writing entries, and a second confirmed request creates the missing detail types before writing the entry. This does not complete existing-entry update, relation, progression, knowledge, or general Tool Plan behavior. Covered by contract/server/storage/web tests and source review. |
 | M5-A22 | passed | Model failure preserves the input, parsed attachments, bound author message, and context, then appends a failed assistant message instead of creating an empty Proposal. Covered by server/web tests and the storage binding invariants. |
-| M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Mode, model setting, provider model override, system prompt, streaming, and reasoning-display controls are centralized in one settings dialog; Codex Creation is selectable there as a scoped Codex drafting mode and does not expose Create Proposal; reasoning is distinct and collapsible; Enter sends and Ctrl+Enter inserts a newline. The composer has one attachment icon, removable parse-state chips, send blocking for parsing/failed chips, and attachment names on sent user messages. New sessions use a neutral title, empty chats auto-name from the first request or attachment file names after sending starts, and authors can double-click session titles to persist manual renames. In-flight streamed replies stay attached to the session that started the call when authors switch sessions and return before completion. Permanent session delete is tucked behind a compact session actions menu rather than added as another primary session-list button. The 2026-07-03 chat-layout repair makes messages one broad readable column instead of left/right narrow bubbles, with readable body/reasoning typography. Covered by web tests and source review. |
+| M5-A23 | passed | Workshop message UI remains author-facing and does not expose main-path audit fields. Mode/model controls remain centralized, while conversation kind is fixed at session creation through the Add-session menu (`Chat` or `Agent`) instead of a mutable mode selector. General Chat still exposes the editable system prompt and no Proposal/write actions. Successful General Chat author messages in chat sessions expose Edit/Resend controls; resending shows the revised author message and new assistant reply while removing old forward history and old attachment chips. Agent sessions do not show Edit/Resend controls in this slice. Session export is exposed as one session-level control with separate `Include reasoning` and `Include prompt audit` checkboxes, not as per-message actions. The downloaded Markdown defaults to visible chat history, can include saved reasoning only when the reasoning checkbox is enabled, and can include provider prompt/context audit only when the prompt-audit checkbox is enabled; attachment body text is omitted and represented only by attachment records. Exported Markdown includes UTF-8 BOM handling so local Windows tools do not show mojibake. Agent tool confirmation appears only for server-owned `role: tool` JSON messages such as `codex.create_entry`; it is not rendered under every assistant reply and is not triggered by scanning assistant prose. If draft Details do not match existing reusable detail types, the UI shows a confirmation surface listing the missing detail types that will be created and sends `createMissingDetailTypes: true` only after the author confirms. Reasoning is distinct and collapsible; Enter sends and Ctrl+Enter inserts a newline. The composer has one attachment icon, removable parse-state chips, send blocking for parsing/failed chips, and attachment names on sent user messages. New sessions use a neutral title, empty chats auto-name from the first request or attachment file names after sending starts, and authors can double-click session titles to persist manual renames. In-flight streamed replies stay attached to the session that started the call when authors switch sessions and return before completion. Permanent session delete is tucked behind a compact session actions menu rather than added as another primary session-list button. The 2026-07-03 chat-layout repair makes messages one broad readable column instead of left/right narrow bubbles, with readable body/reasoning typography. Covered by web tests and source review. |
 | M5-A24 | function passed; visual pending | Workshop implementation must be checked against the Figma structure checklist. The 2026-07-03 chat-layout repair could not use the previously recorded Figma Workshop node because `12:2` was unavailable and the Figma file exposed only `00 Cover`; this is recorded as a Figma evidence gap, not visual acceptance. Agent-owned screenshot acceptance is prohibited; user visual acceptance remains pending. |
 | M5-A25 | passed | Workshop message output can create a Proposal linked to that exact source message. Proposal creation and message `proposalIds` update are written transactionally. Covered by storage/server/web tests. |
 | M5-A26 | passed | Proposal cards deep-link to exact Review Proposal Detail by Proposal ID. Covered by web tests. |
@@ -413,6 +413,98 @@ The Review diff-workspace repair closed these Review UI gaps:
 - `Mark Stale` is exposed only for recoverable unavailable source/target states; ordinary valid Proposals show Reject, Edit and Accept, and Accept.
 - Workshop-to-Review source-message return remains available from the source/evidence details when the source message is available.
 - No agent-owned screenshot acceptance was run or claimed; user visual acceptance remains separate.
+
+Focused command results during the 2026-07-07 Workshop Agent `codex.create_entry` protocol repair:
+
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run test -w @novel-studio/contracts -- test/workshop.test.ts`: passed, 1 file / 9 tests.
+- `npm.cmd run build -w @novel-studio/storage`: passed.
+- `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts`: passed, 1 file / 11 tests.
+- `npm.cmd run build -w @novel-studio/server`: passed.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts`: passed, 1 file / 17 tests.
+- `npm.cmd run build -w @novel-studio/web`: passed.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: passed, 1 file / 62 tests.
+
+The Agent `codex.create_entry` protocol repair closed these gaps:
+
+- Workshop no longer treats Codex creation as a mutable chat mode. New Workshop sessions are created as fixed `chat` or `agent` conversations.
+- Agent provider output is parsed as a structured step. Raw simulated `Tool Call` text is suppressed from streaming and does not create a tool request.
+- A valid structured Agent step creates a server-owned `role: tool` JSON message for `codex.create_entry`; the frontend confirmation card appears only for that tool message.
+- The execute route accepts only structured JSON tool requests from Agent sessions. Plain `Codex Draft` text and fake `Tool Call` text cannot execute.
+- Draft Details are written only through stable reusable detail type IDs. Existing detail types are matched by stable ID or exact normalized type name; unmatched draft labels are not persisted as free keys.
+- Unmatched draft detail labels first return `CODEX_DETAIL_TYPE_CREATION_REQUIRED` and do not write an entry. After explicit confirmation, the server creates the missing detail types and then writes the entry with those new IDs.
+- This is not full M5.6 Tool Plan/Grant behavior and does not implement existing-entry update, relation, progression, knowledge, or world-fact writes from Workshop.
+
+Focused command results during the 2026-07-07 Workshop General Chat edit/resend repair:
+
+- `npm.cmd run test -w @novel-studio/contracts -- test/workshop.test.ts`: passed, 1 file / 10 tests.
+- `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts`: passed, 1 file / 13 tests.
+- `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts`: passed, 1 file / 18 tests.
+- `npm.cmd run test -w @novel-studio/web -- src/app/AppShell.test.tsx`: passed, 1 file / 63 tests.
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run build -w @novel-studio/storage`: passed.
+- `npm.cmd run build -w @novel-studio/server`: passed.
+- `npm.cmd run build -w @novel-studio/web`: passed.
+
+The General Chat edit/resend repair closed these gaps:
+
+- Resend is limited to active `chat` sessions and successful `author` / `general-chat` messages.
+- The storage/API path replaces the selected author message, deletes later unprotected General Chat history, deletes later message-bound attachments, and clears branch records/pointers that depended on deleted messages.
+- Protected later records and Agent sessions are rejected instead of being handed to the author as a manual repair problem.
+- The frontend exposes Edit/Resend only on General Chat author messages and removes old forward history/attachment chips after the resend result arrives.
+
+Focused command results during the 2026-07-07 Workshop session export repair:
+
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run test -w @novel-studio/contracts -- test/workshop.test.ts`: passed, 1 file / 11 tests.
+- `npm.cmd run test -w @novel-studio/server -- workshop-routes`: passed, 1 file / 19 tests.
+- `npm.cmd run test -w @novel-studio/web -- AppShell`: passed, 1 file / 64 tests.
+- `npm.cmd run build -w @novel-studio/server`: passed.
+- `npm.cmd run build -w @novel-studio/web`: passed.
+- `git diff --check`: passed with Windows line-ending warnings only.
+
+The Workshop session export repair closed these gaps:
+
+- The session sidebar exposes one session-level Export action with explicit Include reasoning and Include prompt audit checkboxes, not per-message actions.
+- The server export route returns Markdown from persisted session, message, attachment, ContextBundle, and ModelCallLog records while filtering to the requested session.
+- Default export excludes saved reasoning and prompt/context audit; `includeReasoning=true` includes saved provider reasoning blocks, and `includePromptAudit=true` includes reconstructed provider prompt/context records where durable context links exist.
+- Export emits UTF-8 portable Markdown, does not fabricate tool calls or hidden prompts, and omits attachment body text while attachment file records remain.
+
+Focused command results during the 2026-07-08 shared embedding infrastructure foundation:
+
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run test -w @novel-studio/contracts -- ai.test.ts`: passed, 1 file / 3 tests.
+- `npm.cmd run build -w @novel-studio/ai`: passed.
+- `npm.cmd run test -w @novel-studio/ai -- embeddings.test.ts`: passed, 1 file / 6 tests.
+- `npm.cmd run build -w @novel-studio/storage`: passed.
+- `npm.cmd run test -w @novel-studio/storage -- ai-files.test.ts`: passed, 1 file / 2 tests.
+
+The shared embedding foundation closed these infrastructure gaps:
+
+- `EmbeddingModelProfile` is a separate contract from generation `ModelProfile`, with provider, endpoint, model, dimensions, batching, profile-level concurrency, normalization, license, and credential-reference metadata.
+- `@novel-studio/ai` now exposes an `EmbeddingRouter` that routes by use case or explicit profile ID, batches inputs, enforces profile-level concurrency, and allows different use cases to run different embedding models concurrently.
+- The first default profile helper targets a local `BAAI/bge-small-zh-v1.5` HTTP service; it does not download model weights, create a vector index, or silently fall back to cloud embedding.
+- Storage can persist library-global embedding profiles under `.studio/embedding-profiles/`, separate from existing generation model profiles.
+- This is not M6 Reference Library semantic search, not a Settings UI, and not M5.6 Tool Plan/Grant execution.
+
+Focused command results during the 2026-07-08 Workshop Agent authorization and `codex.update_entry` progression repair:
+
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run test -w @novel-studio/contracts -- workshop.test.ts`: passed, 1 file / 11 tests.
+- `npm.cmd run build -w @novel-studio/server`: passed.
+- `npm.cmd run test -w @novel-studio/server -- workshop-routes.test.ts`: passed, 1 file / 21 tests.
+- `npm.cmd run build -w @novel-studio/web`: passed.
+- `npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx`: passed, 1 file / 64 tests.
+- `git diff --check`: passed with Windows line-ending warnings only.
+
+The Agent authorization and `codex.update_entry` progression repair closed these gaps:
+
+- Explicit author authorization in an Agent conversation is now treated as sufficient source basis for drafting/calling the limited Codex tools; the model is no longer allowed to end the turn with a pure evidence-refusal when the user has already authorized the operation.
+- Server-side Agent call handling retries the authorized evidence-refusal pattern before saving the final Agent response, including the streaming path where raw Agent output is already suppressed.
+- The Agent prompt protocol now includes `codex.update_entry` with `patch.progressions`, instead of treating update/progression work as general prose.
+- `codex.update_entry` tool execution can update one existing Codex entry and can create, update, or delete unified Codex Progression records through the same validated repository commands used by the normal Codex API.
+- The frontend confirmation card now detects both `codex.create_entry` and `codex.update_entry` server-owned tool messages and executes the correct route; it no longer depends on create-only helper names.
+- This remains below M5.6 Tool Plan/Grant scope and does not implement relation, category, character knowledge, broad world mutation, or broad Write adapters.
 
 ## M5.0 Startup Protection Mapping
 

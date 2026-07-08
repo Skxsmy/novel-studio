@@ -5,6 +5,100 @@
   min-height: 640px;
 }
 
+.workshop-status-message {
+  border: 1px solid rgba(31, 122, 88, 0.28);
+  border-radius: var(--radius);
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 13px;
+}
+
+.workshop-tool-call {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(58, 105, 210, 0.24);
+  border-radius: 6px;
+  margin-top: 10px;
+  padding: 10px;
+  background: #f3f6fd;
+}
+
+.workshop-tool-call > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workshop-tool-call strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.workshop-tool-call span {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workshop-codex-resolution {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(167, 126, 61, 0.36);
+  border-radius: 6px;
+  margin: 0;
+  padding: 12px;
+  background: #fff8e8;
+}
+
+.workshop-codex-resolution p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.workshop-codex-resolution-list {
+  display: grid;
+  gap: 8px;
+}
+
+.workshop-codex-resolution-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+  gap: 10px;
+  align-items: center;
+}
+
+.workshop-codex-resolution-row > span:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workshop-codex-resolution-row small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workshop-codex-resolution-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .workshop-grid > .panel {
   min-height: 0;
   overflow: hidden;
@@ -116,6 +210,66 @@
   gap: 8px;
 }
 
+.workshop-session-create {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.workshop-sessions > .panel-head {
+  position: relative;
+  z-index: 10;
+  overflow: visible;
+}
+
+.workshop-session-create-trigger {
+  min-width: 64px;
+}
+
+.workshop-session-create-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 4px;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 12px 26px rgba(31, 38, 47, 0.16);
+}
+
+.workshop-session-create-menu button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.workshop-session-create-menu button:hover {
+  background: #f4f6f1;
+}
+
+.workshop-session-create-menu span {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.workshop-session-create-menu small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 15px;
+}
+
 .workshop-session-actions {
   position: relative;
 }
@@ -157,6 +311,37 @@
 
 .workshop-session-action-menu button.danger {
   color: #9f2727;
+}
+
+.workshop-session-export {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  align-items: stretch;
+}
+
+.workshop-export-toggle {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.workshop-export-toggle input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+.workshop-export-toggle span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workshop-import-thread {
@@ -864,6 +1049,24 @@
   line-height: 22px;
 }
 
+.workshop-message-edit {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.workshop-message-edit-input {
+  min-height: 104px;
+  resize: vertical;
+}
+
+.workshop-message-edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 1180px) {
   .workshop-grid {
     grid-template-columns: minmax(220px, 292px) minmax(0, 1fr);
@@ -898,6 +1101,11 @@
   .workshop-footer-controls {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .workshop-session-export {
+    align-items: stretch;
+    grid-template-columns: 1fr;
   }
 
   .workshop-settings-trigger {

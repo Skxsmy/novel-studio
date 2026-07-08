@@ -287,6 +287,18 @@ Workshop 的 General Chat 属于讨论型单角色调用。它必须满足：
 
 Windows 使用凭据管理器。作品文件只保存连接配置 ID，不保存密钥。错误日志屏蔽 Authorization、API Key、Cookie 和请求正文。
 
+### 7.3 Embedding 调用
+
+Embedding 是跨功能基础设施，不属于某一个 Agent、资料库或 Codex 工具的私有实现。系统必须提供独立于生成模型 `ModelProfile` 的 `EmbeddingModelProfile`，用于记录 Provider、服务地址、endpoint、模型名、维度、输入上限、批量大小、并发批次数、是否归一化、是否支持自定义维度、凭据引用和模型许可证。
+
+Embedding 调用按 use case 路由，例如 Codex detail schema 规划、资料库语义检索、上下文检索和未来 M6 向量索引重建可以绑定到不同 profile。缺少显式绑定时只能使用已注册默认 profile，不能静默切换到其它模型或云端服务。
+
+Embedding router 必须支持并发。并发限制是 profile 级的：同一 profile 受自己的批处理并发限制约束，不同 use case 若绑定到不同 profile，必须能同时运行，避免 M6 索引重建阻塞 Codex schema planner 或其它轻量功能。
+
+首选默认本地模型为 `BAAI/bge-small-zh-v1.5`，通过本地 HTTP embedding 服务调用；应用不把模型权重捆进基础安装包，也不自动下载。云端 embedding 和用户自定义 embedding 模型只能通过显式 profile、凭据引用和权限检查接入。
+
+向量索引记录必须保存模型、维度、profile、文本哈希和来源 revision。模型、维度、归一化策略或 Chunk 哈希变化时，对应向量索引必须可重建；语义相似度结果不得被描述为原文证据。
+
 ## 8. 风格档案
 
 - 用户提供自己的样文或已确认正文。

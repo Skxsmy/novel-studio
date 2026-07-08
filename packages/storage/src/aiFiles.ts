@@ -4,12 +4,14 @@ import type Database from "better-sqlite3";
 import {
   AgentRoleSchema,
   ContextBundleSchema,
+  EmbeddingModelProfileSchema,
   ModelCallLogSchema,
   ModelProfileSchema,
   PromptPresetSchema,
   PromptTemplateSchema,
   type AgentRole,
   type ContextBundle,
+  type EmbeddingModelProfile,
   type ModelCallLog,
   type ModelProfile,
   type PromptPreset,
@@ -21,6 +23,7 @@ import { readJsonAuthorityFile, writeJsonAuthorityFile } from "./jsonAuthority.j
 
 const STUDIO_DIR = ".studio";
 const MODEL_PROFILES_DIR = "model-profiles";
+const EMBEDDING_PROFILES_DIR = "embedding-profiles";
 const CONTEXT_BUNDLES_DIR = "context-bundles";
 const MODEL_CALLS_DIR = "model-calls";
 const PROMPTS_DIR = "prompts";
@@ -103,6 +106,10 @@ function modelProfilesRoot(libraryRoot: string): string {
   return assertInside(libraryRoot, path.join(libraryRoot, STUDIO_DIR, MODEL_PROFILES_DIR));
 }
 
+function embeddingProfilesRoot(libraryRoot: string): string {
+  return assertInside(libraryRoot, path.join(libraryRoot, STUDIO_DIR, EMBEDDING_PROFILES_DIR));
+}
+
 function contextBundlesRoot(seriesRoot: string): string {
   return assertInside(seriesRoot, path.join(seriesRoot, STUDIO_DIR, CONTEXT_BUNDLES_DIR));
 }
@@ -125,6 +132,10 @@ function promptPresetsRoot(seriesRoot: string): string {
 
 function modelProfilePath(libraryRoot: string, profileId: string): string {
   return assertInside(libraryRoot, path.join(modelProfilesRoot(libraryRoot), `${profileId}.json`));
+}
+
+function embeddingProfilePath(libraryRoot: string, profileId: string): string {
+  return assertInside(libraryRoot, path.join(embeddingProfilesRoot(libraryRoot), `${profileId}.json`));
 }
 
 function contextBundlePath(seriesRoot: string, contextBundleId: string): string {
@@ -210,6 +221,37 @@ export async function listModelProfiles(libraryRoot: string): Promise<ModelProfi
   const profiles: ModelProfile[] = [];
   for (const filePath of files) {
     const profile = await readJson(filePath, (value) => ModelProfileSchema.parse(value));
+    assertFileNameMatches(filePath, profile.id);
+    profiles.push(profile);
+  }
+  return profiles.sort((left, right) => left.title.localeCompare(right.title, "zh-CN"));
+}
+
+export async function saveEmbeddingModelProfile(
+  libraryRoot: string,
+  rawProfile: EmbeddingModelProfile,
+): Promise<EmbeddingModelProfile> {
+  const profile = EmbeddingModelProfileSchema.parse(rawProfile);
+  await mkdir(embeddingProfilesRoot(libraryRoot), { recursive: true });
+  return writeJson(embeddingProfilePath(libraryRoot, profile.id), profile, (value) =>
+    EmbeddingModelProfileSchema.parse(value),
+  );
+}
+
+export async function getEmbeddingModelProfile(
+  libraryRoot: string,
+  profileId: string,
+): Promise<EmbeddingModelProfile> {
+  return readJson(embeddingProfilePath(libraryRoot, profileId), (value) =>
+    EmbeddingModelProfileSchema.parse(value),
+  );
+}
+
+export async function listEmbeddingModelProfiles(libraryRoot: string): Promise<EmbeddingModelProfile[]> {
+  const files = await listJsonFiles(embeddingProfilesRoot(libraryRoot));
+  const profiles: EmbeddingModelProfile[] = [];
+  for (const filePath of files) {
+    const profile = await readJson(filePath, (value) => EmbeddingModelProfileSchema.parse(value));
     assertFileNameMatches(filePath, profile.id);
     profiles.push(profile);
   }
