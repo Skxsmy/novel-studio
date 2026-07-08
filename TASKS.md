@@ -7,7 +7,7 @@ This index keeps the original milestone/task history translated from the earlier
 ## Current Active Work
 
 - [x] `NS-410` Block Write Editor and Unified Codex Progression. Command-verified through post-Slice 11 audit repair; user visual acceptance remains separate.
-- [-] `M5` Workshop, Proposal, and Review. `M5.1-M5.5` plus post-M5.5 audit repair are command/function verified on 2026-07-01. The 2026-07-02 Workshop context-selector repair, Codex detail `Send to AI` audit, 2026-07-03 Workshop General Chat/settings/message-attachment/context-delivery/UI-interaction/provider-reasoning/chat-layout/session-naming/branch-history/streaming-session-switch/permanent-session-delete and Review diff-workspace repairs, the 2026-07-07 Workshop Agent `codex.create_entry` protocol repair, the 2026-07-07 Workshop General Chat edit/resend repair, the 2026-07-07 Workshop session export repair, and the 2026-07-08 Agent authorization / `codex.update_entry` progression repair are command/function verified. Session export is scoped to one requested session, defaults to readable chat history, can include saved reasoning and prompt audit only by separate explicit options, writes UTF-8 portable Markdown, and exports attachment records without extracted attachment body text. Next slice: `M5.6` Tool Plan, Grant, And Command Adapter. User visual acceptance remains pending, and agent-owned screenshot acceptance is prohibited.
+- [-] `M5` Workshop, Proposal, and Review. `M5.1-M5.5` plus post-M5.5 audit repair are command/function verified on 2026-07-01. The 2026-07-02 Workshop context-selector repair, Codex detail `Send to AI` audit, 2026-07-03 Workshop General Chat/settings/message-attachment/context-delivery/UI-interaction/provider-reasoning/chat-layout/session-naming/branch-history/streaming-session-switch/permanent-session-delete and Review diff-workspace repairs, the 2026-07-07 Workshop Agent `codex.create_entry` protocol repair, the 2026-07-07 Workshop General Chat edit/resend repair, the 2026-07-07 Workshop session export repair, and the 2026-07-08 Agent authorization / `codex.update_entry` progression repair are command/function verified. The 2026-07-08 Workshop current-function map and functional audit are recorded in `docs/design/ui-redesign/M5_WORKSHOP_CURRENT_FUNCTION_AND_UI_MAP.md` and `docs/testing/M5_WORKSHOP_FUNCTIONAL_AUDIT.md`; these are audit records, not defect repairs. Session export is scoped to one requested session, defaults to readable chat history, can include saved reasoning and prompt audit only by separate explicit options, writes UTF-8 portable Markdown, and exports attachment records without extracted attachment body text. Next slice: `M5.6` Tool Plan, Grant, And Command Adapter. User visual acceptance remains pending, and agent-owned screenshot acceptance is prohibited.
 - [x] `PROJECT-RECOVERY` Project-level recovery roadmap. Accepted for the current stage by user decision on 2026-06-30; future Workshop/Proposal/Review work belongs to M5.
 
 Current decision:
@@ -21,6 +21,8 @@ Current decision:
 - Current source files:
   - `docs/tasks/M5.md`
   - `docs/testing/M5_ACCEPTANCE.md`
+  - `docs/design/ui-redesign/M5_WORKSHOP_CURRENT_FUNCTION_AND_UI_MAP.md`
+  - `docs/testing/M5_WORKSHOP_FUNCTIONAL_AUDIT.md`
   - `docs/design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`
   - `docs/design/ui-redesign/M5_FIGMA_UI_REVIEW.md`
   - `docs/design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`

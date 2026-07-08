@@ -506,6 +506,12 @@ The Agent authorization and `codex.update_entry` progression repair closed these
 - The frontend confirmation card now detects both `codex.create_entry` and `codex.update_entry` server-owned tool messages and executes the correct route; it no longer depends on create-only helper names.
 - This remains below M5.6 Tool Plan/Grant scope and does not implement relation, category, character knowledge, broad world mutation, or broad Write adapters.
 
+Focused documentation results during the 2026-07-08 Workshop current-function and functional audit:
+
+- `docs/design/ui-redesign/M5_WORKSHOP_CURRENT_FUNCTION_AND_UI_MAP.md` records the current Workshop UI/control inventory and frontend-backend-storage mapping for future UI redesign.
+- `docs/testing/M5_WORKSHOP_FUNCTIONAL_AUDIT.md` records the current functional defects and test gaps. The highest-risk findings are non-idempotent Agent tool execution, non-atomic composed Codex writes, stale-baseline bypass in `codex.update_entry`, weak Progression target/scene binding, missing embedding-backed detail schema planning, and the fact that the current Agent runner is still a single-step structured parser rather than a durable multi-step tool loop.
+- This audit is documentation only. It does not close the listed defects and does not advance M5.6 Tool Plan/Grant execution or user visual acceptance.
+
 ## M5.0 Startup Protection Mapping
 
 | Protected behavior | Existing or planned verification |
