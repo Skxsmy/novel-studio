@@ -4547,7 +4547,7 @@ describe("App shell", () => {
     expect(screen.queryByRole("button", { name: "Preview Context" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Model selector" })).toBeNull();
     expect(screen.queryByRole("button", { name: "System Prompt" })).toBeNull();
-    fireEvent.click(within(workshopPage).getByRole("button", { name: "Workshop settings" }));
+    fireEvent.click(within(workshopPage).getByRole("button", { name: "Call Settings" }));
     expect(await screen.findByRole("heading", { name: "Workshop settings" })).toBeTruthy();
     expect((screen.getByLabelText("Model setting") as HTMLSelectElement).value).toBe(modelProfileId);
     expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("mock-continuity-v1");
@@ -4568,8 +4568,8 @@ describe("App shell", () => {
 
     const sessionsPanel = screen.getByText("Conversation branches").closest(".panel");
     expect(sessionsPanel).toBeTruthy();
-    fireEvent.click(within(sessionsPanel as HTMLElement).getByRole("button", { name: "Add session" }));
-    fireEvent.click(within(sessionsPanel as HTMLElement).getByRole("menuitem", { name: /Chat/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Add session" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Chat/u }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/v1/series/${seriesId}/workshop/sessions`,
@@ -4583,10 +4583,13 @@ describe("App shell", () => {
     expect(JSON.parse(String((createCall?.[1] as RequestInit | undefined)?.body))).toMatchObject({
       kind: "chat",
     });
-    expect(await screen.findByText("New chat")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getAllByText("New chat").length).toBeGreaterThanOrEqual(1);
+    });
 
-    fireEvent.click(await screen.findByRole("button", { name: "+ Context" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Context" }));
     expect(screen.queryByLabelText("Context source")).toBeNull();
+    fireEvent.click(await screen.findByRole("tab", { name: /^Structure/u }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /^Scenes/u }));
     expect(fetchMock.mock.calls.some(([url, init]) =>
       String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/context-basket` &&
@@ -4833,8 +4836,8 @@ describe("App shell", () => {
     expect(await screen.findByText("Original branch answer.")).toBeTruthy();
 
     const sessionsPanel = screen.getByText("Conversation branches").closest(".panel") as HTMLElement;
-    fireEvent.click(within(sessionsPanel).getByRole("button", { name: "Session actions" }));
-    fireEvent.click(await within(sessionsPanel).findByRole("menuitem", { name: "Branch" }));
+    fireEvent.click(screen.getByRole("button", { name: "Session actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Branch" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/branch`,
@@ -4935,12 +4938,13 @@ describe("App shell", () => {
       expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
       expect(await screen.findByText("Original export request.")).toBeTruthy();
       const sessionsPanel = screen.getByText("Conversation branches").closest(".panel") as HTMLElement;
-      fireEvent.click(within(sessionsPanel).getByRole("button", { name: "Session actions" }));
-      const includeReasoning = within(sessionsPanel).getByLabelText("Include reasoning") as HTMLInputElement;
-      const includePromptAudit = within(sessionsPanel).getByLabelText("Include prompt audit") as HTMLInputElement;
+      expect(within(sessionsPanel).getByText("Export thread")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Session actions" }));
+      const includeReasoning = screen.getByLabelText("Include reasoning") as HTMLInputElement;
+      const includePromptAudit = screen.getByLabelText("Include prompt audit") as HTMLInputElement;
       expect(includeReasoning.checked).toBe(false);
       expect(includePromptAudit.checked).toBe(false);
-      const exportButton = within(sessionsPanel).getByRole("menuitem", { name: "Export" }) as HTMLButtonElement;
+      const exportButton = screen.getByRole("menuitem", { name: "Export" }) as HTMLButtonElement;
       await waitFor(() => {
         expect(exportButton.disabled).toBe(false);
       });
@@ -5099,7 +5103,8 @@ describe("App shell", () => {
     expect(screen.getByText("old-note.md")).toBeTruthy();
 
     const firstArticle = screen.getByText("Original request.").closest("article") as HTMLElement;
-    fireEvent.click(within(firstArticle).getByRole("button", { name: "Edit" }));
+    fireEvent.click(within(firstArticle).getByRole("button", { name: "Message actions" }));
+    fireEvent.click(await within(firstArticle).findByRole("menuitem", { name: "Edit" }));
     fireEvent.change(within(firstArticle).getByLabelText("Edit message"), {
       target: { value: "Updated request." },
     });
@@ -5145,7 +5150,7 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
     expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
     const workshopPage = document.querySelector("#workshop-page") as HTMLElement;
-    fireEvent.click(within(workshopPage).getByRole("button", { name: "Workshop settings" }));
+    fireEvent.click(within(workshopPage).getByRole("button", { name: "Call Settings" }));
     expect(await screen.findByRole("heading", { name: "Workshop settings" })).toBeTruthy();
     expect(screen.queryByLabelText("Mode")).toBeNull();
     expect((screen.getByLabelText("Stream output") as HTMLInputElement).checked).toBe(true);
@@ -5216,15 +5221,19 @@ describe("App shell", () => {
     expect(screen.getByText("draft.md")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
     expect(screen.getByText("Reasoning available")).toBeTruthy();
-    const showReasoning = screen.getByRole("button", { name: "Show Reasoning" });
+    const assistantArticle = screen.getByText("Workshop model response.").closest("article") as HTMLElement;
+    fireEvent.click(within(assistantArticle).getByRole("button", { name: "Message actions" }));
+    const showReasoning = await within(assistantArticle).findByRole("menuitem", { name: "Show Reasoning" });
     expect(showReasoning.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(showReasoning);
     expect(screen.getByText("Checked the selected context before answering.")).toBeTruthy();
-    const hideReasoning = screen.getByRole("button", { name: "Hide Reasoning" });
+    fireEvent.click(within(assistantArticle).getByRole("button", { name: "Message actions" }));
+    const hideReasoning = await within(assistantArticle).findByRole("menuitem", { name: "Hide Reasoning" });
     expect(hideReasoning.getAttribute("aria-expanded")).toBe("true");
     fireEvent.click(hideReasoning);
     expect(screen.queryByText("Checked the selected context before answering.")).toBeNull();
-    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+    fireEvent.click(within(assistantArticle).getByRole("button", { name: "Message actions" }));
+    fireEvent.click(await within(assistantArticle).findByRole("menuitem", { name: "Delete" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/98989898-9898-4898-9898-989898989898`,
@@ -5232,7 +5241,9 @@ describe("App shell", () => {
       );
     });
     expect(screen.queryByText("Workshop model response.")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const authorArticle = screen.getByText("Talk through the current scene options.").closest("article") as HTMLElement;
+    fireEvent.click(within(authorArticle).getByRole("button", { name: "Message actions" }));
+    fireEvent.click(await within(authorArticle).findByRole("menuitem", { name: "Delete" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/97979797-9797-4797-9797-979797979797`,
@@ -5362,8 +5373,8 @@ describe("App shell", () => {
     expect(within(sessionsPanel).getByText("Delete target")).toBeTruthy();
     expect(within(sessionsPanel).queryByRole("menuitem", { name: "Delete permanently" })).toBeNull();
 
-    fireEvent.click(within(sessionsPanel).getByRole("button", { name: "Session actions" }));
-    fireEvent.click(await within(sessionsPanel).findByRole("menuitem", { name: "Delete permanently" }));
+    fireEvent.click(screen.getByRole("button", { name: "Session actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete permanently" }));
 
     await waitFor(() => {
       expect(confirmDelete).toHaveBeenCalledWith(
@@ -5403,7 +5414,7 @@ describe("App shell", () => {
       )).toBe(true);
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "+ Context" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Context" }));
     expect(screen.queryByLabelText("Context source")).toBeNull();
     expect(screen.queryByText("Selected context")).toBeNull();
 
@@ -5413,8 +5424,10 @@ describe("App shell", () => {
     );
     expect(await screen.findByRole("menuitem", { name: /^Full Novel Text/u })).toBeTruthy();
     expect(await screen.findByRole("menuitem", { name: /^Full Outline/u })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("tab", { name: /^Structure/u }));
     expect(await screen.findByRole("menuitem", { name: /^Acts/u })).toBeTruthy();
     expect(await screen.findByRole("menuitem", { name: /^Chapters/u })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("tab", { name: /^Story scope/u }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /^Full Novel Text/u }));
     await waitFor(() => {
       expect(contextBasketPutCalls()).toHaveLength(1);
@@ -5424,6 +5437,7 @@ describe("App shell", () => {
       expect(contextBasketPutCalls()).toHaveLength(2);
     });
 
+    fireEvent.click(await screen.findByRole("tab", { name: /^Structure/u }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /^Acts/u }));
     expect(contextBasketPutCalls()).toHaveLength(2);
     fireEvent.click(await screen.findByRole("menuitem", { name: /Chapter One/u }));
@@ -5455,6 +5469,7 @@ describe("App shell", () => {
     ]));
 
     fireEvent.click(screen.getByRole("button", { name: /Scenes/u }));
+    fireEvent.click(await screen.findByRole("tab", { name: /^Codex/u }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /^Codex Entries/u }));
     expect(contextBasketPutCalls()).toHaveLength(5);
     expect(await screen.findByRole("menuitem", { name: /Mara Quill/u })).toBeTruthy();

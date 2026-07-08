@@ -1,4 +1,4 @@
-import { type ChangeEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CodexCategoryDocument,
   CodexDetailTypeDocument,
@@ -43,6 +43,8 @@ type ContextMenuView =
   | { kind: "entryDetailEntries"; detailTypeId: string; label: string }
   | { kind: "entryCategories" }
   | { kind: "entryCategoryEntries"; categoryId: string; label: string };
+
+type ContextRootTab = "story" | "scenes" | "codex" | "files";
 
 type ComposerAttachment = Omit<WorkshopMessageAttachment, "parseStatus"> & {
   parseStatus: WorkshopMessageAttachment["parseStatus"] | "parsing";
@@ -338,6 +340,7 @@ export function WorkshopWorkspace({
   const [basket, setBasket] = useState<WorkshopContextBasket | null>(null);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const [contextMenuView, setContextMenuView] = useState<ContextMenuView>({ kind: "root" });
+  const [contextRootTab, setContextRootTab] = useState<ContextRootTab>("story");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSessionCreateOpen, setIsSessionCreateOpen] = useState(false);
   const [isSessionActionsOpen, setIsSessionActionsOpen] = useState(false);
@@ -366,6 +369,7 @@ export function WorkshopWorkspace({
   const [isExportingSession, setIsExportingSession] = useState(false);
   const [includeReasoningInExport, setIncludeReasoningInExport] = useState(false);
   const [includePromptAuditInExport, setIncludePromptAuditInExport] = useState(false);
+  const [openMessageMenuId, setOpenMessageMenuId] = useState<string | null>(null);
   const [reasoningOverrideIds, setReasoningOverrideIds] = useState<Set<string>>(() => new Set());
   const [useStreamingResponses, setUseStreamingResponses] = useState(true);
   const [showReasoningByDefault, setShowReasoningByDefault] = useState(false);
@@ -556,6 +560,14 @@ export function WorkshopWorkspace({
     basket?.selection ||
     contextItems.length > 0,
   );
+  const contextRootTabCounts = useMemo(() => ({
+    codex: contextItems.filter((item) => item.kind === "codex-entry").length,
+    files: draftAttachments.length,
+    scenes: contextItems.filter((item) =>
+      item.kind === "act" || item.kind === "chapter" || item.kind === "scene",
+    ).length + (basket?.sceneId ? 1 : 0),
+    story: contextItems.filter((item) => item.kind === "full-novel" || item.kind === "full-outline").length,
+  }), [basket?.sceneId, contextItems, draftAttachments.length]);
   const hasBlockedDraftAttachment = draftAttachments.some((attachment) => attachment.parseStatus !== "parsed");
   const hasComposerText = composer.trim().length > 0;
   const hasParsedDraftAttachment = draftAttachments.some((attachment) => attachment.parseStatus === "parsed");
@@ -579,6 +591,8 @@ export function WorkshopWorkspace({
     setActiveSessionId(sessionId);
     setIsSessionCreateOpen(false);
     setIsSessionActionsOpen(false);
+    setIsContextMenuOpen(false);
+    setOpenMessageMenuId(null);
   }
 
   function mergeMessagesById(
@@ -1116,6 +1130,7 @@ export function WorkshopWorkspace({
   }
 
   function toggleContextMenu() {
+    setOpenMessageMenuId(null);
     setIsContextMenuOpen((current) => {
       const next = !current;
       if (next) setContextMenuView({ kind: "root" });
@@ -1789,6 +1804,165 @@ export function WorkshopWorkspace({
     );
   }
 
+  function renderContextRootTabButton(tab: ContextRootTab, label: string, count: number) {
+    const isActive = contextRootTab === tab;
+    return (
+      <button
+        aria-selected={isActive}
+        className={`workshop-context-tab${isActive ? " is-active" : ""}`}
+        onClick={() => setContextRootTab(tab)}
+        role="tab"
+        type="button"
+      >
+        <span>{label}</span>
+        <strong>{count}</strong>
+      </button>
+    );
+  }
+
+  function renderContextPane(
+    title: string,
+    count: number,
+    children: ReactNode,
+  ) {
+    return (
+      <section
+        aria-label={title}
+        className="workshop-context-pane"
+        role="tabpanel"
+      >
+        <div className="workshop-context-pane-head">
+          <div>
+            <strong>{title}</strong>
+            <span>{text.labels.contextSelectedCount(count)}</span>
+          </div>
+          <button
+            className="workshop-menu-clear"
+            disabled={!hasSelectedContext}
+            onClick={() => void clearContextFromMenu()}
+            role="menuitem"
+            type="button"
+          >
+            <span aria-hidden="true">x</span>
+            {text.contextMenu.clear}
+          </button>
+        </div>
+        <div className="workshop-context-options">
+          {children}
+        </div>
+      </section>
+    );
+  }
+
+  function renderDraftAttachmentRows() {
+    if (draftAttachments.length === 0) {
+      return <p className="workshop-menu-empty">{text.labels.noDraftAttachments}</p>;
+    }
+    return draftAttachments.map((attachment) => {
+      const status = attachmentStatusLabel(attachment.parseStatus, text);
+      const chipClass = attachment.parseStatus === "parsed"
+        ? "pill green"
+        : attachment.parseStatus === "parsing"
+          ? "pill blue"
+          : "pill amber";
+      return (
+        <div className="workshop-context-file-row" key={attachment.id}>
+          <span>
+            <strong>{attachment.fileName}</strong>
+            {attachment.parseError ? <small>{attachment.parseError}</small> : null}
+          </span>
+          <span className={chipClass}>{status}</span>
+        </div>
+      );
+    });
+  }
+
+  function renderContextRootPanel() {
+    if (contextRootTab === "scenes") {
+      return renderContextPane(text.contextMenu.structureScope, contextRootTabCounts.scenes, (
+        <>
+          {renderMenuBranch(
+            text.contextMenu.acts,
+            () => setContextMenuView({ kind: "acts" }),
+            { count: series.acts.length, disabled: series.acts.length === 0 },
+          )}
+          {renderMenuBranch(
+            text.contextMenu.chapters,
+            () => setContextMenuView({ kind: "chapters" }),
+            { count: series.chapters.length, disabled: series.chapters.length === 0 },
+          )}
+          {renderMenuBranch(
+            text.contextMenu.scenes,
+            () => setContextMenuView({ kind: "scenes" }),
+            { count: series.scenes.length, disabled: series.scenes.length === 0 },
+          )}
+        </>
+      ));
+    }
+    if (contextRootTab === "codex") {
+      return renderContextPane(text.contextMenu.codexScope, contextRootTabCounts.codex, (
+        <>
+          {renderMenuBranch(
+            text.contextMenu.codexEntries,
+            () => setContextMenuView({ kind: "codexEntries" }),
+            { count: activeCodexEntries.length, disabled: activeCodexEntries.length === 0 },
+          )}
+          {renderMenuBranch(
+            text.contextMenu.entriesByType,
+            () => setContextMenuView({ kind: "entryTypes" }),
+            { count: categoryGroups.length, disabled: categoryGroups.length === 0 },
+          )}
+          {renderMenuBranch(
+            text.contextMenu.entriesByDetail,
+            () => setContextMenuView({ kind: "entryDetails" }),
+            { count: detailTypeGroups.length, disabled: detailTypeGroups.length === 0 },
+          )}
+          {renderMenuBranch(
+            text.contextMenu.entriesByCategory,
+            () => setContextMenuView({ kind: "entryCategories" }),
+            { count: categoryGroups.length, disabled: categoryGroups.length === 0 },
+          )}
+        </>
+      ));
+    }
+    if (contextRootTab === "files") {
+      return renderContextPane(text.contextMenu.filesScope, contextRootTabCounts.files, (
+        <>
+          <button
+            className="workshop-menu-item"
+            disabled={!activeSession || activeSession.status !== "active" || isCalling}
+            onClick={() => attachmentInputRef.current?.click()}
+            role="menuitem"
+            type="button"
+          >
+            <span>
+              <strong>{text.labels.attachFile}</strong>
+              <small>{text.contextMenu.filesBody}</small>
+            </span>
+            <span aria-hidden="true">+</span>
+          </button>
+          {renderDraftAttachmentRows()}
+        </>
+      ));
+    }
+    return renderContextPane(text.contextMenu.storyScope, contextRootTabCounts.story, (
+      <>
+        {renderMenuToggle(
+          text.contextMenu.fullNovel,
+          isContextItemSelected("full-novel", seriesId),
+          () => void toggleContextItem("full-novel", seriesId, text.contextMenu.fullNovel),
+          { body: text.contextMenu.fullNovelBody },
+        )}
+        {renderMenuToggle(
+          text.contextMenu.fullOutline,
+          isContextItemSelected("full-outline", seriesId),
+          () => void toggleContextItem("full-outline", seriesId, text.contextMenu.fullOutline),
+          { body: text.contextMenu.fullOutlineBody },
+        )}
+      </>
+    ));
+  }
+
   function renderActRows() {
     if (series.acts.length === 0) {
       return <p className="workshop-menu-empty">{text.labels.noContextSources}</p>;
@@ -2019,68 +2193,130 @@ export function WorkshopWorkspace({
       );
     }
     return (
-      <>
-        {renderMenuToggle(
-          text.contextMenu.fullNovel,
-          isContextItemSelected("full-novel", seriesId),
-          () => void toggleContextItem("full-novel", seriesId, text.contextMenu.fullNovel),
-          { body: text.contextMenu.fullNovelBody },
-        )}
-        {renderMenuToggle(
-          text.contextMenu.fullOutline,
-          isContextItemSelected("full-outline", seriesId),
-          () => void toggleContextItem("full-outline", seriesId, text.contextMenu.fullOutline),
-          { body: text.contextMenu.fullOutlineBody },
-        )}
-        <div className="workshop-menu-divider" />
-        {renderMenuBranch(
-          text.contextMenu.acts,
-          () => setContextMenuView({ kind: "acts" }),
-          { count: series.acts.length, disabled: series.acts.length === 0 },
-        )}
-        {renderMenuBranch(
-          text.contextMenu.chapters,
-          () => setContextMenuView({ kind: "chapters" }),
-          { count: series.chapters.length, disabled: series.chapters.length === 0 },
-        )}
-        {renderMenuBranch(
-          text.contextMenu.scenes,
-          () => setContextMenuView({ kind: "scenes" }),
-          { count: series.scenes.length, disabled: series.scenes.length === 0 },
-        )}
-        <div className="workshop-menu-divider" />
-        {renderMenuBranch(
-          text.contextMenu.codexEntries,
-          () => setContextMenuView({ kind: "codexEntries" }),
-          { count: activeCodexEntries.length, disabled: activeCodexEntries.length === 0 },
-        )}
-        {renderMenuBranch(
-          text.contextMenu.entriesByType,
-          () => setContextMenuView({ kind: "entryTypes" }),
-          { count: categoryGroups.length, disabled: categoryGroups.length === 0 },
-        )}
-        {renderMenuBranch(
-          text.contextMenu.entriesByDetail,
-          () => setContextMenuView({ kind: "entryDetails" }),
-          { count: detailTypeGroups.length, disabled: detailTypeGroups.length === 0 },
-        )}
-        {renderMenuBranch(
-          text.contextMenu.entriesByCategory,
-          () => setContextMenuView({ kind: "entryCategories" }),
-          { count: categoryGroups.length, disabled: categoryGroups.length === 0 },
-        )}
-        <div className="workshop-menu-divider" />
+      <div className="workshop-context-panel">
+        <div
+          aria-label={text.labels.contextTabs}
+          className="workshop-context-tabs"
+          role="tablist"
+        >
+          {renderContextRootTabButton("story", text.contextMenu.storyScope, contextRootTabCounts.story)}
+          {renderContextRootTabButton("scenes", text.contextMenu.structureScope, contextRootTabCounts.scenes)}
+          {renderContextRootTabButton("codex", text.contextMenu.codexScope, contextRootTabCounts.codex)}
+          {renderContextRootTabButton("files", text.contextMenu.filesScope, contextRootTabCounts.files)}
+        </div>
+        {renderContextRootPanel()}
+      </div>
+    );
+  }
+
+  function renderSessionCreateControl() {
+    return (
+      <div className="workshop-session-create">
         <button
-          className="workshop-menu-clear"
-          disabled={!hasSelectedContext}
-          onClick={() => void clearContextFromMenu()}
-          role="menuitem"
+          aria-expanded={isSessionCreateOpen}
+          aria-label={text.labels.addSession}
+          className="btn workshop-session-create-trigger"
+          onClick={() => setIsSessionCreateOpen((current) => !current)}
           type="button"
         >
-          <span aria-hidden="true">x</span>
-          {text.contextMenu.clear}
+          {text.addSession}
         </button>
-      </>
+        {isSessionCreateOpen ? (
+          <div className="workshop-session-create-menu" role="menu">
+            <button onClick={() => void createSession("chat")} role="menuitem" type="button">
+              <span>{text.sessionKinds.chat}</span>
+              <small>{text.sessionKindDescriptions.chat}</small>
+            </button>
+            <button onClick={() => void createSession("agent")} role="menuitem" type="button">
+              <span>{text.sessionKinds.agent}</span>
+              <small>{text.sessionKindDescriptions.agent}</small>
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderSessionActionsControl() {
+    return (
+      <div className="workshop-session-actions">
+        <button
+          aria-expanded={isSessionActionsOpen}
+          aria-label={text.labels.sessionActions}
+          className="btn workshop-session-actions-trigger"
+          disabled={!activeSession || deletingSessionId !== null || isCalling}
+          onClick={() => setIsSessionActionsOpen((current) => !current)}
+          type="button"
+        >
+          {text.sessionMenu.more}
+        </button>
+        {isSessionActionsOpen ? (
+          <div className="workshop-session-action-menu" role="menu">
+            <div className="workshop-session-menu-section">
+              <div className="workshop-session-menu-label">{text.sessionMenu.thread}</div>
+              <button
+                disabled={!activeSession || deletingSessionId !== null || isCalling}
+                onClick={archiveSession}
+                role="menuitem"
+                type="button"
+              >
+                {activeSession?.status === "archived" ? text.restore : text.archive}
+              </button>
+              <button
+                disabled={!activeSession || messages.length === 0 || deletingSessionId !== null || isCalling}
+                onClick={branchFromLastMessage}
+                role="menuitem"
+                type="button"
+              >
+                {text.branch}
+              </button>
+              <button
+                className="danger"
+                disabled={!activeSession || deletingSessionId !== null || isCalling}
+                onClick={() => void deleteSessionPermanently()}
+                role="menuitem"
+                type="button"
+              >
+                {deletingSessionId === activeSession?.id
+                  ? text.labels.deletingSession
+                  : text.labels.deleteSession}
+              </button>
+              <button disabled role="menuitem" type="button">{text.importThread}</button>
+            </div>
+            <div className="workshop-session-menu-section">
+              <div className="workshop-session-menu-label">{text.sessionMenu.export}</div>
+              <label className="workshop-export-toggle">
+                <input
+                  checked={includeReasoningInExport}
+                  disabled={!activeSession || isExportingSession}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                    setIncludeReasoningInExport(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>{text.labels.includeReasoningInExport}</span>
+              </label>
+              <label className="workshop-export-toggle">
+                <input
+                  checked={includePromptAuditInExport}
+                  disabled={!activeSession || isExportingSession}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                    setIncludePromptAuditInExport(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>{text.labels.includePromptAuditInExport}</span>
+              </label>
+              <button
+                disabled={!activeSession || isDetailLoading || isExportingSession || isCalling}
+                onClick={() => void exportActiveSession()}
+                role="menuitem"
+                type="button"
+              >
+                {isExportingSession ? text.labels.exportingSession : text.labels.exportSession}
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -2188,13 +2424,17 @@ export function WorkshopWorkspace({
   }
 
   return (
-    <>
-      <div className="page-head">
-        <div>
-          <h2 className="page-title">{text.title}</h2>
-          <p className="page-subtitle">{text.subtitle}</p>
+    <section className="workshop-shell">
+      <header className="workshop-topbar">
+        <div className="workshop-topbar-title">
+          <h1>{text.title}</h1>
+          <span>{activeSession?.title ?? text.conversationTitle}</span>
         </div>
-      </div>
+        <div className="workshop-topbar-actions">
+          {renderSessionCreateControl()}
+          {renderSessionActionsControl()}
+        </div>
+      </header>
       {renderSettingsDialog()}
       {error ? <p className="alert">{error}</p> : null}
       {statusMessage ? <p className="workshop-status-message">{statusMessage}</p> : null}
@@ -2246,114 +2486,11 @@ export function WorkshopWorkspace({
         </section>
       ) : null}
       <div className="workshop-grid">
-        <aside className="panel no-shadow workshop-sessions">
-          <div className="panel-head">
-            <div>
+        <aside className="panel no-shadow workshop-sessions workshop-thread-dock">
+          <div className="panel-head workshop-session-dock-head">
+            <div className="workshop-session-dock-title">
               <div className="panel-title">{text.sessionsTitle}</div>
               <div className="panel-kicker">{text.sessionsKicker}</div>
-            </div>
-            <div className="workshop-session-head-actions">
-              <div className="workshop-session-create">
-                <button
-                  aria-expanded={isSessionCreateOpen}
-                  aria-label={text.labels.addSession}
-                  className="btn compact workshop-session-create-trigger"
-                  onClick={() => setIsSessionCreateOpen((current) => !current)}
-                  type="button"
-                >
-                  {text.addSession}
-                </button>
-                {isSessionCreateOpen ? (
-                  <div className="workshop-session-create-menu" role="menu">
-                    <button onClick={() => void createSession("chat")} role="menuitem" type="button">
-                      <span>{text.sessionKinds.chat}</span>
-                      <small>{text.sessionKindDescriptions.chat}</small>
-                    </button>
-                    <button onClick={() => void createSession("agent")} role="menuitem" type="button">
-                      <span>{text.sessionKinds.agent}</span>
-                      <small>{text.sessionKindDescriptions.agent}</small>
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              <div className="workshop-session-actions">
-                <button
-                  aria-expanded={isSessionActionsOpen}
-                  aria-label={text.labels.sessionActions}
-                  className="btn compact workshop-session-actions-trigger"
-                  disabled={!activeSession || deletingSessionId !== null || isCalling}
-                  onClick={() => setIsSessionActionsOpen((current) => !current)}
-                  type="button"
-                >
-                  {text.sessionMenu.more}
-                </button>
-                {isSessionActionsOpen ? (
-                  <div className="workshop-session-action-menu" role="menu">
-                    <div className="workshop-session-menu-section">
-                      <div className="workshop-session-menu-label">{text.sessionMenu.thread}</div>
-                      <button
-                        disabled={!activeSession || deletingSessionId !== null || isCalling}
-                        onClick={archiveSession}
-                        role="menuitem"
-                        type="button"
-                      >
-                        {activeSession?.status === "archived" ? text.restore : text.archive}
-                      </button>
-                      <button
-                        disabled={!activeSession || messages.length === 0 || deletingSessionId !== null || isCalling}
-                        onClick={branchFromLastMessage}
-                        role="menuitem"
-                        type="button"
-                      >
-                        {text.branch}
-                      </button>
-                      <button
-                        className="danger"
-                        disabled={!activeSession || deletingSessionId !== null || isCalling}
-                        onClick={() => void deleteSessionPermanently()}
-                        role="menuitem"
-                        type="button"
-                      >
-                        {deletingSessionId === activeSession?.id
-                          ? text.labels.deletingSession
-                          : text.labels.deleteSession}
-                      </button>
-                      <button disabled role="menuitem" type="button">{text.importThread}</button>
-                    </div>
-                    <div className="workshop-session-menu-section">
-                      <div className="workshop-session-menu-label">{text.sessionMenu.export}</div>
-                      <label className="workshop-export-toggle">
-                        <input
-                          checked={includeReasoningInExport}
-                          disabled={!activeSession || isExportingSession}
-                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                            setIncludeReasoningInExport(event.target.checked)}
-                          type="checkbox"
-                        />
-                        <span>{text.labels.includeReasoningInExport}</span>
-                      </label>
-                      <label className="workshop-export-toggle">
-                        <input
-                          checked={includePromptAuditInExport}
-                          disabled={!activeSession || isExportingSession}
-                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                            setIncludePromptAuditInExport(event.target.checked)}
-                          type="checkbox"
-                        />
-                        <span>{text.labels.includePromptAuditInExport}</span>
-                      </label>
-                      <button
-                        disabled={!activeSession || isDetailLoading || isExportingSession || isCalling}
-                        onClick={() => void exportActiveSession()}
-                        role="menuitem"
-                        type="button"
-                      >
-                        {isExportingSession ? text.labels.exportingSession : text.labels.exportSession}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
             </div>
           </div>
           <div className="panel-body workshop-session-list">
@@ -2421,11 +2558,27 @@ export function WorkshopWorkspace({
           </div>
         </aside>
 
-        <section className="panel chat workshop-chat">
-          <div className="panel-head">
-            <div>
-              <div className="panel-title">{text.conversationTitle}</div>
-              <div className="panel-kicker">{text.conversationKicker}</div>
+        <section className="panel chat workshop-chat" aria-label={text.conversationTitle}>
+          <div className="panel-head workshop-conversation-head">
+            <div className="workshop-thread-title">
+              <h2>{activeSession?.title ?? text.conversationTitle}</h2>
+              <div className="workshop-thread-meta">
+                {activeSession ? (
+                  <>
+                    <span className={activeSession.kind === "agent" ? "pill amber" : "pill blue"}>
+                      {text.sessionKinds[activeSession.kind]}
+                    </span>
+                    <span className={activeSession.status === "active" ? "pill green" : "pill muted"}>
+                      {text.statusLabels[activeSession.status]}
+                    </span>
+                  </>
+                ) : (
+                  <span className="pill muted">{text.sessionsEmptyTitle}</span>
+                )}
+                {selectedModelProfile ? (
+                  <span className="pill muted">{selectedModelProfile.title}</span>
+                ) : null}
+              </div>
             </div>
             <div className="workshop-head-controls">
               <button
@@ -2434,7 +2587,7 @@ export function WorkshopWorkspace({
                 onClick={() => setIsSettingsOpen(true)}
                 type="button"
               >
-                {text.labels.settings}
+                {text.labels.callSettings}
               </button>
             </div>
           </div>
@@ -2472,13 +2625,15 @@ export function WorkshopWorkspace({
                 message.status === "succeeded" &&
                 message.proposalIds.length === 0 &&
                 !isCalling;
+              const hasMessageActions = Boolean(reasoningContent || canDeleteMessage || canEditMessage);
+              const isMessageMenuOpen = openMessageMenuId === message.id;
               const isEditingMessage = editingMessageId === message.id;
               const codexToolName = message.role === "tool" && message.mode === "agent"
                 ? codexToolRequestName(message.content)
                 : null;
               return (
                 <article
-                  className={`message${message.role === "author" ? " user" : ""}${message.status === "failed" ? " is-failed" : ""}${message.status === "pending" ? " is-streaming" : ""}${message.id === selectedMessageId ? " is-target" : ""}`}
+                  className={`message${message.role === "author" ? " author user" : message.role === "tool" ? " tool" : message.role === "assistant" ? " agent" : ""}${message.status === "failed" ? " is-failed" : ""}${message.status === "pending" ? " is-streaming" : ""}${message.id === selectedMessageId ? " is-target" : ""}`}
                   key={message.id}
                 >
                   <div className="message-meta">
@@ -2486,50 +2641,83 @@ export function WorkshopWorkspace({
                       {message.status === "pending" ? text.statusLabels.pending : text.roles[message.role]}
                     </span>
                     <span>{formatDate(message.createdAt)}</span>
-                    <div className="message-toolbar">
-                      {reasoningContent ? (
+                    {hasMessageActions ? (
+                      <div className="message-toolbar">
                         <button
-                          aria-expanded={isReasoningExpanded}
-                          className="btn compact subtle message-reasoning-toggle"
-                          onClick={() => toggleReasoning(message.id)}
+                          aria-expanded={isMessageMenuOpen}
+                          aria-label={text.labels.messageActions}
+                          className="btn compact subtle message-action-trigger"
+                          onClick={() => setOpenMessageMenuId(isMessageMenuOpen ? null : message.id)}
                           type="button"
                         >
-                          {isReasoningExpanded ? text.labels.hideReasoning : text.labels.showReasoning}
+                          {text.labels.messageActions}
                         </button>
-                      ) : null}
-                      {canDeleteMessage ? (
-                        <button
-                          className="btn compact subtle"
-                          disabled={deletingMessageId !== null}
-                          onClick={() => void deleteMessage(message)}
-                          type="button"
-                        >
-                          {deletingMessageId === message.id ? text.labels.deletingMessage : text.labels.deleteMessage}
-                        </button>
-                      ) : null}
-                      {canEditMessage && !isEditingMessage ? (
-                        <button
-                          className="btn compact subtle"
-                          disabled={resendingMessageId !== null}
-                          onClick={() => beginEditMessage(message)}
-                          type="button"
-                        >
-                          {text.labels.editMessage}
-                        </button>
-                      ) : null}
-                      {canEditMessage && !isEditingMessage ? (
-                        <button
-                          className="btn compact subtle"
-                          disabled={resendingMessageId !== null}
-                          onClick={() => void resendGeneralChatMessage(message)}
-                          type="button"
-                        >
-                          {resendingMessageId === message.id
-                            ? text.labels.resendingMessage
-                            : text.labels.resendMessage}
-                        </button>
-                      ) : null}
-                    </div>
+                        {isMessageMenuOpen ? (
+                          <div className="message-action-menu" role="menu">
+                            {reasoningContent ? (
+                              <button
+                                aria-expanded={isReasoningExpanded}
+                                className="btn compact subtle message-reasoning-toggle"
+                                onClick={() => {
+                                  toggleReasoning(message.id);
+                                  setOpenMessageMenuId(null);
+                                }}
+                                role="menuitem"
+                                type="button"
+                              >
+                                {isReasoningExpanded ? text.labels.hideReasoning : text.labels.showReasoning}
+                              </button>
+                            ) : null}
+                            {canEditMessage && !isEditingMessage ? (
+                              <button
+                                className="btn compact subtle"
+                                disabled={resendingMessageId !== null}
+                                onClick={() => {
+                                  beginEditMessage(message);
+                                  setOpenMessageMenuId(null);
+                                }}
+                                role="menuitem"
+                                type="button"
+                              >
+                                {text.labels.editMessage}
+                              </button>
+                            ) : null}
+                            {canEditMessage && !isEditingMessage ? (
+                              <button
+                                className="btn compact subtle"
+                                disabled={resendingMessageId !== null}
+                                onClick={() => {
+                                  setOpenMessageMenuId(null);
+                                  void resendGeneralChatMessage(message);
+                                }}
+                                role="menuitem"
+                                type="button"
+                              >
+                                {resendingMessageId === message.id
+                                  ? text.labels.resendingMessage
+                                  : text.labels.resendMessage}
+                              </button>
+                            ) : null}
+                            {canDeleteMessage ? (
+                              <button
+                                className="btn compact subtle"
+                                disabled={deletingMessageId !== null}
+                                onClick={() => {
+                                  setOpenMessageMenuId(null);
+                                  void deleteMessage(message);
+                                }}
+                                role="menuitem"
+                                type="button"
+                              >
+                                {deletingMessageId === message.id
+                                  ? text.labels.deletingMessage
+                                  : text.labels.deleteMessage}
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                   {reasoningContent && isReasoningExpanded ? (
                     <div className="message-reasoning">
@@ -2708,7 +2896,11 @@ export function WorkshopWorkspace({
                 ))}
               </div>
               {isContextMenuOpen ? (
-                <div className="workshop-context-menu" role="menu">
+                <div
+                  aria-label={text.labels.contextTabs}
+                  className={`workshop-context-menu${contextMenuView.kind === "root" ? " is-root" : " is-list"}`}
+                  role="dialog"
+                >
                   {renderContextMenuContent()}
                 </div>
               ) : null}
@@ -2798,6 +2990,6 @@ export function WorkshopWorkspace({
           </div>
         </section>
       </div>
-    </>
+    </section>
   );
 }

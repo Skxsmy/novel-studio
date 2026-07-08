@@ -39,6 +39,13 @@ button {
   display: none;
 }
 
+.app.is-workshop-surface {
+  grid-template-columns: 72px minmax(0, 1fr);
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
 /* ── Project sidebar ── */
 
 .project-panel {
@@ -350,6 +357,148 @@ button {
   display: block;
 }
 
+.app.is-workshop-surface .project-panel {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100vh;
+  padding: 14px 8px;
+  border-right: 1px solid #273835;
+  background: #192120;
+  color: #dce6e1;
+}
+
+.app.is-workshop-surface .project-head {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.app.is-workshop-surface .sidebar-toggle {
+  position: static;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
+  border-color: rgba(255, 255, 255, 0.15);
+  background: #23302e;
+  color: #fff;
+  font-size: 16px;
+}
+
+.app.is-workshop-surface .sidebar-toggle-arrow,
+.app.is-workshop-surface .cover-row,
+.app.is-workshop-surface .quick-stats,
+.app.is-workshop-surface .side-heading,
+.app.is-workshop-surface .project-panel .row-meta,
+.app.is-workshop-surface .project-panel .nav-row .pill {
+  display: none;
+}
+
+.app.is-workshop-surface .sidebar-toggle-brand {
+  display: inline;
+}
+
+.app.is-workshop-surface .project-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  padding: 18px 0 0;
+}
+
+.app.is-workshop-surface .side-section {
+  margin: 0;
+}
+
+.app.is-workshop-surface .project-panel .row-list {
+  gap: 8px;
+  justify-items: center;
+}
+
+.app.is-workshop-surface .project-panel .nav-row {
+  grid-template-columns: 1fr;
+  gap: 4px;
+  place-items: center;
+  width: 56px;
+  min-height: 54px;
+  padding: 6px 4px;
+  border-color: transparent;
+  background: transparent;
+  color: #aab8b2;
+  text-align: center;
+}
+
+.app.is-workshop-surface .project-panel .nav-row > span[aria-hidden="true"] {
+  display: none;
+}
+
+.app.is-workshop-surface .project-panel .nav-row.is-active {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  box-shadow: none;
+}
+
+.app.is-workshop-surface .project-panel .nav-row:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.app.is-workshop-surface .project-panel .nav-copy {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.app.is-workshop-surface .project-panel .rail-icon {
+  display: block;
+  color: currentColor;
+}
+
+.app.is-workshop-surface .project-panel .row-title {
+  color: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.app.is-workshop-surface .project-foot {
+  display: grid;
+  grid-auto-rows: 44px;
+  justify-items: center;
+  gap: 10px;
+  align-self: end;
+  padding: 0;
+  border-top: 0;
+}
+
+.app.is-workshop-surface .project-foot .btn {
+  min-width: 0;
+  width: 54px;
+  min-height: 44px;
+  height: 44px;
+  padding: 0;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: #dce6e1;
+}
+
+.app.is-workshop-surface .project-foot .btn.primary,
+.app.is-workshop-surface .project-foot .btn:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.app.is-workshop-surface .project-foot .footer-label {
+  display: none;
+}
+
+.app.is-workshop-surface .project-panel .project-foot .rail-icon {
+  display: block;
+}
+
 .app.is-sidebar-collapsed .page { padding: 24px; }
 .app.is-sidebar-collapsed .panel-body { padding: 14px; }
 
@@ -366,6 +515,25 @@ button {
 /* ── Workspace / Command bar ── */
 
 .workspace { min-width: 0; }
+
+.app.is-workshop-surface .workspace {
+  display: grid;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app.is-workshop-surface .command-bar {
+  display: none;
+}
+
+.app.is-workshop-surface .page {
+  display: block;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
 
 .command-bar {
   position: sticky;

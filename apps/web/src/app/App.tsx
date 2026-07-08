@@ -293,10 +293,11 @@ export function App() {
   }
 
   const pageId = isLibraryOpen ? "library-page" : `${activeWorkspace}-page`;
+  const isWorkshopSurface = !isLibraryOpen && activeWorkspace === "workshop";
 
   return (
     <>
-      <main className={`app${isSidebarCollapsed ? " is-sidebar-collapsed" : ""}${isFocusMode ? " is-focus-mode" : ""}`}>
+      <main className={`app${isSidebarCollapsed ? " is-sidebar-collapsed" : ""}${isFocusMode ? " is-focus-mode" : ""}${isWorkshopSurface ? " is-workshop-surface" : ""}`}>
         <aside aria-label="Project" className="project-panel">
           <header className="project-head">
             <button
@@ -355,7 +356,7 @@ export function App() {
                       >
                         <span className="nav-copy">
                           <RailIcon id={workspace.id} />
-                          <span className="row-title">{isSidebarCollapsed ? railLabel(workspace.id) : workspace.label}</span>
+                          <span className="row-title">{isSidebarCollapsed || isWorkshopSurface ? railLabel(workspace.id) : workspace.label}</span>
                           <span className="row-meta">
                             {isUnavailableShell ? uiText.navigation.notConnected : workspace.description}
                           </span>
