@@ -12,6 +12,7 @@ import type { SceneBlock, SceneBlockDocument } from "@novel-studio/contracts";
 import { sceneBlockDocumentToNovelEditorDocument } from "../features/write/editor";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
+const appShellCss = readFileSync(resolve(testDir, "app-shell.css"), "utf8");
 const workshopWorkspaceCss = readFileSync(resolve(testDir, "../features/workshop/workshop-workspace.css"), "utf8");
 
 if (typeof Range !== "undefined") {
@@ -4527,6 +4528,47 @@ describe("App shell", () => {
     expect(reasoningRule).toContain("line-height: 22px;");
   });
 
+  it("keeps Workshop on the shared collapsible project sidebar", () => {
+    expect(appShellCss).not.toContain(".app.is-workshop-surface .project-panel");
+    expect(appShellCss).not.toContain(".app.is-workshop-surface .sidebar-toggle");
+    expect(appShellCss).not.toContain(".app.is-workshop-surface .project-foot");
+    expect(appShellCss).toContain(".app.is-sidebar-collapsed .project-panel .nav-row");
+  });
+
+  it("closes Workshop floating menus when the author clicks outside", async () => {
+    mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, title: "Floating menu thread" })],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+    const workshopPage = document.querySelector("#workshop-page") as HTMLElement;
+
+    fireEvent.click(within(workshopPage).getByRole("button", { name: "Add session" }));
+    expect(await screen.findByRole("menuitem", { name: /Chat/u })).toBeTruthy();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menuitem", { name: /Chat/u })).toBeNull();
+
+    fireEvent.click(within(workshopPage).getByRole("button", { name: "Session actions" }));
+    expect(await screen.findByRole("menuitem", { name: "Archive" })).toBeTruthy();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menuitem", { name: "Archive" })).toBeNull();
+
+    fireEvent.click(within(workshopPage).getByRole("button", { name: "Context" }));
+    expect(await screen.findByRole("menuitem", { name: /^Full Novel Text/u })).toBeTruthy();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menuitem", { name: /^Full Novel Text/u })).toBeNull();
+
+    fireEvent.click(within(workshopPage).getByRole("button", { name: "Call Settings" }));
+    expect(await screen.findByRole("heading", { name: "Workshop settings" })).toBeTruthy();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("heading", { name: "Workshop settings" })).toBeNull();
+  });
+
   it("connects Workshop sessions, context basket, and single-role calls without exposing audit IDs", async () => {
     const fetchMock = mockFetch({ initialModelProfiles: [modelProfile()] });
     render(<App />);
@@ -4967,11 +5009,18 @@ describe("App shell", () => {
       expect(markdown).not.toContain("Attachment export body must not appear.");
       expect(markdown).not.toContain("Other session export leak text.");
       await waitFor(() => {
-        expect(exportButton.disabled).toBe(false);
+        expect(screen.queryByRole("menuitem", { name: "Export" })).toBeNull();
       });
-      fireEvent.click(includeReasoning);
-      fireEvent.click(includePromptAudit);
-      fireEvent.click(exportButton);
+      fireEvent.click(screen.getByRole("button", { name: "Session actions" }));
+      const nextIncludeReasoning = screen.getByLabelText("Include reasoning") as HTMLInputElement;
+      const nextIncludePromptAudit = screen.getByLabelText("Include prompt audit") as HTMLInputElement;
+      fireEvent.click(nextIncludeReasoning);
+      fireEvent.click(nextIncludePromptAudit);
+      const nextExportButton = screen.getByRole("menuitem", { name: "Export" }) as HTMLButtonElement;
+      await waitFor(() => {
+        expect(nextExportButton.disabled).toBe(false);
+      });
+      fireEvent.click(nextExportButton);
 
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalledWith(

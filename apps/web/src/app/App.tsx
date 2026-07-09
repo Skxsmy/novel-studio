@@ -356,7 +356,7 @@ export function App() {
                       >
                         <span className="nav-copy">
                           <RailIcon id={workspace.id} />
-                          <span className="row-title">{isSidebarCollapsed || isWorkshopSurface ? railLabel(workspace.id) : workspace.label}</span>
+                          <span className="row-title">{isSidebarCollapsed ? railLabel(workspace.id) : workspace.label}</span>
                           <span className="row-meta">
                             {isUnavailableShell ? uiText.navigation.notConnected : workspace.description}
                           </span>

@@ -381,6 +381,47 @@ export function WorkshopWorkspace({
   const activeSessionIdRef = useRef<string | null>(activeSessionId);
   const liveSessionMessagesRef = useRef<Record<string, WorkshopMessage[]>>({});
 
+  function closeFloatingSurfaces() {
+    setIsContextMenuOpen(false);
+    setIsSessionCreateOpen(false);
+    setIsSessionActionsOpen(false);
+    setOpenMessageMenuId(null);
+    setIsSettingsOpen(false);
+  }
+
+  useEffect(() => {
+    if (
+      !isContextMenuOpen &&
+      !isSessionCreateOpen &&
+      !isSessionActionsOpen &&
+      !openMessageMenuId &&
+      !isSettingsOpen
+    ) {
+      return;
+    }
+
+    function handlePointerDown(event: globalThis.PointerEvent) {
+      const target = event.target;
+      if (target instanceof Element && target.closest("[data-workshop-floating-root]")) {
+        return;
+      }
+      closeFloatingSurfaces();
+    }
+
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeFloatingSurfaces();
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isContextMenuOpen, isSessionCreateOpen, isSessionActionsOpen, openMessageMenuId, isSettingsOpen]);
+
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeSessionId, sessions],
@@ -925,6 +966,7 @@ export function WorkshopWorkspace({
 
   async function archiveSession() {
     if (!activeSession) return;
+    setIsSessionActionsOpen(false);
     setError(null);
     try {
       const updated = activeSession.status === "archived"
@@ -976,6 +1018,7 @@ export function WorkshopWorkspace({
   async function branchFromLastMessage() {
     if (!activeSession || messages.length === 0) return;
     const source = messages[messages.length - 1]!;
+    setIsSessionActionsOpen(false);
     setError(null);
     try {
       const result = await api.workshop.branchSession(seriesId, activeSession.id, {
@@ -1130,6 +1173,9 @@ export function WorkshopWorkspace({
   }
 
   function toggleContextMenu() {
+    setIsSessionCreateOpen(false);
+    setIsSessionActionsOpen(false);
+    setIsSettingsOpen(false);
     setOpenMessageMenuId(null);
     setIsContextMenuOpen((current) => {
       const next = !current;
@@ -1612,6 +1658,7 @@ export function WorkshopWorkspace({
 
   async function exportActiveSession() {
     if (!activeSession || isExportingSession) return;
+    setIsSessionActionsOpen(false);
     setIsExportingSession(true);
     setError(null);
     setStatusMessage(null);
@@ -2211,12 +2258,18 @@ export function WorkshopWorkspace({
 
   function renderSessionCreateControl() {
     return (
-      <div className="workshop-session-create">
+      <div className="workshop-session-create" data-workshop-floating-root>
         <button
           aria-expanded={isSessionCreateOpen}
           aria-label={text.labels.addSession}
           className="btn workshop-session-create-trigger"
-          onClick={() => setIsSessionCreateOpen((current) => !current)}
+          onClick={() => {
+            setIsContextMenuOpen(false);
+            setIsSessionActionsOpen(false);
+            setOpenMessageMenuId(null);
+            setIsSettingsOpen(false);
+            setIsSessionCreateOpen((current) => !current);
+          }}
           type="button"
         >
           {text.addSession}
@@ -2239,13 +2292,19 @@ export function WorkshopWorkspace({
 
   function renderSessionActionsControl() {
     return (
-      <div className="workshop-session-actions">
+      <div className="workshop-session-actions" data-workshop-floating-root>
         <button
           aria-expanded={isSessionActionsOpen}
           aria-label={text.labels.sessionActions}
           className="btn workshop-session-actions-trigger"
           disabled={!activeSession || deletingSessionId !== null || isCalling}
-          onClick={() => setIsSessionActionsOpen((current) => !current)}
+          onClick={() => {
+            setIsContextMenuOpen(false);
+            setIsSessionCreateOpen(false);
+            setOpenMessageMenuId(null);
+            setIsSettingsOpen(false);
+            setIsSessionActionsOpen((current) => !current);
+          }}
           type="button"
         >
           {text.sessionMenu.more}
@@ -2328,6 +2387,7 @@ export function WorkshopWorkspace({
           aria-labelledby="workshop-settings-title"
           aria-modal="true"
           className="workshop-settings-dialog"
+          data-workshop-floating-root
           role="dialog"
         >
           <div className="workshop-settings-head">
@@ -2584,7 +2644,13 @@ export function WorkshopWorkspace({
               <button
                 aria-expanded={isSettingsOpen}
                 className="btn compact workshop-settings-trigger"
-                onClick={() => setIsSettingsOpen(true)}
+                onClick={() => {
+                  setIsContextMenuOpen(false);
+                  setIsSessionCreateOpen(false);
+                  setIsSessionActionsOpen(false);
+                  setOpenMessageMenuId(null);
+                  setIsSettingsOpen(true);
+                }}
                 type="button"
               >
                 {text.labels.callSettings}
@@ -2642,12 +2708,18 @@ export function WorkshopWorkspace({
                     </span>
                     <span>{formatDate(message.createdAt)}</span>
                     {hasMessageActions ? (
-                      <div className="message-toolbar">
+                      <div className="message-toolbar" data-workshop-floating-root>
                         <button
                           aria-expanded={isMessageMenuOpen}
                           aria-label={text.labels.messageActions}
                           className="btn compact subtle message-action-trigger"
-                          onClick={() => setOpenMessageMenuId(isMessageMenuOpen ? null : message.id)}
+                          onClick={() => {
+                            setIsContextMenuOpen(false);
+                            setIsSessionCreateOpen(false);
+                            setIsSessionActionsOpen(false);
+                            setIsSettingsOpen(false);
+                            setOpenMessageMenuId(isMessageMenuOpen ? null : message.id);
+                          }}
                           type="button"
                         >
                           {text.labels.messageActions}
@@ -2878,7 +2950,7 @@ export function WorkshopWorkspace({
             })}
           </div>
           <div className="composer workshop-composer">
-            <div className="workshop-composer-context">
+            <div className="workshop-composer-context" data-workshop-floating-root>
               <button
                 aria-expanded={isContextMenuOpen}
                 className="btn compact workshop-context-trigger"
