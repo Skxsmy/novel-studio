@@ -276,10 +276,10 @@ Opens a dialog with:
 
 Prompt selection:
 
-- Chat sessions use the newest `lead-writing-partner` prompt template if present, otherwise any active template.
-- Agent sessions prefer `researcher`, then `lead-writing-partner`, then `character-editor`, then continuity.
-- General Chat provider prompt uses only the visible `systemPrompt` plus user request; role/template items are filtered out before provider delivery.
-- Agent provider prompt uses the normal context prompt plus the server's Agent protocol instructions.
+- Chat sessions use the visible `systemPrompt` plus the user request; they do not select a global prompt template.
+- Agent sessions use the Workshop-specific Agent prompt and server Agent protocol from `apps/server/src/workshop/workshopPrompts.ts`.
+- General Chat and Agent prompt paths are isolated from global role/template records.
+- Non-Workshop AI calls still use explicitly selected user-created role/template records.
 
 Redesign requirement:
 

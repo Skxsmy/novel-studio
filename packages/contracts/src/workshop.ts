@@ -242,7 +242,7 @@ export const UpdateWorkshopSessionInputSchema = z.object({
 export type UpdateWorkshopSessionInput = z.infer<typeof UpdateWorkshopSessionInputSchema>;
 
 const CreateWorkshopMessageInputBaseSchema = z.object({
-  role: WorkshopMessageRoleSchema.default("author"),
+  role: z.literal("author").default("author"),
   mode: WorkshopModeSchema.default("continuity-check"),
   content: z.string().trim().min(1).max(400000),
   attachmentIds: WorkshopAttachmentIdsSchema,
@@ -254,9 +254,9 @@ export type CreateWorkshopMessageInput = z.input<typeof CreateWorkshopMessageInp
 
 export const ResendWorkshopMessageInputSchema = z.object({
   content: z.string().trim().min(1).max(16000).optional(),
-  roleId: z.string().min(1).max(120).default("lead-writing-partner"),
+  roleId: z.string().min(1).max(120).default("workshop-general-chat"),
   taskKind: AiTaskKindSchema.default("analysis"),
-  promptTemplateId: z.string().uuid(),
+  promptTemplateId: z.string().uuid().default("00000000-0000-4000-8000-000000000421"),
   promptTemplateVersion: z.number().int().positive().default(1),
   systemPrompt: z.string().trim().max(8000).default(""),
   modelProfileId: z.string().uuid(),
@@ -417,9 +417,9 @@ export type UpdateWorkshopContextBasketInput = z.infer<
 const WorkshopContextPreviewInputBaseSchema = z.object({
   mode: WorkshopModeSchema.default("general-chat"),
   userRequest: z.string().trim().min(1).max(16000),
-  roleId: z.string().min(1).max(120).default("continuity-editor"),
-  taskKind: AiTaskKindSchema.default("continuity-check"),
-  promptTemplateId: z.string().uuid(),
+  roleId: z.string().min(1).max(120).default("workshop-general-chat"),
+  taskKind: AiTaskKindSchema.default("analysis"),
+  promptTemplateId: z.string().uuid().default("00000000-0000-4000-8000-000000000421"),
   promptTemplateVersion: z.number().int().positive().default(1),
   systemPrompt: z.string().trim().max(8000).default(""),
   modelProfileId: z.string().uuid().nullable().default(null),

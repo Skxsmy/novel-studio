@@ -213,19 +213,19 @@ Severity: High
 
 The current Agent call buffers provider output, parses one JSON step, and optionally creates one server-owned tool request message. Tool execution happens later through a separate user click and only appends a result message. The result is not fed back into an automatic Agent continuation loop, and the system does not run a durable plan/tool/result cycle.
 
-There is also only one repair pass for a narrow authorized evidence-refusal pattern.
+There is no durable retry or clarification loop for malformed tool steps or unhelpful assistant replies.
 
 Impact:
 
 - The implementation is not yet a general conversational agent that can call tools, inspect results, and continue within one Agent run.
-- Invalid JSON or non-refusal unhelpful replies become assistant text rather than a controlled retry loop.
+- Invalid JSON or unhelpful replies become assistant text rather than a controlled continuation path.
 - Complex Codex workflows cannot be decomposed into multiple safe tool steps.
 
 Evidence:
 
 - `saveWorkshopAssistantTurn()` parses a single Agent step and creates at most one tool request message.
 - `executeCodexToolFromMessage()` appends a result message but does not call the model again.
-- `shouldRepairAuthorizedAgentStep()` is a regex-based one-pass repair trigger.
+- Workshop Agent prompts are isolated from global role/template records, but execution is still a single provider call plus one parsed step.
 
 Required direction:
 

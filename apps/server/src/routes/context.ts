@@ -25,8 +25,11 @@ import { StorageError, type ProjectRepository } from "@novel-studio/storage";
 import {
   ensureCredentialBoundary,
 } from "../ai/policy.js";
-import { ensureBuiltInPrompts } from "../prompts/builtIns.js";
 import { PromptRenderError, renderPromptTemplate } from "../prompts/render.js";
+import {
+  parseCodexCreateEntryToolRequest,
+  parseCodexUpdateEntryToolRequest,
+} from "../workshop/codexDraft.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const CONTEXT_ITEM_CONTENT_LIMIT = 399000;
@@ -74,6 +77,47 @@ function contextItem(input: {
     textHash: hashText(input.content),
     sourceRefs: input.sourceRefs ?? [],
   };
+}
+
+function pendingCodexDraftContent(messages: WorkshopMessage[]): { message: WorkshopMessage; content: string } | null {
+  const ordered = [...messages].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const message = ordered[index]!;
+    if (message.role === "result" && message.mode === "agent" && message.status === "succeeded") {
+      return null;
+    }
+    if (message.role !== "tool" || message.mode !== "agent" || message.status !== "succeeded") continue;
+    let parsed: { tool: "codex.create_entry" | "codex.update_entry"; draft: unknown } | null = null;
+    try {
+      const request = parseCodexCreateEntryToolRequest(message.content);
+      parsed = { tool: request.tool, draft: request.draft };
+    } catch {
+      try {
+        const request = parseCodexUpdateEntryToolRequest(message.content);
+        parsed = { tool: request.tool, draft: request.draft };
+      } catch {
+        parsed = null;
+      }
+    }
+    if (!parsed) continue;
+    const content = [
+      "Pending Codex tool draft in this Agent session.",
+      `Tool message ID: ${message.id}`,
+      `Tool: ${parsed.tool}`,
+      "Status: awaiting author review; not executed yet.",
+      "",
+      "Pending draft rule:",
+      "- If the author asks to show, explain, review, wait, or not write/apply yet, answer in prose.",
+      "- Otherwise, if the author gives any draft constraint or edit, return a new request_tool JSON with the full revised draft.",
+      "- Draft constraints include alias changes, category changes, description changes, detail additions/removals, and removing invented material.",
+      "- Do not answer with prose only for a draft revision.",
+      "",
+      "Current draft JSON:",
+      JSON.stringify({ schemaVersion: 1, tool: parsed.tool, draft: parsed.draft }, null, 2),
+    ].join("\n");
+    return { message, content: boundedContextContent(content) };
+  }
+  return null;
 }
 
 function exclusion(input: {
@@ -409,12 +453,14 @@ export async function buildContextBundle(
   rawInput: unknown,
 ): Promise<ContextBundle> {
   const input = ContextPreviewInputSchema.parse(rawInput);
-  await ensureBuiltInPrompts(repository, seriesId);
+  const hasSystemPromptOverride = input.systemPromptOverride !== null;
   const [series, currentScene, modelProfile, promptTemplate] = await Promise.all([
     repository.getSeries(seriesId),
     input.sceneId ? repository.getScene(seriesId, input.sceneId) : Promise.resolve(null),
     input.modelProfileId ? repository.getModelProfile(input.modelProfileId) : Promise.resolve(null),
-    repository.getPromptTemplate(seriesId, input.promptTemplateId, input.promptTemplateVersion),
+    hasSystemPromptOverride
+      ? Promise.resolve(null)
+      : repository.getPromptTemplate(seriesId, input.promptTemplateId, input.promptTemplateVersion),
   ]);
 
   if (modelProfile) {
@@ -436,22 +482,21 @@ export async function buildContextBundle(
     ? input.selection.text || currentScene.content.slice(input.selection.start, input.selection.end)
     : "";
 
-  const role = await repository.getAgentRole(seriesId, input.roleId);
-  const hasSystemPromptOverride = input.systemPromptOverride !== null;
+  const role = hasSystemPromptOverride ? null : await repository.getAgentRole(seriesId, input.roleId);
   const customSystemPrompt = input.systemPromptOverride?.trim() ?? "";
   const roleInstruction = hasSystemPromptOverride ? customSystemPrompt : [
-    `角色：${role.title}`,
-    role.description,
-    role.persona ? `工作人格：${role.persona}` : "",
-    role.duties.length ? `职责：\n${role.duties.map((duty) => `- ${duty}`).join("\n")}` : "",
-    role.nonDuties.length ? `不负责：\n${role.nonDuties.map((item) => `- ${item}`).join("\n")}` : "",
-    role.challengeObligation ? `反对义务：${role.challengeObligation}` : "",
-    role.forbiddenActions.length ? `禁止行为：\n${role.forbiddenActions.map((item) => `- ${item}`).join("\n")}` : "",
-    role.outputContract ? `输出约束：${role.outputContract}` : "",
+    `角色：${role!.title}`,
+    role!.description,
+    role!.persona ? `工作人格：${role!.persona}` : "",
+    role!.duties.length ? `职责：\n${role!.duties.map((duty) => `- ${duty}`).join("\n")}` : "",
+    role!.nonDuties.length ? `不负责：\n${role!.nonDuties.map((item) => `- ${item}`).join("\n")}` : "",
+    role!.challengeObligation ? `反对义务：${role!.challengeObligation}` : "",
+    role!.forbiddenActions.length ? `禁止行为：\n${role!.forbiddenActions.map((item) => `- ${item}`).join("\n")}` : "",
+    role!.outputContract ? `输出约束：${role!.outputContract}` : "",
   ].filter(Boolean).join("\n\n");
   const renderedPrompt = hasSystemPromptOverride
     ? null
-    : renderPromptTemplate(promptTemplate, {
+    : renderPromptTemplate(promptTemplate!, {
       user_request: input.userRequest,
       scene_title: currentScene?.metadata.title ?? "",
       selected_text: selectionText,
@@ -461,15 +506,15 @@ export async function buildContextBundle(
     kind: "role-instruction",
     sourceType: hasSystemPromptOverride ? "user-input" : "system",
     sourceId: input.roleId,
-    title: hasSystemPromptOverride ? "General Chat system prompt" : "角色职责",
+    title: hasSystemPromptOverride ? "Runtime prompt override" : "角色职责",
     content: roleInstruction,
     inclusion: "required",
     inclusionReason: hasSystemPromptOverride
-      ? "The author supplied this custom General Chat system prompt."
+      ? "The runtime supplied this prompt override for the current model call."
       : "模型调用必须先说明角色职责和禁止行为。",
   }));
 
-  if (renderedPrompt) {
+  if (renderedPrompt && promptTemplate) {
     items.push(contextItem({
       kind: "prompt-template",
       sourceType: "prompt-template",
@@ -515,6 +560,22 @@ export async function buildContextBundle(
         inclusion: "derived",
         inclusionReason: "Earlier messages and message-bound attachments in this Workshop session are needed for conversational continuity.",
       }));
+    }
+    if (input.includePendingWorkshopCodexDraft) {
+      const pending = pendingCodexDraftContent(messages);
+      if (pending) {
+        items.push(contextItem({
+          kind: "pending-codex-draft",
+          sourceType: "workshop-session",
+          sourceId: pending.message.id,
+          sourceRevision: hashText(pending.message.content),
+          sourceLabel: "Pending Codex draft",
+          title: "Pending Codex draft",
+          content: pending.content,
+          inclusion: "derived",
+          inclusionReason: "The current Agent session has an unexecuted Codex tool draft awaiting author review.",
+        }));
+      }
     }
   }
 

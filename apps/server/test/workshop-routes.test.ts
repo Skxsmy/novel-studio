@@ -3,11 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { BUILT_IN_PROMPT_IDS } from "../src/prompts/builtIns.js";
-import {
-  serializeCodexCreateEntryToolRequest,
-  serializeCodexUpdateEntryToolRequest,
-} from "../src/workshop/codexDraft.js";
 import { applyWorkshopAgentPrompt } from "../src/workshop/workshopAgent.js";
 
 const roots: string[] = [];
@@ -37,6 +32,38 @@ async function createSeriesWithMockProfile(model = "mock-continuity-v1") {
   });
   expect(profile.statusCode).toBe(201);
   return { app, series, profile: profile.json() };
+}
+
+async function createPromptFixture(
+  app: Awaited<ReturnType<typeof buildApp>>,
+  seriesId: string,
+): Promise<{ roleId: string; promptTemplateId: string; promptTemplateVersion: number }> {
+  const role = await app.inject({
+    method: "POST",
+    url: `/api/v1/series/${seriesId}/ai/roles`,
+    payload: {
+      title: "Context checker",
+      persona: "Check the selected story context.",
+    },
+  });
+  expect(role.statusCode).toBe(201);
+  const prompt = await app.inject({
+    method: "POST",
+    url: `/api/v1/series/${seriesId}/ai/prompts`,
+    payload: {
+      roleId: role.json().id,
+      name: "Context check",
+      status: "active",
+      system: "You check story context.",
+      instructions: "Use the provided context and do not apply writes.",
+    },
+  });
+  expect(prompt.statusCode).toBe(201);
+  return {
+    roleId: role.json().id,
+    promptTemplateId: prompt.json().id,
+    promptTemplateVersion: prompt.json().version,
+  };
 }
 
 async function createSeriesWithOpenAiCompatibleProfile(
@@ -304,9 +331,66 @@ async function uploadAttachment(input: {
   });
 }
 
+function openAiStreamFetch(responseText: string | (() => string)): typeof fetch {
+  return async (input) => {
+    if (String(input) === "https://example.test/v1/chat/completions") {
+      const text = typeof responseText === "function" ? responseText() : responseText;
+      return new Response([
+        `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}`,
+        "",
+        "data: [DONE]",
+        "",
+        "",
+      ].join("\n"), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    }
+    return new Response(JSON.stringify({ error: { message: "not found" } }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+  };
+}
+
+function agentToolStep(input: {
+  tool: "codex.create_entry" | "codex.update_entry";
+  draft: Record<string, unknown>;
+  message?: string;
+}): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    type: "request_tool",
+    tool: input.tool,
+    message: input.message ?? "Prepared a Codex tool request.",
+    draft: input.draft,
+  });
+}
+
+async function createAgentToolMessage(input: {
+  app: Awaited<ReturnType<typeof buildApp>>;
+  seriesId: string;
+  sessionId: string;
+  modelProfileId: string;
+  userRequest?: string;
+}) {
+  const call = await input.app.inject({
+    method: "POST",
+    url: `/api/v1/series/${input.seriesId}/workshop/sessions/${input.sessionId}/calls`,
+    payload: {
+      mode: "agent",
+      userRequest: input.userRequest ?? "Prepare a Codex tool request.",
+      modelProfileId: input.modelProfileId,
+    },
+  });
+  expect(call.statusCode, call.payload).toBe(200);
+  expect(call.json().toolMessages).toHaveLength(1);
+  return call.json().toolMessages[0] as { id: string; role: string; mode: string; content: string };
+}
+
 describe("M5 Workshop API routes", () => {
   it("uses a neutral default session title and branches with copied message history", async () => {
-    const { app, series } = await createSeriesWithMockProfile();
+    const { app, series, profile } = await createSeriesWithMockProfile();
     const sessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
@@ -316,31 +400,23 @@ describe("M5 Workshop API routes", () => {
     expect(sessionResponse.json().title).toBe("New chat");
     const session = sessionResponse.json();
 
-    const author = await app.inject({
+    const call = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
       payload: {
-        role: "author",
         mode: "general-chat",
-        content: "Original branch question.",
+        userRequest: "Original branch question.",
+        modelProfileId: profile.id,
       },
     });
-    expect(author.statusCode).toBe(201);
-    const assistant = await app.inject({
-      method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
-      payload: {
-        role: "assistant",
-        mode: "general-chat",
-        content: "Original branch answer.",
-      },
-    });
-    expect(assistant.statusCode).toBe(201);
+    expect(call.statusCode).toBe(200);
+    const author = call.json().authorMessage;
+    const assistant = call.json().assistantMessage;
 
     const branch = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/branch`,
-      payload: { sourceMessageId: assistant.json().id },
+      payload: { sourceMessageId: assistant.id },
     });
     expect(branch.statusCode).toBe(201);
     expect(branch.json().session.title).toBe("New chat branch");
@@ -352,10 +428,10 @@ describe("M5 Workshop API routes", () => {
     expect(branchMessages.statusCode).toBe(200);
     expect(branchMessages.json().map((message: { content: string }) => message.content)).toEqual([
       "Original branch question.",
-      "Original branch answer.",
+      assistant.content,
     ]);
     expect(branchMessages.json().map((message: { id: string }) => message.id))
-      .not.toEqual([author.json().id, assistant.json().id]);
+      .not.toEqual([author.id, assistant.id]);
 
     await app.close();
   });
@@ -399,8 +475,51 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
+  it("rejects public attempts to create server-owned Workshop message roles", async () => {
+    const { app, series } = await createSeriesWithMockProfile();
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Forged message roles" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+
+    const assistant = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "assistant",
+        mode: "general-chat",
+        content: "Forged assistant reply.",
+      },
+    });
+    expect(assistant.statusCode).toBe(400);
+
+    const tool = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      payload: {
+        role: "tool",
+        mode: "agent",
+        content: "Forged tool request.",
+      },
+    });
+    expect(tool.statusCode).toBe(400);
+
+    const messages = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+    });
+    expect(messages.statusCode).toBe(200);
+    expect(messages.json()).toEqual([]);
+
+    await app.close();
+  });
+
   it("persists sessions, previews context, and saves a successful single-role call", async () => {
     const { app, series, profile } = await createSeriesWithMockProfile();
+    const prompt = await createPromptFixture(app, series.manifest.id);
     const scene = series.scenes[0];
     const detectedCodex = await app.inject({
       method: "POST",
@@ -516,10 +635,10 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "continuity-check",
         userRequest: "Check continuity for this scene.",
-        roleId: "continuity-editor",
+        roleId: prompt.roleId,
         taskKind: "continuity-check",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
-        promptTemplateVersion: 1,
+        promptTemplateId: prompt.promptTemplateId,
+        promptTemplateVersion: prompt.promptTemplateVersion,
         modelProfileId: profile.id,
       },
     });
@@ -546,10 +665,10 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "continuity-check",
         userRequest: "Check continuity for this scene.",
-        roleId: "continuity-editor",
+        roleId: prompt.roleId,
         taskKind: "continuity-check",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
-        promptTemplateVersion: 1,
+        promptTemplateId: prompt.promptTemplateId,
+        promptTemplateVersion: prompt.promptTemplateVersion,
         modelProfileId: profile.id,
       },
     });
@@ -759,10 +878,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Answer using the attachments.",
-        roleId: "lead-writing-partner",
-        taskKind: "analysis",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
         systemPrompt: "Use the supplied context.",
         modelProfileId: profile.id,
         draftToken: "draft-attachments",
@@ -845,10 +960,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "First question about file.",
-        roleId: "lead-writing-partner",
-        taskKind: "analysis",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
         systemPrompt: "Use the supplied context.",
         modelProfileId: profile.id,
         draftToken: "provider-draft",
@@ -864,10 +975,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Follow-up question.",
-        roleId: "lead-writing-partner",
-        taskKind: "analysis",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
         systemPrompt: "Use the supplied context.",
         modelProfileId: profile.id,
       },
@@ -943,10 +1050,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Show reasoning.",
-        roleId: "lead-writing-partner",
-        taskKind: "analysis",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
         systemPrompt: "Use the supplied context.",
         modelProfileId: profile.id,
       },
@@ -1051,10 +1154,6 @@ describe("M5 Workshop API routes", () => {
     const basePayload = {
       mode: "general-chat",
       userRequest: "Use attachment.",
-      roleId: "lead-writing-partner",
-      taskKind: "analysis",
-      promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-      promptTemplateVersion: 1,
       systemPrompt: "Use the supplied context.",
       modelProfileId: profile.id,
     };
@@ -1115,6 +1214,7 @@ describe("M5 Workshop API routes", () => {
 
   it("preserves input and context on model failure without creating an empty Proposal", async () => {
     const { app, series, profile } = await createSeriesWithMockProfile("mock-provider-error");
+    const prompt = await createPromptFixture(app, series.manifest.id);
     const scene = series.scenes[0];
     const sessionResponse = await app.inject({
       method: "POST",
@@ -1129,10 +1229,10 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "continuity-check",
         userRequest: "This request should be preserved.",
-        roleId: "continuity-editor",
+        roleId: prompt.roleId,
         taskKind: "continuity-check",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
-        promptTemplateVersion: 1,
+        promptTemplateId: prompt.promptTemplateId,
+        promptTemplateVersion: prompt.promptTemplateVersion,
         modelProfileId: profile.id,
       },
     });
@@ -1194,10 +1294,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Other session private export text.",
-        roleId: "lead-writing-partner",
-        taskKind: "analysis",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
         systemPrompt: "This prompt belongs to the other session.",
         modelProfileId: profile.id,
       },
@@ -1210,10 +1306,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Talk through options without creating a write candidate.",
-        roleId: "lead-writing-partner",
-        taskKind: "analysis",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
         systemPrompt: "Answer as a private context-aware story consultant.",
         modelProfileId: profile.id,
       },
@@ -1233,7 +1325,7 @@ describe("M5 Workshop API routes", () => {
       expect.objectContaining({
         kind: "role-instruction",
         source: expect.objectContaining({ type: "user-input" }),
-        title: "General Chat system prompt",
+        title: "Runtime prompt override",
         content: "Answer as a private context-aware story consultant.",
       }),
     ]));
@@ -1245,10 +1337,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Use no system prompt.",
-        roleId: "lead-writing-partner",
-        taskKind: "analysis",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
         systemPrompt: "",
         modelProfileId: profile.id,
       },
@@ -1258,7 +1346,7 @@ describe("M5 Workshop API routes", () => {
       expect.objectContaining({
         kind: "role-instruction",
         source: expect.objectContaining({ type: "user-input" }),
-        title: "General Chat system prompt",
+        title: "Runtime prompt override",
         content: "",
       }),
     ]));
@@ -1317,66 +1405,44 @@ describe("M5 Workshop API routes", () => {
     });
     expect(sessionResponse.statusCode).toBe(201);
     const session = sessionResponse.json();
-    const first = await app.inject({
+    const firstCall = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
       payload: {
-        role: "author",
         mode: "general-chat",
-        content: "Original request.",
+        userRequest: "Original request.",
+        modelProfileId: profile.id,
       },
     });
-    expect(first.statusCode).toBe(201);
+    expect(firstCall.statusCode).toBe(200);
+    const first = firstCall.json().authorMessage;
+    const firstAnswer = firstCall.json().assistantMessage;
     await new Promise((resolve) => setTimeout(resolve, 5));
-    const firstAnswer = await app.inject({
+    const laterCall = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
       payload: {
-        role: "assistant",
         mode: "general-chat",
-        content: "Old answer.",
+        userRequest: "Later request.",
+        modelProfileId: profile.id,
       },
     });
-    expect(firstAnswer.statusCode).toBe(201);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    const later = await app.inject({
-      method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
-      payload: {
-        role: "author",
-        mode: "general-chat",
-        content: "Later request.",
-      },
-    });
-    expect(later.statusCode).toBe(201);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    const laterAnswer = await app.inject({
-      method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
-      payload: {
-        role: "assistant",
-        mode: "general-chat",
-        content: "Later answer.",
-      },
-    });
-    expect(laterAnswer.statusCode).toBe(201);
+    expect(laterCall.statusCode).toBe(200);
+    const later = laterCall.json().authorMessage;
+    const laterAnswer = laterCall.json().assistantMessage;
 
     const resend = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${first.json().id}/resend`,
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${first.id}/resend`,
       payload: {
         content: "Updated request.",
-        roleId: "lead-writing-partner",
-        taskKind: "analysis",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
         systemPrompt: "Answer as a private context-aware story consultant.",
         modelProfileId: profile.id,
       },
     });
     expect(resend.statusCode).toBe(200);
     expect(resend.json().authorMessage).toMatchObject({
-      id: first.json().id,
+      id: first.id,
       mode: "general-chat",
       role: "author",
       content: "Updated request.",
@@ -1388,9 +1454,9 @@ describe("M5 Workshop API routes", () => {
     });
     expect(resend.json().toolMessages).toEqual([]);
     expect(resend.json().deletedMessageIds).toEqual([
-      firstAnswer.json().id,
-      later.json().id,
-      laterAnswer.json().id,
+      firstAnswer.id,
+      later.id,
+      laterAnswer.id,
     ]);
 
     const messages = await app.inject({
@@ -1399,10 +1465,9 @@ describe("M5 Workshop API routes", () => {
     });
     expect(messages.statusCode).toBe(200);
     expect(messages.json().map((message: { id: string }) => message.id)).toEqual([
-      first.json().id,
+      first.id,
       resend.json().assistantMessage.id,
     ]);
-    expect(messages.json().map((message: { content: string }) => message.content)).not.toContain("Old answer.");
     expect(messages.json().map((message: { content: string }) => message.content)).not.toContain("Later request.");
 
     const context = await app.inject({
@@ -1434,8 +1499,6 @@ describe("M5 Workshop API routes", () => {
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${agentSession.id}/messages/${agentAuthor.json().id}/resend`,
       payload: {
         content: "Updated Agent request.",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.researcher,
-        promptTemplateVersion: 1,
         modelProfileId: profile.id,
       },
     });
@@ -1462,14 +1525,16 @@ describe("M5 Workshop API routes", () => {
       instructions: "Base instructions",
       user: "User",
     });
-    expect(agentPrompt.instructions).toContain("Workshop surface: Dialogue Agent");
+    expect(agentPrompt.system).toBe("Base");
+    expect(agentPrompt.instructions).toContain("Conversation comes first");
+    expect(agentPrompt.instructions).toContain("Writing method");
     expect(agentPrompt.instructions).toContain('"type":"request_tool"');
     expect(agentPrompt.instructions).toContain('"tool":"codex.create_entry"');
     expect(agentPrompt.instructions).toContain('"tool":"codex.update_entry"');
     expect(agentPrompt.instructions).toContain("patch.progressions");
-    expect(agentPrompt.instructions).toContain("已授权");
-    expect(agentPrompt.instructions).toContain("Do not write Tool Call text");
     expect(agentPrompt.instructions).toContain("Base instructions");
+    expect(agentPrompt.instructions).not.toContain("Do not write Tool Call text");
+    expect(agentPrompt.instructions).not.toContain("Workshop surface: Dialogue Agent");
 
     const call = await app.inject({
       method: "POST",
@@ -1477,10 +1542,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "agent",
         userRequest: "Draft a Codex entry for the blue-salt key.",
-        roleId: "researcher",
-        taskKind: "research",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.researcher,
-        promptTemplateVersion: 1,
         modelProfileId: profile.id,
       },
     });
@@ -1537,10 +1598,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "codex-creation",
         userRequest: "Draft a Codex entry for the blue-salt key.",
-        roleId: "researcher",
-        taskKind: "research",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.researcher,
-        promptTemplateVersion: 1,
         modelProfileId: profile.id,
       },
     });
@@ -1550,29 +1607,240 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
-  it("repairs authorized Agent evidence refusals into structured Codex tool requests", async () => {
-    const providerResponses: string[] = [
-      "研究员无法继续。当前证据不足，不能创建 Codex 条目。",
-      JSON.stringify({
-        schemaVersion: 1,
-        type: "request_tool",
-        tool: "codex.create_entry",
-        message: "已按作者授权整理为待确认的 Codex 草稿。",
-        draft: {
-          categoryId: "object",
-          name: "星坠晶",
-          aliases: ["夜空泪"],
-          description: "星坠晶是一种蓝紫色矿石，来自作者授权的世界设定。",
-          details: [],
-          research: "Author decision recorded in this Agent session.",
-        },
+  it("sends Agent provider requests without prompt-audit context duplication", async () => {
+    const chatBodies: Array<Record<string, unknown>> = [];
+    const providerFetch: typeof fetch = async (input, init) => {
+      if (String(input) === "https://example.test/v1/chat/completions") {
+        chatBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+        return new Response([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "可以，先讨论这个设定。" } }] })}`,
+          "",
+          "data: [DONE]",
+          "",
+          "",
+        ].join("\n"), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      return new Response(JSON.stringify({ error: { message: "not found" } }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(providerFetch);
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent prompt filter" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "agent",
+        userRequest: "先和我讨论星坠晶，不要创建 Codex。",
+        roleId: "lead-writing-partner",
+        taskKind: "custom",
+        promptTemplateId: "00000000-0000-4000-8000-000000000406",
+        promptTemplateVersion: 1,
+        modelProfileId: profile.id,
+      },
+    });
+    expect(call.statusCode).toBe(200);
+
+    const context = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/context/${call.json().contextBundleId}`,
+    });
+    expect(context.statusCode).toBe(200);
+    expect(context.json().roleId).toBe("workshop-agent");
+    expect(context.json().taskKind).toBe("custom");
+    expect(context.json().promptTemplateId).toBe("00000000-0000-4000-8000-000000000422");
+    expect(context.json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "role-instruction" }),
+      expect.objectContaining({ kind: "user-request" }),
+    ]));
+    expect(context.json().items.some((item: { kind: string }) => item.kind === "prompt-template")).toBe(false);
+    expect(JSON.stringify(context.json().items)).not.toContain("lead-writing-partner");
+    expect(JSON.stringify(context.json().items)).not.toContain("主笔伙伴");
+    expect(JSON.stringify(context.json().items)).not.toContain("Context checker");
+    expect(JSON.stringify(context.json().items)).not.toContain("Use the provided context");
+
+    expect(chatBodies).toHaveLength(1);
+    const messages = chatBodies[0]!.messages as Array<{ role: string; content: string }>;
+    expect(messages[0]!.content).toContain("Conversation comes first");
+    expect(messages[0]!.content).toContain("Workshop Agent");
+    expect(messages[1]!.content).toBe("先和我讨论星坠晶，不要创建 Codex。");
+    expect(messages[1]!.content).not.toContain("Context checker");
+    expect(messages[1]!.content).not.toContain("You check story context.");
+    expect(messages[1]!.content).not.toContain("Use the provided context");
+    expect(JSON.stringify(messages)).not.toContain("lead-writing-partner");
+    expect(JSON.stringify(messages)).not.toContain("主笔伙伴");
+
+    await app.close();
+  });
+
+  it("sends pending Agent Codex drafts back to the provider for follow-up draft revisions", async () => {
+    const chatBodies: Array<Record<string, unknown>> = [];
+    const providerFetch: typeof fetch = async (input, init) => {
+      if (String(input) === "https://example.test/v1/chat/completions") {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { messages: Array<{ content: string }> };
+        chatBodies.push(body as unknown as Record<string, unknown>);
+        const userContent = body.messages[1]?.content ?? "";
+        const responseText = userContent.includes("Pending Codex draft")
+          ? agentToolStep({
+            tool: "codex.create_entry",
+            message: "Updated Weeping Star Shard draft.",
+            draft: {
+              aliases: ["Weeping Star Shards"],
+              categoryId: "object",
+              description:
+                "A sorrowful crystal mistaken for a component of the blue-salt key. It only forms near clocktower gears.",
+              details: [
+                { label: "False lead", value: "It misdirects seekers away from the real blue-salt key." },
+                { label: "Formation", value: "It only forms near clocktower gears." },
+              ],
+              name: "Weeping Star Shard",
+              research: "Source: current Workshop Agent conversation.",
+            },
+          })
+          : agentToolStep({
+            tool: "codex.create_entry",
+            message: "Prepared Weeping Star Shard draft.",
+            draft: {
+              aliases: ["Weeping Star Shards"],
+              categoryId: "object",
+              description: "A sorrowful crystal mistaken for a component of the blue-salt key.",
+              details: [
+                { label: "False lead", value: "It misdirects seekers away from the real blue-salt key." },
+              ],
+              name: "Weeping Star Shard",
+              research: "Source: current Workshop Agent conversation.",
+            },
+          });
+        return new Response([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: responseText } }] })}`,
+          "",
+          "data: [DONE]",
+          "",
+          "",
+        ].join("\n"), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      return new Response(JSON.stringify({ error: { message: "not found" } }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(providerFetch);
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent pending draft revision" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "agent",
+        userRequest: "I like Weeping Star Shard. It is a false lead for the blue-salt key. Put that into a Codex draft.",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().toolMessages).toHaveLength(1);
+
+    const second = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "agent",
+        userRequest: "Add one more bit: it only forms near clocktower gears.",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(second.statusCode, second.payload).toBe(200);
+    expect(second.json().toolMessages).toHaveLength(1);
+    expect(chatBodies).toHaveLength(2);
+    const secondProviderUser = (chatBodies[1]!.messages as Array<{ content: string }>)[1]!.content;
+    expect(secondProviderUser).toContain("Pending Codex draft");
+    expect(secondProviderUser).toContain("Weeping Star Shard");
+    expect(secondProviderUser).toContain("codex.create_entry");
+
+    const revisedTool = JSON.parse(second.json().toolMessages[0].content);
+    expect(revisedTool.draft.details).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: "Formation",
+        value: "It only forms near clocktower gears.",
       }),
-    ];
+    ]));
+
+    const context = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/context/${second.json().contextBundleId}`,
+    });
+    expect(context.statusCode).toBe(200);
+    expect(context.json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "pending-codex-draft" }),
+    ]));
+
+    await app.close();
+  });
+
+  it("saves direct structured Agent Codex tool JSON as a tool message", async () => {
+    const directToolJson = JSON.stringify({
+      schemaVersion: 1,
+      tool: "codex.create_entry",
+      draft: {
+        aliases: ["WSS"],
+        categoryId: "object",
+        description: "A false lead for the blue-salt key.",
+        details: [{ label: "Formation", value: "It only forms near clocktower gears." }],
+        name: "Weeping Star Shard",
+        research: "Source: current Workshop Agent conversation.",
+      },
+    });
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(directToolJson));
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent direct tool json" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "agent",
+        userRequest: "Refresh the Codex draft request.",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(call.statusCode, call.payload).toBe(200);
+    expect(call.json().assistantMessage.content).toBe("Prepared a Codex entry draft.");
+    expect(call.json().toolMessages).toHaveLength(1);
+    expect(JSON.parse(call.json().toolMessages[0].content).draft.aliases).toEqual(["WSS"]);
+
+    await app.close();
+  });
+
+  it("saves ordinary Agent prose as a normal assistant reply without a tool message", async () => {
     let requestCount = 0;
     const providerFetch: typeof fetch = async (input) => {
       if (String(input) === "https://example.test/v1/chat/completions") {
-        const responseText = providerResponses[Math.min(requestCount, providerResponses.length - 1)]!;
         requestCount += 1;
+        const responseText = "可以。这个设定更适合先写成可选 Codex 草稿，再由你决定是否入库。";
         return new Response([
           `data: ${JSON.stringify({ choices: [{ delta: { content: responseText } }] })}`,
           "",
@@ -1593,7 +1861,7 @@ describe("M5 Workshop API routes", () => {
     const sessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
-      payload: { kind: "agent", title: "Agent authorized repair" },
+      payload: { kind: "agent", title: "Agent ordinary reply" },
     });
     expect(sessionResponse.statusCode).toBe(201);
     const session = sessionResponse.json();
@@ -1603,27 +1871,15 @@ describe("M5 Workshop API routes", () => {
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
       payload: {
         mode: "agent",
-        userRequest: "已授权你创建 Codex 条目：星坠晶。自由发挥，直接创建待确认草稿。",
-        roleId: "researcher",
-        taskKind: "research",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.researcher,
-        promptTemplateVersion: 1,
+        userRequest: "先和我讨论一下星坠晶这个设定。",
         modelProfileId: profile.id,
       },
     });
     expect(call.statusCode).toBe(200);
-    expect(requestCount).toBe(2);
-    expect(call.json().assistantMessage.content).toContain("已按作者授权整理");
-    expect(call.json().assistantMessage.content).not.toContain("证据不足");
-    expect(call.json().toolMessages).toHaveLength(1);
-    expect(JSON.parse(call.json().toolMessages[0].content)).toMatchObject({
-      schemaVersion: 1,
-      tool: "codex.create_entry",
-      draft: {
-        name: "星坠晶",
-        research: "Author decision recorded in this Agent session.",
-      },
-    });
+    expect(requestCount).toBe(1);
+    expect(call.json().assistantMessage.content).toContain("可选 Codex 草稿");
+    expect(call.json().assistantMessage.content).not.toContain("structured response");
+    expect(call.json().toolMessages).toHaveLength(0);
 
     await app.close();
   });
@@ -1683,10 +1939,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "agent",
         userRequest: "创建一个 Codex 条目：星辉晶。",
-        roleId: "researcher",
-        taskKind: "research",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.researcher,
-        promptTemplateVersion: 1,
         modelProfileId: profile.id,
       },
     });
@@ -1700,7 +1952,8 @@ describe("M5 Workshop API routes", () => {
         toolMessages: Array<{ role: string; mode: string; content: string }>;
       };
     };
-    expect(done.result.assistantMessage.content).toContain("structured response");
+    expect(done.result.assistantMessage.content).toContain("好的，我现在直接创建");
+    expect(done.result.assistantMessage.content).not.toContain("structured response");
     expect(done.result.assistantMessage.content).not.toContain("Tool Call");
     expect(done.result.toolMessages).toHaveLength(0);
 
@@ -1768,10 +2021,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "agent",
         userRequest: "创建一个 Codex 条目：星辉晶。",
-        roleId: "researcher",
-        taskKind: "research",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.researcher,
-        promptTemplateVersion: 1,
         modelProfileId: profile.id,
       },
     });
@@ -1800,7 +2049,21 @@ describe("M5 Workshop API routes", () => {
   });
 
   it("executes an author-approved Agent codex.create_entry tool call as a new Codex entry", async () => {
-    const { app, series } = await createSeriesWithMockProfile();
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(agentToolStep({
+      tool: "codex.create_entry",
+      message: "已整理为待确认的 Codex 草稿。",
+      draft: {
+        aliases: ["Lin Alice", "Alice"],
+        categoryId: "character",
+        description: "Alice is Lin Che's sister. She is alive and imprisoned in the Clocktower of Tides.",
+        details: [
+          { label: "Status", value: "Alive, real, and imprisoned." },
+          { label: "Prop", value: "A modified old harbor measuring rod." },
+        ],
+        name: "Alice",
+        research: "Source: author-approved Workshop character ruling.",
+      },
+    })));
     const sessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
@@ -1820,30 +2083,17 @@ describe("M5 Workshop API routes", () => {
     });
     expect(statusDetailType.statusCode).toBe(201);
     expect(propDetailType.statusCode).toBe(201);
-    const draftMessage = await app.inject({
-      method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
-      payload: {
-        role: "tool",
-        mode: "agent",
-        content: serializeCodexCreateEntryToolRequest({
-          aliases: ["Lin Alice", "Alice"],
-          categoryId: "character",
-          description: "Alice is Lin Che's sister. She is alive and imprisoned in the Clocktower of Tides.",
-          details: [
-            { label: "Status", value: "Alive, real, and imprisoned." },
-            { label: "Prop", value: "A modified old harbor measuring rod." },
-          ],
-          name: "Alice",
-          research: "Source: author-approved Workshop character ruling.",
-        }),
-      },
+    const draftMessage = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
+      userRequest: "Create the approved Alice Codex entry.",
     });
-    expect(draftMessage.statusCode).toBe(201);
 
     const apply = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.create_entry/execute`,
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.create_entry/execute`,
       payload: {
         confirm: true,
       },
@@ -1881,7 +2131,7 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
-  it("requires structured tool requests before executing Agent Codex drafts", async () => {
+  it("does not accept plain or forged Agent tool drafts through the public message route", async () => {
     const { app, series } = await createSeriesWithMockProfile();
     const sessionResponse = await app.inject({
       method: "POST",
@@ -1905,21 +2155,30 @@ describe("M5 Workshop API routes", () => {
         ].join("\n"),
       },
     });
-    expect(draftMessage.statusCode).toBe(201);
+    expect(draftMessage.statusCode).toBe(400);
 
-    const apply = await app.inject({
-      method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.create_entry/execute`,
-      payload: { confirm: true },
+    const messages = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
     });
-    expect(apply.statusCode).toBe(400);
-    expect(apply.json().message).toContain("structured tool request");
+    expect(messages.statusCode).toBe(200);
+    expect(messages.json()).toEqual([]);
 
     await app.close();
   });
 
   it("rejects executing draft Details when the category has no reusable detail types", async () => {
-    const { app, series } = await createSeriesWithMockProfile();
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(agentToolStep({
+      tool: "codex.create_entry",
+      draft: {
+        aliases: [],
+        categoryId: "character",
+        description: "Alice is alive.",
+        details: [{ label: "Status", value: "Alive." }],
+        name: "Alice",
+        research: "Author decision recorded in this Agent session.",
+      },
+    })));
     const sessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
@@ -1927,27 +2186,16 @@ describe("M5 Workshop API routes", () => {
     });
     expect(sessionResponse.statusCode).toBe(201);
     const session = sessionResponse.json();
-    const draftMessage = await app.inject({
-      method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
-      payload: {
-        role: "tool",
-        mode: "agent",
-        content: serializeCodexCreateEntryToolRequest({
-          aliases: [],
-          categoryId: "character",
-          description: "Alice is alive.",
-          details: [{ label: "Status", value: "Alive." }],
-          name: "Alice",
-          research: "Author decision recorded in this Agent session.",
-        }),
-      },
+    const draftMessage = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
     });
-    expect(draftMessage.statusCode).toBe(201);
 
     const apply = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.create_entry/execute`,
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.create_entry/execute`,
       payload: { confirm: true },
     });
     expect(apply.statusCode).toBe(409);
@@ -1966,7 +2214,7 @@ describe("M5 Workshop API routes", () => {
 
     const confirmedApply = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.create_entry/execute`,
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.create_entry/execute`,
       payload: {
         confirm: true,
         createMissingDetailTypes: true,
@@ -1986,7 +2234,17 @@ describe("M5 Workshop API routes", () => {
   });
 
   it("creates unmatched Agent draft detail types only after author confirmation", async () => {
-    const { app, series } = await createSeriesWithMockProfile();
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(agentToolStep({
+      tool: "codex.create_entry",
+      draft: {
+        aliases: [],
+        categoryId: "character",
+        description: "Alice is alive.",
+        details: [{ label: "Looks", value: "Blonde hair." }],
+        name: "Alice",
+        research: "Author decision recorded in this Agent session.",
+      },
+    })));
     const sessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
@@ -2000,27 +2258,16 @@ describe("M5 Workshop API routes", () => {
       payload: { categoryId: "character", name: "Appearance" },
     });
     expect(appearanceDetailType.statusCode).toBe(201);
-    const draftMessage = await app.inject({
-      method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
-      payload: {
-        role: "tool",
-        mode: "agent",
-        content: serializeCodexCreateEntryToolRequest({
-          aliases: [],
-          categoryId: "character",
-          description: "Alice is alive.",
-          details: [{ label: "Looks", value: "Blonde hair." }],
-          name: "Alice",
-          research: "Author decision recorded in this Agent session.",
-        }),
-      },
+    const draftMessage = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
     });
-    expect(draftMessage.statusCode).toBe(201);
 
     const apply = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.create_entry/execute`,
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.create_entry/execute`,
       payload: { confirm: true },
     });
     expect(apply.statusCode).toBe(409);
@@ -2041,7 +2288,7 @@ describe("M5 Workshop API routes", () => {
 
     const confirmedApply = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.create_entry/execute`,
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.create_entry/execute`,
       payload: {
         confirm: true,
         createMissingDetailTypes: true,
@@ -2063,7 +2310,8 @@ describe("M5 Workshop API routes", () => {
   });
 
   it("executes Agent codex.update_entry progression create update and delete operations", async () => {
-    const { app, series } = await createSeriesWithMockProfile();
+    let agentResponseText = "";
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(() => agentResponseText));
     const scene = series.scenes[0]!;
     const sessionResponse = await app.inject({
       method: "POST",
@@ -2116,53 +2364,53 @@ describe("M5 Workshop API routes", () => {
     expect(progressionToUpdate.statusCode).toBe(201);
     expect(progressionToDelete.statusCode).toBe(201);
 
-    const draftMessage = await app.inject({
-      method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
-      payload: {
-        role: "tool",
-        mode: "agent",
-        content: serializeCodexUpdateEntryToolRequest({
-          target: { entryId: entry.metadata.id },
-          patch: {
-            progressions: [
-              {
-                action: "create",
-                input: {
-                  kind: "field",
-                  field: { kind: "description", detailTypeId: null },
-                  operation: "replace",
-                  body: "Alice is alive in the Clocktower.",
-                  summary: "Alice living Clocktower state.",
-                  effectiveFromSceneId: scene.metadata.id,
-                },
+    agentResponseText = agentToolStep({
+      tool: "codex.update_entry",
+      draft: {
+        target: { entryId: entry.metadata.id },
+        patch: {
+          progressions: [
+            {
+              action: "create",
+              input: {
+                kind: "field",
+                field: { kind: "description", detailTypeId: null },
+                operation: "replace",
+                body: "Alice is alive in the Clocktower.",
+                summary: "Alice living Clocktower state.",
+                effectiveFromSceneId: scene.metadata.id,
               },
-              {
-                action: "update",
-                progressionId: progressionToUpdate.json().progression.id,
-                input: {
-                  baseRevision: progressionToUpdate.json().revision,
-                  body: "Updated progression body.",
-                  summary: "Updated summary.",
-                },
+            },
+            {
+              action: "update",
+              progressionId: progressionToUpdate.json().progression.id,
+              input: {
+                baseRevision: progressionToUpdate.json().revision,
+                body: "Updated progression body.",
+                summary: "Updated summary.",
               },
-              {
-                action: "delete",
-                progressionId: progressionToDelete.json().progression.id,
-                input: {
-                  baseRevision: progressionToDelete.json().revision,
-                },
+            },
+            {
+              action: "delete",
+              progressionId: progressionToDelete.json().progression.id,
+              input: {
+                baseRevision: progressionToDelete.json().revision,
               },
-            ],
-          },
-        }),
+            },
+          ],
+        },
       },
     });
-    expect(draftMessage.statusCode).toBe(201);
+    const draftMessage = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
+    });
 
     const apply = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.json().id}/tools/codex.update_entry/execute`,
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.update_entry/execute`,
       payload: { confirm: true },
     });
     expect(apply.statusCode).toBe(201);
@@ -2220,10 +2468,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Other session private export text.",
-        roleId: "lead-writing-partner",
-        taskKind: "analysis",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
         systemPrompt: "This prompt belongs to the other session.",
         modelProfileId: profile.id,
       },
@@ -2250,10 +2494,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Talk through the scene without writing.",
-        roleId: "lead-writing-partner",
-        taskKind: "analysis",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
         systemPrompt: "Answer as a private context-aware story consultant.",
         modelProfileId: profile.id,
         attachmentIds: [upload.json().id],
@@ -2335,10 +2575,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Talk through the scene without writing.",
-        roleId: "lead-writing-partner",
-        taskKind: "analysis",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
         systemPrompt: "Answer as a private context-aware story consultant.",
         modelProfileId: profile.id,
       },

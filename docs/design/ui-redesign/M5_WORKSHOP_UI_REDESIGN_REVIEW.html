@@ -1,0 +1,1415 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workshop Redesign Slice 1</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef1ed;
+      --shell: #f8f8f2;
+      --shell-dark: #192120;
+      --shell-dark-2: #23302e;
+      --surface: #fbfaf6;
+      --surface-2: #f4f6f1;
+      --surface-raised: #ffffff;
+      --ink: #1f2523;
+      --muted: #66716c;
+      --quiet: #8a948f;
+      --line: #d6ddd6;
+      --line-strong: #b8c3bb;
+      --blue: #2f64d6;
+      --blue-dark: #244fba;
+      --blue-soft: #edf2fd;
+      --green: #1f7a58;
+      --green-soft: #e8f4ee;
+      --amber: #b66a1e;
+      --amber-soft: #fff2df;
+      --red: #b44747;
+      --red-soft: #fff0ec;
+      --violet: #6757b7;
+      --violet-soft: #f0edfb;
+      --shadow: 0 18px 44px rgba(31, 37, 35, 0.08);
+      --shadow-panel: 0 12px 36px rgba(31, 37, 35, 0.1);
+      --radius: 6px;
+      --radius-sm: 4px;
+      --radius-pill: 999px;
+      --font-ui: Inter, "Noto Sans SC", "Microsoft YaHei", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+    }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-ui);
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button:disabled,
+    textarea:disabled {
+      cursor: not-allowed;
+      opacity: 0.58;
+    }
+
+    button:focus-visible,
+    summary:focus-visible,
+    textarea:focus-visible,
+    input:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    summary {
+      list-style: none;
+      cursor: pointer;
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr);
+      height: 100vh;
+      min-width: 980px;
+      background: var(--shell);
+    }
+
+    .rail {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 18px;
+      padding: 14px 8px;
+      background: var(--shell-dark);
+      color: #dce6e1;
+    }
+
+    .brand {
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      margin: 0 auto;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: var(--radius);
+      background: var(--shell-dark-2);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+
+    .nav button {
+      display: grid;
+      place-items: center;
+      gap: 4px;
+      width: 56px;
+      min-height: 54px;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      background: transparent;
+      color: #aab8b2;
+      font-size: 11px;
+    }
+
+    .nav button.active {
+      border-color: rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+    }
+
+    .icon {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      stroke-width: 1.9;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-rows: 64px minmax(0, 1fr);
+      min-width: 0;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(248, 248, 242, 0.96);
+    }
+
+    .title {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .title h1 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 20px;
+      line-height: 28px;
+    }
+
+    .title span {
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .top-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: end;
+      position: relative;
+    }
+
+    .btn,
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 34px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--surface-raised);
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 720;
+      line-height: 18px;
+      white-space: nowrap;
+    }
+
+    .btn {
+      padding: 0 12px;
+    }
+
+    .btn.primary {
+      border-color: var(--blue-dark);
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .btn.ghost {
+      border-color: transparent;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .btn.soft {
+      border-color: rgba(47, 100, 214, 0.22);
+      background: var(--blue-soft);
+      color: var(--blue-dark);
+    }
+
+    .icon-btn {
+      width: 34px;
+      padding: 0;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 23px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-pill);
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+      line-height: 17px;
+      white-space: nowrap;
+    }
+
+    .pill.blue {
+      border-color: rgba(47, 100, 214, 0.24);
+      background: var(--blue-soft);
+      color: var(--blue-dark);
+    }
+
+    .pill.green {
+      border-color: rgba(31, 122, 88, 0.24);
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .pill.amber {
+      border-color: rgba(182, 106, 30, 0.28);
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .stage {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      min-height: 0;
+      padding: 14px;
+      gap: 14px;
+    }
+
+    .thread-dock {
+      display: grid;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .thread-dock > summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      width: 276px;
+      min-height: 46px;
+      padding: 0 12px;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      border-radius: 0;
+      background: var(--surface);
+      box-shadow: none;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 18px;
+    }
+
+    .thread-dock[open] {
+      grid-template-rows: auto minmax(0, 1fr);
+      width: 276px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .thread-dock:not([open]) {
+      width: 54px;
+      align-self: start;
+    }
+
+    .thread-dock:not([open]) > summary {
+      display: grid;
+      place-items: center;
+      width: 48px;
+      height: 48px;
+      min-height: 48px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      color: var(--muted);
+      font-size: 0;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .thread-dock:not([open]) > summary span {
+      display: none;
+    }
+
+    .thread-dock:not([open]) > summary::after {
+      content: "3";
+      position: absolute;
+      transform: translate(14px, -14px);
+      display: grid;
+      place-items: center;
+      width: 19px;
+      height: 19px;
+      border: 1px solid rgba(182, 106, 30, 0.32);
+      border-radius: 999px;
+      background: var(--amber-soft);
+      color: var(--amber);
+      font-size: 11px;
+      line-height: 1;
+    }
+
+    .thread-dock:not([open]) .threads {
+      display: none;
+    }
+
+    .threads {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 0;
+      overflow: hidden;
+      border: 0;
+      border-radius: 0;
+      background: var(--surface);
+      box-shadow: none;
+      transition: width 160ms ease;
+    }
+
+    .thread-list {
+      display: grid;
+      align-content: start;
+      gap: 2px;
+      min-height: 0;
+      padding: 8px;
+      overflow-y: auto;
+      scrollbar-gutter: stable;
+    }
+
+    .thread-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      min-height: 54px;
+      width: 100%;
+      padding: 8px 9px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+    }
+
+    .thread-row:hover,
+    .thread-row.active {
+      background: var(--blue-soft);
+    }
+
+    .thread-row strong,
+    .thread-row small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .thread-row strong {
+      font-size: 13px;
+      line-height: 18px;
+    }
+
+    .thread-row small {
+      margin-top: 2px;
+      color: var(--quiet);
+      font-size: 11px;
+      line-height: 15px;
+    }
+
+    .conversation {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-width: 0;
+      min-height: 0;
+      overflow: visible;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fffefa;
+      box-shadow: var(--shadow-panel);
+    }
+
+    .conversation-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      min-height: 58px;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .thread-title {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .thread-title h2 {
+      margin: 0;
+      overflow: hidden;
+      font-size: 17px;
+      line-height: 24px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .thread-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .menu {
+      position: relative;
+    }
+
+    .menu > summary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--surface-raised);
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 720;
+      line-height: 18px;
+      white-space: nowrap;
+    }
+
+    .menu-panel {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 8px);
+      z-index: 20;
+      display: grid;
+      gap: 4px;
+      width: 260px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      box-shadow: 0 14px 28px rgba(31, 37, 35, 0.16);
+    }
+
+    .top-actions .menu:first-child .menu-panel {
+      right: calc(100% + 12px);
+      top: 0;
+      width: 230px;
+    }
+
+    .top-actions .menu:last-child .menu-panel {
+      width: 250px;
+    }
+
+    .menu-panel button,
+    .menu-panel label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 34px;
+      padding: 7px 8px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--ink);
+      font-size: 13px;
+      text-align: left;
+    }
+
+    .menu-section {
+      display: grid;
+      gap: 4px;
+      padding: 4px 0;
+    }
+
+    .menu-section + .menu-section {
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+    }
+
+    .menu-label {
+      padding: 4px 8px 2px;
+      color: var(--quiet);
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 15px;
+      text-transform: uppercase;
+    }
+
+    .menu-action {
+      display: grid !important;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      min-height: 42px !important;
+    }
+
+    .menu-action strong,
+    .menu-action small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .menu-action strong {
+      font-size: 13px;
+      line-height: 18px;
+    }
+
+    .menu-action small {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 15px;
+    }
+
+    .menu-field {
+      display: grid !important;
+      gap: 6px !important;
+      align-items: stretch !important;
+    }
+
+    .menu-field span:first-child {
+      color: var(--quiet);
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 15px;
+      text-transform: uppercase;
+    }
+
+    .menu-input {
+      min-height: 34px;
+      width: 100%;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: #fff;
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .menu-panel button:hover,
+    .menu-panel label:hover {
+      background: var(--surface-2);
+    }
+
+    .menu-panel button:disabled,
+    .menu-panel label[aria-disabled="true"] {
+      color: var(--quiet);
+      cursor: not-allowed;
+    }
+
+    .menu-note {
+      margin: 0;
+      padding: 7px 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 17px;
+    }
+
+    .messages {
+      display: grid;
+      align-content: start;
+      gap: 18px;
+      min-height: 0;
+      padding: 28px clamp(28px, 5vw, 76px);
+      overflow-y: auto;
+      scrollbar-gutter: stable;
+    }
+
+    .message {
+      position: relative;
+      display: grid;
+      gap: 10px;
+      max-width: 980px;
+      padding-left: 18px;
+      border-left: 3px solid var(--line-strong);
+    }
+
+    .message.author {
+      border-left-color: var(--blue);
+    }
+
+    .message.agent {
+      border-left-color: #7d8f83;
+    }
+
+    .message.tool {
+      border-left-color: var(--amber);
+    }
+
+    .msg-meta {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--quiet);
+      font-size: 12px;
+      line-height: 16px;
+    }
+
+    .message p {
+      margin: 0;
+      color: var(--ink);
+      font-size: 16px;
+      line-height: 1.72;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+
+    .msg-tools {
+      position: absolute;
+      right: 0;
+      top: -2px;
+      display: flex;
+      gap: 6px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 120ms ease;
+    }
+
+    .msg-tools .menu-panel {
+      right: 0;
+      top: calc(100% + 6px);
+      width: 280px;
+    }
+
+    .message:hover .msg-tools,
+    .message:focus-within .msg-tools {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .decision-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: min(720px, 100%);
+      min-height: 44px;
+      padding: 7px 8px 7px 12px;
+      border: 1px solid rgba(182, 106, 30, 0.28);
+      border-radius: var(--radius);
+      background: var(--amber-soft);
+    }
+
+    .decision-copy {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .decision-copy strong {
+      overflow: hidden;
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 18px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .decision-copy span {
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 16px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .inline-fold {
+      width: min(720px, 100%);
+    }
+
+    .inline-fold > summary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-pill);
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      line-height: 16px;
+    }
+
+    .fold-body {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 19px;
+    }
+
+    .fold-row {
+      display: grid;
+      grid-template-columns: 140px minmax(0, 1fr);
+      gap: 12px;
+      align-items: baseline;
+      min-width: 0;
+    }
+
+    .fold-row strong {
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 17px;
+    }
+
+    .fold-row span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .composer {
+      position: relative;
+      display: grid;
+      grid-template-rows: auto minmax(48px, auto) auto;
+      gap: 0;
+      min-height: 156px;
+      padding: 12px 13px 11px;
+      border-top: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .context-line {
+      position: static;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 36px;
+    }
+
+    .composer .context-line > .menu {
+      position: static;
+    }
+
+    .context-chips {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .context-menu-panel {
+      position: absolute;
+      left: 16px;
+      right: auto;
+      bottom: calc(100% - 6px);
+      z-index: 60;
+      display: grid;
+      grid-template-columns: 156px minmax(0, 1fr);
+      width: clamp(520px, 52%, 760px);
+      max-width: calc(100% - 32px);
+      min-height: 332px;
+      height: min(430px, calc(100vh - 260px));
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: #fff;
+      box-shadow: 0 18px 32px rgba(31, 37, 35, 0.18);
+    }
+
+    .context-tab-radio {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .context-tabs {
+      display: grid;
+      align-content: start;
+      gap: 4px;
+      padding: 10px;
+      border-right: 1px solid var(--line);
+      background: #fffefa;
+    }
+
+    .context-tabs label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 38px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 760;
+      text-align: left;
+    }
+
+    .context-tabs label:hover {
+      background: var(--blue-soft);
+      color: var(--blue-dark);
+    }
+
+    #ctx-story:checked ~ .context-tabs label[for="ctx-story"],
+    #ctx-scenes:checked ~ .context-tabs label[for="ctx-scenes"],
+    #ctx-codex:checked ~ .context-tabs label[for="ctx-codex"],
+    #ctx-files:checked ~ .context-tabs label[for="ctx-files"] {
+      background: var(--blue-soft);
+      color: var(--blue-dark);
+    }
+
+    .context-list {
+      display: none;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    #ctx-story:checked ~ .context-list.story,
+    #ctx-scenes:checked ~ .context-list.scenes,
+    #ctx-codex:checked ~ .context-list.codex,
+    #ctx-files:checked ~ .context-list.files {
+      display: grid;
+    }
+
+    .context-pane-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 44px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fffefa;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 18px;
+    }
+
+    .context-pane-head span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .context-options {
+      display: grid;
+      align-content: start;
+      min-height: 0;
+      overflow-y: auto;
+      scrollbar-gutter: stable;
+    }
+
+    .context-item {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+      min-height: 54px;
+      width: 100%;
+      padding: 9px 16px;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .context-item:hover,
+    .context-item.selected {
+      background: var(--blue-soft);
+    }
+
+    .context-item.add-file {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .context-item input {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      accent-color: var(--blue);
+    }
+
+    .context-item strong,
+    .context-item small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .context-item strong {
+      font-size: 14px;
+      line-height: 20px;
+    }
+
+    .context-item small {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 16px;
+    }
+
+    .composer-input {
+      width: 100%;
+      min-height: 48px;
+      padding: 10px 8px 8px;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font-size: 17px;
+      line-height: 25px;
+      resize: none;
+    }
+
+    .composer-input:focus {
+      outline: none;
+    }
+
+    .composer-input::placeholder {
+      color: var(--quiet);
+    }
+
+    .composer-foot {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 14px;
+      min-height: 46px;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+    }
+
+    .attach-row,
+    .send-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .attachment {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: min(340px, 100%);
+      min-height: 32px;
+      padding: 4px 6px 4px 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fffefa;
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 16px;
+    }
+
+    .send-row .btn {
+      min-height: 44px;
+    }
+
+    .stop-idle {
+      display: none;
+    }
+
+    .send-row.is-running .stop-idle {
+      display: inline-flex;
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <aside class="rail" aria-label="Primary navigation">
+      <div class="brand">NS</div>
+      <nav class="nav">
+        <button type="button" aria-label="Overview">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M4 5h16M4 12h10M4 19h16"></path></svg>
+          Home
+        </button>
+        <button type="button" aria-label="Plan">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M4 6h7v12H4zM13 6h7v5h-7zM13 13h7v5h-7z"></path></svg>
+          Plan
+        </button>
+        <button type="button" aria-label="Write">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M5 19l4-1 10-10-3-3L6 15zM14 5l3 3"></path></svg>
+          Write
+        </button>
+        <button type="button" aria-label="Codex">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M6 4h12v16H6zM9 8h6M9 12h6M9 16h4"></path></svg>
+          Codex
+        </button>
+        <button class="active" type="button" aria-label="Workshop">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M4 7h16M7 7v12M17 7v12M4 19h16M8 11h8"></path></svg>
+          Work
+        </button>
+      </nav>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div class="title">
+          <h1>Workshop</h1>
+          <span>Chapter 4 Codex pass</span>
+        </div>
+        <div class="top-actions">
+          <details class="menu">
+            <summary>New</summary>
+            <div class="menu-panel">
+              <div class="menu-section">
+                <div class="menu-label">Create thread</div>
+                <button class="menu-action" type="button">
+                  <span><strong>Chat thread</strong><small>Discussion only, no write actions</small></span>
+                  <span class="pill blue">Chat</span>
+                </button>
+                <button class="menu-action" type="button">
+                  <span><strong>Agent thread</strong><small>Can prepare gated tool requests</small></span>
+                  <span class="pill amber">Agent</span>
+                </button>
+              </div>
+            </div>
+          </details>
+          <details class="menu">
+            <summary>More</summary>
+            <div class="menu-panel">
+              <div class="menu-section">
+                <div class="menu-label">Thread</div>
+                <button class="menu-action" type="button">
+                  <span><strong>Rename</strong><small>Persist this thread title</small></span>
+                </button>
+                <button class="menu-action" type="button">
+                  <span><strong>Branch from latest</strong><small>Copies visible history and attachments</small></span>
+                </button>
+                <button class="menu-action" type="button">
+                  <span><strong>Archive</strong><small>Hide without deleting records</small></span>
+                </button>
+              </div>
+              <div class="menu-section">
+                <div class="menu-label">Export</div>
+                <label><input type="checkbox"> Include collapsed reasoning</label>
+                <button class="menu-action" type="button">
+                  <span><strong>Export thread</strong><small>Messages, attachments, and selected export options</small></span>
+                </button>
+              </div>
+            </div>
+          </details>
+        </div>
+      </header>
+
+      <section class="stage">
+        <details class="thread-dock" open>
+          <summary>
+            <span>Threads</span>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"></path></svg>
+          </summary>
+          <aside class="threads" aria-label="Threads">
+            <div class="thread-list">
+              <button class="thread-row active" type="button">
+                <span>
+                  <strong>Chapter 4 Codex pass</strong>
+                  <small>Agent - tool request pending</small>
+                </span>
+                <span class="pill amber">1</span>
+              </button>
+              <button class="thread-row" type="button">
+                <span>
+                  <strong>Cruel reader reaction</strong>
+                  <small>Chat - 9 messages</small>
+                </span>
+                <span class="pill blue">Chat</span>
+              </button>
+              <button class="thread-row" type="button">
+                <span>
+                  <strong>Dock fight alternatives</strong>
+                  <small>Branch from earlier answer</small>
+                </span>
+                <span class="pill">Branch</span>
+              </button>
+            </div>
+          </aside>
+        </details>
+
+        <section class="conversation" aria-label="Conversation">
+          <div class="conversation-head">
+            <div class="thread-title">
+              <h2>Chapter 4 Codex pass</h2>
+              <div class="thread-meta">
+                <span class="pill amber">Agent thread</span>
+                <span class="pill">DeepSeek R1</span>
+              </div>
+            </div>
+            <details class="menu">
+              <summary>Call Settings</summary>
+              <div class="menu-panel">
+                <div class="menu-section">
+                  <label class="menu-field">
+                    <span>Model profile</span>
+                    <select class="menu-input">
+                      <option>DeepSeek editorial</option>
+                      <option>Local draft model</option>
+                    </select>
+                  </label>
+                  <label class="menu-field">
+                    <span>Model override</span>
+                    <select class="menu-input">
+                      <option>DeepSeek R1</option>
+                      <option>DeepSeek V3</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="menu-section">
+                  <label><input type="checkbox" checked> Stream output</label>
+                  <label><input type="checkbox"> Show reasoning by default</label>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div class="messages">
+            <article class="message author">
+              <div class="msg-meta">
+                <span class="pill blue">Author</span>
+                <span>10:14</span>
+                <span>2 attachments</span>
+              </div>
+              <p>Use the new fight scene and summarize the injury state changes that should affect the next two scenes.</p>
+              <div class="msg-tools">
+                <button class="btn ghost" type="button">Branch from here</button>
+                <details class="menu">
+                  <summary>More</summary>
+                  <div class="menu-panel">
+                    <div class="menu-section">
+                      <button class="menu-action" type="button">
+                        <span><strong>Copy message</strong><small>Visible text and attachment names</small></span>
+                      </button>
+                      <button class="menu-action" type="button">
+                        <span><strong>Delete message</strong><small>Allowed only if no proposal is linked</small></span>
+                      </button>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </article>
+
+            <article class="message agent">
+              <div class="msg-meta">
+                <span class="pill">Workshop</span>
+                <span>10:15</span>
+              </div>
+              <p>There are three safe outputs here: a confirmed injury summary, a continuity warning for scene 13, and one Codex update that should not write directly until reviewed.</p>
+              <div class="decision-strip">
+                <span class="decision-copy">
+                  <strong>Proposal ready for Review</strong>
+                  <span>Lin Che's left shoulder injury affects sword stability from Chapter 4 onward.</span>
+                </span>
+                <button class="btn soft" type="button">Open Review</button>
+              </div>
+              <details class="inline-fold">
+                <summary>Reasoning available</summary>
+                <div class="fold-body">
+                  The reasoning text is available but collapsed by default. It does not enter export unless explicitly requested from the thread export menu.
+                </div>
+              </details>
+              <div class="msg-tools">
+                <button class="btn ghost" type="button">Branch from here</button>
+                <details class="menu">
+                  <summary>More</summary>
+                  <div class="menu-panel">
+                    <div class="menu-section">
+                      <button class="menu-action" type="button">
+                        <span><strong>Copy message</strong><small>Visible answer only</small></span>
+                      </button>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </article>
+
+            <article class="message tool">
+              <div class="msg-meta">
+                <span class="pill amber">Tool request</span>
+                <span>10:16</span>
+                <span>Not executed</span>
+              </div>
+              <p>Codex update requested. Direct execution is unavailable for this request, so the safe path is Review.</p>
+              <div class="decision-strip">
+                <span class="decision-copy">
+                  <strong>Codex update blocked</strong>
+                  <span>Open Review before any Codex change is applied.</span>
+                </span>
+                <button class="btn soft" type="button">Review as Proposal</button>
+              </div>
+              <details class="inline-fold">
+                <summary>Tool details</summary>
+                  <div class="fold-body">
+                    <div class="fold-row"><strong>Target</strong><span>Lin Che / Character</span></div>
+                    <div class="fold-row"><strong>Change</strong><span>Injury state: left shoulder relapse after the dock fight</span></div>
+                    <div class="fold-row"><strong>Safe path</strong><span>Convert to Review Proposal before anything changes in Codex</span></div>
+                    <div class="fold-row"><strong>Execution</strong><span>Unavailable for this request</span></div>
+                  </div>
+                </details>
+              <div class="msg-tools">
+                <button class="btn ghost" type="button">Branch from here</button>
+                <details class="menu">
+                  <summary>More</summary>
+                  <div class="menu-panel">
+                    <div class="menu-section">
+                      <button class="menu-action" type="button">
+                        <span><strong>Copy request</strong><small>Tool request summary only</small></span>
+                      </button>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </article>
+          </div>
+
+          <section class="composer" aria-label="Composer">
+            <div class="context-line">
+              <details class="menu">
+                <summary>Context</summary>
+                <div class="context-menu-panel">
+                  <input class="context-tab-radio" id="ctx-story" name="ctx-tab" type="radio" checked>
+                  <input class="context-tab-radio" id="ctx-scenes" name="ctx-tab" type="radio">
+                  <input class="context-tab-radio" id="ctx-codex" name="ctx-tab" type="radio">
+                  <input class="context-tab-radio" id="ctx-files" name="ctx-tab" type="radio">
+                  <div class="context-tabs">
+                    <label for="ctx-story">Story scope <span>2</span></label>
+                    <label for="ctx-scenes">Scenes <span>3</span></label>
+                    <label for="ctx-codex">Codex <span>7</span></label>
+                    <label for="ctx-files">Files <span>1</span></label>
+                  </div>
+                  <section class="context-list story">
+                    <div class="context-pane-head">
+                      <strong>Included scope</strong>
+                    </div>
+                    <div class="context-options">
+                      <label class="context-item selected">
+                        <input type="checkbox" checked>
+                        <span><strong>Full outline</strong><small>Structure and confirmed scene order</small></span>
+                      </label>
+                      <label class="context-item selected">
+                        <input type="checkbox" checked>
+                        <span><strong>Chapter 4</strong><small>Current chapter and allowed linked Codex</small></span>
+                      </label>
+                      <label class="context-item">
+                        <input type="checkbox">
+                        <span><strong>Full manuscript</strong><small>Large scope, trimmed before send if needed</small></span>
+                      </label>
+                    </div>
+                  </section>
+                  <section class="context-list scenes">
+                    <div class="context-pane-head">
+                      <strong>Scene range</strong>
+                    </div>
+                    <div class="context-options">
+                      <label class="context-item selected">
+                        <input type="checkbox" checked>
+                        <span><strong>Dock pursuit</strong><small>Chapter 4 / Scene 12</small></span>
+                      </label>
+                      <label class="context-item selected">
+                        <input type="checkbox" checked>
+                        <span><strong>Rain alley standoff</strong><small>Chapter 4 / Scene 13</small></span>
+                      </label>
+                      <label class="context-item selected">
+                        <input type="checkbox" checked>
+                        <span><strong>Clinic aftermath</strong><small>Chapter 4 / Scene 14</small></span>
+                      </label>
+                    </div>
+                  </section>
+                  <section class="context-list codex">
+                    <div class="context-pane-head">
+                      <strong>Linked Codex</strong>
+                    </div>
+                    <div class="context-options">
+                      <label class="context-item selected">
+                        <input type="checkbox" checked disabled>
+                        <span><strong>Lin Che</strong><small>Auto-linked from selected scenes</small></span>
+                      </label>
+                      <label class="context-item selected">
+                        <input type="checkbox" checked disabled>
+                        <span><strong>Fog Harbor Dock</strong><small>Location, on-mention policy</small></span>
+                      </label>
+                      <label class="context-item">
+                        <input type="checkbox" disabled>
+                        <span><strong>Hidden antagonist secret</strong><small>Never include policy</small></span>
+                      </label>
+                    </div>
+                  </section>
+                  <section class="context-list files">
+                    <div class="context-pane-head">
+                      <strong>Files</strong>
+                    </div>
+                    <div class="context-options">
+                      <label class="context-item selected">
+                        <input type="checkbox" checked>
+                        <span><strong>fight-notes.docx</strong><small>Parsed as message attachment context</small></span>
+                      </label>
+                      <button class="context-item add-file" type="button">
+                        <span><strong>Add file</strong><small>txt, md, doc, docx, text pdf</small></span>
+                      </button>
+                    </div>
+                  </section>
+                </div>
+              </details>
+              <div class="context-chips">
+                <span class="pill blue">Outline</span>
+                <span class="pill blue">Chapter 4</span>
+                <span class="pill">3 scenes</span>
+                <span class="pill green">7 Codex linked</span>
+              </div>
+            </div>
+            <textarea class="composer-input" aria-label="Message" placeholder="Ask for a critique, draft, continuity pass, or Codex plan"></textarea>
+            <div class="composer-foot">
+              <div class="attach-row">
+                <button class="icon-btn" type="button" aria-label="Attach file">
+                  <svg class="icon" viewBox="0 0 24 24"><path d="M21 12.5l-8.5 8.5a6 6 0 01-8.5-8.5L13 3.5a4 4 0 015.7 5.7l-9 9a2 2 0 01-2.8-2.8l8-8"></path></svg>
+                </button>
+                <span class="attachment">fight-notes.docx <span class="pill green">Ready</span></span>
+              </div>
+              <div class="send-row">
+                <button class="btn ghost stop-idle" type="button">Stop</button>
+                <button class="btn primary" type="button">Send</button>
+              </div>
+            </div>
+          </section>
+        </section>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

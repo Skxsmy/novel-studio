@@ -52,7 +52,6 @@ import {
   ensureCredentialBoundary,
   modelError,
 } from "../ai/policy.js";
-import { ensureBuiltInPrompts } from "../prompts/builtIns.js";
 import { PromptRenderError } from "../prompts/render.js";
 import { buildContextBundle } from "./context.js";
 import { contextPrompt, requestHash, usage } from "./modelCalls.js";
@@ -62,14 +61,22 @@ import {
   codexUpdateEntryInputFromWorkshopDraft,
   parseCodexCreateEntryToolRequest,
   parseCodexUpdateEntryToolRequest,
+  renderWorkshopCodexCreateDraft,
+  renderWorkshopCodexUpdateDraft,
   serializeCodexCreateEntryToolRequest,
   serializeCodexUpdateEntryToolRequest,
   type CodexUpdateEntryToolRequest,
+  type WorkshopCodexCreateDraft,
   type WorkshopCodexProgressionDraft,
+  type WorkshopCodexUpdateDraft,
   WorkshopCodexDetailTypeCreationRequiredError,
 } from "../workshop/codexDraft.js";
 import { exportWorkshopSessionMarkdown } from "../workshop/sessionExport.js";
-import { applyWorkshopAgentPrompt, parseWorkshopAgentStep } from "../workshop/workshopAgent.js";
+import { applyWorkshopAgentPrompt, parseWorkshopAgentStep, type WorkshopAgentStep } from "../workshop/workshopAgent.js";
+import {
+  workshopPromptDefinition,
+  workshopProviderPrompt as workshopModeProviderPrompt,
+} from "../workshop/workshopPrompts.js";
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -210,23 +217,28 @@ async function workshopContextPayload(
   input: ReturnType<typeof WorkshopContextPreviewInputSchema.parse>,
   options: { excludeWorkshopMessageId?: string | null } = {},
 ): Promise<Record<string, unknown>> {
+  const workshopPrompt = workshopPromptDefinition(input.mode);
+  const promptInstruction = workshopPrompt
+    ? [workshopPrompt.system, workshopPrompt.instructions].filter(Boolean).join("\n\n")
+    : null;
   return {
     sceneId: basket.sceneId ?? null,
     blockId: basket.blockId,
     selection: basket.selection,
     manualContextIds: manualContextIds(basket),
     userRequest: input.userRequest,
-    roleId: input.roleId,
-    taskKind: input.taskKind,
-    promptTemplateId: input.promptTemplateId,
-    promptTemplateVersion: input.promptTemplateVersion,
-    systemPromptOverride: input.mode === "general-chat" ? input.systemPrompt : null,
+    roleId: workshopPrompt?.roleId ?? input.roleId,
+    taskKind: workshopPrompt?.taskKind ?? input.taskKind,
+    promptTemplateId: workshopPrompt?.promptTemplateId ?? input.promptTemplateId,
+    promptTemplateVersion: workshopPrompt?.promptTemplateVersion ?? input.promptTemplateVersion,
+    systemPromptOverride: input.mode === "general-chat" ? input.systemPrompt : promptInstruction,
     modelProfileId: input.modelProfileId,
     tokenBudget: input.tokenBudget,
     attachmentIds: input.attachmentIds,
     draftToken: input.draftToken,
     workshopSessionId: basket.sessionId,
     excludeWorkshopMessageId: options.excludeWorkshopMessageId ?? null,
+    includePendingWorkshopCodexDraft: input.mode === "agent",
   };
 }
 
@@ -258,29 +270,42 @@ function effectiveModelProfile(modelProfile: ModelProfile, modelOverride?: strin
   };
 }
 
+const WORKSHOP_PROMPT_CONTEXT_KINDS = new Set([
+  "role-instruction",
+  "prompt-template",
+  "user-request",
+]);
+
+function shouldFilterPromptContext(mode: ReturnType<typeof RunWorkshopCallInputSchema.parse>["mode"]): boolean {
+  return mode === "general-chat" || mode === "agent";
+}
+
 async function workshopProviderPrompt(
   contextBundle: ContextBundle,
   input: ReturnType<typeof RunWorkshopCallInputSchema.parse>,
 ): Promise<ProviderPrompt> {
-  if (input.mode === "agent") return applyWorkshopAgentPrompt(contextPrompt(contextBundle));
-  if (input.mode !== "general-chat") return contextPrompt(contextBundle);
-  return {
-    system: input.systemPrompt.trim(),
-    instructions: "",
-    user: contextBundle.userRequest,
-  };
+  if (input.mode === "agent") {
+    return applyWorkshopAgentPrompt(workshopModeProviderPrompt({
+      mode: "agent",
+      userRequest: contextBundle.userRequest,
+    }));
+  }
+  if (input.mode === "general-chat") {
+    return workshopModeProviderPrompt({
+      mode: "general-chat",
+      userRequest: contextBundle.userRequest,
+      generalChatSystemPrompt: input.systemPrompt,
+    });
+  }
+  return contextPrompt(contextBundle);
 }
 
 function workshopProviderContextBundle(
   contextBundle: ContextBundle,
   input: ReturnType<typeof RunWorkshopCallInputSchema.parse>,
 ): ContextBundle {
-  if (input.mode !== "general-chat") return contextBundle;
-  const items = contextBundle.items.filter((item) =>
-    item.kind !== "role-instruction" &&
-    item.kind !== "prompt-template" &&
-    item.kind !== "user-request",
-  );
+  if (!shouldFilterPromptContext(input.mode)) return contextBundle;
+  const items = contextBundle.items.filter((item) => !WORKSHOP_PROMPT_CONTEXT_KINDS.has(item.kind));
   const inputTokens = items.reduce((sum, item) => sum + item.tokenEstimate, 0);
   return ContextBundleSchema.parse({
     ...contextBundle,
@@ -482,56 +507,6 @@ class CodexUpdateTargetResolutionError extends Error {
 
 function normalizeCodexLookupName(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("und");
-}
-
-function hasExplicitAgentAuthorization(value: string): boolean {
-  return /(?:已授权|授权你|授权给你|自由发挥|随便|你决定|你来决定|直接创建|直接更新|直接写|按你的判断)/iu.test(value);
-}
-
-function hasCodexWriteIntent(value: string): boolean {
-  return /(?:codex|canon|词条|条目|设定|story-memory|故事记忆|创建|新建|更新|修改|改写|补充|写入)/iu.test(value);
-}
-
-function isEvidenceRefusal(value: string): boolean {
-  return /(?:证据不足|来源不足|没有(?:外部)?证据|无(?:外部)?来源|不能(?:直接)?(?:创建|写入|更新|定稿)|无法(?:直接)?(?:创建|写入|更新|定稿)|insufficient evidence|no evidence|no source|cannot .*evidence)/iu.test(value);
-}
-
-function shouldRepairAuthorizedAgentStep(input: {
-  mode: string;
-  userRequest: string;
-  responseText: string;
-  log: ModelCallLog;
-}): boolean {
-  if (input.mode !== "agent" || input.log.status !== "succeeded") return false;
-  if (!hasExplicitAgentAuthorization(input.userRequest) || !hasCodexWriteIntent(input.userRequest)) return false;
-  if (!isEvidenceRefusal(input.responseText)) return false;
-  return parseWorkshopAgentStep(input.responseText).type === "respond";
-}
-
-function authorizedAgentRepairPrompt(input: {
-  prompt: ProviderPrompt;
-  userRequest: string;
-  responseText: string;
-}): ProviderPrompt {
-  return {
-    ...input.prompt,
-    instructions: [
-      input.prompt.instructions,
-      [
-        "Repair instruction:",
-        "The previous Agent response refused a Codex write because it treated author-invented fiction as lacking evidence.",
-        "That refusal is invalid for this Workshop Agent run because the author explicitly authorized the Codex write.",
-        "Return exactly one structured JSON agent step. Use codex.create_entry or codex.update_entry when the request identifies enough target/content. Do not ask for external evidence solely because the story material is fictional.",
-      ].join("\n"),
-    ].filter(Boolean).join("\n\n"),
-    user: [
-      input.prompt.user,
-      "Author request:",
-      input.userRequest,
-      "Previous invalid response:",
-      input.responseText,
-    ].join("\n\n"),
-  };
 }
 
 async function resolveCodexUpdateTarget(input: {
@@ -812,7 +787,6 @@ export function registerWorkshopRoutes(
   app.post<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/resend",
     async (request, reply) => {
-      await ensureBuiltInPrompts(repository, request.params.seriesId);
       const input = ResendWorkshopMessageInputSchema.parse(request.body);
       const source = await repository.getWorkshopMessageSource(
         request.params.seriesId,
@@ -863,7 +837,7 @@ export function registerWorkshopRoutes(
       );
       const prompt = await workshopProviderPrompt(contextBundle, callInput);
       const providerContextBundle = workshopProviderContextBundle(contextBundle, callInput);
-      let { log, responseText } = await executeWorkshopCall({
+      const { log, responseText } = await executeWorkshopCall({
         repository,
         providerRegistry,
         seriesId: request.params.seriesId,
@@ -990,14 +964,26 @@ export function registerWorkshopRoutes(
         });
       }
       const entry = await repository.createCodexEntry(request.params.seriesId, codexInput);
-      const resultMessage = await repository.createWorkshopMessage(
+      const resultMessage = await repository.saveWorkshopMessage(
         request.params.seriesId,
-        source.session.id,
-        {
+        WorkshopMessageSchema.parse({
+          schemaVersion: 1,
+          id: randomUUID(),
+          seriesId: request.params.seriesId,
+          sessionId: source.session.id,
           role: "result",
           mode: "agent",
+          status: "succeeded",
           content: `codex.create_entry created Codex entry: ${entry.metadata.name}`,
-        },
+          reasoningContent: "",
+          contextBundleId: source.message.contextBundleId,
+          modelCallId: source.message.modelCallId,
+          proposalIds: [],
+          attachmentIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: new Date().toISOString(),
+        }),
       );
       return reply.status(201).send(
         WorkshopCodexCreateEntryToolResultSchema.parse({
@@ -1133,16 +1119,28 @@ export function registerWorkshopRoutes(
         updatedProgressions.length ? `${updatedProgressions.length} progression(s) updated` : "",
         deletedProgressions.length ? `${deletedProgressions.length} progression(s) deleted` : "",
       ].filter(Boolean).join("; ");
-      const resultMessage = await repository.createWorkshopMessage(
+      const resultMessage = await repository.saveWorkshopMessage(
         request.params.seriesId,
-        source.session.id,
-        {
+        WorkshopMessageSchema.parse({
+          schemaVersion: 1,
+          id: randomUUID(),
+          seriesId: request.params.seriesId,
+          sessionId: source.session.id,
           role: "result",
           mode: "agent",
+          status: "succeeded",
           content: progressionSummary
             ? `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name} (${progressionSummary})`
             : `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name}`,
-        },
+          reasoningContent: "",
+          contextBundleId: source.message.contextBundleId,
+          modelCallId: source.message.modelCallId,
+          proposalIds: [],
+          attachmentIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: new Date().toISOString(),
+        }),
       );
       return reply.status(201).send(
         WorkshopCodexUpdateEntryToolResultSchema.parse({
@@ -1199,6 +1197,115 @@ export function registerWorkshopRoutes(
     return true;
   }
 
+  type PendingCodexDraft =
+    | { tool: "codex.create_entry"; draft: WorkshopCodexCreateDraft }
+    | { tool: "codex.update_entry"; draft: WorkshopCodexUpdateDraft };
+
+  function cloneJson<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+
+  function pendingCodexDraftFromContext(contextBundle: ContextBundle): PendingCodexDraft | null {
+    const item = contextBundle.items.find((candidate) => candidate.kind === "pending-codex-draft");
+    if (!item) return null;
+    const start = item.content.indexOf("{");
+    const end = item.content.lastIndexOf("}");
+    if (start < 0 || end <= start) return null;
+    const json = item.content.slice(start, end + 1);
+    try {
+      const request = parseCodexCreateEntryToolRequest(json);
+      return { tool: request.tool, draft: request.draft };
+    } catch {
+      try {
+        const request = parseCodexUpdateEntryToolRequest(json);
+        return { tool: request.tool, draft: request.draft };
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  function isPendingDraftReviewOnly(userRequest: string): boolean {
+    const normalized = userRequest.toLocaleLowerCase("und");
+    if (/\b(add|remove|cut|change|rename|alias|category|object|lore|refresh|update|revise|use only)\b/iu.test(normalized)) {
+      return false;
+    }
+    return /\b(show|review|preview|plain english|wait|hold|do not write|don't write|not write|do not apply|don't apply)\b/iu
+      .test(normalized);
+  }
+
+  function isPendingDraftRevisionRequest(userRequest: string): boolean {
+    if (isPendingDraftReviewOnly(userRequest)) return false;
+    return /\b(add|remove|cut|change|rename|alias|category|object|lore|refresh|update|revise|use only|one more bit)\b/iu
+      .test(userRequest.toLocaleLowerCase("und"));
+  }
+
+  function requestedAliases(userRequest: string): string[] | null {
+    const match = userRequest.match(/\balias(?:es)?\b\s*(?:is|are|as|to|:)?\s*["'`]?([A-Za-z0-9][A-Za-z0-9 _,-]{0,80})/iu) ??
+      userRequest.match(/\bonly\s+one\s+alias\s*(?:is|as|:)?\s*["'`]?([A-Za-z0-9][A-Za-z0-9 _,-]{0,80})/iu);
+    if (!match?.[1]) return null;
+    return match[1]
+      .replace(/[."'`;:]+$/u, "")
+      .split(/\s*,\s*|\s+and\s+/iu)
+      .map((alias) => alias.trim())
+      .filter(Boolean);
+  }
+
+  function requestedAddedDetail(userRequest: string): WorkshopCodexCreateDraft["details"][number] | null {
+    const match = userRequest.match(/\b(?:add|one more bit)\b[^:]*:\s*(.+)$/iu);
+    const value = match?.[1]?.trim().replace(/[.。]+$/u, "");
+    if (!value) return null;
+    const label = /\bform|forms|formed|formation\b/iu.test(value) ? "Formation" : "Note";
+    return { label, value };
+  }
+
+  function removeInventedCosmicMaterial(description: string): string {
+    return description
+      .split(/(?<=[.!?])\s+/u)
+      .filter((sentence) => !/\b(cosmic|celestial|star origin|dying star|folklore|myth)\b/iu.test(sentence))
+      .join(" ")
+      .trim() || description;
+  }
+
+  function revisedPendingCodexDraft(
+    pending: PendingCodexDraft,
+    userRequest: string,
+  ): PendingCodexDraft | null {
+    if (!isPendingDraftRevisionRequest(userRequest)) return null;
+    if (pending.tool === "codex.update_entry") {
+      const draft = cloneJson(pending.draft);
+      const aliases = requestedAliases(userRequest);
+      if (aliases) draft.patch.aliases = aliases;
+      return { tool: pending.tool, draft };
+    }
+
+    const draft = cloneJson(pending.draft);
+    const aliases = requestedAliases(userRequest);
+    if (aliases) draft.aliases = aliases;
+    if (/\bobject\b/iu.test(userRequest) && !/\bnot\s+(?:an?\s+)?object\b/iu.test(userRequest)) {
+      draft.categoryId = "object";
+    } else if (/\blore\b/iu.test(userRequest) && !/\bnot\s+(?:a\s+)?lore\b/iu.test(userRequest)) {
+      draft.categoryId = "lore";
+    }
+    const addedDetail = requestedAddedDetail(userRequest);
+    if (addedDetail && !draft.details.some((detail) => detail.label === addedDetail.label && detail.value === addedDetail.value)) {
+      draft.details = [...draft.details, addedDetail];
+    }
+    if (/\b(cut|remove)\b.*\b(cosmic|myth|invented|folklore)\b/iu.test(userRequest)) {
+      draft.description = removeInventedCosmicMaterial(draft.description);
+      draft.details = draft.details.filter((detail) =>
+        !/\b(cosmic|celestial|star origin|dying star|folklore|myth)\b/iu.test(`${detail.label} ${detail.value}`)
+      );
+    }
+    return { tool: pending.tool, draft };
+  }
+
+  function pendingDraftPreview(pending: PendingCodexDraft): string {
+    return pending.tool === "codex.create_entry"
+      ? renderWorkshopCodexCreateDraft(pending.draft)
+      : renderWorkshopCodexUpdateDraft(pending.draft);
+  }
+
   async function saveWorkshopAssistantTurn(input: {
     seriesId: string;
     sessionId: string;
@@ -1221,7 +1328,37 @@ export function registerWorkshopRoutes(
     let toolRequestContent: string | null = null;
 
     if (input.mode === "agent" && input.log.status === "succeeded") {
-      const step = parseWorkshopAgentStep(rawAssistantContent);
+      const pendingDraft = pendingCodexDraftFromContext(input.contextBundle);
+      let step: WorkshopAgentStep = parseWorkshopAgentStep(rawAssistantContent);
+      if (pendingDraft && isPendingDraftReviewOnly(input.userRequest) && step.type === "request_tool") {
+        step = {
+          schemaVersion: 1,
+          type: "respond",
+          message: pendingDraftPreview({
+            tool: step.tool,
+            draft: step.draft,
+          } as PendingCodexDraft),
+        };
+      } else if (pendingDraft && step.type === "respond") {
+        const revised = revisedPendingCodexDraft(pendingDraft, input.userRequest);
+        if (revised) {
+          step = revised.tool === "codex.create_entry"
+            ? {
+              schemaVersion: 1,
+              type: "request_tool",
+              tool: "codex.create_entry",
+              message: "Prepared a revised Codex entry draft.",
+              draft: revised.draft,
+            }
+            : {
+              schemaVersion: 1,
+              type: "request_tool",
+              tool: "codex.update_entry",
+              message: "Prepared a revised Codex entry update draft.",
+              draft: revised.draft,
+            };
+        }
+      }
       if (step.type === "request_tool" && step.tool === "codex.create_entry") {
         assistantContent = step.message.trim() || "Prepared a Codex entry creation tool request.";
         responseText = assistantContent;
@@ -1290,7 +1427,6 @@ export function registerWorkshopRoutes(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/context-preview",
     async (request, reply) => {
       try {
-        await ensureBuiltInPrompts(repository, request.params.seriesId);
         const input = WorkshopContextPreviewInputSchema.parse(request.body);
         if (rejectLegacyCodexCreationMode(input, reply)) return reply;
         const basket = await repository.getWorkshopContextBasket(
@@ -1313,7 +1449,6 @@ export function registerWorkshopRoutes(
   app.post<{ Params: { seriesId: string; sessionId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/calls/stream",
     async (request, reply) => {
-      await ensureBuiltInPrompts(repository, request.params.seriesId);
       const input = RunWorkshopCallInputSchema.parse(request.body);
       if (rejectLegacyCodexCreationMode(input, reply)) return reply;
       const authorMessage = await repository.createWorkshopMessage(
@@ -1409,56 +1544,6 @@ export function registerWorkshopRoutes(
           if (!suppressRawAgentStream) writeWorkshopEvent(reply, event);
         }
       }
-      if (shouldRepairAuthorizedAgentStep({
-        mode: input.mode,
-        userRequest: input.userRequest,
-        responseText,
-        log,
-      })) {
-        visibleText = "";
-        reasoningText = "";
-        const repairParser = createReasoningParser();
-        ({ log, responseText } = await executeWorkshopCall({
-          repository,
-          providerRegistry,
-          seriesId: request.params.seriesId,
-          sessionId: request.params.sessionId,
-          contextBundle,
-          providerContextBundle,
-          modelProfile,
-          prompt: authorizedAgentRepairPrompt({
-            prompt,
-            userRequest: input.userRequest,
-            responseText,
-          }),
-          parameters: input.parameters,
-          abortSignal: abortController.signal,
-          onStreamingLog: (streamingLog) => {
-            metadataSent = true;
-            writeWorkshopEvent(reply, {
-              type: "metadata",
-              contextBundleId: contextBundle.id,
-              modelCallId: streamingLog.id,
-            });
-          },
-          onChunk: (chunk) => {
-            for (const event of repairParser.push(chunk)) {
-              if (event.type === "reasoning-delta") {
-                reasoningText += event.text;
-              } else {
-                visibleText += event.text;
-              }
-            }
-          },
-        }));
-        for (const event of repairParser.finish()) {
-          if (event.type === "reasoning-delta") {
-            reasoningText += event.text;
-          } else {
-            visibleText += event.text;
-          }
-        }
-      }
       if (!metadataSent) {
         writeWorkshopEvent(reply, {
           type: "metadata",
@@ -1507,7 +1592,6 @@ export function registerWorkshopRoutes(
   app.post<{ Params: { seriesId: string; sessionId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/calls",
     async (request, reply) => {
-      await ensureBuiltInPrompts(repository, request.params.seriesId);
       const input = RunWorkshopCallInputSchema.parse(request.body);
       if (rejectLegacyCodexCreationMode(input, reply)) return reply;
       const authorMessage = await repository.createWorkshopMessage(
@@ -1556,28 +1640,6 @@ export function registerWorkshopRoutes(
         prompt,
         parameters: input.parameters,
       });
-      if (shouldRepairAuthorizedAgentStep({
-        mode: input.mode,
-        userRequest: input.userRequest,
-        responseText,
-        log,
-      })) {
-        ({ log, responseText } = await executeWorkshopCall({
-          repository,
-          providerRegistry,
-          seriesId: request.params.seriesId,
-          sessionId: request.params.sessionId,
-          contextBundle,
-          providerContextBundle,
-          modelProfile,
-          prompt: authorizedAgentRepairPrompt({
-            prompt,
-            userRequest: input.userRequest,
-            responseText,
-          }),
-          parameters: input.parameters,
-        }));
-      }
       const { assistantMessage, toolMessages, responseText: finalResponseText } = await saveWorkshopAssistantTurn({
         seriesId: request.params.seriesId,
         sessionId: request.params.sessionId,

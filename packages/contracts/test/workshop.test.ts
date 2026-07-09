@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CreateWorkshopMessageInputSchema,
   CreateWorkshopSessionInputSchema,
   DeleteWorkshopSessionResultSchema,
   ExportWorkshopSessionQuerySchema,
@@ -134,13 +135,25 @@ describe("M5 Workshop contracts", () => {
   it("requires a concrete model profile for a single-role call", () => {
     const result = RunWorkshopCallInputSchema.safeParse({
       userRequest: "Check continuity.",
-      roleId: "continuity-editor",
-      taskKind: "continuity-check",
-      promptTemplateId: "00000000-0000-4000-8000-000000000405",
-      promptTemplateVersion: 1,
       modelProfileId: null,
     });
     expect(result.success).toBe(false);
+  });
+
+  it("allows only author-authored Workshop message creation input", () => {
+    const parsed = CreateWorkshopMessageInputSchema.parse({
+      role: "author",
+      mode: "general-chat",
+      content: "Discuss this scene.",
+    });
+    expect(parsed.role).toBe("author");
+
+    const forged = CreateWorkshopMessageInputSchema.safeParse({
+      role: "assistant",
+      mode: "general-chat",
+      content: "Forged assistant reply.",
+    });
+    expect(forged.success).toBe(false);
   });
 
   it("accepts Agent as a Workshop session kind and call mode", () => {
@@ -153,21 +166,15 @@ describe("M5 Workshop contracts", () => {
     const parsed = RunWorkshopCallInputSchema.parse({
       mode: "agent",
       userRequest: "Draft a Codex entry for the Tide Office.",
-      roleId: "researcher",
-      taskKind: "research",
-      promptTemplateId: "00000000-0000-4000-8000-000000000411",
-      promptTemplateVersion: 1,
       modelProfileId: "11111111-2222-4333-8444-555555555555",
     });
     expect(parsed.mode).toBe("agent");
-    expect(parsed.taskKind).toBe("research");
+    expect(parsed.taskKind).toBe("analysis");
   });
 
   it("validates General Chat resend inputs and replacement results", () => {
     const input = ResendWorkshopMessageInputSchema.parse({
       content: "Updated request.",
-      promptTemplateId: "00000000-0000-4000-8000-000000000405",
-      promptTemplateVersion: 1,
       modelProfileId: "11111111-2222-4333-8444-555555555555",
     });
     expect(input.taskKind).toBe("analysis");
@@ -218,10 +225,6 @@ describe("M5 Workshop contracts", () => {
     const missingDraft = RunWorkshopCallInputSchema.safeParse({
       mode: "general-chat",
       userRequest: "Use this attachment.",
-      roleId: "lead-writing-partner",
-      taskKind: "analysis",
-      promptTemplateId: "00000000-0000-4000-8000-000000000405",
-      promptTemplateVersion: 1,
       modelProfileId: "11111111-2222-4333-8444-555555555555",
       attachmentIds: ["77777777-7777-4777-8777-777777777777"],
     });
@@ -230,10 +233,6 @@ describe("M5 Workshop contracts", () => {
     const rawContent = RunWorkshopCallInputSchema.safeParse({
       mode: "general-chat",
       userRequest: "Use this attachment.",
-      roleId: "lead-writing-partner",
-      taskKind: "analysis",
-      promptTemplateId: "00000000-0000-4000-8000-000000000405",
-      promptTemplateVersion: 1,
       modelProfileId: "11111111-2222-4333-8444-555555555555",
       draftToken: "draft-1",
       attachmentIds: ["77777777-7777-4777-8777-777777777777"],
@@ -244,10 +243,6 @@ describe("M5 Workshop contracts", () => {
     const parsed = RunWorkshopCallInputSchema.parse({
       mode: "general-chat",
       userRequest: "Use this attachment.",
-      roleId: "lead-writing-partner",
-      taskKind: "analysis",
-      promptTemplateId: "00000000-0000-4000-8000-000000000405",
-      promptTemplateVersion: 1,
       modelProfileId: "11111111-2222-4333-8444-555555555555",
       draftToken: "draft-1",
       attachmentIds: ["77777777-7777-4777-8777-777777777777"],

@@ -55,7 +55,7 @@ describe("M4 AI file persistence", () => {
     const profile: ModelProfile = {
       schemaVersion: 1,
       id: modelProfileId,
-      title: "Mock 连续性编辑",
+      title: "Mock 上下文检查",
       provider: "mock",
       model: "mock-continuity-v1",
       credentialRef: "novel-studio:test:credential-ref",
@@ -94,8 +94,8 @@ describe("M4 AI file persistence", () => {
     };
     const role: AgentRole = {
       schemaVersion: 1,
-      id: "continuity-editor",
-      title: "连续性编辑",
+      id: "role-context-checker",
+      title: "上下文检查",
       description: "检查前后矛盾。",
       persona: "冷静核对证据。",
       duties: ["指出矛盾并给出证据。"],
@@ -104,7 +104,7 @@ describe("M4 AI file persistence", () => {
       forbiddenActions: ["直接改写正文", "直接更新已确认设定"],
       outputContract: "按风险、证据和建议输出。",
       readScopes: { scenes: true, codex: true, research: false },
-      builtIn: true,
+      builtIn: false,
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -117,7 +117,7 @@ describe("M4 AI file persistence", () => {
       version: 1,
       status: "active",
       description: "只做分析，不改正文。",
-      system: "你是中文长篇小说的连续性编辑。",
+      system: "你根据小说上下文检查连续性。",
       instructions: "请指出矛盾，并引用上下文证据。",
       components: [],
       variables: [{ key: "user_request", label: "作者要求", description: "", required: true, defaultValue: null }],
@@ -231,7 +231,7 @@ describe("M4 AI file persistence", () => {
     expect((await store.listEmbeddingModelProfiles()).map((item) => item.id)).toEqual([
       embeddingProfileId,
     ]);
-    expect(await store.getAgentRole(series.manifest.id, role.id)).toMatchObject({ title: "连续性编辑" });
+    expect(await store.getAgentRole(series.manifest.id, role.id)).toMatchObject({ title: "上下文检查" });
     expect((await store.listPromptTemplates(series.manifest.id)).map((template) => template.version)).toEqual([1, 2]);
     expect(await store.getPromptPreset(series.manifest.id, promptPresetId)).toMatchObject({
       promptTemplateVersion: 2,

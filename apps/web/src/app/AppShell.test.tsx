@@ -61,7 +61,12 @@ const workshopBasketItemId = "90909090-9090-4090-9090-909090909090";
 const workshopContextBundleId = "91919191-9191-4191-9191-919191919191";
 const workshopModelCallId = "92929292-9292-4292-9292-929292929292";
 const workshopAttachmentId = "93939393-9393-4393-8393-939393939393";
-const promptTemplateId = "00000000-0000-4000-8000-000000000405";
+const promptTemplateId = "00000000-0000-4000-8000-000000000901";
+const contextRoleId = "role-context-checker";
+const writingRoleId = "role-writing-partner";
+const workshopAgentRoleId = "workshop-agent";
+const workshopGeneralPromptTemplateId = "00000000-0000-4000-8000-000000000421";
+const workshopAgentPromptTemplateId = "00000000-0000-4000-8000-000000000422";
 const revision = "a".repeat(64);
 const updatedRevision = "b".repeat(64);
 const firstBlockId = "10101010-1010-4010-8010-101010101010";
@@ -874,17 +879,17 @@ function workshopContextBundle() {
     id: workshopContextBundleId,
     seriesId,
     sceneId,
-    roleId: "continuity-editor",
+    roleId: contextRoleId,
     taskKind: "continuity-check",
     userRequest: "Check continuity for the opening scene.",
     promptTemplateId,
     promptTemplateVersion: 1,
     items: [
       {
-        id: "role-instruction:continuity-editor",
+        id: "role-instruction:role-context-checker",
         kind: "role-instruction",
-        source: { type: "system", id: "continuity-editor", revision: null, label: "Continuity editor" },
-        title: "Continuity editor",
+        source: { type: "system", id: contextRoleId, revision: null, label: "Context checker" },
+        title: "Context checker",
         content: "Check continuity.",
         inclusion: "required",
         inclusionReason: "Role instruction.",
@@ -939,7 +944,7 @@ function promptTemplate(overrides: Partial<{
   return {
     schemaVersion: 1 as const,
     id: overrides.id ?? promptTemplateId,
-    roleId: overrides.roleId ?? "continuity-editor",
+    roleId: overrides.roleId ?? contextRoleId,
     name: overrides.name ?? "Continuity check",
     version: 1,
     status: "active" as const,
@@ -1342,7 +1347,7 @@ function mockFetch(options: {
           generator: sourceMessage.modelCallId
             ? {
               kind: "ai",
-              roleId: "continuity-editor",
+              roleId: contextRoleId,
               provider: "mock",
               model: "mock-continuity-v1",
               promptTemplateId,
@@ -2212,8 +2217,8 @@ function mockFetch(options: {
     if (url === `/api/v1/series/${seriesId}/ai/roles` && method === "GET") {
       return jsonResponse([{
         schemaVersion: 1,
-        id: "continuity-editor",
-        title: "Continuity editor",
+        id: contextRoleId,
+        title: "Context checker",
         description: "Checks continuity.",
         persona: "",
         duties: [],
@@ -2222,7 +2227,7 @@ function mockFetch(options: {
         forbiddenActions: [],
         outputContract: "",
         readScopes: { scenes: true, codex: true, research: true, futureScenes: false },
-        builtIn: true,
+        builtIn: false,
         createdAt: "2026-07-01T00:00:00.000Z",
         updatedAt: "2026-07-01T00:00:00.000Z",
         archivedAt: null,
@@ -2233,8 +2238,8 @@ function mockFetch(options: {
       return jsonResponse([
         promptTemplate(),
         promptTemplate({
-          id: "00000000-0000-4000-8000-000000000401",
-          roleId: "lead-writing-partner",
+          id: workshopGeneralPromptTemplateId,
+          roleId: writingRoleId,
           name: "General chat",
           description: "Talk through writing options.",
           system: "You are a writing partner.",
@@ -2242,11 +2247,11 @@ function mockFetch(options: {
           outputSchemaName: "chat_response",
         }),
         promptTemplate({
-          id: "00000000-0000-4000-8000-000000000411",
-          roleId: "researcher",
-          name: "Research and Codex",
+          id: workshopAgentPromptTemplateId,
+          roleId: workshopAgentRoleId,
+          name: "Workshop Agent",
           description: "Draft Codex material.",
-          system: "You are a Codex researcher.",
+          system: "You are the Workshop Agent.",
           instructions: "Draft Codex entries and evidence notes.",
           outputSchemaName: "research_notes",
         }),
@@ -4667,7 +4672,6 @@ describe("App shell", () => {
     );
     expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body))).toMatchObject({
       mode: "general-chat",
-      taskKind: "analysis",
     });
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
     expect(screen.queryByText(workshopModelCallId)).toBeNull();
@@ -4709,11 +4713,11 @@ describe("App shell", () => {
     const body = JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body));
     expect(body).toMatchObject({
       mode: "agent",
-      roleId: "researcher",
-      taskKind: "research",
-      promptTemplateId: "00000000-0000-4000-8000-000000000411",
       systemPrompt: "",
     });
+    expect(body.roleId).toBeUndefined();
+    expect(body.taskKind).toBeUndefined();
+    expect(body.promptTemplateId).toBeUndefined();
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
@@ -5169,12 +5173,14 @@ describe("App shell", () => {
       String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/${firstMessageId}/resend` &&
       (init as RequestInit | undefined)?.method === "POST",
     );
-    expect(JSON.parse(String((resendCall?.[1] as RequestInit | undefined)?.body))).toMatchObject({
+    const resendBody = JSON.parse(String((resendCall?.[1] as RequestInit | undefined)?.body));
+    expect(resendBody).toMatchObject({
       content: "Updated request.",
       modelProfileId,
-      promptTemplateId: "00000000-0000-4000-8000-000000000401",
-      taskKind: "analysis",
     });
+    expect(resendBody.roleId).toBeUndefined();
+    expect(resendBody.taskKind).toBeUndefined();
+    expect(resendBody.promptTemplateId).toBeUndefined();
     expect(await screen.findByText("Updated request.")).toBeTruthy();
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
     await waitFor(() => {
@@ -5258,11 +5264,14 @@ describe("App shell", () => {
       mode: "general-chat",
       attachmentIds: [workshopAttachmentId],
       systemPrompt: "Answer as a context-aware story consultant.",
-      taskKind: "analysis",
       userRequest: "Talk through the current scene options.",
     });
     expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body)))
       .not.toHaveProperty("base64Content");
+    const requestBody = JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body));
+    expect(requestBody.roleId).toBeUndefined();
+    expect(requestBody.taskKind).toBeUndefined();
+    expect(requestBody.promptTemplateId).toBeUndefined();
 
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
     expect(screen.getAllByText("Talk through the current scene options.")).toHaveLength(1);

@@ -58,7 +58,7 @@ function contextBundle(content = "当前场景：雨夜，主角发现信件。"
     id: randomUUID(),
     seriesId,
     sceneId,
-    roleId: "continuity-editor",
+    roleId: "role-context-checker",
     taskKind: "continuity-check",
     userRequest: "检查当前场景是否存在连续性问题。",
     promptTemplateId,
@@ -103,7 +103,7 @@ function contextBundle(content = "当前场景：雨夜，主角发现信件。"
 
 function prompt() {
   return {
-    system: "你是中文长篇小说的连续性编辑。",
+    system: "你根据小说上下文检查连续性。",
     instructions: "只做分析，不能直接修改正文或已确认设定。",
     user: "指出当前场景需要注意的连续性问题。",
   };

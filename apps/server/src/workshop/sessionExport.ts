@@ -10,17 +10,22 @@ import type {
 import type { ProjectRepository } from "@novel-studio/storage";
 import { contextPrompt } from "../routes/modelCalls.js";
 import { applyWorkshopAgentPrompt } from "./workshopAgent.js";
+import { workshopProviderPrompt } from "./workshopPrompts.js";
 
 export interface WorkshopSessionExportOptions {
   includeReasoning: boolean;
   includePromptAudit: boolean;
 }
 
-const GENERAL_CHAT_PROMPT_CONTEXT_KINDS = new Set([
+const WORKSHOP_PROMPT_CONTEXT_KINDS = new Set([
   "role-instruction",
   "prompt-template",
   "user-request",
 ]);
+
+function shouldFilterPromptContext(message: WorkshopMessage): boolean {
+  return message.mode === "general-chat" || message.mode === "agent";
+}
 
 function normalizeNewlines(value: string): string {
   return value.replace(/\r\n?/gu, "\n");
@@ -53,14 +58,15 @@ function messageTitle(index: number, message: WorkshopMessage): string {
 
 function promptForMessageMode(message: WorkshopMessage, contextBundle: ContextBundle): ProviderPrompt {
   if (message.mode === "agent") {
-    return applyWorkshopAgentPrompt(contextPrompt(contextBundle));
+    return applyWorkshopAgentPrompt(workshopProviderPrompt({
+      mode: "agent",
+      userRequest: contextBundle.userRequest,
+    }));
   }
   if (message.mode !== "general-chat") {
     return contextPrompt(contextBundle);
   }
-  const roleInstruction =
-    contextBundle.items.find((item) => item.kind === "role-instruction" && item.title === "General Chat system prompt") ??
-    contextBundle.items.find((item) => item.kind === "role-instruction");
+  const roleInstruction = contextBundle.items.find((item) => item.kind === "role-instruction");
   return {
     system: roleInstruction?.content.trim() ?? "",
     instructions: "",
@@ -143,8 +149,8 @@ function contextBundleForExport(
 }
 
 function providerContextItems(message: WorkshopMessage, contextBundle: ContextBundle): ContextItem[] {
-  const items = message.mode === "general-chat"
-    ? contextBundle.items.filter((item) => !GENERAL_CHAT_PROMPT_CONTEXT_KINDS.has(item.kind))
+  const items = shouldFilterPromptContext(message)
+    ? contextBundle.items.filter((item) => !WORKSHOP_PROMPT_CONTEXT_KINDS.has(item.kind))
     : contextBundle.items;
   return items;
 }

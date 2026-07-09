@@ -83,7 +83,7 @@ function contextBundle(seriesId: string, sceneId: string, contextBundleId = rand
     id: contextBundleId,
     seriesId,
     sceneId,
-    roleId: "continuity-editor",
+    roleId: "role-context-checker",
     taskKind: "continuity-check",
     userRequest: "Check the scene.",
     promptTemplateId: randomUUID(),

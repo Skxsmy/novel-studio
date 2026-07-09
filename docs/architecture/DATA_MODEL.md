@@ -193,7 +193,7 @@ series-slug-id/
 {
   "schemaVersion": 1,
   "id": "00000000-0000-0000-0000-000000000000",
-  "title": "本地 Mock 连续性编辑",
+  "title": "本地 Mock 上下文检查",
   "provider": "mock",
   "model": "mock-continuity-v1",
   "credentialRef": null,
@@ -224,10 +224,10 @@ series-slug-id/
 ```json
 {
   "schemaVersion": 1,
-  "id": "continuity-editor",
-  "title": "连续性编辑",
+  "id": "role-context-checker",
+  "title": "上下文检查",
   "description": "检查人物状态、线索回收、前后矛盾和未来信息泄漏。",
-  "persona": "像冷静的连续性守门人，只认已经写下和已经确认的证据。",
+  "persona": "只根据已经提供的上下文和已经确认的证据回答。",
   "duties": ["指出矛盾并给出证据。", "区分世界事实和角色此刻知道的内容。"],
   "nonDuties": ["不做修辞润色。"],
   "challengeObligation": "必须指出不合逻辑处，不为了安慰作者而回避问题。",
@@ -239,14 +239,14 @@ series-slug-id/
     "research": false,
     "hiddenSections": false
   },
-  "builtIn": true,
+  "builtIn": false,
   "createdAt": "2026-06-21T00:00:00.000Z",
   "updatedAt": "2026-06-21T00:00:00.000Z",
   "archivedAt": null
 }
 ```
 
-内置角色不可原地修改；复制后可生成自定义角色文件。
+角色文件由用户或功能入口显式创建；当前不再依赖全局内置编辑角色补种。
 
 ### PromptTemplate
 
@@ -256,11 +256,11 @@ series-slug-id/
 {
   "schemaVersion": 1,
   "id": "00000000-0000-0000-0000-000000000000",
-  "roleId": "continuity-editor",
-  "name": "连续性检查",
+  "roleId": "role-context-checker",
+  "name": "上下文检查",
   "version": 1,
   "status": "active",
-  "system": "你是中文长篇小说的连续性编辑。",
+  "system": "你根据提供的小说上下文检查连续性。",
   "instructions": "请只根据提供的上下文指出连续性问题。\n不要改写正文。不要创造上下文中没有的事实。",
   "components": [
     {
@@ -293,10 +293,10 @@ series-slug-id/
 ```json
 {
   "schemaVersion": 1,
-  "id": "00000000-0000-4000-8000-000000001403",
-  "title": "连续性编辑默认预设",
-  "roleId": "continuity-editor",
-  "promptTemplateId": "00000000-0000-4000-8000-000000000405",
+  "id": "00000000-0000-4000-8000-000000000902",
+  "title": "上下文检查默认预设",
+  "roleId": "role-context-checker",
+  "promptTemplateId": "00000000-0000-4000-8000-000000000901",
   "promptTemplateVersion": 1,
   "modelProfileId": null,
   "defaultInputs": {
@@ -322,18 +322,18 @@ Preset 只保存默认角色、模板版本、模型配置和输入项，不保�
   "id": "00000000-0000-0000-0000-000000000000",
   "seriesId": "00000000-0000-0000-0000-000000000000",
   "sceneId": "00000000-0000-0000-0000-000000000000",
-  "roleId": "continuity-editor",
+  "roleId": "role-context-checker",
   "taskKind": "continuity-check",
   "userRequest": "检查这一场有没有和前文矛盾。",
   "promptTemplateId": "00000000-0000-0000-0000-000000000000",
   "promptTemplateVersion": 1,
   "items": [
     {
-      "id": "prompt-template:00000000-0000-4000-8000-000000000405",
+      "id": "prompt-template:00000000-0000-4000-8000-000000000901",
       "kind": "prompt-template",
       "source": {
         "type": "prompt-template",
-        "id": "00000000-0000-4000-8000-000000000405",
+        "id": "00000000-0000-4000-8000-000000000901",
         "revision": null,
         "label": "连续性检查 v1"
       },
@@ -381,7 +381,7 @@ Preset 只保存默认角色、模板版本、模型配置和输入项，不保�
   "id": "00000000-0000-0000-0000-000000000000",
   "seriesId": "00000000-0000-0000-0000-000000000000",
   "sceneId": "00000000-0000-0000-0000-000000000000",
-  "roleId": "continuity-editor",
+  "roleId": "role-context-checker",
   "taskKind": "continuity-check",
   "provider": "mock",
   "model": "mock-continuity-v1",

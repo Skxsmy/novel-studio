@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { BUILT_IN_PROMPT_IDS } from "../src/prompts/builtIns.js";
 
 const roots: string[] = [];
 
@@ -259,6 +258,27 @@ describe("M4 context preview API", () => {
       },
     });
     expect(profile.statusCode).toBe(201);
+    const role = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/roles`,
+      payload: {
+        title: "Context checker",
+        persona: "Check selected story context without writing authoritative changes.",
+      },
+    });
+    expect(role.statusCode).toBe(201);
+    const prompt = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/ai/prompts`,
+      payload: {
+        roleId: role.json().id,
+        name: "Context preview check",
+        status: "active",
+        system: "You check story continuity from the provided context.",
+        instructions: "Use only the supplied context bundle.",
+      },
+    });
+    expect(prompt.statusCode).toBe(201);
 
     const preview = await app.inject({
       method: "POST",
@@ -266,10 +286,10 @@ describe("M4 context preview API", () => {
       payload: {
         sceneId: firstScene.metadata.id,
         blockId: currentFieldProgression.json().block.id,
-        roleId: "continuity-editor",
+        roleId: role.json().id,
         taskKind: "continuity-check",
         userRequest: "检查旧钟声这一场是否泄露后文。",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
+        promptTemplateId: prompt.json().id,
         promptTemplateVersion: 1,
         manualContextIds: [
           `codex:${forbidden.json().metadata.id}`,

@@ -19,6 +19,28 @@ export const AgentRoleSchema = z.object({
 });
 export type AgentRole = z.infer<typeof AgentRoleSchema>;
 
+export const CreateAgentRoleInputSchema = AgentRoleSchema.pick({
+  title: true,
+  description: true,
+  persona: true,
+  duties: true,
+  nonDuties: true,
+  challengeObligation: true,
+  forbiddenActions: true,
+  outputContract: true,
+  readScopes: true,
+}).partial({
+  description: true,
+  persona: true,
+  duties: true,
+  nonDuties: true,
+  challengeObligation: true,
+  forbiddenActions: true,
+  outputContract: true,
+  readScopes: true,
+});
+export type CreateAgentRoleInput = z.input<typeof CreateAgentRoleInputSchema>;
+
 export const CloneAgentRoleInputSchema = z.object({
   title: z.string().trim().min(1).max(160).optional(),
   description: z.string().trim().max(4000).optional(),

@@ -6,7 +6,6 @@ import type {
   ModelProfile,
   ProviderModelDescriptor,
   ProposalDocument,
-  PromptTemplate,
   SceneDocument,
   SeriesDetail,
   WorkshopContextBasket,
@@ -139,13 +138,6 @@ function targetKindLabel(kind: ProposalDocument["proposal"]["target"]["kind"]) {
   if (kind.startsWith("codex") || kind === "detail-type") return "Codex";
   if (kind === "planning") return "Planning";
   return "Research";
-}
-
-function newestTemplateForRole(templates: PromptTemplate[], roleId: string): PromptTemplate | null {
-  const candidates = templates
-    .filter((template) => template.roleId === roleId && template.archivedAt === null)
-    .sort((left, right) => right.version - left.version);
-  return candidates.find((template) => template.status === "active") ?? candidates[0] ?? null;
 }
 
 function pluralVariants(term: string): string[] {
@@ -351,7 +343,6 @@ export function WorkshopWorkspace({
   const [selectedModelId, setSelectedModelId] = useState("");
   const [providerModels, setProviderModels] = useState<ProviderModelDescriptor[]>([]);
   const [providerModelsProfileId, setProviderModelsProfileId] = useState<string | null>(null);
-  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [generalSystemPrompt, setGeneralSystemPrompt] = useState<string>(text.defaultGeneralSystemPrompt);
   const [composer, setComposer] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -471,31 +462,6 @@ export function WorkshopWorkspace({
     }
     return Array.from(options, ([value, label]) => ({ value, label }));
   }, [providerModels, providerModelsProfileId, selectedModelId, selectedModelProfile]);
-  const continuityPromptTemplate = useMemo(
-    () =>
-      newestTemplateForRole(promptTemplates, "continuity-editor") ??
-      promptTemplates.find((template) => template.archivedAt === null) ??
-      null,
-    [promptTemplates],
-  );
-  const generalPromptTemplate = useMemo(
-    () =>
-      newestTemplateForRole(promptTemplates, "lead-writing-partner") ??
-      promptTemplates.find((template) => template.archivedAt === null) ??
-      null,
-    [promptTemplates],
-  );
-  const agentPromptTemplate = useMemo(
-    () =>
-      newestTemplateForRole(promptTemplates, "researcher") ??
-      newestTemplateForRole(promptTemplates, "lead-writing-partner") ??
-      newestTemplateForRole(promptTemplates, "character-editor") ??
-      continuityPromptTemplate,
-    [continuityPromptTemplate, promptTemplates],
-  );
-  const selectedPromptTemplate = activeSession?.kind === "agent"
-    ? agentPromptTemplate
-    : generalPromptTemplate;
   const contextItems = basket?.items ?? [];
   const contextScene = useMemo(() => {
     if (basket?.sceneId) {
@@ -615,7 +581,6 @@ export function WorkshopWorkspace({
   const canCall = Boolean(
     activeSession &&
     activeSession.status === "active" &&
-    selectedPromptTemplate &&
     selectedModelProfile &&
     selectedModelId &&
     (hasComposerText || hasParsedDraftAttachment) &&
@@ -826,10 +791,9 @@ export function WorkshopWorkspace({
     setIsLoading(true);
     setError(null);
     try {
-      const [nextSessions, nextProfiles, nextTemplates] = await Promise.all([
+      const [nextSessions, nextProfiles] = await Promise.all([
         api.workshop.listSessions(seriesId),
         api.ai.listModelProfiles(),
-        api.ai.listPromptTemplates(seriesId),
       ]);
       const nextActiveProfiles = nextProfiles.filter((profile) => profile.archivedAt === null);
       const nextProfile =
@@ -844,7 +808,6 @@ export function WorkshopWorkspace({
           ? (current || nextProfile.model)
           : nextProfile?.model ?? ""
       ));
-      setPromptTemplates(nextTemplates);
       const nextActive =
         preferredSessionId ??
         (activeSessionId && nextSessions.some((session) => session.id === activeSessionId)
@@ -1186,15 +1149,10 @@ export function WorkshopWorkspace({
 
   function previewPayload(userRequest = composer.trim() || text.labels.defaultRequest) {
     if (!activeSession) throw new Error(text.labels.noSession);
-    if (!selectedPromptTemplate) throw new Error(text.labels.noPrompt);
     const isAgent = activeSession.kind === "agent";
     return {
       mode: isAgent ? "agent" as const : "general-chat" as const,
       userRequest,
-      roleId: selectedPromptTemplate.roleId,
-      taskKind: isAgent ? "research" as const : "analysis" as const,
-      promptTemplateId: selectedPromptTemplate.id,
-      promptTemplateVersion: selectedPromptTemplate.version,
       systemPrompt: isAgent ? "" : generalSystemPrompt.trim(),
       modelProfileId: selectedModelProfile?.id ?? null,
       modelOverride:
@@ -1287,7 +1245,7 @@ export function WorkshopWorkspace({
   }
 
   async function sendMessage() {
-    if (!activeSession || !selectedModelProfile || !selectedPromptTemplate || isCalling) return;
+    if (!activeSession || !selectedModelProfile || isCalling) return;
     const parsedDraftAttachments = draftAttachments.filter((attachment) => attachment.parseStatus === "parsed");
     if (parsedDraftAttachments.length !== draftAttachments.length) return;
     if (!composer.trim() && parsedDraftAttachments.length === 0) return;
@@ -1686,7 +1644,7 @@ export function WorkshopWorkspace({
   }
 
   async function resendGeneralChatMessage(message: WorkshopMessage, content = message.content) {
-    if (!activeSession || activeSession.kind !== "chat" || !selectedModelProfile || !selectedPromptTemplate) return;
+    if (!activeSession || activeSession.kind !== "chat" || !selectedModelProfile) return;
     const nextContent = content.trim();
     if (!nextContent) return;
     setResendingMessageId(message.id);
@@ -1695,10 +1653,6 @@ export function WorkshopWorkspace({
     try {
       const result = await api.workshop.resendMessage(seriesId, activeSession.id, message.id, {
         content: nextContent,
-        roleId: selectedPromptTemplate.roleId,
-        taskKind: "analysis",
-        promptTemplateId: selectedPromptTemplate.id,
-        promptTemplateVersion: selectedPromptTemplate.version,
         systemPrompt: generalSystemPrompt.trim(),
         modelProfileId: selectedModelProfile.id,
         modelOverride:

@@ -195,7 +195,7 @@ Embedding router 调用不直接写权威数据。索引调用者负责在向量
 - `GET /series/:seriesId/ai/presets`
 - `POST /series/:seriesId/ai/presets`
 
-内置角色首版包括：主笔伙伴、结构编辑、人物编辑、连续性编辑、文风编辑、冷酷读者和研究员。内置角色不可原地改写；用户只能复制后修改。
+角色、模板和 Preset 是项目数据，由用户或明确的功能入口创建。当前不再补种固定全局内置角色；Workshop 的 General Chat 和 Agent prompt 由 Workshop 专属模块提供，不通过这些全局列表选择。
 
 提示词模板是声明式 JSON。当前实现只允许 `{{变量名}}` 替换和组件拼接；不得执行任意 JavaScript。每次修改模板都生成新版本，旧调用日志继续指向旧版本。
 

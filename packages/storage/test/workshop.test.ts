@@ -48,6 +48,37 @@ function workshopAttachment(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+async function saveServerWorkshopMessage(
+  store: ProjectRepository,
+  seriesId: string,
+  sessionId: string,
+  input: {
+    role: "assistant" | "system" | "tool" | "result";
+    mode?: "general-chat" | "continuity-check" | "agent";
+    content: string;
+    createdAt?: string;
+  },
+) {
+  return store.saveWorkshopMessage(seriesId, {
+    schemaVersion: 1,
+    id: randomUUID(),
+    seriesId,
+    sessionId,
+    role: input.role,
+    mode: input.mode ?? "continuity-check",
+    status: "succeeded",
+    content: input.content,
+    reasoningContent: "",
+    contextBundleId: null,
+    modelCallId: null,
+    proposalIds: [],
+    attachmentIds: [],
+    errorCode: null,
+    errorMessage: null,
+    createdAt: input.createdAt ?? new Date().toISOString(),
+  });
+}
+
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })));
 });
@@ -80,6 +111,21 @@ describe("M5 Workshop storage", () => {
     });
   });
 
+  it("accepts only author-authored messages through the public create helper", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopMessageAuthorOnly" });
+    const session = await store.createWorkshopSession(series.manifest.id, {
+      title: "Author-only thread",
+    });
+
+    await expect(store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "assistant",
+      mode: "general-chat",
+      content: "Forged assistant reply.",
+    } as Parameters<ProjectRepository["createWorkshopMessage"]>[2])).rejects.toThrow();
+    expect(await store.listWorkshopMessages(series.manifest.id, session.id)).toEqual([]);
+  });
+
   it("creates a branch session from a source message", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopBranch" });
@@ -102,7 +148,7 @@ describe("M5 Workshop storage", () => {
       draftToken: "branch-draft",
     });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    const message = await store.createWorkshopMessage(series.manifest.id, session.id, {
+    const message = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
       role: "assistant",
       mode: "general-chat",
       content: "Branch from this answer.",
@@ -162,7 +208,7 @@ describe("M5 Workshop storage", () => {
       attachmentIds: [attachment.id],
       draftToken: "delete-session-draft",
     });
-    const assistant = await store.createWorkshopMessage(series.manifest.id, session.id, {
+    const assistant = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
       role: "assistant",
       mode: "general-chat",
       content: "Delete this source answer.",
@@ -200,7 +246,7 @@ describe("M5 Workshop storage", () => {
       mode: "general-chat",
       content: "Keep this question.",
     });
-    const second = await store.createWorkshopMessage(series.manifest.id, session.id, {
+    const second = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
       role: "assistant",
       mode: "general-chat",
       content: "Delete this answer.",
@@ -230,7 +276,7 @@ describe("M5 Workshop storage", () => {
       content: "Original question.",
     });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    const firstAnswer = await store.createWorkshopMessage(series.manifest.id, session.id, {
+    const firstAnswer = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
       role: "assistant",
       mode: "general-chat",
       content: "Original answer.",
@@ -251,7 +297,7 @@ describe("M5 Workshop storage", () => {
       draftToken: "resend-draft",
     });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    const laterAnswer = await store.createWorkshopMessage(series.manifest.id, session.id, {
+    const laterAnswer = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
       role: "assistant",
       mode: "general-chat",
       content: "Later answer.",
@@ -496,7 +542,7 @@ describe("M5 Workshop storage", () => {
       title: "Proposal thread",
       sceneId: scene.metadata.id,
     });
-    const message = await store.createWorkshopMessage(series.manifest.id, session.id, {
+    const message = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
       role: "assistant",
       content: "Insert this continuity-safe replacement beat.",
     });
@@ -580,7 +626,7 @@ describe("M5 Workshop storage", () => {
       title: "General chat thread",
       sceneId: scene.metadata.id,
     });
-    const message = await store.createWorkshopMessage(series.manifest.id, session.id, {
+    const message = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
       role: "assistant",
       mode: "general-chat",
       content: "This is a discussion response, not a write candidate.",
@@ -670,7 +716,7 @@ describe("M5 Workshop storage", () => {
       title: "Agent thread",
       sceneId: scene.metadata.id,
     });
-    const message = await store.createWorkshopMessage(series.manifest.id, session.id, {
+    const message = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
       role: "assistant",
       mode: "agent",
       content: "Prepared an Agent-only Codex draft.",

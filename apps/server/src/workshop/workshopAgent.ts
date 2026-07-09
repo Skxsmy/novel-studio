@@ -6,6 +6,7 @@ import type {
   WorkshopCodexUpdateDraft,
   WorkshopCodexUpdatePatch,
 } from "./codexDraft.js";
+import { WORKSHOP_AGENT_TOOL_PROTOCOL_PROMPT } from "./workshopPrompts.js";
 
 export type WorkshopAgentStep =
   | {
@@ -37,33 +38,6 @@ const CATEGORY_IDS: CodexBuiltInCategoryId[] = [
   "plot-thread",
 ];
 
-const AGENT_PROTOCOL_PROMPT = [
-  "Workshop surface: Dialogue Agent.",
-  "",
-  "This is a server-side agent run, not General Chat. Return exactly one JSON object and no Markdown.",
-  "The JSON object must be one of these shapes:",
-  "",
-  '{"schemaVersion":1,"type":"respond","message":"author-facing reply"}',
-  "",
-  '{"schemaVersion":1,"type":"request_tool","tool":"codex.create_entry","message":"short author-facing draft note","draft":{"categoryId":"character|location|object|lore|organization|plot-thread","name":"...","aliases":[],"description":"...","details":[{"label":"...","value":"..."}],"research":"..."}}',
-  "",
-  '{"schemaVersion":1,"type":"request_tool","tool":"codex.update_entry","message":"short author-facing update note","draft":{"target":{"entryId":"optional existing entry id","name":"existing entry name when id is unknown"},"patch":{"name":"optional new name","aliases":["optional replacement aliases"],"description":"optional replacement canon description","details":[{"label":"existing detail type label or new label needing confirmation","value":"..."}],"research":"source/evidence note","progressions":[{"action":"create","input":{"kind":"field","field":{"kind":"description"},"operation":"replace","body":"new effective text","summary":"short change summary","effectiveFromSceneId":"scene uuid","source":{"kind":"codex-page","sceneId":null,"blockId":null,"sourceId":null},"evidence":[]}},{"action":"update","progressionId":"existing progression id","input":{"baseRevision":"64 hex revision","body":"updated text"}},{"action":"delete","progressionId":"existing progression id","baseRevision":"64 hex revision"}]}}}',
-  "",
-  "Runtime rules:",
-  "- Do not write Tool Call text. Tool calls are JSON agent steps consumed by the server.",
-  "- Do not claim project files changed. Only tool result messages may say that.",
-  "- If the author asks for a new Codex/story-memory entry and gives enough content or asks you to draft it, return request_tool with tool codex.create_entry.",
-  "- If the author asks to modify, revise, update, expand, rename, or freely change an existing Codex/story-memory entry and identifies it by name or id, return request_tool with tool codex.update_entry.",
-  "- codex.update_entry may update entry fields and may also create, update, or delete Codex progressions through patch.progressions. Use existing progressionId and baseRevision for update/delete. For progression create, include effectiveFromSceneId. If the progression targets the same Codex entry, entryId may be omitted and the server will bind it to the target entry.",
-  "- Explicit author authorization, including freeform instructions such as '自由发挥', '随便', or '已授权', is sufficient source for drafting or updating story canon. Do not ask for external evidence merely because the story material is invented by the author.",
-  "- If the requested update has a named target but no exact entry id is available, set draft.target.name and let the server resolve it.",
-  "- Ask in respond only when the target entry is missing or ambiguous, the requested write is not a Codex entry create/update, or no supported patch can be drafted.",
-  "- If no available tool fits, return respond.",
-  "- Choose categoryId from the enum only. Use a category only when the author's intent clearly fits it; ask in respond when the category is ambiguous.",
-  "- Treat explicit author decisions as draft content. Do not mark author-invented story material as external evidence.",
-  "- Put source/evidence context in draft.research; use an author-decision note when the source is the current Agent conversation.",
-].join("\n");
-
 function jsonObjectText(content: string): string | null {
   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/iu);
   if (fenced?.[1]) return fenced[1].trim();
@@ -93,6 +67,19 @@ function asDetails(value: unknown): WorkshopCodexDraftDetail[] {
       return label && detailValue ? { label, value: detailValue } : null;
     })
     .filter((detail): detail is WorkshopCodexDraftDetail => Boolean(detail));
+}
+
+function plainAgentMessage(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) return "No assistant response was returned by the model.";
+  const lines = trimmed.split(/\r?\n/u);
+  const toolCallIndex = lines.findIndex((line) => /^\s*(?:Tool Call|Tool Request)\s*:/iu.test(line));
+  if (toolCallIndex >= 0) {
+    const beforeToolCall = lines.slice(0, toolCallIndex).join("\n").trim();
+    if (beforeToolCall) return beforeToolCall;
+    return "Received.";
+  }
+  return trimmed;
 }
 
 function normalizeDraft(value: unknown): WorkshopCodexCreateDraft | null {
@@ -208,7 +195,7 @@ export function parseWorkshopAgentStep(content: string): WorkshopAgentStep {
     return {
       schemaVersion: 1,
       type: "respond",
-      message: "Agent did not return a valid structured step.",
+      message: plainAgentMessage(content),
     };
   }
   let parsed: unknown;
@@ -218,14 +205,14 @@ export function parseWorkshopAgentStep(content: string): WorkshopAgentStep {
     return {
       schemaVersion: 1,
       type: "respond",
-      message: "I need a structured response before continuing.",
+      message: plainAgentMessage(content),
     };
   }
   if (!parsed || typeof parsed !== "object") {
     return {
       schemaVersion: 1,
       type: "respond",
-      message: "I need a structured response before continuing.",
+      message: plainAgentMessage(content),
     };
   }
   const step = parsed as Record<string, unknown>;
@@ -233,8 +220,32 @@ export function parseWorkshopAgentStep(content: string): WorkshopAgentStep {
     return {
       schemaVersion: 1,
       type: "respond",
-      message: "I need a structured response before continuing.",
+      message: plainAgentMessage(content),
     };
+  }
+  if (step.tool === "codex.create_entry") {
+    const draft = normalizeDraft(step.draft);
+    if (draft) {
+      return {
+        schemaVersion: 1,
+        type: "request_tool",
+        tool: "codex.create_entry",
+        message: asString(step.message) || "Prepared a Codex entry draft.",
+        draft,
+      };
+    }
+  }
+  if (step.tool === "codex.update_entry") {
+    const draft = normalizeUpdateDraft(step.draft);
+    if (draft) {
+      return {
+        schemaVersion: 1,
+        type: "request_tool",
+        tool: "codex.update_entry",
+        message: asString(step.message) || "Prepared a Codex entry update draft.",
+        draft,
+      };
+    }
   }
   if (step.type === "request_tool" && step.tool === "codex.create_entry") {
     const draft = normalizeDraft(step.draft);
@@ -263,13 +274,14 @@ export function parseWorkshopAgentStep(content: string): WorkshopAgentStep {
   return {
     schemaVersion: 1,
     type: "respond",
-    message: asString(step.message) || "I need a structured response before continuing.",
+    message: asString(step.message) || plainAgentMessage(content),
   };
 }
 
 export function applyWorkshopAgentPrompt(prompt: ProviderPrompt): ProviderPrompt {
   return {
     ...prompt,
-    instructions: [prompt.instructions, AGENT_PROTOCOL_PROMPT].filter(Boolean).join("\n\n"),
+    instructions: [prompt.instructions, WORKSHOP_AGENT_TOOL_PROTOCOL_PROMPT].filter(Boolean).join("\n\n"),
+    user: prompt.user,
   };
 }

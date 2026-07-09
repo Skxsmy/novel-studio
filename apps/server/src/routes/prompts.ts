@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import {
   AgentRoleSchema,
   CloneAgentRoleInputSchema,
+  CreateAgentRoleInputSchema,
   CreatePromptPresetInputSchema,
   CreatePromptTemplateInputSchema,
   CreatePromptTemplateVersionInputSchema,
@@ -13,7 +14,6 @@ import {
   type PromptTemplate,
 } from "@novel-studio/contracts";
 import { StorageError, type ProjectRepository } from "@novel-studio/storage";
-import { ensureBuiltInPrompts } from "../prompts/builtIns.js";
 import { PromptRenderError, renderPromptTemplate } from "../prompts/render.js";
 
 function newestTemplate(templates: PromptTemplate[]): PromptTemplate {
@@ -49,15 +49,31 @@ export function registerPromptRoutes(app: FastifyInstance, repository: ProjectRe
   app.get<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/ai/roles",
     async (request) => {
-      await ensureBuiltInPrompts(repository, request.params.seriesId);
       return repository.listAgentRoles(request.params.seriesId);
+    },
+  );
+
+  app.post<{ Params: { seriesId: string } }>(
+    "/api/v1/series/:seriesId/ai/roles",
+    async (request, reply) => {
+      const input = CreateAgentRoleInputSchema.parse(request.body);
+      const now = new Date().toISOString();
+      const role = AgentRoleSchema.parse({
+        schemaVersion: 1,
+        id: `role-${randomUUID()}`,
+        builtIn: false,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+        ...input,
+      });
+      return reply.status(201).send(await repository.saveAgentRole(request.params.seriesId, role));
     },
   );
 
   app.post<{ Params: { seriesId: string; roleId: string } }>(
     "/api/v1/series/:seriesId/ai/roles/:roleId/clone",
     async (request, reply) => {
-      await ensureBuiltInPrompts(repository, request.params.seriesId);
       const input = CloneAgentRoleInputSchema.parse(request.body ?? {});
       const source = await repository.getAgentRole(request.params.seriesId, request.params.roleId);
       const now = new Date().toISOString();
@@ -78,7 +94,6 @@ export function registerPromptRoutes(app: FastifyInstance, repository: ProjectRe
   app.put<{ Params: { seriesId: string; roleId: string } }>(
     "/api/v1/series/:seriesId/ai/roles/:roleId",
     async (request, reply) => {
-      await ensureBuiltInPrompts(repository, request.params.seriesId);
       const input = UpdateAgentRoleInputSchema.parse(request.body);
       const current = await repository.getAgentRole(request.params.seriesId, request.params.roleId);
       if (current.builtIn) {
@@ -99,7 +114,6 @@ export function registerPromptRoutes(app: FastifyInstance, repository: ProjectRe
   app.get<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/ai/prompts",
     async (request) => {
-      await ensureBuiltInPrompts(repository, request.params.seriesId);
       return repository.listPromptTemplates(request.params.seriesId);
     },
   );
@@ -107,7 +121,6 @@ export function registerPromptRoutes(app: FastifyInstance, repository: ProjectRe
   app.post<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/ai/prompts",
     async (request, reply) => {
-      await ensureBuiltInPrompts(repository, request.params.seriesId);
       const input = CreatePromptTemplateInputSchema.parse(request.body);
       await repository.getAgentRole(request.params.seriesId, input.roleId);
       const now = new Date().toISOString();
@@ -128,7 +141,6 @@ export function registerPromptRoutes(app: FastifyInstance, repository: ProjectRe
   app.post<{ Params: { seriesId: string; promptTemplateId: string } }>(
     "/api/v1/series/:seriesId/ai/prompts/:promptTemplateId/versions",
     async (request, reply) => {
-      await ensureBuiltInPrompts(repository, request.params.seriesId);
       const input = CreatePromptTemplateVersionInputSchema.parse(request.body);
       const base = await repository.getPromptTemplate(
         request.params.seriesId,
@@ -156,7 +168,6 @@ export function registerPromptRoutes(app: FastifyInstance, repository: ProjectRe
   app.post<{ Params: { seriesId: string; promptTemplateId: string } }>(
     "/api/v1/series/:seriesId/ai/prompts/:promptTemplateId/preview",
     async (request, reply) => {
-      await ensureBuiltInPrompts(repository, request.params.seriesId);
       const input = PromptTemplatePreviewInputSchema.parse(request.body ?? {});
       const template = await getTemplateForPreview(
         repository,
@@ -182,7 +193,6 @@ export function registerPromptRoutes(app: FastifyInstance, repository: ProjectRe
   app.get<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/ai/presets",
     async (request) => {
-      await ensureBuiltInPrompts(repository, request.params.seriesId);
       return repository.listPromptPresets(request.params.seriesId);
     },
   );
@@ -190,7 +200,6 @@ export function registerPromptRoutes(app: FastifyInstance, repository: ProjectRe
   app.post<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/ai/presets",
     async (request, reply) => {
-      await ensureBuiltInPrompts(repository, request.params.seriesId);
       const input = CreatePromptPresetInputSchema.parse(request.body);
       await repository.getAgentRole(request.params.seriesId, input.roleId);
       await repository.getPromptTemplate(

@@ -4,7 +4,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CredentialStore } from "@novel-studio/ai";
 import { buildApp } from "../src/app.js";
-import { BUILT_IN_PROMPT_IDS } from "../src/prompts/builtIns.js";
 
 const roots: string[] = [];
 
@@ -39,6 +38,41 @@ function memoryCredentialStore(secret: string): CredentialStore {
   };
 }
 
+type TestApp = Awaited<ReturnType<typeof buildApp>>;
+
+async function createPromptFixture(
+  app: TestApp,
+  seriesId: string,
+  input: { roleTitle: string; promptName: string; system: string; instructions: string },
+): Promise<{ roleId: string; promptTemplateId: string; promptTemplateVersion: number }> {
+  const role = await app.inject({
+    method: "POST",
+    url: `/api/v1/series/${seriesId}/ai/roles`,
+    payload: {
+      title: input.roleTitle,
+      persona: input.system,
+    },
+  });
+  expect(role.statusCode).toBe(201);
+  const prompt = await app.inject({
+    method: "POST",
+    url: `/api/v1/series/${seriesId}/ai/prompts`,
+    payload: {
+      roleId: role.json().id,
+      name: input.promptName,
+      status: "active",
+      system: input.system,
+      instructions: input.instructions,
+    },
+  });
+  expect(prompt.statusCode).toBe(201);
+  return {
+    roleId: role.json().id,
+    promptTemplateId: prompt.json().id,
+    promptTemplateVersion: prompt.json().version,
+  };
+}
+
 describe("NS-407 model call API", () => {
   it("streams a non-writing response and saves an auditable ModelCallLog", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-calls-api-"));
@@ -61,17 +95,29 @@ describe("NS-407 model call API", () => {
       },
     });
     expect(profile.statusCode).toBe(201);
+    const continuityPrompt = await createPromptFixture(app, series.manifest.id, {
+      roleTitle: "Continuity checker",
+      promptName: "Continuity check",
+      system: "You check continuity without applying writes.",
+      instructions: "Return a concise continuity analysis.",
+    });
+    const rewritePrompt = await createPromptFixture(app, series.manifest.id, {
+      roleTitle: "Writing partner",
+      promptName: "Rewrite candidate",
+      system: "You draft rewrite candidates without saving them.",
+      instructions: "Return candidate prose only.",
+    });
 
     const context = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/context/preview`,
       payload: {
         sceneId: scene.metadata.id,
-        roleId: "continuity-editor",
+        roleId: continuityPrompt.roleId,
         taskKind: "continuity-check",
         userRequest: "检查当前场景的连续性。",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
-        promptTemplateVersion: 1,
+        promptTemplateId: continuityPrompt.promptTemplateId,
+        promptTemplateVersion: continuityPrompt.promptTemplateVersion,
         modelProfileId: profile.json().id,
       },
     });
@@ -83,10 +129,10 @@ describe("NS-407 model call API", () => {
       payload: {
         contextBundleId: context.json().id,
         modelProfileId: profile.json().id,
-        roleId: "continuity-editor",
+        roleId: continuityPrompt.roleId,
         taskKind: "continuity-check",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
-        promptTemplateVersion: 1,
+        promptTemplateId: continuityPrompt.promptTemplateId,
+        promptTemplateVersion: continuityPrompt.promptTemplateVersion,
       },
     });
     expect(call.statusCode).toBe(200);
@@ -103,8 +149,8 @@ describe("NS-407 model call API", () => {
     const metadata = events.find((event) => event.type === "metadata")!;
     expect(metadata).toMatchObject({
       contextBundleId: context.json().id,
-      promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
-      promptTemplateVersion: 1,
+      promptTemplateId: continuityPrompt.promptTemplateId,
+      promptTemplateVersion: continuityPrompt.promptTemplateVersion,
     });
 
     const callId = metadata.callId as string;
@@ -117,8 +163,8 @@ describe("NS-407 model call API", () => {
       id: callId,
       status: "succeeded",
       contextBundleId: context.json().id,
-      promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
-      promptTemplateVersion: 1,
+      promptTemplateId: continuityPrompt.promptTemplateId,
+      promptTemplateVersion: continuityPrompt.promptTemplateVersion,
       responseHash: expect.any(String),
       error: null,
     });
@@ -145,11 +191,11 @@ describe("NS-407 model call API", () => {
       url: `/api/v1/series/${series.manifest.id}/context/preview`,
       payload: {
         sceneId: scene.metadata.id,
-        roleId: "lead-writing-partner",
+        roleId: rewritePrompt.roleId,
         taskKind: "rewrite",
         userRequest: "改写当前选区，但只生成候选。",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
+        promptTemplateId: rewritePrompt.promptTemplateId,
+        promptTemplateVersion: rewritePrompt.promptTemplateVersion,
         modelProfileId: profile.json().id,
       },
     });
@@ -161,10 +207,10 @@ describe("NS-407 model call API", () => {
       payload: {
         contextBundleId: rewriteContext.json().id,
         modelProfileId: profile.json().id,
-        roleId: "lead-writing-partner",
+        roleId: rewritePrompt.roleId,
         taskKind: "rewrite",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.leadWritingPartner,
-        promptTemplateVersion: 1,
+        promptTemplateId: rewritePrompt.promptTemplateId,
+        promptTemplateVersion: rewritePrompt.promptTemplateVersion,
       },
     });
     expect(writingTask.statusCode).toBe(200);
@@ -202,16 +248,22 @@ describe("NS-407 model call API", () => {
         model: "mock-provider-error",
       },
     });
+    const prompt = await createPromptFixture(app, series.manifest.id, {
+      roleTitle: "Failure continuity checker",
+      promptName: "Failure continuity check",
+      system: "You check continuity for provider error tests.",
+      instructions: "Return a concise response.",
+    });
     const context = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/context/preview`,
       payload: {
         sceneId: scene.metadata.id,
-        roleId: "continuity-editor",
+        roleId: prompt.roleId,
         taskKind: "continuity-check",
         userRequest: "触发失败。",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
-        promptTemplateVersion: 1,
+        promptTemplateId: prompt.promptTemplateId,
+        promptTemplateVersion: prompt.promptTemplateVersion,
         modelProfileId: profile.json().id,
       },
     });
@@ -221,10 +273,10 @@ describe("NS-407 model call API", () => {
       payload: {
         contextBundleId: context.json().id,
         modelProfileId: profile.json().id,
-        roleId: "continuity-editor",
+        roleId: prompt.roleId,
         taskKind: "continuity-check",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
-        promptTemplateVersion: 1,
+        promptTemplateId: prompt.promptTemplateId,
+        promptTemplateVersion: prompt.promptTemplateVersion,
       },
     });
     expect(call.statusCode).toBe(200);
@@ -310,16 +362,22 @@ describe("NS-407 model call API", () => {
       payload: { secret: "deepseek-test-key" },
     });
     expect(credential.statusCode).toBe(200);
+    const prompt = await createPromptFixture(app, series.manifest.id, {
+      roleTitle: "DeepSeek continuity checker",
+      promptName: "DeepSeek continuity check",
+      system: "You check continuity through DeepSeek.",
+      instructions: "Return concise story feedback.",
+    });
     const context = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/context/preview`,
       payload: {
         sceneId: scene.metadata.id,
-        roleId: "continuity-editor",
+        roleId: prompt.roleId,
         taskKind: "continuity-check",
         userRequest: "检查旧钟声的连续性。",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
-        promptTemplateVersion: 1,
+        promptTemplateId: prompt.promptTemplateId,
+        promptTemplateVersion: prompt.promptTemplateVersion,
         modelProfileId: profile.json().id,
       },
     });
@@ -330,10 +388,10 @@ describe("NS-407 model call API", () => {
       payload: {
         contextBundleId: context.json().id,
         modelProfileId: profile.json().id,
-        roleId: "continuity-editor",
+        roleId: prompt.roleId,
         taskKind: "continuity-check",
-        promptTemplateId: BUILT_IN_PROMPT_IDS.continuityCheck,
-        promptTemplateVersion: 1,
+        promptTemplateId: prompt.promptTemplateId,
+        promptTemplateVersion: prompt.promptTemplateVersion,
       },
     });
     expect(call.statusCode).toBe(200);
