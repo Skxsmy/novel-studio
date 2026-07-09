@@ -72,8 +72,13 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5.3 Review UI First | Review Inbox and Proposal Detail use real Proposal APIs and accepted Figma design. | M5-A13 - M5-A17 |
 | M5.4 Workshop Sessions, Context Selection, And Single-Role Call | Workshop persists sessions/messages, edits selected context through the compact menu backed by `WorkshopContextBasket`, assembles context through Context Builder, and runs single-role calls without authority mutation. | M5-A18 - M5-A24 |
 | M5.5 Workshop Message To Proposal Deep Link | Workshop messages create Proposals, deep-link to Review detail, and receive status updates. | M5-A25 - M5-A29 |
-| M5.6 Tool Plan, Grant, And Command Adapter | Approved Tool Plans execute only through validated command adapters or convert to Proposals. | M5-A30 - M5-A37 |
-| M5.7 Council, Batch, Conflict/Failure, Responsive, And Final Visual Acceptance | Council, batch, failure/conflict states, responsive states, and final visual acceptance are complete. | M5-A38 - M5-A45 |
+| M5.6A Tool Execution Containment | Current Agent tool messages have durable execution identity, idempotent result behavior, active-session precheck, and no repeated authority writes. | M5-A30 - M5-A36 |
+| M5.6B Atomic Codex Command Adapters | Limited Codex create/update tools run through stale-safe, transactionally auditable adapters with Progression target/scene binding. | M5-A33 - M5-A37 |
+| M5.6C Detail Schema Planner | Draft detail labels receive semantic mapping suggestions before any reusable detail type is created. | M5-A33, M5-A37 |
+| M5.6D Durable Agent Runner | Agent steps, tool requests, confirmation pauses, result continuation, structured-output repair, and malformed-output handling are durable. | M5-A30 - M5-A37 |
+| M5.6E Workshop Capability Cleanup | Branch, prompt scope, context kinds, legacy modes, deletion semantics, and module boundaries are reconciled with current product behavior. | M5-A18 - M5-A24, M5-A30 - M5-A37 |
+| M5.6F Workshop Prompt Customization Foundation | Workshop-specific prompt records, versioned call logging, and future user-editable prompt surfaces are separated from global non-Workshop roles/templates. | M5-A21 - M5-A24, M5-A30 - M5-A37 |
+| M5.7 Council, Batch, Conflict/Failure, Responsive, Copy, And Final Visual Acceptance | Council, batch, failure/conflict states, responsive/copy states, and final visual acceptance are complete. | M5-A38 - M5-A45 |
 
 ## Required Commands
 
@@ -126,7 +131,7 @@ Implemented scope:
 
 Important boundary:
 
-- M5.6 is not implemented. Tool Plans, Grants, internal command adapters, Codex tools, and Write tools are not available.
+- M5.6 is replanned as M5.6A-F from the verified current-source audit. Limited author-confirmed Agent Codex create/update tools exist, but execution identity, idempotency, stale baselines, atomic command adapters, Progression binding, structured-output repair, prompt customization, and broad Write/Codex adapters remain unfinished.
 - M5.7 is not implemented. Council, final responsive/state sweep, and final user visual acceptance are not complete.
 - Agent-owned screenshot acceptance is now prohibited by `AGENTS.md`. Review and Workshop visual acceptance remains a user gate, not a command result.
 
@@ -433,7 +438,7 @@ The Agent `codex.create_entry` protocol repair closed these gaps:
 - The execute route accepts only structured JSON tool requests from Agent sessions. Plain `Codex Draft` text and fake `Tool Call` text cannot execute.
 - Draft Details are written only through stable reusable detail type IDs. Existing detail types are matched by stable ID or exact normalized type name; unmatched draft labels are not persisted as free keys.
 - Unmatched draft detail labels first return `CODEX_DETAIL_TYPE_CREATION_REQUIRED` and do not write an entry. After explicit confirmation, the server creates the missing detail types and then writes the entry with those new IDs.
-- This is not full M5.6 Tool Plan/Grant behavior and does not implement existing-entry update, relation, progression, knowledge, or world-fact writes from Workshop.
+- This is not full M5.6 Tool Plan/Grant behavior. The later `codex.update_entry` repair adds existing-entry and Progression support, but relation, category, knowledge, world-fact writes, durable execution identity, stale baselines, and atomic command adapters remain unfinished.
 
 Focused command results during the 2026-07-07 Workshop General Chat edit/resend repair:
 
@@ -559,10 +564,11 @@ The pending Codex draft follow-up repair closed these gaps:
 - The server has a narrow fallback for clear pending-draft edits so obvious draft revision requests do not collapse into prose-only replies.
 - This is still not full M5.6. It does not add durable Tool Plans, Grants, idempotent execution records, structured-output provider APIs, or broad command adapters.
 
-Focused documentation results during the 2026-07-08 Workshop current-function and functional audit:
+Focused documentation results during the Workshop current-function and verified defect audits:
 
 - `docs/design/ui-redesign/M5_WORKSHOP_CURRENT_FUNCTION_AND_UI_MAP.md` records the current Workshop UI/control inventory and frontend-backend-storage mapping for future UI redesign.
-- `docs/testing/M5_WORKSHOP_FUNCTIONAL_AUDIT.md` records the current functional defects and test gaps. The highest-risk findings are non-idempotent Agent tool execution, non-atomic composed Codex writes, stale-baseline bypass in `codex.update_entry`, weak Progression target/scene binding, missing embedding-backed detail schema planning, and the fact that the current Agent runner is still a single-step structured parser rather than a durable multi-step tool loop.
+- `docs/testing/M5_WORKSHOP_VERIFIED_DEFECT_AUDIT_2026-07-09.md` replaces the deleted older functional and prompt/call-chain audit records. It was verified against commit `0fe44d7` and is the current defect source for M5.6 replanning.
+- The highest-risk current findings are non-idempotent Agent tool execution, non-atomic composed Codex writes, archived-session execution missing a pre-write check, stale-baseline bypass in `codex.update_entry`, weak Progression target/scene binding, missing embedding-backed detail schema planning, and the current Agent runner's single-step/hard-coded-fallback limitation.
 - This audit is documentation only. It does not close the listed defects and does not advance M5.6 Tool Plan/Grant execution or user visual acceptance.
 
 Focused command results during the 2026-07-08 Workshop workbench-shell/conversation/context-panel redesign pass:

@@ -12,7 +12,7 @@ For the current M5 state and accepted recovery baseline, read:
 4. `tasks/M5.md`
 5. `testing/M5_ACCEPTANCE.md`
 6. `design/ui-redesign/M5_WORKSHOP_CURRENT_FUNCTION_AND_UI_MAP.md`
-7. `testing/M5_WORKSHOP_FUNCTIONAL_AUDIT.md`
+7. `testing/M5_WORKSHOP_VERIFIED_DEFECT_AUDIT_2026-07-09.md`
 8. `design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`
 9. `design/ui-redesign/M5_FIGMA_UI_REVIEW.md`
 10. `design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
@@ -42,4 +42,4 @@ Only read older milestone documents when the current task depends on that area.
 
 ## Current Warning
 
-Project Recovery is accepted for the current stage by user decision on 2026-06-30. `NS-410` JSON Authority, Block Write Editor, and Unified Codex Progression is command-verified through post-Slice 11 audit repair; do not treat that as separate future M5 visual acceptance. The active line is `M5` Workshop, Proposal, and Review through `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`; M5.1-M5.5 are command/function verified as of 2026-07-01, while M5.6+ and user visual acceptance remain unfinished. The 2026-07-08 Workshop current-function map and functional audit are required reading before redesigning or repairing Workshop. Agent-owned screenshot acceptance is prohibited.
+Project Recovery is accepted for the current stage by user decision on 2026-06-30. `NS-410` JSON Authority, Block Write Editor, and Unified Codex Progression is command-verified through post-Slice 11 audit repair; do not treat that as separate future M5 visual acceptance. The active line is `M5` Workshop, Proposal, and Review through `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`; M5.1-M5.5 are command/function verified as of 2026-07-01, while M5.6+ and user visual acceptance remain unfinished. The Workshop current-function map and verified defect audit are required reading before redesigning or repairing Workshop. The deleted older Workshop functional/prompt audits must not be used as current guidance. Agent-owned screenshot acceptance is prohibited.
