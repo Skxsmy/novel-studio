@@ -78,6 +78,7 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5.6D Durable Agent Runner | Agent steps, tool requests, confirmation pauses, result continuation, structured-output repair, and malformed-output handling are durable. | M5-A30 - M5-A37 |
 | M5.6E Workshop Capability Cleanup | Branch, prompt scope, context kinds, legacy modes, deletion semantics, and module boundaries are reconciled with current product behavior. | M5-A18 - M5-A24, M5-A30 - M5-A37 |
 | M5.6F Workshop Prompt Customization Foundation | Workshop-specific prompt records, versioned call logging, and future user-editable prompt surfaces are separated from global non-Workshop roles/templates. | M5-A21 - M5-A24, M5-A30 - M5-A37 |
+| M5.6G Tool Plan, Grant, And Command Adapter Layer | The original M5.6 Tool Plan/Grant target is implemented after the existing Agent tool path is contained: durable plans, grants, tool calls, approved tool definitions, validated adapters, permission/result UI, Proposal fallback, stale-target refusal, and partial-failure reporting. | M5-A30 - M5-A37 |
 | M5.7 Council, Batch, Conflict/Failure, Responsive, Copy, And Final Visual Acceptance | Council, batch, failure/conflict states, responsive/copy states, and final visual acceptance are complete. | M5-A38 - M5-A45 |
 
 ## Required Commands
@@ -131,7 +132,7 @@ Implemented scope:
 
 Important boundary:
 
-- M5.6 is replanned as M5.6A-F from the verified current-source audit. Limited author-confirmed Agent Codex create/update tools exist, but execution identity, idempotency, stale baselines, atomic command adapters, Progression binding, structured-output repair, prompt customization, and broad Write/Codex adapters remain unfinished.
+- M5.6 is replanned as M5.6A-G from the verified current-source audit while preserving the original Tool Plan/Grant target as M5.6G. The old M5.6 product invariants and acceptance IDs remain active unless explicitly marked replaced in `docs/tasks/M5.md`; the only replaced part is the old monolithic order that would build generic Tool Plan/Grant before containing the existing write-capable Agent Codex path. Limited author-confirmed Agent Codex create/update tools exist, but execution identity, idempotency, stale baselines, atomic command adapters, Progression binding, structured-output repair, prompt customization, durable Tool Plans/Grants, and broad Write/Codex adapters remain unfinished.
 - M5.7 is not implemented. Council, final responsive/state sweep, and final user visual acceptance are not complete.
 - Agent-owned screenshot acceptance is now prohibited by `AGENTS.md`. Review and Workshop visual acceptance remains a user gate, not a command result.
 

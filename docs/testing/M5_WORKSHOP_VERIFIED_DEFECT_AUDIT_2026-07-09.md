@@ -372,5 +372,7 @@ M5 remaining work must not be planned from the deleted audits. The current order
 1. Contain the existing limited Agent Codex tools: idempotency, archived-session precheck, stale baselines, progression binding, and atomicity.
 2. Replace the hard-coded pending-draft fallback with a durable Agent runner and structured-output/repair path.
 3. Add the detail schema planner using the shared embedding infrastructure.
-4. Then implement broader Tool Plan/Grant records and command adapters.
+4. Then implement the original M5.6 Tool Plan/Grant layer explicitly: durable Tool Plan, Grant, and Tool Call records, approved Codex/Write tool definitions, validated command adapters, permission/result UI, stale-target refusal, partial-failure reporting, and Proposal fallback.
 5. Only after that, continue to Council, batch/failure states, responsive behavior, copy/i18n, and user visual acceptance.
+
+The original M5.6 requirements are not deleted. They are classified in `docs/tasks/M5.md` as kept, partially started, or replaced. The replaced part is the old monolithic implementation order, not the Tool Plan/Grant product requirement.
