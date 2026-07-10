@@ -1561,8 +1561,9 @@ export function WorkshopWorkspace({
         ...current.filter((entry) => entry.metadata.id !== result.entry.metadata.id),
       ]);
       setMessages((current) => {
-        if (current.some((item) => item.id === result.resultMessage.id)) return current;
-        return [...current, result.resultMessage].sort((left, right) =>
+        const withUpdatedSource = current.map((item) => item.id === result.message.id ? result.message : item);
+        if (withUpdatedSource.some((item) => item.id === result.resultMessage.id)) return withUpdatedSource;
+        return [...withUpdatedSource, result.resultMessage].sort((left, right) =>
           left.createdAt.localeCompare(right.createdAt),
         );
       });
@@ -2887,16 +2888,26 @@ export function WorkshopWorkspace({
                           : text.codexDraft.toolNameUpdateEntry}
                       </span>
                     </div>
-                    <button
-                      className="btn success compact"
-                      disabled={applyingCodexDraftMessageId !== null}
-                      onClick={() => void executeCodexToolFromMessage(message)}
-                      type="button"
-                    >
-                      {applyingCodexDraftMessageId === message.id
-                        ? text.codexDraft.applying
-                        : text.codexDraft.apply}
-                    </button>
+                    {message.toolExecution ? (
+                      <span className={`pill ${message.toolExecution.status === "succeeded" ? "green" : "muted"}`}>
+                        {message.toolExecution.status === "succeeded"
+                          ? text.codexDraft.executionSucceeded
+                          : message.toolExecution.status === "running"
+                            ? text.codexDraft.executionRunning
+                            : text.codexDraft.executionFailed}
+                      </span>
+                    ) : (
+                      <button
+                        className="btn success compact"
+                        disabled={applyingCodexDraftMessageId !== null}
+                        onClick={() => void executeCodexToolFromMessage(message)}
+                        type="button"
+                      >
+                        {applyingCodexDraftMessageId === message.id
+                          ? text.codexDraft.applying
+                          : text.codexDraft.apply}
+                      </button>
+                    )}
                   </div>
                 ) : null}
                 </article>

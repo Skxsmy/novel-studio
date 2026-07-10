@@ -1,6 +1,6 @@
 # M5 Acceptance Record
 
-Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings, message-attachment, context-delivery, UI-interaction, provider-reasoning, chat-layout, session-lifecycle, streaming-session-switch, session-export, shared-sidebar/floating-menu/conversation style, and Review diff-workspace repairs; M5.6 next; user visual acceptance pending
+Status: M5.1-M5.5 command/function verified with post-M5.5 Workshop chat/settings, message-attachment, context-delivery, UI-interaction, provider-reasoning, chat-layout, session-lifecycle, streaming-session-switch, session-export, shared-sidebar/floating-menu/conversation style, and Review diff-workspace repairs; M5.6A command/function verified; M5.6B next; user visual acceptance pending
 Created: 2026-06-30  
 Task: `docs/tasks/M5.md`
 
@@ -45,13 +45,13 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5-A27 | passed | Review Detail links back to the source Workshop message. Covered by server/web tests. |
 | M5-A28 | function passed; visual pending | Workshop Proposal cards read Proposal authority state and reflect accepted, rejected, edited, stale, superseded, and unavailable states. Covered by web state-sync tests and source review; user visual acceptance remains pending. |
 | M5-A29 | passed | Archived/unavailable Proposal links and unavailable source-message returns show recoverable states instead of dead navigation. Covered by storage/server tests and Workshop/Review unavailable UI behavior. |
-| M5-A30 | not started | Tool Plans are durable JSON records and cannot execute without a valid Grant. |
+| M5-A30 | not started for Tool Plans; partial M5.6A evidence only | Tool Plans are durable JSON records and cannot execute without a valid Grant. M5.6A added execution identity for the current limited Agent Codex tool messages, but no Tool Plan/Grant storage exists yet. |
 | M5-A31 | not started | Expired or mismatched Grants cannot execute tools. |
-| M5-A32 | not started | Unauthorized tools cannot write authority data. |
-| M5-A33 | not started | Tool adapters call existing domain/storage commands instead of direct file writes. |
+| M5-A32 | not started for Tool Plans; partial M5.6A evidence only | Unauthorized tools cannot write authority data. M5.6A still uses the current limited Agent tool routes, not a durable Grant validator. |
+| M5-A33 | not started for command adapters; partial M5.6A evidence only | Tool adapters call existing domain/storage commands instead of direct file writes. M5.6A contains current execute routes but does not add atomic adapters. |
 | M5-A34 | not started | Dangerous actions require explicit confirmation and cannot be covered by broad low-risk grants. |
 | M5-A35 | not started | Tool execution validates target revisions and refuses stale writes. |
-| M5-A36 | not started | Tool partial failure reports completed, skipped, failed, and blocked steps. |
+| M5-A36 | not started for Tool Plans; partial M5.6A evidence only | Tool partial failure reports completed, skipped, failed, and blocked steps. M5.6A records current limited tool execution status but does not implement full partial-failure reporting. |
 | M5-A37 | not started | Tool Plan conversion to Proposal preserves source, reason, evidence, and target revisions. |
 | M5-A38 | not started | Council first-round role calls are independent and do not receive other roles' outputs. |
 | M5-A39 | not started | Council summary cites first-round outputs and does not introduce unchecked new conclusions. |
@@ -72,7 +72,7 @@ Command checks do not equal user visual acceptance. Figma acceptance does not eq
 | M5.3 Review UI First | Review Inbox and Proposal Detail use real Proposal APIs and accepted Figma design. | M5-A13 - M5-A17 |
 | M5.4 Workshop Sessions, Context Selection, And Single-Role Call | Workshop persists sessions/messages, edits selected context through the compact menu backed by `WorkshopContextBasket`, assembles context through Context Builder, and runs single-role calls without authority mutation. | M5-A18 - M5-A24 |
 | M5.5 Workshop Message To Proposal Deep Link | Workshop messages create Proposals, deep-link to Review detail, and receive status updates. | M5-A25 - M5-A29 |
-| M5.6A Tool Execution Containment | Current Agent tool messages have durable execution identity, idempotent result behavior, active-session precheck, and no repeated authority writes. | M5-A30 - M5-A36 |
+| M5.6A Tool Execution Containment | Passed for the current limited Agent Codex tool path. Current Agent tool messages have durable execution identity, serialized single-process claim, concurrent/repeat-execute rejection, active-session precheck, running-execution lifecycle guards, terminal failure state, and no repeated authority writes. | Partial evidence for M5-A30 - M5-A36; does not pass Tool Plan/Grant IDs |
 | M5.6B Atomic Codex Command Adapters | Limited Codex create/update tools run through stale-safe, transactionally auditable adapters with Progression target/scene binding. | M5-A33 - M5-A37 |
 | M5.6C Detail Schema Planner | Draft detail labels receive semantic mapping suggestions before any reusable detail type is created. | M5-A33, M5-A37 |
 | M5.6D Durable Agent Runner | Agent steps, tool requests, confirmation pauses, result continuation, structured-output repair, and malformed-output handling are durable. | M5-A30 - M5-A37 |
@@ -132,7 +132,7 @@ Implemented scope:
 
 Important boundary:
 
-- M5.6 is replanned as M5.6A-G from the verified current-source audit while preserving the original Tool Plan/Grant target as M5.6G. The old M5.6 product invariants and acceptance IDs remain active unless explicitly marked replaced in `docs/tasks/M5.md`; the only replaced part is the old monolithic order that would build generic Tool Plan/Grant before containing the existing write-capable Agent Codex path. Limited author-confirmed Agent Codex create/update tools exist, but execution identity, idempotency, stale baselines, atomic command adapters, Progression binding, structured-output repair, prompt customization, durable Tool Plans/Grants, and broad Write/Codex adapters remain unfinished.
+- M5.6 is replanned as M5.6A-G from the verified current-source audit while preserving the original Tool Plan/Grant target as M5.6G. The old M5.6 product invariants and acceptance IDs remain active unless explicitly marked replaced in `docs/tasks/M5.md`; the only replaced part is the old monolithic order that would build generic Tool Plan/Grant before containing the existing write-capable Agent Codex path. M5.6A contains current limited Agent Codex tool execution with request-hash execution records, serialized claims in the specified single local server process, concurrent/repeat-execute rejection, result-message links, terminal failure state, UI completion state, archived-session pre-write refusal, and running-execution archive/delete guards. Stale baselines, atomic command adapters, Progression binding, structured-output repair, prompt customization, durable Tool Plans/Grants, and broad Write/Codex adapters remain unfinished.
 - M5.7 is not implemented. Council, final responsive/state sweep, and final user visual acceptance are not complete.
 - Agent-owned screenshot acceptance is now prohibited by `AGENTS.md`. Review and Workshop visual acceptance remains a user gate, not a command result.
 
@@ -154,6 +154,7 @@ Full M5.4 close command results before documentation-only updates:
 Focused command results during M5.5:
 
 - `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run test -w @novel-studio/contracts -- workshop.test.ts`: passed, 1 file / 12 tests; legacy messages without `toolExecution`, valid running execution defaults, and malformed request hashes are covered.
 - `npm.cmd run build -w @novel-studio/storage`: passed.
 - `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts`: first parallel run raced with the contracts build and saw the new schema as undefined; after the contracts build completed, passed, 1 file / 4 tests.
 - `npm.cmd run test -w @novel-studio/server -- test/workshop-routes.test.ts`: first run failed because server used stale storage dist; after `npm.cmd run build -w @novel-studio/storage`, passed, 1 file / 2 tests.
@@ -439,7 +440,7 @@ The Agent `codex.create_entry` protocol repair closed these gaps:
 - The execute route accepts only structured JSON tool requests from Agent sessions. Plain `Codex Draft` text and fake `Tool Call` text cannot execute.
 - Draft Details are written only through stable reusable detail type IDs. Existing detail types are matched by stable ID or exact normalized type name; unmatched draft labels are not persisted as free keys.
 - Unmatched draft detail labels first return `CODEX_DETAIL_TYPE_CREATION_REQUIRED` and do not write an entry. After explicit confirmation, the server creates the missing detail types and then writes the entry with those new IDs.
-- This is not full M5.6 Tool Plan/Grant behavior. The later `codex.update_entry` repair adds existing-entry and Progression support, but relation, category, knowledge, world-fact writes, durable execution identity, stale baselines, and atomic command adapters remain unfinished.
+- This is not full M5.6 Tool Plan/Grant behavior. The later `codex.update_entry` and M5.6A repairs add existing-entry/Progression support and durable execution identity for the current limited tools, but relation, category, knowledge, world-fact writes, stale baselines, and atomic command adapters remain unfinished.
 
 Focused command results during the 2026-07-07 Workshop General Chat edit/resend repair:
 
@@ -563,14 +564,37 @@ The pending Codex draft follow-up repair closed these gaps:
 - The provider sees the current pending draft on later turns, so ordinary follow-up edits can revise the same draft instead of restarting from chat memory alone.
 - If the provider returns direct structured `codex.create_entry` / `codex.update_entry` JSON, the server parses it as a tool request rather than saving raw JSON as assistant prose.
 - The server has a narrow fallback for clear pending-draft edits so obvious draft revision requests do not collapse into prose-only replies.
-- This is still not full M5.6. It does not add durable Tool Plans, Grants, idempotent execution records, structured-output provider APIs, or broad command adapters.
+- This is still not full M5.6. It does not add durable Tool Plans, Grants, structured-output provider APIs, or broad command adapters.
 
 Focused documentation results during the Workshop current-function and verified defect audits:
 
 - `docs/design/ui-redesign/M5_WORKSHOP_CURRENT_FUNCTION_AND_UI_MAP.md` records the current Workshop UI/control inventory and frontend-backend-storage mapping for future UI redesign.
 - `docs/testing/M5_WORKSHOP_VERIFIED_DEFECT_AUDIT_2026-07-09.md` replaces the deleted older functional and prompt/call-chain audit records. It was verified against commit `0fe44d7` and is the current defect source for M5.6 replanning.
-- The highest-risk current findings are non-idempotent Agent tool execution, non-atomic composed Codex writes, archived-session execution missing a pre-write check, stale-baseline bypass in `codex.update_entry`, weak Progression target/scene binding, missing embedding-backed detail schema planning, and the current Agent runner's single-step/hard-coded-fallback limitation.
-- This audit is documentation only. It does not close the listed defects and does not advance M5.6 Tool Plan/Grant execution or user visual acceptance.
+- The remaining highest-risk current findings after M5.6A are non-atomic composed Codex writes, stale-baseline bypass in `codex.update_entry`, weak Progression target/scene binding, missing embedding-backed detail schema planning, and the current Agent runner's single-step/hard-coded-fallback limitation.
+- This audit now records M5.6A as closed for current limited Agent-tool idempotency and archived-session prechecks, but it does not advance M5.6 Tool Plan/Grant execution or user visual acceptance.
+
+Focused command results during M5.6A Tool Execution Containment:
+
+- `npm.cmd run build -w @novel-studio/contracts`: passed.
+- `npm.cmd run build -w @novel-studio/storage`: passed.
+- `npm.cmd run test -w @novel-studio/server -- workshop-routes`: first run failed because the server test process read stale `@novel-studio/storage` dist before the new storage method was built; after `npm.cmd run build -w @novel-studio/storage`, passed, 1 file / 26 tests.
+- `npm.cmd run build -w @novel-studio/server`: passed after adding an explicit `codexInput` guard.
+- `npm.cmd run build -w @novel-studio/web`: passed.
+- `npm.cmd run test -w @novel-studio/storage -- workshop.test.ts`: passed, 1 file / 15 tests.
+- The first expanded `npm.cmd run test -w @novel-studio/server -- workshop-routes` run failed before route execution because the new failure fixture referenced an unimported `randomUUID`; the fixture was corrected to use a fixed valid UUID without changing the scenario.
+- `npm.cmd run test -w @novel-studio/server -- workshop-routes`: passed, 1 file / 27 tests.
+
+M5.6A closed these current limited-Agent-tool gaps:
+
+- Server-owned Agent tool messages now carry optional `toolExecution` metadata with request hash, execution status, timestamps, result-message link, and error fields.
+- `codex.create_entry` and `codex.update_entry` execute routes reject archived source sessions before any Codex/detail/progression write.
+- Storage serializes execution claims per Workshop session in the specified single local server process, so concurrent confirmations cannot both pass the claim boundary.
+- The same execute routes mark the source tool message as `running` before the first authority write, mark it `succeeded` with the result message ID after success, mark post-start failures as failed, and reject concurrent or repeated execution before duplicate authority mutation.
+- Running tool execution blocks session archive/delete, and server-owned tool request messages cannot be deleted through the generic message-delete path.
+- The Workshop UI replaces the confirm button with an execution-state pill after the server returns the updated source tool message.
+- Regression coverage proves concurrent and repeated `codex.create_entry` / `codex.update_entry` calls do not duplicate entries/progressions; archived-session execution creates no Codex entry, result message, or execution marker; running execution blocks archive/delete; and a post-claim failure records `failed` and refuses replay.
+
+M5.6A does not implement full M5.6 Tool Plans/Grants, stale draft baselines, atomic composed Codex adapters, Progression target/scene binding, semantic detail planning, durable multi-step Agent execution, or user visual acceptance.
 
 Focused command results during the 2026-07-08 Workshop workbench-shell/conversation/context-panel redesign pass:
 

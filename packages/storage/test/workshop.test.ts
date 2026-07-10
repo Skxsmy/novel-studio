@@ -111,6 +111,59 @@ describe("M5 Workshop storage", () => {
     });
   });
 
+  it("atomically claims Agent tool execution and blocks destructive session changes while running", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopToolClaim" });
+    const session = await store.createWorkshopSession(series.manifest.id, {
+      kind: "agent",
+      title: "Agent tool claim",
+    });
+    const toolMessage = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
+      role: "tool",
+      mode: "agent",
+      content: JSON.stringify({ schemaVersion: 1, tool: "codex.create_entry", draft: { name: "Alice" } }),
+    });
+    const requestHash = textHash(toolMessage.content);
+
+    const claims = await Promise.all([
+      store.claimWorkshopMessageToolExecution(series.manifest.id, session.id, toolMessage.id, requestHash),
+      store.claimWorkshopMessageToolExecution(series.manifest.id, session.id, toolMessage.id, requestHash),
+    ]);
+    expect(claims.map((claim) => claim.status).sort()).toEqual(["claimed", "existing"]);
+    const claimed = claims.find((claim) => claim.status === "claimed");
+    expect(claimed?.message.toolExecution).toMatchObject({ requestHash, status: "running" });
+    if (!claimed?.message.toolExecution) throw new Error("Expected a claimed Workshop tool execution");
+
+    await expect(store.archiveWorkshopSession(series.manifest.id, session.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    await expect(store.deleteWorkshopSession(series.manifest.id, session.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    await expect(store.deleteWorkshopMessage(series.manifest.id, session.id, toolMessage.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    const completedAt = new Date().toISOString();
+    const failedMessage = await store.updateWorkshopMessageToolExecution(
+      series.manifest.id,
+      session.id,
+      toolMessage.id,
+      {
+        ...claimed.message.toolExecution,
+        status: "failed",
+        completedAt,
+        errorCode: "TEST_FAILURE",
+        errorMessage: "Injected failure after execution claim.",
+      },
+    );
+    expect(failedMessage.toolExecution).toMatchObject({
+      status: "failed",
+      completedAt,
+      errorCode: "TEST_FAILURE",
+    });
+    await expect(store.archiveWorkshopSession(series.manifest.id, session.id)).resolves.toMatchObject({
+      status: "archived",
+    });
+  });
+
   it("accepts only author-authored messages through the public create helper", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopMessageAuthorOnly" });

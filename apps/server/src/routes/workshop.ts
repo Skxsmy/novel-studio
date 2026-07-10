@@ -27,6 +27,7 @@ import {
   WorkshopContextPreviewInputSchema,
   WorkshopMessageAttachmentSchema,
   WorkshopMessageSchema,
+  WorkshopToolExecutionSchema,
   CreateCodexProgressionInputSchema,
   UpdateCodexProgressionInputSchema,
   DeleteCodexDocumentInputSchema,
@@ -45,6 +46,7 @@ import {
   type WorkshopCodexDraftDetailMapping,
   type WorkshopCodexDraftMissingDetailType,
   type WorkshopMessage,
+  type WorkshopToolExecution,
 } from "@novel-studio/contracts";
 import type { ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
 import type { ProjectRepository } from "@novel-studio/storage";
@@ -80,6 +82,92 @@ import {
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function workshopToolRequestHash(message: WorkshopMessage): string {
+  return hashText(message.content);
+}
+
+function workshopToolConflict(message: WorkshopMessage, requestHash: string): { code: string; message: string } | null {
+  const execution = message.toolExecution;
+  if (!execution) return null;
+  if (execution.requestHash !== requestHash) {
+    return {
+      code: "WORKSHOP_TOOL_EXECUTION_CONFLICT",
+      message: "This Workshop tool message already records a different execution request.",
+    };
+  }
+  if (execution.status === "succeeded") {
+    return {
+      code: "WORKSHOP_TOOL_ALREADY_EXECUTED",
+      message: "This Workshop tool message has already been executed.",
+    };
+  }
+  if (execution.status === "running") {
+    return {
+      code: "WORKSHOP_TOOL_EXECUTION_RUNNING",
+      message: "This Workshop tool message execution is already recorded as running.",
+    };
+  }
+  return {
+    code: "WORKSHOP_TOOL_EXECUTION_FAILED",
+    message: "This Workshop tool message already has a failed execution record.",
+  };
+}
+
+async function markWorkshopToolExecutionSucceeded(input: {
+  repository: ProjectRepository;
+  seriesId: string;
+  message: WorkshopMessage;
+  resultMessageId: string;
+}): Promise<WorkshopMessage> {
+  const current = input.message.toolExecution;
+  const completedAt = new Date().toISOString();
+  const execution = WorkshopToolExecutionSchema.parse({
+    requestHash: current?.requestHash ?? workshopToolRequestHash(input.message),
+    status: "succeeded",
+    startedAt: current?.startedAt ?? completedAt,
+    completedAt,
+    resultMessageId: input.resultMessageId,
+    errorCode: null,
+    errorMessage: null,
+  }) as WorkshopToolExecution;
+  return input.repository.updateWorkshopMessageToolExecution(
+    input.seriesId,
+    input.message.sessionId,
+    input.message.id,
+    execution,
+  );
+}
+
+async function markWorkshopToolExecutionFailed(input: {
+  repository: ProjectRepository;
+  seriesId: string;
+  message: WorkshopMessage;
+  code: string;
+  messageText: string;
+}): Promise<void> {
+  const current = input.message.toolExecution;
+  const completedAt = new Date().toISOString();
+  const execution = WorkshopToolExecutionSchema.parse({
+    requestHash: current?.requestHash ?? workshopToolRequestHash(input.message),
+    status: "failed",
+    startedAt: current?.startedAt ?? completedAt,
+    completedAt,
+    resultMessageId: current?.resultMessageId ?? null,
+    errorCode: input.code,
+    errorMessage: input.messageText,
+  }) as WorkshopToolExecution;
+  try {
+    await input.repository.updateWorkshopMessageToolExecution(
+      input.seriesId,
+      input.message.sessionId,
+      input.message.id,
+      execution,
+    );
+  } catch {
+    // Preserve the original route error; M5.6B will cover full recovery semantics.
+  }
 }
 
 const OPEN_REASONING_TAGS = ["<think>", "<thinking>"];
@@ -915,12 +1003,26 @@ export function registerWorkshopRoutes(
           message: "Only successful Agent tool request messages can execute codex.create_entry",
         });
       }
+      if (source.session.status !== "active") {
+        return reply.status(409).send({
+          code: "WORKSHOP_SESSION_ARCHIVED",
+          message: "Archived Workshop sessions cannot execute Agent tool requests.",
+        });
+      }
+      const toolRequestHash = workshopToolRequestHash(source.message);
+      const conflict = workshopToolConflict(source.message, toolRequestHash);
+      if (conflict) {
+        return reply.status(409).send(conflict);
+      }
       let codexInput;
       let createdDetailTypes: CodexDetailTypeDocument[] = [];
+      let missingDetailTypes: WorkshopCodexDraftMissingDetailType[] = [];
+      let draft: WorkshopCodexCreateDraft | null = null;
+      let detailTypes: CodexDetailTypeDocument[] = [];
       try {
         const toolRequest = parseCodexCreateEntryToolRequest(source.message.content);
-        const draft = toolRequest.draft;
-        const detailTypes = await repository.listCodexDetailTypes(request.params.seriesId, {
+        draft = toolRequest.draft;
+        detailTypes = await repository.listCodexDetailTypes(request.params.seriesId, {
           categoryId: draft.categoryId,
         });
         try {
@@ -941,8 +1043,43 @@ export function registerWorkshopRoutes(
               }),
             );
           }
+          missingDetailTypes = error.missingDetailTypes;
+        }
+      } catch (error) {
+        return reply.status(400).send({
+          code: "INVALID_DATA",
+          message: error instanceof Error ? error.message : "Codex Draft could not be parsed.",
+        });
+      }
+      if (!draft) {
+        return reply.status(400).send({
+          code: "INVALID_DATA",
+          message: "Codex Draft could not be parsed.",
+        });
+      }
+      const claim = await repository.claimWorkshopMessageToolExecution(
+        request.params.seriesId,
+        source.session.id,
+        source.message.id,
+        toolRequestHash,
+      );
+      if (claim.status === "archived") {
+        return reply.status(409).send({
+          code: "WORKSHOP_SESSION_ARCHIVED",
+          message: "Archived Workshop sessions cannot execute Agent tool requests.",
+        });
+      }
+      if (claim.status === "existing") {
+        return reply.status(409).send(workshopToolConflict(claim.message, toolRequestHash) ?? {
+          code: "WORKSHOP_TOOL_EXECUTION_CONFLICT",
+          message: "This Workshop tool message already has an execution record.",
+        });
+      }
+      let executingMessage = claim.message;
+      try {
+        if (missingDetailTypes.length > 0) {
           createdDetailTypes = [];
-          for (const missingDetailType of error.missingDetailTypes) {
+          for (const missingDetailType of missingDetailTypes) {
             createdDetailTypes.push(
               await repository.createCodexDetailType(request.params.seriesId, {
                 categoryId: draft.categoryId,
@@ -957,42 +1094,59 @@ export function registerWorkshopRoutes(
             input.detailMappings,
           );
         }
+        if (!codexInput) {
+          throw new Error("Codex Draft could not be applied.");
+        }
+        const entry = await repository.createCodexEntry(request.params.seriesId, codexInput);
+        const resultMessage = await repository.saveWorkshopMessage(
+          request.params.seriesId,
+          WorkshopMessageSchema.parse({
+            schemaVersion: 1,
+            id: randomUUID(),
+            seriesId: request.params.seriesId,
+            sessionId: source.session.id,
+            role: "result",
+            mode: "agent",
+            status: "succeeded",
+            content: `codex.create_entry created Codex entry: ${entry.metadata.name}`,
+            reasoningContent: "",
+            contextBundleId: source.message.contextBundleId,
+            modelCallId: source.message.modelCallId,
+            proposalIds: [],
+            attachmentIds: [],
+            errorCode: null,
+            errorMessage: null,
+            createdAt: new Date().toISOString(),
+          }),
+        );
+        executingMessage = await markWorkshopToolExecutionSucceeded({
+          repository,
+          seriesId: request.params.seriesId,
+          message: executingMessage,
+          resultMessageId: resultMessage.id,
+        });
+        return reply.status(201).send(
+          WorkshopCodexCreateEntryToolResultSchema.parse({
+            createdDetailTypes,
+            message: executingMessage,
+            resultMessage,
+            entry,
+          }),
+        );
       } catch (error) {
+        const messageText = error instanceof Error ? error.message : "Codex Draft could not be applied.";
+        await markWorkshopToolExecutionFailed({
+          repository,
+          seriesId: request.params.seriesId,
+          message: executingMessage,
+          code: "INVALID_DATA",
+          messageText,
+        });
         return reply.status(400).send({
           code: "INVALID_DATA",
-          message: error instanceof Error ? error.message : "Codex Draft could not be parsed.",
+          message: messageText,
         });
       }
-      const entry = await repository.createCodexEntry(request.params.seriesId, codexInput);
-      const resultMessage = await repository.saveWorkshopMessage(
-        request.params.seriesId,
-        WorkshopMessageSchema.parse({
-          schemaVersion: 1,
-          id: randomUUID(),
-          seriesId: request.params.seriesId,
-          sessionId: source.session.id,
-          role: "result",
-          mode: "agent",
-          status: "succeeded",
-          content: `codex.create_entry created Codex entry: ${entry.metadata.name}`,
-          reasoningContent: "",
-          contextBundleId: source.message.contextBundleId,
-          modelCallId: source.message.modelCallId,
-          proposalIds: [],
-          attachmentIds: [],
-          errorCode: null,
-          errorMessage: null,
-          createdAt: new Date().toISOString(),
-        }),
-      );
-      return reply.status(201).send(
-        WorkshopCodexCreateEntryToolResultSchema.parse({
-          createdDetailTypes,
-          message: source.message,
-          resultMessage,
-          entry,
-        }),
-      );
     },
   );
 
@@ -1022,9 +1176,22 @@ export function registerWorkshopRoutes(
           message: "Only successful Agent tool request messages can execute codex.update_entry",
         });
       }
+      if (source.session.status !== "active") {
+        return reply.status(409).send({
+          code: "WORKSHOP_SESSION_ARCHIVED",
+          message: "Archived Workshop sessions cannot execute Agent tool requests.",
+        });
+      }
+      const toolRequestHash = workshopToolRequestHash(source.message);
+      const conflict = workshopToolConflict(source.message, toolRequestHash);
+      if (conflict) {
+        return reply.status(409).send(conflict);
+      }
       let codexInput;
       let entry: CodexEntryDocument | null = null;
       let createdDetailTypes: CodexDetailTypeDocument[] = [];
+      let missingDetailTypes: WorkshopCodexDraftMissingDetailType[] = [];
+      let detailTypes: CodexDetailTypeDocument[] = [];
       let createdProgressions: CodexProgressionDocument[] = [];
       let updatedProgressions: CodexProgressionDocument[] = [];
       let deletedProgressions: DeleteCodexProgressionResult[] = [];
@@ -1037,7 +1204,7 @@ export function registerWorkshopRoutes(
           repository,
           seriesId: request.params.seriesId,
         });
-        const detailTypes = await repository.listCodexDetailTypes(request.params.seriesId, {
+        detailTypes = await repository.listCodexDetailTypes(request.params.seriesId, {
           categoryId: entry.metadata.categoryId,
         });
         try {
@@ -1059,22 +1226,7 @@ export function registerWorkshopRoutes(
               }),
             );
           }
-          createdDetailTypes = [];
-          for (const missingDetailType of error.missingDetailTypes) {
-            createdDetailTypes.push(
-              await repository.createCodexDetailType(request.params.seriesId, {
-                categoryId: entry.metadata.categoryId,
-                name: missingDetailType.label,
-                nsfw: false,
-              }),
-            );
-          }
-          codexInput = codexUpdateEntryInputFromWorkshopDraft(
-            entry,
-            toolRequest.draft,
-            [...detailTypes, ...createdDetailTypes],
-            input.detailMappings,
-          );
+          missingDetailTypes = error.missingDetailTypes;
         }
       } catch (error) {
         if (error instanceof CodexUpdateTargetResolutionError) {
@@ -1095,7 +1247,44 @@ export function registerWorkshopRoutes(
         });
       }
       let updatedEntry = entry;
+      const claim = await repository.claimWorkshopMessageToolExecution(
+        request.params.seriesId,
+        source.session.id,
+        source.message.id,
+        toolRequestHash,
+      );
+      if (claim.status === "archived") {
+        return reply.status(409).send({
+          code: "WORKSHOP_SESSION_ARCHIVED",
+          message: "Archived Workshop sessions cannot execute Agent tool requests.",
+        });
+      }
+      if (claim.status === "existing") {
+        return reply.status(409).send(workshopToolConflict(claim.message, toolRequestHash) ?? {
+          code: "WORKSHOP_TOOL_EXECUTION_CONFLICT",
+          message: "This Workshop tool message already has an execution record.",
+        });
+      }
+      let executingMessage = claim.message;
       try {
+        if (missingDetailTypes.length > 0) {
+          createdDetailTypes = [];
+          for (const missingDetailType of missingDetailTypes) {
+            createdDetailTypes.push(
+              await repository.createCodexDetailType(request.params.seriesId, {
+                categoryId: entry.metadata.categoryId,
+                name: missingDetailType.label,
+                nsfw: false,
+              }),
+            );
+          }
+          codexInput = codexUpdateEntryInputFromWorkshopDraft(
+            entry,
+            toolRequest.draft,
+            [...detailTypes, ...createdDetailTypes],
+            input.detailMappings,
+          );
+        }
         if (codexInput) {
           updatedEntry = await repository.updateCodexEntry(request.params.seriesId, entry.metadata.id, codexInput);
         }
@@ -1109,50 +1298,79 @@ export function registerWorkshopRoutes(
         updatedProgressions = progressionResult.updatedProgressions;
         deletedProgressions = progressionResult.deletedProgressions;
       } catch (error) {
+        const messageText = error instanceof Error ? error.message : "Codex progression update draft could not be applied.";
+        await markWorkshopToolExecutionFailed({
+          repository,
+          seriesId: request.params.seriesId,
+          message: executingMessage,
+          code: "INVALID_DATA",
+          messageText,
+        });
         return reply.status(400).send({
           code: "INVALID_DATA",
-          message: error instanceof Error ? error.message : "Codex progression update draft could not be applied.",
+          message: messageText,
         });
       }
-      const progressionSummary = [
-        createdProgressions.length ? `${createdProgressions.length} progression(s) created` : "",
-        updatedProgressions.length ? `${updatedProgressions.length} progression(s) updated` : "",
-        deletedProgressions.length ? `${deletedProgressions.length} progression(s) deleted` : "",
-      ].filter(Boolean).join("; ");
-      const resultMessage = await repository.saveWorkshopMessage(
-        request.params.seriesId,
-        WorkshopMessageSchema.parse({
-          schemaVersion: 1,
-          id: randomUUID(),
+      try {
+        const progressionSummary = [
+          createdProgressions.length ? `${createdProgressions.length} progression(s) created` : "",
+          updatedProgressions.length ? `${updatedProgressions.length} progression(s) updated` : "",
+          deletedProgressions.length ? `${deletedProgressions.length} progression(s) deleted` : "",
+        ].filter(Boolean).join("; ");
+        const resultMessage = await repository.saveWorkshopMessage(
+          request.params.seriesId,
+          WorkshopMessageSchema.parse({
+            schemaVersion: 1,
+            id: randomUUID(),
+            seriesId: request.params.seriesId,
+            sessionId: source.session.id,
+            role: "result",
+            mode: "agent",
+            status: "succeeded",
+            content: progressionSummary
+              ? `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name} (${progressionSummary})`
+              : `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name}`,
+            reasoningContent: "",
+            contextBundleId: source.message.contextBundleId,
+            modelCallId: source.message.modelCallId,
+            proposalIds: [],
+            attachmentIds: [],
+            errorCode: null,
+            errorMessage: null,
+            createdAt: new Date().toISOString(),
+          }),
+        );
+        executingMessage = await markWorkshopToolExecutionSucceeded({
+          repository,
           seriesId: request.params.seriesId,
-          sessionId: source.session.id,
-          role: "result",
-          mode: "agent",
-          status: "succeeded",
-          content: progressionSummary
-            ? `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name} (${progressionSummary})`
-            : `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name}`,
-          reasoningContent: "",
-          contextBundleId: source.message.contextBundleId,
-          modelCallId: source.message.modelCallId,
-          proposalIds: [],
-          attachmentIds: [],
-          errorCode: null,
-          errorMessage: null,
-          createdAt: new Date().toISOString(),
-        }),
-      );
-      return reply.status(201).send(
-        WorkshopCodexUpdateEntryToolResultSchema.parse({
-          createdDetailTypes,
-          createdProgressions,
-          deletedProgressions,
-          message: source.message,
-          resultMessage,
-          entry: updatedEntry,
-          updatedProgressions,
-        }),
-      );
+          message: executingMessage,
+          resultMessageId: resultMessage.id,
+        });
+        return reply.status(201).send(
+          WorkshopCodexUpdateEntryToolResultSchema.parse({
+            createdDetailTypes,
+            createdProgressions,
+            deletedProgressions,
+            message: executingMessage,
+            resultMessage,
+            entry: updatedEntry,
+            updatedProgressions,
+          }),
+        );
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : "Codex update result could not be recorded.";
+        await markWorkshopToolExecutionFailed({
+          repository,
+          seriesId: request.params.seriesId,
+          message: executingMessage,
+          code: "INVALID_DATA",
+          messageText,
+        });
+        return reply.status(400).send({
+          code: "INVALID_DATA",
+          message: messageText,
+        });
+      }
     },
   );
 

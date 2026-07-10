@@ -235,6 +235,7 @@ import {
   type WorkshopMessageProposalResult,
   type WorkshopMessageSource,
   type WorkshopSession,
+  type WorkshopToolExecution,
   type PromptPreset,
   type PromptTemplate,
   type ReorderInput,
@@ -1297,6 +1298,37 @@ interface PreparedSceneProposalApplication {
   scenePath: string;
   sceneContent: string;
   snapshot: ProposalSnapshot;
+}
+
+export interface WorkshopToolExecutionClaimResult {
+  status: "claimed" | "existing" | "archived";
+  message: WorkshopMessage;
+}
+
+const workshopSessionMutationTails = new Map<string, Promise<void>>();
+
+async function withWorkshopSessionMutationLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = workshopSessionMutationTails.get(key) ?? Promise.resolve();
+  const waitForPrevious = previous.catch(() => undefined);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = waitForPrevious.then(() => gate);
+  workshopSessionMutationTails.set(key, tail);
+  await waitForPrevious;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (workshopSessionMutationTails.get(key) === tail) {
+      workshopSessionMutationTails.delete(key);
+    }
+  }
+}
+
+function workshopSessionMutationKey(seriesRoot: string, sessionId: string): string {
+  return `${seriesRoot}\u0000${sessionId}`;
 }
 
 export class ProjectRepository {
@@ -3921,13 +3953,23 @@ export class ProjectRepository {
 
   async archiveWorkshopSession(seriesId: string, sessionId: string): Promise<WorkshopSession> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const current = await readWorkshopSessionFile(seriesRoot, sessionId);
-    const now = new Date().toISOString();
-    return writeWorkshopSessionFile(seriesRoot, {
-      ...current,
-      status: "archived",
-      archivedAt: current.archivedAt ?? now,
-      updatedAt: now,
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const current = await readWorkshopSessionFile(seriesRoot, sessionId);
+      const runningToolMessage = (await listWorkshopMessageFiles(seriesRoot, sessionId))
+        .find((message) => message.toolExecution?.status === "running");
+      if (runningToolMessage) {
+        throw new StorageError("Workshop sessions with a running tool execution cannot be archived", "CONFLICT", {
+          sessionId,
+          messageId: runningToolMessage.id,
+        });
+      }
+      const now = new Date().toISOString();
+      return writeWorkshopSessionFile(seriesRoot, {
+        ...current,
+        status: "archived",
+        archivedAt: current.archivedAt ?? now,
+        updatedAt: now,
+      });
     });
   }
 
@@ -3947,65 +3989,74 @@ export class ProjectRepository {
     sessionId: string,
   ): Promise<DeleteWorkshopSessionResult> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const session = await readWorkshopSessionFile(seriesRoot, sessionId);
-    if (session.seriesId !== seriesId) {
-      throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", {
-        sessionId,
-      });
-    }
-    const messages = await listWorkshopMessageFiles(seriesRoot, session.id);
-    const proposalLinkedMessages = messages.filter((message) => message.proposalIds.length > 0);
-    if (proposalLinkedMessages.length > 0) {
-      throw new StorageError("Workshop sessions with Proposal-linked messages cannot be deleted", "INVALID_DATA", {
-        sessionId,
-        messageIds: proposalLinkedMessages.map((message) => message.id),
-      });
-    }
-    const attachments = await listWorkshopAttachmentFiles(seriesRoot, session.id);
-    const deletedMessageIds = messages.map((message) => message.id);
-    const deletedMessageIdSet = new Set(deletedMessageIds);
-    const branches = (await listWorkshopBranchFiles(seriesRoot)).filter((branch) =>
-      branch.sessionId === session.id || branch.sourceSessionId === session.id,
-    );
-    const now = new Date().toISOString();
-    const relatedSessions = (await listWorkshopSessionFiles(seriesRoot))
-      .filter((item) =>
-        item.id !== session.id &&
-        item.branchOfMessageId !== null &&
-        deletedMessageIdSet.has(item.branchOfMessageId),
-      )
-      .map((item) => WorkshopSessionSchema.parse({
-        ...item,
-        branchOfMessageId: null,
-        updatedAt: now,
-      }));
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+      if (session.seriesId !== seriesId) {
+        throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", {
+          sessionId,
+        });
+      }
+      const messages = await listWorkshopMessageFiles(seriesRoot, session.id);
+      const runningToolMessage = messages.find((message) => message.toolExecution?.status === "running");
+      if (runningToolMessage) {
+        throw new StorageError("Workshop sessions with a running tool execution cannot be deleted", "CONFLICT", {
+          sessionId,
+          messageId: runningToolMessage.id,
+        });
+      }
+      const proposalLinkedMessages = messages.filter((message) => message.proposalIds.length > 0);
+      if (proposalLinkedMessages.length > 0) {
+        throw new StorageError("Workshop sessions with Proposal-linked messages cannot be deleted", "INVALID_DATA", {
+          sessionId,
+          messageIds: proposalLinkedMessages.map((message) => message.id),
+        });
+      }
+      const attachments = await listWorkshopAttachmentFiles(seriesRoot, session.id);
+      const deletedMessageIds = messages.map((message) => message.id);
+      const deletedMessageIdSet = new Set(deletedMessageIds);
+      const branches = (await listWorkshopBranchFiles(seriesRoot)).filter((branch) =>
+        branch.sessionId === session.id || branch.sourceSessionId === session.id,
+      );
+      const now = new Date().toISOString();
+      const relatedSessions = (await listWorkshopSessionFiles(seriesRoot))
+        .filter((item) =>
+          item.id !== session.id &&
+          item.branchOfMessageId !== null &&
+          deletedMessageIdSet.has(item.branchOfMessageId),
+        )
+        .map((item) => WorkshopSessionSchema.parse({
+          ...item,
+          branchOfMessageId: null,
+          updatedAt: now,
+        }));
 
-    await applyFileTransaction(seriesRoot, [
-      { targetPath: workshopSessionPath(seriesRoot, session.id), delete: true },
-      { targetPath: workshopContextBasketPath(seriesRoot, session.id), delete: true },
-      ...messages.map((message) => ({
-        targetPath: workshopMessagePath(seriesRoot, message.id),
-        delete: true,
-      })),
-      ...attachments.map((attachment) => ({
-        targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
-        delete: true,
-      })),
-      ...branches.map((branch) => ({
-        targetPath: workshopBranchPath(seriesRoot, branch.id),
-        delete: true,
-      })),
-      ...relatedSessions.map((item) => ({
-        targetPath: workshopSessionPath(seriesRoot, item.id),
-        content: serializeJsonAuthority(item),
-      })),
-    ]);
+      await applyFileTransaction(seriesRoot, [
+        { targetPath: workshopSessionPath(seriesRoot, session.id), delete: true },
+        { targetPath: workshopContextBasketPath(seriesRoot, session.id), delete: true },
+        ...messages.map((message) => ({
+          targetPath: workshopMessagePath(seriesRoot, message.id),
+          delete: true,
+        })),
+        ...attachments.map((attachment) => ({
+          targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
+          delete: true,
+        })),
+        ...branches.map((branch) => ({
+          targetPath: workshopBranchPath(seriesRoot, branch.id),
+          delete: true,
+        })),
+        ...relatedSessions.map((item) => ({
+          targetPath: workshopSessionPath(seriesRoot, item.id),
+          content: serializeJsonAuthority(item),
+        })),
+      ]);
 
-    return DeleteWorkshopSessionResultSchema.parse({
-      deletedId: session.id,
-      deletedMessageIds,
-      deletedAttachmentIds: attachments.map((attachment) => attachment.id),
-      deletedBranchIds: branches.map((branch) => branch.id),
+      return DeleteWorkshopSessionResultSchema.parse({
+        deletedId: session.id,
+        deletedMessageIds,
+        deletedAttachmentIds: attachments.map((attachment) => attachment.id),
+        deletedBranchIds: branches.map((branch) => branch.id),
+      });
     });
   }
 
@@ -4403,6 +4454,111 @@ export class ProjectRepository {
     return readWorkshopMessageFile(seriesRoot, parsed.id);
   }
 
+  async claimWorkshopMessageToolExecution(
+    seriesId: string,
+    sessionId: string,
+    messageId: string,
+    requestHash: string,
+  ): Promise<WorkshopToolExecutionClaimResult> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const { session, message } = await this.getWorkshopMessageSource(seriesId, messageId);
+      if (session.id !== sessionId || message.sessionId !== sessionId) {
+        throw new StorageError("Workshop message does not belong to the requested session", "INVALID_DATA", {
+          sessionId,
+          messageId,
+        });
+      }
+      if (session.status === "archived") {
+        return { status: "archived", message };
+      }
+      if (session.kind !== "agent" || message.role !== "tool" || message.mode !== "agent") {
+        throw new StorageError("Only Agent tool messages can record tool execution state", "INVALID_DATA", {
+          messageId,
+          role: message.role,
+          mode: message.mode,
+        });
+      }
+      if (message.toolExecution) {
+        return { status: "existing", message };
+      }
+      const startedAt = new Date().toISOString();
+      const nextMessage = WorkshopMessageSchema.parse({
+        ...message,
+        toolExecution: {
+          requestHash,
+          status: "running",
+          startedAt,
+          completedAt: null,
+          resultMessageId: null,
+          errorCode: null,
+          errorMessage: null,
+        },
+      });
+      const nextSession = WorkshopSessionSchema.parse({
+        ...session,
+        updatedAt: startedAt,
+      });
+      await applyFileTransaction(seriesRoot, [
+        { targetPath: workshopMessagePath(seriesRoot, message.id), content: serializeJsonAuthority(nextMessage) },
+        { targetPath: workshopSessionPath(seriesRoot, session.id), content: serializeJsonAuthority(nextSession) },
+      ]);
+      return { status: "claimed", message: await readWorkshopMessageFile(seriesRoot, message.id) };
+    });
+  }
+
+  async updateWorkshopMessageToolExecution(
+    seriesId: string,
+    sessionId: string,
+    messageId: string,
+    toolExecution: WorkshopToolExecution,
+  ): Promise<WorkshopMessage> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const { session, message } = await this.getWorkshopMessageSource(seriesId, messageId);
+      if (session.id !== sessionId || message.sessionId !== sessionId) {
+        throw new StorageError("Workshop message does not belong to the requested session", "INVALID_DATA", {
+          sessionId,
+          messageId,
+        });
+      }
+      if (session.status === "archived") {
+        throw new StorageError("Archived Workshop session cannot update tool execution state", "INVALID_DATA", {
+          sessionId,
+        });
+      }
+      if (session.kind !== "agent" || message.role !== "tool" || message.mode !== "agent") {
+        throw new StorageError("Only Agent tool messages can record tool execution state", "INVALID_DATA", {
+          messageId,
+          role: message.role,
+          mode: message.mode,
+        });
+      }
+      if (!message.toolExecution || message.toolExecution.status !== "running") {
+        throw new StorageError("Workshop tool execution is not running", "CONFLICT", { messageId });
+      }
+      if (message.toolExecution.requestHash !== toolExecution.requestHash) {
+        throw new StorageError("Workshop tool execution request hash changed", "CONFLICT", { messageId });
+      }
+      const nextMessage = WorkshopMessageSchema.parse({
+        ...message,
+        toolExecution: {
+          ...toolExecution,
+          startedAt: message.toolExecution.startedAt,
+        },
+      });
+      const nextSession = WorkshopSessionSchema.parse({
+        ...session,
+        updatedAt: new Date().toISOString(),
+      });
+      await applyFileTransaction(seriesRoot, [
+        { targetPath: workshopMessagePath(seriesRoot, message.id), content: serializeJsonAuthority(nextMessage) },
+        { targetPath: workshopSessionPath(seriesRoot, session.id), content: serializeJsonAuthority(nextSession) },
+      ]);
+      return readWorkshopMessageFile(seriesRoot, message.id);
+    });
+  }
+
   async deleteWorkshopMessage(
     seriesId: string,
     sessionId: string,
@@ -4431,6 +4587,11 @@ export class ProjectRepository {
       throw new StorageError("Workshop messages linked to Proposals cannot be deleted", "INVALID_DATA", {
         messageId,
         proposalIds: message.proposalIds,
+      });
+    }
+    if (message.role === "tool") {
+      throw new StorageError("Agent tool request messages cannot be deleted directly", "INVALID_DATA", {
+        messageId,
       });
     }
 

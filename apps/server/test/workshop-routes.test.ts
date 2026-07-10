@@ -2091,13 +2091,22 @@ describe("M5 Workshop API routes", () => {
       userRequest: "Create the approved Alice Codex entry.",
     });
 
-    const apply = await app.inject({
-      method: "POST",
+    const executionRequest = {
+      method: "POST" as const,
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.create_entry/execute`,
-      payload: {
-        confirm: true,
-      },
-    });
+      payload: { confirm: true },
+    };
+    const concurrentResponses = await Promise.all([
+      app.inject(executionRequest),
+      app.inject(executionRequest),
+    ]);
+    const apply = concurrentResponses.find((response) => response.statusCode === 201);
+    const concurrentConflict = concurrentResponses.find((response) => response.statusCode === 409);
+    expect(apply).toBeDefined();
+    expect(concurrentConflict).toBeDefined();
+    if (!apply || !concurrentConflict) throw new Error("Expected one successful and one rejected concurrent execution");
+    expect(["WORKSHOP_TOOL_EXECUTION_RUNNING", "WORKSHOP_TOOL_ALREADY_EXECUTED"])
+      .toContain(concurrentConflict.json().code);
     expect(apply.statusCode).toBe(201);
     expect(apply.json().entry.metadata).toMatchObject({
       aliases: ["Lin Alice", "Alice"],
@@ -2121,12 +2130,39 @@ describe("M5 Workshop API routes", () => {
       mode: "agent",
       content: "codex.create_entry created Codex entry: Alice",
     });
+    expect(apply.json().message.toolExecution).toMatchObject({
+      status: "succeeded",
+      resultMessageId: apply.json().resultMessage.id,
+    });
+    const repeatedApply = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.create_entry/execute`,
+      payload: {
+        confirm: true,
+      },
+    });
+    expect(repeatedApply.statusCode).toBe(409);
+    expect(repeatedApply.json()).toMatchObject({
+      code: "WORKSHOP_TOOL_ALREADY_EXECUTED",
+    });
+    const entries = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+    });
+    expect(entries.statusCode).toBe(200);
+    expect(entries.json().filter((entry: { metadata: { name: string } }) => entry.metadata.name === "Alice"))
+      .toHaveLength(1);
     const messages = await app.inject({
       method: "GET",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
     });
     expect(messages.statusCode).toBe(200);
     expect(messages.json().map((message: { role: string }) => message.role)).toContain("result");
+    expect(messages.json().find((message: { id: string }) => message.id === draftMessage.id).toolExecution)
+      .toMatchObject({
+        status: "succeeded",
+        resultMessageId: apply.json().resultMessage.id,
+      });
 
     await app.close();
   });
@@ -2163,6 +2199,70 @@ describe("M5 Workshop API routes", () => {
     });
     expect(messages.statusCode).toBe(200);
     expect(messages.json()).toEqual([]);
+
+    await app.close();
+  });
+
+  it("rejects Agent codex.create_entry execution for archived sessions before any Codex write", async () => {
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(agentToolStep({
+      tool: "codex.create_entry",
+      draft: {
+        aliases: [],
+        categoryId: "character",
+        description: "Archived sessions must not write this entry.",
+        details: [{ label: "Status", value: "Blocked by archived session." }],
+        name: "Archived Tool Entry",
+        research: "This should not be written.",
+      },
+    })));
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Archived agent tool" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+    const statusDetailType = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: { categoryId: "character", name: "Status" },
+    });
+    expect(statusDetailType.statusCode).toBe(201);
+    const draftMessage = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
+    });
+    const archived = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/archive`,
+    });
+    expect(archived.statusCode).toBe(200);
+
+    const apply = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.create_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(apply.statusCode).toBe(409);
+    expect(apply.json()).toMatchObject({
+      code: "WORKSHOP_SESSION_ARCHIVED",
+    });
+    const entries = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+    });
+    expect(entries.statusCode).toBe(200);
+    expect(entries.json()).toHaveLength(0);
+    const messages = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+    });
+    expect(messages.statusCode).toBe(200);
+    expect(messages.json().map((message: { role: string }) => message.role)).not.toContain("result");
+    expect(messages.json().find((message: { id: string }) => message.id === draftMessage.id).toolExecution)
+      .toBeUndefined();
 
     await app.close();
   });
@@ -2441,6 +2541,103 @@ describe("M5 Workshop API routes", () => {
     expect(listed.statusCode).toBe(200);
     expect(listed.json().map((document: { progression: { id: string } }) => document.progression.id))
       .not.toContain(progressionToDelete.json().progression.id);
+    expect(listed.json()).toHaveLength(2);
+
+    const repeatedApply = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.update_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(repeatedApply.statusCode).toBe(409);
+    expect(repeatedApply.json()).toMatchObject({
+      code: "WORKSHOP_TOOL_ALREADY_EXECUTED",
+    });
+    const afterRepeated = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions?kind=field&entryId=${entry.metadata.id}`,
+    });
+    expect(afterRepeated.statusCode).toBe(200);
+    expect(afterRepeated.json()).toHaveLength(2);
+
+    await app.close();
+  });
+
+  it("records a failed Agent tool execution and refuses to replay it after a post-claim write failure", async () => {
+    let agentResponseText = "";
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(() => agentResponseText));
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Agent failed execution" },
+    });
+    expect(sessionResponse.statusCode).toBe(201);
+    const session = sessionResponse.json();
+    const entryResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: {
+        categoryId: "character",
+        name: "Alice",
+        description: "Alice baseline.",
+      },
+    });
+    expect(entryResponse.statusCode).toBe(201);
+    const entry = entryResponse.json();
+
+    agentResponseText = agentToolStep({
+      tool: "codex.update_entry",
+      draft: {
+        target: { entryId: entry.metadata.id },
+        patch: {
+          name: "Alice partially updated",
+          progressions: [{
+            action: "update",
+            progressionId: "11111111-1111-4111-8111-111111111199",
+            input: {
+              baseRevision: "0".repeat(64),
+              body: "This target does not exist.",
+            },
+          }],
+        },
+      },
+    });
+    const draftMessage = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
+    });
+    const executeUrl = `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.update_entry/execute`;
+    const failed = await app.inject({
+      method: "POST",
+      url: executeUrl,
+      payload: { confirm: true },
+    });
+    expect(failed.statusCode).toBe(400);
+
+    const messages = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+    });
+    expect(messages.statusCode).toBe(200);
+    expect(messages.json().find((message: { id: string }) => message.id === draftMessage.id).toolExecution)
+      .toMatchObject({ status: "failed", errorCode: "INVALID_DATA" });
+    expect(messages.json().map((message: { role: string }) => message.role)).not.toContain("result");
+
+    const repeated = await app.inject({
+      method: "POST",
+      url: executeUrl,
+      payload: { confirm: true },
+    });
+    expect(repeated.statusCode).toBe(409);
+    expect(repeated.json()).toMatchObject({ code: "WORKSHOP_TOOL_EXECUTION_FAILED" });
+
+    const partiallyUpdatedEntry = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries/${entry.metadata.id}`,
+    });
+    expect(partiallyUpdatedEntry.statusCode).toBe(200);
+    expect(partiallyUpdatedEntry.json().metadata.name).toBe("Alice partially updated");
 
     await app.close();
   });

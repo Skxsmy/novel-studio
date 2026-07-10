@@ -41,6 +41,20 @@ export type WorkshopMessageRole = z.infer<typeof WorkshopMessageRoleSchema>;
 export const WorkshopMessageStatusSchema = z.enum(["pending", "succeeded", "failed"]);
 export type WorkshopMessageStatus = z.infer<typeof WorkshopMessageStatusSchema>;
 
+export const WorkshopToolExecutionStatusSchema = z.enum(["running", "succeeded", "failed"]);
+export type WorkshopToolExecutionStatus = z.infer<typeof WorkshopToolExecutionStatusSchema>;
+
+export const WorkshopToolExecutionSchema = z.object({
+  requestHash: RevisionHashSchema,
+  status: WorkshopToolExecutionStatusSchema,
+  startedAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable().default(null),
+  resultMessageId: z.string().uuid().nullable().default(null),
+  errorCode: z.string().max(120).nullable().default(null),
+  errorMessage: z.string().max(4000).nullable().default(null),
+});
+export type WorkshopToolExecution = z.infer<typeof WorkshopToolExecutionSchema>;
+
 export const WorkshopConversationKindSchema = z.enum(["chat", "agent"]);
 export type WorkshopConversationKind = z.infer<typeof WorkshopConversationKindSchema>;
 
@@ -174,6 +188,7 @@ export const WorkshopMessageSchema = z.object({
   attachmentIds: WorkshopAttachmentIdsSchema,
   errorCode: z.string().max(120).nullable().default(null),
   errorMessage: z.string().max(4000).nullable().default(null),
+  toolExecution: WorkshopToolExecutionSchema.optional(),
   createdAt: z.string().datetime(),
 });
 export type WorkshopMessage = z.infer<typeof WorkshopMessageSchema>;

@@ -532,7 +532,8 @@ Visible control:
 - Tool label:
   - `codex.create_entry`
   - `codex.update_entry`
-- Button: `Confirm Tool Call`
+- Button before execution: `Confirm Tool Call`
+- Status after execution: execution-state pill such as `Executed`, `Execution recorded`, or `Execution failed`
 
 Conditions:
 
@@ -541,6 +542,7 @@ Conditions:
 - Message mode is `agent`.
 - Message succeeded.
 - Message content parses as structured JSON with `schemaVersion: 1` and a supported tool name.
+- `Confirm Tool Call` is shown only when the tool message has no `toolExecution` record.
 
 Frontend mapping:
 
@@ -554,16 +556,20 @@ Backend mapping:
 
 - `POST .../tools/codex.create_entry/execute`
 - `POST .../tools/codex.update_entry/execute`
+- The execute routes reject archived source sessions before any Codex/detail/progression write.
+- The execute routes persist `toolExecution` state on the source tool message and reject repeated execution before authority mutation.
 
 Tool behavior:
 
 - `codex.create_entry` creates a new Codex entry from the structured draft.
 - `codex.update_entry` resolves one existing entry by ID or exact name/alias, then may update entry fields/research/details and create/update/delete unified Codex Progression records.
 - Missing detail types cause a 409 and require the global second confirmation card.
+- Successful execution returns the updated source tool message plus a result message; the frontend replaces the source message and appends the result message.
 
 Redesign requirement:
 
 - The confirmation control must appear only on server-owned tool request messages, not under ordinary assistant messages.
+- The confirmation control must not reappear for a tool message that has an execution record.
 - The UI must not render fake assistant prose such as `Tool Call: codex-create` as executable.
 - The redesigned flow should make tool execution state and completion state explicit.
 
@@ -761,8 +767,8 @@ Redesign requirement:
 | `DELETE /messages/:messageId` | Message Delete. | Deletes unlinked message and bound attachments. |
 | `POST /messages/:messageId/resend` | Edit/Resend. | Replaces General Chat author message and truncates later unprotected history. |
 | `POST /messages/:messageId/proposals` | Legacy continuity-check Create Proposal. | Creates a Proposal linked to the Workshop message. |
-| `POST /tools/codex.create_entry/execute` | Agent tool confirmation. | Writes Codex entry after confirmation. |
-| `POST /tools/codex.update_entry/execute` | Agent tool confirmation. | Updates one Codex entry and optional Progressions after confirmation. |
+| `POST /tools/codex.create_entry/execute` | Agent tool confirmation. | Claims the source tool message, writes after confirmation, rejects concurrent/repeated execution, and refuses archived sessions before Codex writes. |
+| `POST /tools/codex.update_entry/execute` | Agent tool confirmation. | Claims the source tool message, updates one Codex entry and optional Progressions, rejects concurrent/repeated execution, and refuses archived sessions before Codex writes. |
 | `POST /branch` | Branch button. | Clones history and attachments through source message. |
 | `GET /context-basket` | API method exists; detail load already includes basket. | Reads basket. |
 | `PUT /context-basket` | Context menu changes. | Validates/materializes linked Codex and writes basket. |
@@ -781,6 +787,7 @@ A redesigned Workshop UI must preserve these current functional invariants:
 - General Chat does not expose write actions or Proposal creation.
 - Agent tool actions are shown only for server-owned `role: tool` messages.
 - Tool execution requires author confirmation.
+- A previously executed tool message must show execution state instead of another confirmation action.
 - Missing reusable detail types require a second confirmation before creation.
 - General Chat edit/resend is limited to successful author messages in `chat` sessions.
 - Agent sessions do not expose edit/resend.

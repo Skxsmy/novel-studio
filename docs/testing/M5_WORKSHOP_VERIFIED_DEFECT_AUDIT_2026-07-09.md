@@ -1,8 +1,9 @@
 # M5 Workshop Verified Defect Audit
 
 Date: 2026-07-09
+Updated: 2026-07-10
 Verified baseline: `0fe44d7 NS-410 fix(workshop): repair agent prompt and draft flow`
-Status: current-source audit for M5 replanning
+Status: current-source audit for M5 replanning, updated through M5.6A Tool Execution Containment
 
 This file replaces the older Workshop functional audit and prompt/call-chain audit. Those older records mixed pre-repair and post-repair states, so they were removed to avoid misleading later implementers.
 
@@ -34,26 +35,10 @@ These old findings are no longer open blockers:
 - Plain assistant text, fake `Tool Call` prose, and old plain `Codex Draft` text are not executable Agent tool protocol.
 - Direct structured provider JSON for `codex.create_entry` / `codex.update_entry` is parsed as a server-owned tool request instead of being saved as raw assistant prose.
 - A later Agent turn receives the latest unexecuted Codex tool draft as `pending-codex-draft` context.
+- M5-WV-001 is closed for the current limited Agent Codex tool path: server-owned tool messages now persist `toolExecution` request hashes/status/result links; storage serializes claims per Workshop session in the specified single local server process; execute routes mark `running` before authority writes, mark `succeeded` after result-message creation, mark post-start failures as failed, and reject concurrent or later execution before duplicate authority mutation.
+- M5-WV-003 is closed for the current limited Agent Codex tool path: execute routes reject archived source sessions before Codex/detail/progression writes; running execution blocks archive/delete and direct tool-message deletion; and regression coverage proves no entry, result message, or execution marker is created from an archived source session.
 
 ## Current Open Defects
-
-### M5-WV-001: Agent Codex tool execution is not idempotent or consumed
-
-Status: still open.
-Severity: critical.
-
-The execute routes create authority changes from a source `role: tool` message, but the source tool message is not marked consumed, superseded, or linked to an execution/result record. The frontend still renders the confirmation button for any successful Agent tool message whose content parses as a supported tool request.
-
-Evidence:
-
-- `apps/server/src/routes/workshop.ts` execute routes for `codex.create_entry` and `codex.update_entry`.
-- `apps/web/src/features/workshop/WorkshopWorkspace.tsx` renders `Confirm Tool Call` from parseable tool-message content.
-- No current `ToolCall`, `ToolResult`, consumed flag, execution ID, or request-hash idempotency record exists in the Workshop tool path.
-
-Required repair:
-
-- Add durable execution identity by source tool message plus request hash.
-- Reject repeated execution or return the already-recorded result.
 
 ### M5-WV-002: Agent Codex tool execution is not atomic across authority writes and result messages
 
@@ -72,23 +57,6 @@ Evidence:
 Required repair:
 
 - Move limited Agent tools behind a command adapter / Tool Plan execution path that writes all affected authority files and audit/result state transactionally, or convert to Proposal when that is not possible.
-
-### M5-WV-003: Archived Agent sessions are not rejected before authority mutation
-
-Status: still open, reworded from the older audit.
-Severity: high.
-
-The execute routes validate the source message/session relationship and Agent role/mode/status, but do not precheck `source.session.status === "active"` before Codex writes. Storage rejects result-message creation in archived sessions, so an archived-session direct API call can fail after authority mutation has already happened.
-
-Evidence:
-
-- `apps/server/src/routes/workshop.ts` execute routes do not check session status before calling Codex repository methods.
-- `packages/storage/src/index.ts` rejects `saveWorkshopMessage(...)` for archived sessions.
-
-Required repair:
-
-- Reject archived sessions before any Codex/detail/progression write.
-- Add server regression proving no authority file changes when the source session is archived.
 
 ### M5-WV-004: `codex.update_entry` can bypass stale entry/research baselines
 
@@ -369,7 +337,7 @@ Required repair:
 
 M5 remaining work must not be planned from the deleted audits. The current order should be:
 
-1. Contain the existing limited Agent Codex tools: idempotency, archived-session precheck, stale baselines, progression binding, and atomicity.
+1. Continue containing the existing limited Agent Codex tools beyond M5.6A: stale baselines, progression binding, and atomicity.
 2. Replace the hard-coded pending-draft fallback with a durable Agent runner and structured-output/repair path.
 3. Add the detail schema planner using the shared embedding infrastructure.
 4. Then implement the original M5.6 Tool Plan/Grant layer explicitly: durable Tool Plan, Grant, and Tool Call records, approved Codex/Write tool definitions, validated command adapters, permission/result UI, stale-target refusal, partial-failure reporting, and Proposal fallback.

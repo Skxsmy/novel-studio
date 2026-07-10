@@ -46,6 +46,31 @@ describe("M5 Workshop contracts", () => {
     expect(message.proposalIds).toEqual([]);
     expect(message.attachmentIds).toEqual([]);
     expect(message.reasoningContent).toBe("");
+    expect(message.toolExecution).toBeUndefined();
+
+    const claimedToolMessage = WorkshopMessageSchema.parse({
+      ...message,
+      id: "44444444-4444-4444-8444-444444444444",
+      role: "tool",
+      mode: "agent",
+      toolExecution: {
+        requestHash: "a".repeat(64),
+        status: "running",
+        startedAt: now,
+      },
+    });
+    expect(claimedToolMessage.toolExecution).toMatchObject({
+      requestHash: "a".repeat(64),
+      status: "running",
+      completedAt: null,
+    });
+    expect(WorkshopMessageSchema.safeParse({
+      ...claimedToolMessage,
+      toolExecution: {
+        ...claimedToolMessage.toolExecution,
+        requestHash: "not-a-revision-hash",
+      },
+    }).success).toBe(false);
   });
 
   it("validates Workshop message attachments in draft and message-bound states", () => {
