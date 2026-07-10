@@ -52,6 +52,34 @@ export const WorkshopToolExecutionSchema = z.object({
   resultMessageId: z.string().uuid().nullable().default(null),
   errorCode: z.string().max(120).nullable().default(null),
   errorMessage: z.string().max(4000).nullable().default(null),
+}).superRefine((execution, context) => {
+  if (execution.status === "running") {
+    if (execution.completedAt !== null) {
+      context.addIssue({ code: "custom", path: ["completedAt"], message: "Running tool execution cannot be completed" });
+    }
+    if (execution.resultMessageId !== null || execution.errorCode !== null || execution.errorMessage !== null) {
+      context.addIssue({ code: "custom", message: "Running tool execution cannot have a result or terminal error" });
+    }
+    return;
+  }
+  if (execution.completedAt === null) {
+    context.addIssue({ code: "custom", path: ["completedAt"], message: "Terminal tool execution requires completedAt" });
+  }
+  if (execution.status === "succeeded") {
+    if (execution.resultMessageId === null) {
+      context.addIssue({ code: "custom", path: ["resultMessageId"], message: "Successful tool execution requires a result message" });
+    }
+    if (execution.errorCode !== null || execution.errorMessage !== null) {
+      context.addIssue({ code: "custom", message: "Successful tool execution cannot have a terminal error" });
+    }
+    return;
+  }
+  if (execution.resultMessageId !== null) {
+    context.addIssue({ code: "custom", path: ["resultMessageId"], message: "Failed tool execution cannot have a result message" });
+  }
+  if (!execution.errorCode?.trim() || !execution.errorMessage?.trim()) {
+    context.addIssue({ code: "custom", message: "Failed tool execution requires an error code and message" });
+  }
 });
 export type WorkshopToolExecution = z.infer<typeof WorkshopToolExecutionSchema>;
 
@@ -190,6 +218,17 @@ export const WorkshopMessageSchema = z.object({
   errorMessage: z.string().max(4000).nullable().default(null),
   toolExecution: WorkshopToolExecutionSchema.optional(),
   createdAt: z.string().datetime(),
+}).superRefine((message, context) => {
+  if (
+    message.toolExecution &&
+    (message.role !== "tool" || message.mode !== "agent" || message.status !== "succeeded")
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["toolExecution"],
+      message: "Tool execution state belongs only to successful Agent tool messages",
+    });
+  }
 });
 export type WorkshopMessage = z.infer<typeof WorkshopMessageSchema>;
 

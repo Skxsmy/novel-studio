@@ -4089,6 +4089,26 @@ export class ProjectRepository {
       });
     }
     const branchMessages = sourceMessages.slice(0, sourceMessageIndex + 1);
+    const runningToolMessage = branchMessages.find((message) => message.toolExecution?.status === "running");
+    if (runningToolMessage) {
+      throw new StorageError("Workshop branches cannot copy a running tool execution", "CONFLICT", {
+        sessionId,
+        messageId: runningToolMessage.id,
+      });
+    }
+    const clonedMessageIds = new Map(branchMessages.map((message) => [message.id, randomUUID()]));
+    const toolWithMissingResult = branchMessages.find((message) => (
+      message.toolExecution?.status === "succeeded" &&
+      message.toolExecution.resultMessageId !== null &&
+      !clonedMessageIds.has(message.toolExecution.resultMessageId)
+    ));
+    if (toolWithMissingResult) {
+      throw new StorageError("Workshop branch source must include the completed tool result", "CONFLICT", {
+        sessionId,
+        messageId: toolWithMissingResult.id,
+        resultMessageId: toolWithMissingResult.toolExecution?.resultMessageId,
+      });
+    }
     const now = new Date().toISOString();
     const nextSession = WorkshopSessionSchema.parse({
       schemaVersion: 1,
@@ -4115,7 +4135,7 @@ export class ProjectRepository {
     const sourceAttachmentById = new Map(sourceAttachments.map((attachment) => [attachment.id, attachment]));
     const clonedAttachments: WorkshopMessageAttachment[] = [];
     const clonedMessages = branchMessages.map((message) => {
-      const nextMessageId = randomUUID();
+      const nextMessageId = clonedMessageIds.get(message.id)!;
       const nextAttachmentIds = message.attachmentIds.map((attachmentId) => {
         const attachment = sourceAttachmentById.get(attachmentId);
         if (!attachment || attachment.messageId !== message.id) {
@@ -4144,6 +4164,14 @@ export class ProjectRepository {
         modelCallId: null,
         proposalIds: [],
         attachmentIds: nextAttachmentIds,
+        toolExecution: message.toolExecution
+          ? {
+            ...message.toolExecution,
+            resultMessageId: message.toolExecution.resultMessageId
+              ? clonedMessageIds.get(message.toolExecution.resultMessageId) ?? null
+              : null,
+          }
+          : undefined,
       });
     });
     const branch = WorkshopBranchSchema.parse({
@@ -4565,59 +4593,70 @@ export class ProjectRepository {
     messageId: string,
   ): Promise<DeleteWorkshopMessageResult> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const session = await readWorkshopSessionFile(seriesRoot, sessionId);
-    if (session.seriesId !== seriesId) {
-      throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", {
-        sessionId,
-      });
-    }
-    if (session.status === "archived") {
-      throw new StorageError("Archived Workshop session cannot delete messages", "INVALID_DATA", {
-        sessionId,
-      });
-    }
-    const message = await readWorkshopMessageFile(seriesRoot, messageId);
-    if (message.seriesId !== seriesId || message.sessionId !== sessionId) {
-      throw new StorageError("Workshop message does not belong to the requested session", "INVALID_DATA", {
-        sessionId,
-        messageId,
-      });
-    }
-    if (message.proposalIds.length > 0) {
-      throw new StorageError("Workshop messages linked to Proposals cannot be deleted", "INVALID_DATA", {
-        messageId,
-        proposalIds: message.proposalIds,
-      });
-    }
-    if (message.role === "tool") {
-      throw new StorageError("Agent tool request messages cannot be deleted directly", "INVALID_DATA", {
-        messageId,
-      });
-    }
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+      if (session.seriesId !== seriesId) {
+        throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", {
+          sessionId,
+        });
+      }
+      if (session.status === "archived") {
+        throw new StorageError("Archived Workshop session cannot delete messages", "INVALID_DATA", {
+          sessionId,
+        });
+      }
+      const message = await readWorkshopMessageFile(seriesRoot, messageId);
+      if (message.seriesId !== seriesId || message.sessionId !== sessionId) {
+        throw new StorageError("Workshop message does not belong to the requested session", "INVALID_DATA", {
+          sessionId,
+          messageId,
+        });
+      }
+      if (message.proposalIds.length > 0) {
+        throw new StorageError("Workshop messages linked to Proposals cannot be deleted", "INVALID_DATA", {
+          messageId,
+          proposalIds: message.proposalIds,
+        });
+      }
+      if (message.role === "tool") {
+        throw new StorageError("Agent tool request messages cannot be deleted directly", "INVALID_DATA", {
+          messageId,
+        });
+      }
+      const sessionMessages = await listWorkshopMessageFiles(seriesRoot, sessionId);
+      const sourceToolMessage = sessionMessages.find((candidate) =>
+        candidate.toolExecution?.resultMessageId === message.id,
+      );
+      if (sourceToolMessage) {
+        throw new StorageError("Workshop tool result messages cannot be deleted directly", "INVALID_DATA", {
+          messageId,
+          sourceToolMessageId: sourceToolMessage.id,
+        });
+      }
 
-    const remainingMessages = (await listWorkshopMessageFiles(seriesRoot, sessionId))
-      .filter((item) => item.id !== message.id);
-    const attached = (await listWorkshopAttachmentFiles(seriesRoot, sessionId))
-      .filter((attachment) => attachment.messageId === message.id || message.attachmentIds.includes(attachment.id));
-    const lastMessage = remainingMessages.at(-1) ?? null;
-    const now = new Date().toISOString();
-    const nextSession = WorkshopSessionSchema.parse({
-      ...session,
-      lastMessageAt: lastMessage?.createdAt ?? null,
-      updatedAt: now,
-    });
-    await applyFileTransaction(seriesRoot, [
-      { targetPath: workshopMessagePath(seriesRoot, message.id), delete: true },
-      ...attached.map((attachment) => ({
-        targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
-        delete: true,
-      })),
-      { targetPath: workshopSessionPath(seriesRoot, session.id), content: serializeJsonAuthority(nextSession) },
-    ]);
-    return DeleteWorkshopMessageResultSchema.parse({
-      deletedId: message.id,
-      deletedAttachmentIds: attached.map((attachment) => attachment.id),
-      session: await readWorkshopSessionFile(seriesRoot, session.id),
+      const remainingMessages = sessionMessages.filter((item) => item.id !== message.id);
+      const attached = (await listWorkshopAttachmentFiles(seriesRoot, sessionId))
+        .filter((attachment) => attachment.messageId === message.id || message.attachmentIds.includes(attachment.id));
+      const lastMessage = remainingMessages.at(-1) ?? null;
+      const now = new Date().toISOString();
+      const nextSession = WorkshopSessionSchema.parse({
+        ...session,
+        lastMessageAt: lastMessage?.createdAt ?? null,
+        updatedAt: now,
+      });
+      await applyFileTransaction(seriesRoot, [
+        { targetPath: workshopMessagePath(seriesRoot, message.id), delete: true },
+        ...attached.map((attachment) => ({
+          targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
+          delete: true,
+        })),
+        { targetPath: workshopSessionPath(seriesRoot, session.id), content: serializeJsonAuthority(nextSession) },
+      ]);
+      return DeleteWorkshopMessageResultSchema.parse({
+        deletedId: message.id,
+        deletedAttachmentIds: attached.map((attachment) => attachment.id),
+        session: await readWorkshopSessionFile(seriesRoot, session.id),
+      });
     });
   }
 

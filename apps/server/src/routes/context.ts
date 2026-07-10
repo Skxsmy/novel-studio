@@ -87,6 +87,7 @@ function pendingCodexDraftContent(messages: WorkshopMessage[]): { message: Works
       return null;
     }
     if (message.role !== "tool" || message.mode !== "agent" || message.status !== "succeeded") continue;
+    if (message.toolExecution) return null;
     let parsed: { tool: "codex.create_entry" | "codex.update_entry"; draft: unknown } | null = null;
     try {
       const request = parseCodexCreateEntryToolRequest(message.content);

@@ -558,6 +558,7 @@ Backend mapping:
 - `POST .../tools/codex.update_entry/execute`
 - The execute routes reject archived source sessions before any Codex/detail/progression write.
 - The execute routes persist `toolExecution` state on the source tool message and reject repeated execution before authority mutation.
+- After a non-mapping execution error, the frontend reloads the session so a persisted failed/running terminal state replaces the confirmation button.
 
 Tool behavior:
 
@@ -565,6 +566,7 @@ Tool behavior:
 - `codex.update_entry` resolves one existing entry by ID or exact name/alias, then may update entry fields/research/details and create/update/delete unified Codex Progression records.
 - Missing detail types cause a 409 and require the global second confirmation card.
 - Successful execution returns the updated source tool message plus a result message; the frontend replaces the source message and appends the result message.
+- Tool request messages and linked result messages do not expose generic message Delete. Complete executed tool/result history is remapped when branched; running or incomplete executed history is rejected.
 
 Redesign requirement:
 
@@ -764,12 +766,12 @@ Redesign requirement:
 | `POST /archive` / `POST /restore` | Archive/Restore. | Updates lifecycle state. |
 | `GET /messages` | API method exists, not used by main UI load. | Lists messages. |
 | `POST /messages` | API method exists, not used by current send path. | Creates a standalone message. |
-| `DELETE /messages/:messageId` | Message Delete. | Deletes unlinked message and bound attachments. |
+| `DELETE /messages/:messageId` | Message Delete for eligible author/assistant messages. | Deletes an unlinked message and bound attachments; rejects tool requests and linked tool results. |
 | `POST /messages/:messageId/resend` | Edit/Resend. | Replaces General Chat author message and truncates later unprotected history. |
 | `POST /messages/:messageId/proposals` | Legacy continuity-check Create Proposal. | Creates a Proposal linked to the Workshop message. |
 | `POST /tools/codex.create_entry/execute` | Agent tool confirmation. | Claims the source tool message, writes after confirmation, rejects concurrent/repeated execution, and refuses archived sessions before Codex writes. |
 | `POST /tools/codex.update_entry/execute` | Agent tool confirmation. | Claims the source tool message, updates one Codex entry and optional Progressions, rejects concurrent/repeated execution, and refuses archived sessions before Codex writes. |
-| `POST /branch` | Branch button. | Clones history and attachments through source message. |
+| `POST /branch` | Branch button. | Clones history/attachments; remaps complete tool/result execution links and rejects running or incomplete execution history. |
 | `GET /context-basket` | API method exists; detail load already includes basket. | Reads basket. |
 | `PUT /context-basket` | Context menu changes. | Validates/materializes linked Codex and writes basket. |
 | `POST /context-preview` | API method exists, no current visible Preview button. | Builds a ContextBundle preview. |

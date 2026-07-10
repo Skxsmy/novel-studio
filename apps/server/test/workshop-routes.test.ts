@@ -2623,6 +2623,17 @@ describe("M5 Workshop API routes", () => {
     expect(messages.json().find((message: { id: string }) => message.id === draftMessage.id).toolExecution)
       .toMatchObject({ status: "failed", errorCode: "INVALID_DATA" });
     expect(messages.json().map((message: { role: string }) => message.role)).not.toContain("result");
+    const contextPreview = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/context-preview`,
+      payload: {
+        mode: "agent",
+        userRequest: "Review the failed tool request.",
+      },
+    });
+    expect(contextPreview.statusCode).toBe(200);
+    expect(contextPreview.json().items.some((item: { kind: string }) => item.kind === "pending-codex-draft"))
+      .toBe(false);
 
     const repeated = await app.inject({
       method: "POST",

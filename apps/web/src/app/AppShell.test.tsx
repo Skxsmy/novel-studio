@@ -963,6 +963,7 @@ function promptTemplate(overrides: Partial<{
 function mockFetch(options: {
   conflictCodexUpdate?: boolean;
   codexUpdateDelayMs?: number;
+  failWorkshopCodexToolExecution?: boolean;
   initialCodexEntries?: ReturnType<typeof codexEntryDocument>[];
   initialCodexDetailTypes?: ReturnType<typeof codexDetailTypeDocument>[];
   initialCodexProgressions?: ReturnType<typeof codexProgressionDocument>[];
@@ -1119,6 +1120,22 @@ function mockFetch(options: {
           availableDetailTypes: codexDetailTypes,
         }, 409);
       }
+      if (options.failWorkshopCodexToolExecution) {
+        const failedMessage = {
+          ...message,
+          toolExecution: {
+            requestHash: "a".repeat(64),
+            status: "failed",
+            startedAt: "2026-07-01T00:12:20.000Z",
+            completedAt: "2026-07-01T00:12:21.000Z",
+            resultMessageId: null,
+            errorCode: "INVALID_DATA",
+            errorMessage: "Injected tool execution failure.",
+          },
+        };
+        workshopMessages = workshopMessages.map((item) => item.id === message.id ? failedMessage : item);
+        return jsonResponse({ code: "INVALID_DATA", message: "Injected tool execution failure." }, 400);
+      }
       const createdDetailType = codexDetailTypeDocument("Looks", "character", secondDetailTypeId);
       codexDetailTypes = [...codexDetailTypes, createdDetailType];
       const created = codexEntryDocument(
@@ -1152,10 +1169,25 @@ function mockFetch(options: {
         errorMessage: null,
         createdAt: "2026-07-01T00:12:30.000Z",
       };
-      workshopMessages = [...workshopMessages, resultMessage];
+      const executedMessage = {
+        ...message,
+        toolExecution: {
+          requestHash: "a".repeat(64),
+          status: "succeeded",
+          startedAt: "2026-07-01T00:12:20.000Z",
+          completedAt: "2026-07-01T00:12:30.000Z",
+          resultMessageId: resultMessage.id,
+          errorCode: null,
+          errorMessage: null,
+        },
+      };
+      workshopMessages = [
+        ...workshopMessages.map((item) => item.id === message.id ? executedMessage : item),
+        resultMessage,
+      ];
       return jsonResponse({
         createdDetailTypes: [createdDetailType],
-        message,
+        message: executedMessage,
         resultMessage,
         entry: created,
       }, 201);
@@ -4784,7 +4816,61 @@ describe("App shell", () => {
     });
     expect(await screen.findByText("Created Codex entry: Alice")).toBeTruthy();
     expect(await screen.findByText("codex.create_entry created Codex entry: Alice")).toBeTruthy();
+    expect(await screen.findByText("Executed")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Confirm Tool Call" })).toBeNull();
+    const toolArticle = screen.getByText("codex.create_entry").closest("article") as HTMLElement;
+    const resultArticle = screen.getByText("codex.create_entry created Codex entry: Alice").closest("article") as HTMLElement;
+    expect(within(toolArticle).queryByRole("button", { name: "Message actions" })).toBeNull();
+    expect(within(resultArticle).queryByRole("button", { name: "Message actions" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
+  });
+
+  it("reloads terminal Workshop Agent tool state after execution failure", async () => {
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    mockFetch({
+      failWorkshopCodexToolExecution: true,
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, kind: "agent", title: "Agent failure" })],
+      initialWorkshopMessages: [{
+        schemaVersion: 1,
+        id: "98989898-9898-4898-9898-989898989898",
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "tool",
+        mode: "agent",
+        status: "succeeded",
+        content: JSON.stringify({
+          schemaVersion: 1,
+          tool: "codex.create_entry",
+          draft: {
+            aliases: [],
+            categoryId: "character",
+            description: "Alice is alive.",
+            details: [{ label: "Looks", value: "Blonde hair." }],
+            name: "Alice",
+            research: "Author decision recorded in this Agent session.",
+          },
+        }),
+        reasoningContent: "",
+        contextBundleId: null,
+        modelCallId: null,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:12:00.000Z",
+      }],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Workshop" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm Tool Call" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create Detail Types and Run Tool" }));
+
+    expect(await screen.findByText("Injected tool execution failure.")).toBeTruthy();
+    expect(await screen.findByText("Execution failed")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Confirm Tool Call" })).toBeNull();
   });
 
   it("auto-names new Workshop chats and lets authors rename sessions", async () => {

@@ -71,6 +71,26 @@ describe("M5 Workshop contracts", () => {
         requestHash: "not-a-revision-hash",
       },
     }).success).toBe(false);
+    expect(WorkshopMessageSchema.safeParse({
+      ...claimedToolMessage,
+      role: "assistant",
+    }).success).toBe(false);
+    expect(WorkshopMessageSchema.safeParse({
+      ...claimedToolMessage,
+      toolExecution: {
+        ...claimedToolMessage.toolExecution,
+        status: "succeeded",
+        completedAt: now,
+      },
+    }).success).toBe(false);
+    expect(WorkshopMessageSchema.safeParse({
+      ...claimedToolMessage,
+      toolExecution: {
+        ...claimedToolMessage.toolExecution,
+        status: "failed",
+        completedAt: now,
+      },
+    }).success).toBe(false);
   });
 
   it("validates Workshop message attachments in draft and message-bound states", () => {

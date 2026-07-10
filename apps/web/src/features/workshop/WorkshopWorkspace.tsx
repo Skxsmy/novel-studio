@@ -1586,7 +1586,12 @@ export function WorkshopWorkspace({
         setError(null);
         return;
       }
-      setError(apiErrorMessage(caught));
+      const executionError = apiErrorMessage(caught);
+      const executionSessionId = activeSession.id;
+      await loadSession(executionSessionId);
+      if (activeSessionIdRef.current === executionSessionId) {
+        setError(executionError);
+      }
     } finally {
       setApplyingCodexDraftMessageId(null);
     }
@@ -2637,6 +2642,8 @@ export function WorkshopWorkspace({
                 : hasReasoningOverride;
               const canDeleteMessage = activeSession?.status === "active" &&
                 (message.mode === "general-chat" || message.mode === "agent") &&
+                message.role !== "tool" &&
+                message.role !== "result" &&
                 message.proposalIds.length === 0 &&
                 message.status !== "pending";
               const canEditMessage = activeSession?.status === "active" &&

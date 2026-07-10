@@ -164,6 +164,72 @@ describe("M5 Workshop storage", () => {
     });
   });
 
+  it("preserves successful Agent tool result links across deletion and branching", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopToolResultLink" });
+    const session = await store.createWorkshopSession(series.manifest.id, {
+      kind: "agent",
+      title: "Agent tool result",
+    });
+    const toolMessage = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
+      role: "tool",
+      mode: "agent",
+      content: JSON.stringify({ schemaVersion: 1, tool: "codex.create_entry", draft: { name: "Alice" } }),
+    });
+    const claim = await store.claimWorkshopMessageToolExecution(
+      series.manifest.id,
+      session.id,
+      toolMessage.id,
+      textHash(toolMessage.content),
+    );
+    expect(claim.status).toBe("claimed");
+    if (!claim.message.toolExecution) throw new Error("Expected a claimed Workshop tool execution");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const resultMessage = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
+      role: "result",
+      mode: "agent",
+      content: "codex.create_entry created Codex entry: Alice",
+    });
+    const succeededToolMessage = await store.updateWorkshopMessageToolExecution(
+      series.manifest.id,
+      session.id,
+      toolMessage.id,
+      {
+        ...claim.message.toolExecution,
+        status: "succeeded",
+        completedAt: new Date().toISOString(),
+        resultMessageId: resultMessage.id,
+      },
+    );
+    expect(succeededToolMessage.toolExecution?.resultMessageId).toBe(resultMessage.id);
+
+    await expect(store.deleteWorkshopMessage(series.manifest.id, session.id, resultMessage.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(store.branchWorkshopSession(series.manifest.id, session.id, {
+      sourceMessageId: toolMessage.id,
+      title: "Incomplete tool history",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    const branch = await store.branchWorkshopSession(series.manifest.id, session.id, {
+      sourceMessageId: resultMessage.id,
+      title: "Complete tool history",
+    });
+    const branchedMessages = await store.listWorkshopMessages(series.manifest.id, branch.session.id);
+    const branchedTool = branchedMessages.find((message) => message.role === "tool");
+    const branchedResult = branchedMessages.find((message) => message.role === "result");
+    expect(branchedTool?.toolExecution).toMatchObject({
+      status: "succeeded",
+      resultMessageId: branchedResult?.id,
+    });
+    expect(branchedTool?.toolExecution?.resultMessageId).not.toBe(resultMessage.id);
+
+    await store.deleteWorkshopSession(series.manifest.id, session.id);
+    const reloadedBranchMessages = await store.listWorkshopMessages(series.manifest.id, branch.session.id);
+    const reloadedTool = reloadedBranchMessages.find((message) => message.role === "tool");
+    expect(reloadedBranchMessages.some((message) => message.id === reloadedTool?.toolExecution?.resultMessageId))
+      .toBe(true);
+  });
+
   it("accepts only author-authored messages through the public create helper", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopMessageAuthorOnly" });

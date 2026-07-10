@@ -2,8 +2,8 @@
 
 Date: 2026-07-09
 Updated: 2026-07-10
-Verified baseline: `0fe44d7 NS-410 fix(workshop): repair agent prompt and draft flow`
-Status: current-source audit for M5 replanning, updated through M5.6A Tool Execution Containment
+Verified baseline: `aea8998 NS-410 fix(workshop): contain agent tool execution`, plus the M5.6A lifecycle follow-up in the current audit change
+Status: current-source audit for M5 replanning, fully rechecked after M5.6A Tool Execution Containment
 
 This file replaces the older Workshop functional audit and prompt/call-chain audit. Those older records mixed pre-repair and post-repair states, so they were removed to avoid misleading later implementers.
 
@@ -17,7 +17,10 @@ Checked current source paths:
 - `apps/server/src/workshop/workshopPrompts.ts`
 - `apps/server/src/workshop/codexDraft.ts`
 - `apps/server/src/workshop/sessionExport.ts`
+- `packages/storage/src/fileTransactions.ts`
+- `packages/ai/src/embeddings.ts`
 - `apps/web/src/features/workshop/WorkshopWorkspace.tsx`
+- `apps/web/src/app/AppShell.test.tsx`
 - `apps/web/src/app/uiText.ts`
 - `packages/contracts/src/workshop.ts`
 - `packages/contracts/src/context.ts`
@@ -37,6 +40,7 @@ These old findings are no longer open blockers:
 - A later Agent turn receives the latest unexecuted Codex tool draft as `pending-codex-draft` context.
 - M5-WV-001 is closed for the current limited Agent Codex tool path: server-owned tool messages now persist `toolExecution` request hashes/status/result links; storage serializes claims per Workshop session in the specified single local server process; execute routes mark `running` before authority writes, mark `succeeded` after result-message creation, mark post-start failures as failed, and reject concurrent or later execution before duplicate authority mutation.
 - M5-WV-003 is closed for the current limited Agent Codex tool path: execute routes reject archived source sessions before Codex/detail/progression writes; running execution blocks archive/delete and direct tool-message deletion; and regression coverage proves no entry, result message, or execution marker is created from an archived source session.
+- M5.6A lifecycle follow-up closes additional execution-record gaps found during this re-audit: execution schemas now enforce role/mode and terminal-state invariants; failed/executed tools are not reintroduced as pending drafts; linked result messages cannot be deleted independently; Branch remaps complete tool/result pairs and rejects running or incomplete execution history; and the frontend reloads terminal state after an execution error instead of showing another confirmation action.
 
 ## Current Open Defects
 
@@ -94,6 +98,25 @@ Required repair:
 - Verify target entry/relation/scene binding.
 - For Agent tools, disallow moving `effectiveFromSceneId` unless a dedicated move operation is designed and confirmed.
 
+### M5-WV-021: project file transactions are not serialized per series
+
+Status: open.
+Severity: critical.
+
+`applyFileTransaction(...)` calls `recoverFileTransactions(...)` before every transaction, but there is no per-series transaction coordinator. A second concurrent transaction can observe the first transaction's `prepared` or `committing` journal and run rollback recovery against a live operation. M5.6A serializes claims only per Workshop session, so two different sessions or unrelated autosave/Workshop operations can still enter file transactions concurrently.
+
+Evidence:
+
+- `packages/storage/src/fileTransactions.ts` calls recovery at the start of every transaction and treats every non-committed journal as interrupted.
+- `packages/storage/src/fileTransactions.ts` has no active-journal ownership, process lock, or per-series queue.
+- `packages/storage/src/index.ts` calls `applyFileTransaction(...)` from scene, Codex, Proposal, Workshop, and lifecycle commands without a shared coordinator.
+
+Required repair:
+
+- Add one process-wide per-series transaction coordinator before building larger atomic Agent adapters.
+- Recovery must run only before the coordinator accepts normal work, not against another live transaction.
+- Add concurrent transactions with overlapping and non-overlapping targets, plus injected mid-commit failure/restart tests.
+
 ### M5-WV-006: Detail schema planning is still exact-match only
 
 Status: still open.
@@ -105,16 +128,18 @@ Evidence:
 
 - `resolveDraftDetails(...)` in `apps/server/src/workshop/codexDraft.ts`.
 - `EmbeddingRouter` exists in `packages/ai/src/embeddings.ts`, but Workshop detail resolution does not use it.
+- `EmbeddingRouter.bindUseCase(...)` stores routing only in memory. `EmbeddingUseCaseBindingSchema` exists, but there is no persisted binding repository/API, so `codex.detail-schema` cannot retain a user-selected model across restarts.
 
 Required repair:
 
 - Add a schema planner that recommends existing reusable detail types before creating new ones.
 - Use profile-routed embeddings where configured, with fallback behavior that does not silently create duplicates.
+- Persist library-global use-case-to-profile bindings before the planner depends on them.
 
-### M5-WV-007: `detailCreations` and sensitive-detail metadata are declared but not implemented
+### M5-WV-007: `detailCreations` is ignored and missing-detail creation hardcodes sensitive metadata
 
 Status: still open.
-Severity: medium.
+Severity: high.
 
 `ExecuteWorkshopCodexCreateEntryToolInputSchema` declares `detailCreations`, but the execute routes never read it. Missing detail types are created directly from the draft label with `nsfw: false`.
 
@@ -164,6 +189,64 @@ Required repair:
 - Use provider structured-output support where available.
 - Add server-side repair/retry for malformed structured output.
 - Preserve a visible degraded mode when a selected provider cannot support structured output.
+
+### M5-WV-022: running and failed executions have no recovery protocol
+
+Status: open.
+Severity: high.
+
+M5.6A intentionally makes `running`, `succeeded`, and `failed` terminally visible, but no startup reconciliation or author recovery action exists. A process crash after claim leaves `running` indefinitely and blocks archive/delete. A post-claim failure is permanently non-replayable even when no authority write occurred. `markWorkshopToolExecutionFailed(...)` also suppresses a secondary persistence failure, which can leave the source message running.
+
+Evidence:
+
+- `workshopToolConflict(...)` rejects both `running` and `failed` execution records.
+- No startup or session-load path reconciles `running` records with result messages or authority state.
+- `markWorkshopToolExecutionFailed(...)` catches and discards failure while persisting the failed marker.
+- The UI exposes only a status pill; it has no inspect/recover/convert-to-Proposal action.
+
+Required repair:
+
+- Define restart reconciliation states such as interrupted, succeeded-with-result, partial-failure, and safe-to-retry.
+- Store step-level effects or an atomic adapter result so recovery does not guess from prose.
+- Add an explicit author action for safe retry, abandon, or Proposal conversion; never silently replay.
+
+### M5-WV-023: Workshop Agent prompt versions are not immutable audit records
+
+Status: open.
+Severity: high.
+
+Workshop prompts are isolated from global roles, but they are code constants with fixed template IDs and version `1`. Agent prompt export reconstructs the prompt from current code. Editing the code prompt later changes the reconstructed historical prompt while old ModelCallLogs still claim the same template version. The request hash can prove bytes differed but cannot recover those bytes.
+
+Evidence:
+
+- `apps/server/src/workshop/workshopPrompts.ts` hardcodes both Workshop prompt IDs and `promptTemplateVersion: 1`.
+- `apps/server/src/workshop/sessionExport.ts` reconstructs Agent prompt audit by calling the current `workshopProviderPrompt(...)` and `applyWorkshopAgentPrompt(...)`.
+- `ModelCallLog` stores prompt identity/hash links, not an immutable full provider prompt snapshot.
+
+Required repair:
+
+- Create Workshop-specific versioned prompt authority records before user customization or durable Agent runs.
+- Bind each session/call to a prompt ID and exact version; preserve the exact rendered provider prompt or an immutable referenced snapshot.
+- Do not reconstruct historical Agent prompts from current source constants.
+
+### M5-WV-024: execution identity omits the confirmed execution payload
+
+Status: open.
+Severity: high.
+
+The persisted execution request hash covers only the server-owned tool message content. It does not cover `detailMappings`, `detailCreations`, `createMissingDetailTypes`, or any later grant/confirmation parameters. Those author-confirmed choices can materially change what is written, but the execution record cannot prove which payload won a concurrent claim or produced the result.
+
+Evidence:
+
+- `workshopToolRequestHash(...)` hashes only `message.content`.
+- Execute input contains mapping/creation/confirmation fields outside the message content.
+- `WorkshopToolExecution` stores no normalized execution input or approval payload hash.
+
+Required repair:
+
+- Compute execution identity from tool request ID/content plus the normalized author-confirmed execution payload.
+- Persist the approved payload or its immutable record ID and hash before the first authority write.
+- Reuse this identity in M5.6G Tool Plan/Grant/Tool Call records instead of inventing a second incompatible audit model.
 
 ### M5-WV-010: General Chat system prompt is component-global
 
@@ -283,10 +366,11 @@ Severity: medium.
 
 Workshop code is still concentrated in large modules:
 
-- `WorkshopWorkspace.tsx`: 2903 lines.
-- `apps/server/src/routes/workshop.ts`: 1583 lines.
-- `apps/server/src/workshop/codexDraft.ts`: 713 lines.
-- `apps/server/test/workshop-routes.test.ts`: 2461 lines.
+- `WorkshopWorkspace.tsx`: 3039 lines.
+- `apps/server/src/routes/workshop.ts`: 1883 lines.
+- `apps/server/src/workshop/codexDraft.ts`: 783 lines.
+- `apps/server/test/workshop-routes.test.ts`: 2822 lines.
+- `packages/storage/src/index.ts`: 8518 lines.
 
 Required repair:
 
@@ -310,17 +394,6 @@ Required repair:
 
 - Move legacy acceptance into migration-only schemas or mark/remove deprecated modes from active contracts.
 
-### M5-WV-019: Import Thread is visible but unimplemented
-
-Status: still open/deferred.
-Severity: low.
-
-The session actions menu shows a disabled `Import Thread` button and there is no backend route.
-
-Required repair:
-
-- Remove it from the main path until implemented, or keep it explicitly disabled in the redesign.
-
 ### M5-WV-020: Workshop prompt customization UI is not implemented
 
 Status: open product gap.
@@ -333,14 +406,22 @@ Required repair:
 - Add a Workshop-specific prompt configuration source that can later be edited from UI without mixing with global non-Workshop roles/templates.
 - Preserve historical prompt versions in ModelCallLog/ContextBundle audit.
 
+## Confirmed Honest Deferred State
+
+### M5-WV-019: Import Thread
+
+This is no longer classified as an implementation defect. The control is visibly disabled and has no backend route, which satisfies the project's requirement that deferred controls remain honest. It should stay disabled or absent until a real import contract exists; it must not be described as implemented.
+
 ## Planning Consequences
 
-M5 remaining work must not be planned from the deleted audits. The current order should be:
+M5 remaining work must not be planned from the deleted audits. Recommended order after this re-audit:
 
-1. Continue containing the existing limited Agent Codex tools beyond M5.6A: stale baselines, progression binding, and atomicity.
-2. Replace the hard-coded pending-draft fallback with a durable Agent runner and structured-output/repair path.
-3. Add the detail schema planner using the shared embedding infrastructure.
-4. Then implement the original M5.6 Tool Plan/Grant layer explicitly: durable Tool Plan, Grant, and Tool Call records, approved Codex/Write tool definitions, validated command adapters, permission/result UI, stale-target refusal, partial-failure reporting, and Proposal fallback.
-5. Only after that, continue to Council, batch/failure states, responsive behavior, copy/i18n, and user visual acceptance.
+1. Split M5.6B into `B1` per-series transaction coordination and recovery tests, then `B2` atomic limited Codex adapters, draft-time entry/research baselines, approval-payload identity, and Progression target/scene binding.
+2. Move the versioned Workshop prompt authority part of M5.6F ahead of the durable runner. Otherwise M5.6D would persist runs against mutable code constants that cannot reproduce historical prompts.
+3. Implement M5.6C as a deterministic server schema-planner service: persist embedding use-case bindings, embed existing detail type names/descriptions, score candidates, return ranked suggestions/reasons, and require author confirmation only for unmatched creation.
+4. Implement M5.6D durable Agent runs/steps using provider structured output where available, explicit malformed-output repair, pause-for-confirmation, tool result continuation, and startup reconciliation. Delete the English regex draft-rewrite fallback after equivalent tests pass.
+5. Complete M5.6E capability cleanup: prompt scope/session binding, per-message branching, context-kind quarantine, legacy mode removal/migration, turn-aware deletion, copy/i18n, and module splits.
+6. Implement M5.6G Tool Plan/Grant/Tool Call records by reusing the B2 command adapters and execution identity. Add approved Codex/Write tool definitions, grant scope/expiry, renewed approval for changed plans, partial-failure state, stale-target refusal, and Proposal fallback.
+7. Only after those foundations pass adversarial and restart tests should M5.7 Council, final state sweep, responsive behavior, and user visual acceptance begin.
 
 The original M5.6 requirements are not deleted. They are classified in `docs/tasks/M5.md` as kept, partially started, or replaced. The replaced part is the old monolithic implementation order, not the Tool Plan/Grant product requirement.
