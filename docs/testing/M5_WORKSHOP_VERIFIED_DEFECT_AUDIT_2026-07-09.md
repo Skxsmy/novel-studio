@@ -2,8 +2,8 @@
 
 Date: 2026-07-09
 Updated: 2026-07-10
-Verified baseline: `aea8998 NS-410 fix(workshop): contain agent tool execution`, plus the M5.6A lifecycle follow-up in the current audit change
-Status: current-source audit for M5 replanning, fully rechecked after M5.6A Tool Execution Containment
+Verified baseline: `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`, plus NS-507 evidence in `docs/testing/NS-507_ACCEPTANCE.md`
+Status: current-source audit for M5 replanning, fully rechecked after NS-507 Atomic Codex Tool Adapters
 
 This file replaces the older Workshop functional audit and prompt/call-chain audit. Those older records mixed pre-repair and post-repair states, so they were removed to avoid misleading later implementers.
 
@@ -41,81 +41,12 @@ These old findings are no longer open blockers:
 - M5-WV-001 is closed for the current limited Agent Codex tool path: server-owned tool messages now persist `toolExecution` request hashes/status/result links; storage serializes claims per Workshop session in the specified single local server process; execute routes mark `running` before authority writes, mark `succeeded` after result-message creation, mark post-start failures as failed, and reject concurrent or later execution before duplicate authority mutation.
 - M5-WV-003 is closed for the current limited Agent Codex tool path: execute routes reject archived source sessions before Codex/detail/progression writes; running execution blocks archive/delete and direct tool-message deletion; and regression coverage proves no entry, result message, or execution marker is created from an archived source session.
 - M5.6A lifecycle follow-up closes additional execution-record gaps found during this re-audit: execution schemas now enforce role/mode and terminal-state invariants; failed/executed tools are not reintroduced as pending drafts; linked result messages cannot be deleted independently; Branch remaps complete tool/result pairs and rejects running or incomplete execution history; and the frontend reloads terminal state after an execution error instead of showing another confirmation action.
+- M5-WV-002 is closed by NS-507: the limited Agent Codex execute routes delegate to repository-owned create/update command adapters. Confirmed detail types, entry/research changes, Progression operations, result message, session metadata, and terminal success record commit in one file transaction; validation or stale failure leaves semantic authority and result history unchanged.
+- M5-WV-004 is closed by NS-507: server-owned update requests capture entry and research revisions when the tool request is created. Execution refuses changed revisions, and legacy unbound update requests cannot substitute current revisions.
+- M5-WV-005 is closed by NS-507: Progression update/delete requests capture revision, target entry/relation, field target, and effective Scene binding. Cross-entry and unrelated-relation targets are rejected, and Agent updates cannot move the effective Scene.
+- M5-WV-021 is closed by NS-507: file transactions share a process-wide per-Series coordinator; recovery runs on first repository access or inside the coordinator, not against another live commit. Concurrent stale-checked Codex commands, overlapping file transactions, injected mid-commit rollback, and repository-restart recovery have exact tests in `docs/testing/NS-507_ACCEPTANCE.md`.
 
 ## Current Open Defects
-
-### M5-WV-002: Agent Codex tool execution is not atomic across authority writes and result messages
-
-Status: still open.
-Severity: critical.
-
-The execute routes compose multiple writes sequentially. Missing detail types can be created before the entry write. `codex.update_entry` updates the Codex entry before Progression operations. Progression operations are applied in a loop. Result message creation happens after authority writes.
-
-Evidence:
-
-- `apps/server/src/routes/workshop.ts` creates missing detail types in the execute routes before rebuilding final Codex input.
-- `apps/server/src/routes/workshop.ts` calls `repository.updateCodexEntry(...)` before `executeCodexProgressionDrafts(...)`.
-- `executeCodexProgressionDrafts(...)` calls create/update/delete Progression repository methods one by one.
-- Result messages are saved after Codex writes.
-
-Required repair:
-
-- Move limited Agent tools behind a command adapter / Tool Plan execution path that writes all affected authority files and audit/result state transactionally, or convert to Proposal when that is not possible.
-
-### M5-WV-004: `codex.update_entry` can bypass stale entry/research baselines
-
-Status: still open.
-Severity: critical.
-
-The Agent update draft does not carry the entry/research base revisions used when the draft was generated. At execute time, the server resolves the current entry and fills current revisions into the update input, satisfying storage revision checks while allowing a stale draft to overwrite newer changes.
-
-Evidence:
-
-- `apps/server/src/workshop/codexDraft.ts` sets `input.baseRevision = entry.revision`.
-- `apps/server/src/workshop/codexDraft.ts` sets `input.baseResearchRevision = entry.research.revision`.
-
-Required repair:
-
-- Store draft-time entry and research revisions in the server-owned tool request.
-- Reject execution when current revisions differ.
-
-### M5-WV-005: Progression update/delete scope is too loose
-
-Status: still open.
-Severity: critical.
-
-Agent `codex.update_entry` Progression update/delete operations use `progressionId` and `baseRevision`, but the route does not verify the target Progression belongs to the target Codex entry, relation, or intended scene. Generic progression update input can also change `effectiveFromSceneId`.
-
-Evidence:
-
-- `apps/server/src/routes/workshop.ts` calls update/delete by `draft.progressionId`.
-- `codexProgressionUpdateInputFromDraft(...)` passes generic `UpdateCodexProgressionInputSchema`.
-- `packages/contracts/src/codex.ts` allows optional `effectiveFromSceneId` in generic update input.
-
-Required repair:
-
-- Load the target Progression before mutation.
-- Verify target entry/relation/scene binding.
-- For Agent tools, disallow moving `effectiveFromSceneId` unless a dedicated move operation is designed and confirmed.
-
-### M5-WV-021: project file transactions are not serialized per series
-
-Status: open.
-Severity: critical.
-
-`applyFileTransaction(...)` calls `recoverFileTransactions(...)` before every transaction, but there is no per-series transaction coordinator. A second concurrent transaction can observe the first transaction's `prepared` or `committing` journal and run rollback recovery against a live operation. M5.6A serializes claims only per Workshop session, so two different sessions or unrelated autosave/Workshop operations can still enter file transactions concurrently.
-
-Evidence:
-
-- `packages/storage/src/fileTransactions.ts` calls recovery at the start of every transaction and treats every non-committed journal as interrupted.
-- `packages/storage/src/fileTransactions.ts` has no active-journal ownership, process lock, or per-series queue.
-- `packages/storage/src/index.ts` calls `applyFileTransaction(...)` from scene, Codex, Proposal, Workshop, and lifecycle commands without a shared coordinator.
-
-Required repair:
-
-- Add one process-wide per-series transaction coordinator before building larger atomic Agent adapters.
-- Recovery must run only before the coordinator accepts normal work, not against another live transaction.
-- Add concurrent transactions with overlapping and non-overlapping targets, plus injected mid-commit failure/restart tests.
 
 ### M5-WV-006: Detail schema planning is still exact-match only
 
@@ -416,12 +347,11 @@ This is no longer classified as an implementation defect. The control is visibly
 
 M5 remaining work must not be planned from the deleted audits. Recommended order after this re-audit:
 
-1. Split M5.6B into `B1` per-series transaction coordination and recovery tests, then `B2` atomic limited Codex adapters, draft-time entry/research baselines, approval-payload identity, and Progression target/scene binding.
-2. Move the versioned Workshop prompt authority part of M5.6F ahead of the durable runner. Otherwise M5.6D would persist runs against mutable code constants that cannot reproduce historical prompts.
-3. Implement M5.6C as a deterministic server schema-planner service: persist embedding use-case bindings, embed existing detail type names/descriptions, score candidates, return ranked suggestions/reasons, and require author confirmation only for unmatched creation.
-4. Implement M5.6D durable Agent runs/steps using provider structured output where available, explicit malformed-output repair, pause-for-confirmation, tool result continuation, and startup reconciliation. Delete the English regex draft-rewrite fallback after equivalent tests pass.
-5. Complete M5.6E capability cleanup: prompt scope/session binding, per-message branching, context-kind quarantine, legacy mode removal/migration, turn-aware deletion, copy/i18n, and module splits.
-6. Implement M5.6G Tool Plan/Grant/Tool Call records by reusing the B2 command adapters and execution identity. Add approved Codex/Write tool definitions, grant scope/expiry, renewed approval for changed plans, partial-failure state, stale-target refusal, and Proposal fallback.
-7. Only after those foundations pass adversarial and restart tests should M5.7 Council, final state sweep, responsive behavior, and user visual acceptance begin.
+1. Implement M5.6C as a deterministic server schema-planner service: persist embedding use-case bindings, embed existing detail type names/descriptions, score candidates, return ranked suggestions/reasons, and require author confirmation only for unmatched creation.
+2. Resolve the immutable Workshop prompt-authority dependency before durable Agent run persistence. Otherwise M5.6D would persist runs against mutable code constants that cannot reproduce historical prompts.
+3. Implement M5.6D durable Agent runs/steps using provider structured output where available, explicit malformed-output repair, pause-for-confirmation, tool result continuation, and startup reconciliation. Delete the English regex draft-rewrite fallback after equivalent tests pass.
+4. Complete M5.6E capability cleanup: prompt scope/session binding, per-message branching, context-kind quarantine, legacy mode removal/migration, turn-aware deletion, copy/i18n, and module splits.
+5. Implement M5.6G Tool Plan/Grant/Tool Call records by reusing the NS-507 command adapters and execution identity. Add approved Codex/Write tool definitions, grant scope/expiry, renewed approval for changed plans, partial-failure state, stale-target refusal, and Proposal fallback.
+6. Only after those foundations pass adversarial and restart tests should M5.7 Council, final state sweep, responsive behavior, and user visual acceptance begin.
 
 The original M5.6 requirements are not deleted. They are classified in `docs/tasks/M5.md` as kept, partially started, or replaced. The replaced part is the old monolithic implementation order, not the Tool Plan/Grant product requirement.

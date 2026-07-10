@@ -100,6 +100,7 @@ import {
   WorkshopMessageSourceSchema,
   WorkshopMessageSchema,
   WorkshopSessionSchema,
+  WorkshopToolExecutionSchema,
   ReorderInputSchema,
   RestoreSceneSectionInputSchema,
   type AgentRole,
@@ -280,6 +281,7 @@ import { assertInside, atomicWrite, pathExists } from "./fileSystem.js";
 import {
   applyFileTransaction,
   recoverFileTransactions,
+  runSeriesFileTransaction,
   type FileMutation,
 } from "./fileTransactions.js";
 import {
@@ -368,6 +370,118 @@ const CODEX_RESEARCH_DIR = "entry-research";
 const CODEX_RELATIONS_DIR = "relations";
 const CODEX_PROGRESSIONS_DIR = "progressions";
 const CODEX_KNOWLEDGE_DIR = "knowledge";
+
+export interface WorkshopCodexDetailTypeCreationCommand {
+  id: string;
+  name: string;
+  nsfw?: boolean;
+}
+
+export interface WorkshopCodexProgressionBinding {
+  kind: CodexProgression["kind"];
+  entryId: string | null;
+  relationId: string | null;
+  field: CodexProgression["field"];
+  fieldKey: string | null;
+  effectiveFromSceneId: string;
+  effectiveToSceneId: string | null;
+}
+
+export type WorkshopCodexProgressionCommand =
+  | {
+    action: "create";
+    input: CreateCodexProgressionInput;
+  }
+  | {
+    action: "update";
+    progressionId: string;
+    baseRevision: string;
+    binding: WorkshopCodexProgressionBinding;
+    input: UpdateCodexProgressionInput;
+  }
+  | {
+    action: "delete";
+    progressionId: string;
+    baseRevision: string;
+    binding: WorkshopCodexProgressionBinding;
+  };
+
+export interface ExecuteWorkshopCodexCreateCommand {
+  sessionId: string;
+  messageId: string;
+  requestHash: string;
+  detailTypeCreations: WorkshopCodexDetailTypeCreationCommand[];
+  entryInput: CreateCodexEntryInput;
+}
+
+export interface ExecuteWorkshopCodexUpdateCommand {
+  sessionId: string;
+  messageId: string;
+  requestHash: string;
+  entryId: string;
+  baseEntryRevision: string;
+  baseResearchRevision: string;
+  detailTypeCreations: WorkshopCodexDetailTypeCreationCommand[];
+  entryInput: UpdateCodexEntryInput | null;
+  progressions: WorkshopCodexProgressionCommand[];
+}
+
+export interface WorkshopCodexCreateCommandResult {
+  createdDetailTypes: CodexDetailTypeDocument[];
+  entry: CodexEntryDocument;
+  message: WorkshopMessage;
+  resultMessage: WorkshopMessage;
+}
+
+export interface WorkshopCodexUpdateCommandResult extends WorkshopCodexCreateCommandResult {
+  createdProgressions: CodexProgressionDocument[];
+  deletedProgressions: DeleteCodexProgressionResult[];
+  updatedProgressions: CodexProgressionDocument[];
+}
+
+function codexProgressionBinding(
+  progression: CodexProgression,
+): WorkshopCodexProgressionBinding {
+  return {
+    kind: progression.kind,
+    entryId: progression.entryId,
+    relationId: progression.relationId,
+    field: progression.field,
+    fieldKey: progression.fieldKey,
+    effectiveFromSceneId: progression.effectiveFromSceneId,
+    effectiveToSceneId: progression.effectiveToSceneId,
+  };
+}
+
+function codexProgressionBindingMatches(
+  progression: CodexProgression,
+  binding: WorkshopCodexProgressionBinding,
+): boolean {
+  return JSON.stringify(codexProgressionBinding(progression)) === JSON.stringify(binding);
+}
+
+function assertAgentProgressionUpdateDoesNotRetarget(input: UpdateCodexProgressionInput): void {
+  const retargetingFields: Array<keyof UpdateCodexProgressionInput> = [
+    "kind",
+    "entryId",
+    "relationId",
+    "field",
+    "fieldKey",
+    "effectiveFromSceneId",
+    "effectiveToSceneId",
+    "source",
+  ];
+  const attempted = retargetingFields.filter((field) =>
+    Object.prototype.hasOwnProperty.call(input, field)
+  );
+  if (attempted.length > 0) {
+    throw new StorageError(
+      "Agent Progression updates cannot change target or Scene binding",
+      "INVALID_DATA",
+      { fields: attempted },
+    );
+  }
+}
 
 const BUILT_IN_CODEX_CATEGORIES: ReadonlyArray<{
   id: CodexBuiltInCategoryId;
@@ -1333,6 +1447,7 @@ function workshopSessionMutationKey(seriesRoot: string, sessionId: string): stri
 
 export class ProjectRepository {
   readonly libraryRoot: string;
+  private readonly recoveredSeriesRoots = new Set<string>();
 
   constructor(libraryRoot: string) {
     this.libraryRoot = path.resolve(libraryRoot);
@@ -1340,6 +1455,13 @@ export class ProjectRepository {
 
   async initialize(): Promise<void> {
     await mkdir(this.libraryRoot, { recursive: true });
+  }
+
+  private async recoverSeriesRootOnce(seriesRoot: string): Promise<void> {
+    const root = path.resolve(seriesRoot);
+    if (this.recoveredSeriesRoots.has(root)) return;
+    await recoverFileTransactions(root);
+    this.recoveredSeriesRoots.add(root);
   }
 
   async createSeries(rawInput: CreateSeriesInput): Promise<SeriesDetail> {
@@ -1580,7 +1702,7 @@ export class ProjectRepository {
       const root = path.join(this.libraryRoot, entry.name);
       const seriesFile = path.join(root, SERIES_FILE);
       try {
-        await recoverFileTransactions(root);
+        await this.recoverSeriesRootOnce(root);
         const manifest = await readJson(seriesFile, (value) => SeriesManifestSchema.parse(value));
         const scenes = await walkSceneFiles(path.join(this.libraryRoot, entry.name, "books"));
         summaries.push({
@@ -2622,27 +2744,29 @@ export class ProjectRepository {
   ): Promise<CodexDetailTypeDocument> {
     const input = CreateCodexDetailTypeInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    await this.assertCodexCategoryWritable(seriesRoot, input.categoryId);
-    this.assertCodexDetailTypeNameAvailable(
-      await this.listCodexDetailTypes(seriesId, { categoryId: input.categoryId }),
-      input.name,
-      input.categoryId,
-    );
-    const now = new Date().toISOString();
-    const detailType = CodexDetailTypeSchema.parse({
-      schemaVersion: 1,
-      id: randomUUID(),
-      categoryId: input.categoryId,
-      name: input.name,
-      nsfw: input.nsfw,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const raw = serializeJsonAuthority(detailType);
-    await atomicWrite(codexDetailTypePath(seriesRoot, detailType.id), raw);
-    return CodexDetailTypeDocumentSchema.parse({
-      detailType,
-      revision: jsonAuthorityRevision(raw),
+    return runSeriesFileTransaction(seriesRoot, async (commit) => {
+      await this.assertCodexCategoryWritable(seriesRoot, input.categoryId);
+      this.assertCodexDetailTypeNameAvailable(
+        await this.listCodexDetailTypes(seriesId, { categoryId: input.categoryId }),
+        input.name,
+        input.categoryId,
+      );
+      const now = new Date().toISOString();
+      const detailType = CodexDetailTypeSchema.parse({
+        schemaVersion: 1,
+        id: randomUUID(),
+        categoryId: input.categoryId,
+        name: input.name,
+        nsfw: input.nsfw,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const raw = serializeJsonAuthority(detailType);
+      await commit([{ targetPath: codexDetailTypePath(seriesRoot, detailType.id), content: raw }]);
+      return CodexDetailTypeDocumentSchema.parse({
+        detailType,
+        revision: jsonAuthorityRevision(raw),
+      });
     });
   }
 
@@ -2653,23 +2777,25 @@ export class ProjectRepository {
   ): Promise<CodexDetailTypeDocument> {
     const input = UpdateCodexDetailTypeInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const current = await this.readCodexDetailType(seriesRoot, detailTypeId);
-    if (current.revision !== input.baseRevision) {
-      throw new StorageError("Codex detail type changed on disk", "CONFLICT", {
-        currentRevision: current.revision,
+    return runSeriesFileTransaction(seriesRoot, async (commit) => {
+      const current = await this.readCodexDetailType(seriesRoot, detailTypeId);
+      if (current.revision !== input.baseRevision) {
+        throw new StorageError("Codex detail type changed on disk", "CONFLICT", {
+          currentRevision: current.revision,
+        });
+      }
+      const now = new Date().toISOString();
+      const detailType = CodexDetailTypeSchema.parse({
+        ...current.detailType,
+        nsfw: input.nsfw,
+        updatedAt: now,
       });
-    }
-    const now = new Date().toISOString();
-    const detailType = CodexDetailTypeSchema.parse({
-      ...current.detailType,
-      nsfw: input.nsfw,
-      updatedAt: now,
-    });
-    const raw = serializeJsonAuthority(detailType);
-    await atomicWrite(codexDetailTypePath(seriesRoot, detailTypeId), raw);
-    return CodexDetailTypeDocumentSchema.parse({
-      detailType,
-      revision: jsonAuthorityRevision(raw),
+      const raw = serializeJsonAuthority(detailType);
+      await commit([{ targetPath: codexDetailTypePath(seriesRoot, detailTypeId), content: raw }]);
+      return CodexDetailTypeDocumentSchema.parse({
+        detailType,
+        revision: jsonAuthorityRevision(raw),
+      });
     });
   }
 
@@ -2680,30 +2806,32 @@ export class ProjectRepository {
   ): Promise<DeleteCodexDetailTypeResult> {
     const input = DeleteCodexDocumentInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const current = await this.readCodexDetailType(seriesRoot, detailTypeId);
-    if (current.revision !== input.baseRevision) {
-      throw new StorageError("Codex detail type changed on disk", "CONFLICT", {
-        currentRevision: current.revision,
-      });
-    }
-    const usedByEntryIds = (await this.listCodexEntriesFromRoot(seriesRoot))
-      .filter((entry) =>
-        entry.metadata.categoryId === current.detailType.categoryId &&
-        (
-          Object.prototype.hasOwnProperty.call(entry.metadata.details, current.detailType.id) ||
-          Object.prototype.hasOwnProperty.call(entry.metadata.details, current.detailType.name)
-        ),
-      )
-      .map((entry) => entry.metadata.id);
-    if (usedByEntryIds.length) {
-      throw new StorageError("Codex detail type is still used by entries", "INVALID_DATA", {
-        detailTypeId,
-        detailTypeName: current.detailType.name,
-        entryIds: usedByEntryIds,
-      });
-    }
-    await rm(codexDetailTypePath(seriesRoot, detailTypeId), { force: true });
-    return DeleteCodexDetailTypeResultSchema.parse({ deletedId: detailTypeId });
+    return runSeriesFileTransaction(seriesRoot, async (commit) => {
+      const current = await this.readCodexDetailType(seriesRoot, detailTypeId);
+      if (current.revision !== input.baseRevision) {
+        throw new StorageError("Codex detail type changed on disk", "CONFLICT", {
+          currentRevision: current.revision,
+        });
+      }
+      const usedByEntryIds = (await this.listCodexEntriesFromRoot(seriesRoot))
+        .filter((entry) =>
+          entry.metadata.categoryId === current.detailType.categoryId &&
+          (
+            Object.prototype.hasOwnProperty.call(entry.metadata.details, current.detailType.id) ||
+            Object.prototype.hasOwnProperty.call(entry.metadata.details, current.detailType.name)
+          ),
+        )
+        .map((entry) => entry.metadata.id);
+      if (usedByEntryIds.length) {
+        throw new StorageError("Codex detail type is still used by entries", "INVALID_DATA", {
+          detailTypeId,
+          detailTypeName: current.detailType.name,
+          entryIds: usedByEntryIds,
+        });
+      }
+      await commit([{ targetPath: codexDetailTypePath(seriesRoot, detailTypeId), delete: true }]);
+      return DeleteCodexDetailTypeResultSchema.parse({ deletedId: detailTypeId });
+    });
   }
 
   async listCodexEntries(
@@ -2953,6 +3081,7 @@ export class ProjectRepository {
   ): Promise<CodexEntryDocument> {
     const input = UpdateCodexEntryInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return runSeriesFileTransaction(seriesRoot, async () => {
     const current = await this.findCodexEntry(seriesRoot, entryId);
     if (current.document.metadata.archivedAt) {
       throw new StorageError("已归档 Codex 条目不能直接编辑", "INVALID_DATA", { entryId });
@@ -3051,6 +3180,7 @@ export class ProjectRepository {
     await applyFileTransaction(seriesRoot, mutations);
     await this.rebuildCodexIndex(seriesRoot);
     return (await this.findCodexEntry(seriesRoot, entryId)).document;
+    });
   }
 
   async archiveCodexEntry(
@@ -3076,6 +3206,7 @@ export class ProjectRepository {
   ): Promise<DeleteCodexEntryResult> {
     const input = DeleteCodexDocumentInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return runSeriesFileTransaction(seriesRoot, async () => {
     const current = await this.findCodexEntry(seriesRoot, entryId);
     if (current.document.revision !== input.baseRevision) {
       throw new StorageError("Codex entry was updated by another change", "CONFLICT", {
@@ -3089,6 +3220,7 @@ export class ProjectRepository {
     ]);
     await this.rebuildCodexIndex(seriesRoot);
     return DeleteCodexEntryResultSchema.parse({ deletedId: entryId });
+    });
   }
 
   async listCodexRelations(
@@ -3296,6 +3428,7 @@ export class ProjectRepository {
   ): Promise<CodexProgressionDocument> {
     const input = CreateCodexProgressionInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return runSeriesFileTransaction(seriesRoot, async (commit) => {
     const now = new Date().toISOString();
     const progression = CodexProgressionSchema.parse({
       schemaVersion: 1,
@@ -3317,15 +3450,12 @@ export class ProjectRepository {
       archivedAt: null,
     });
     await this.assertCodexProgressionReferences(seriesId, seriesRoot, progression);
-    const written = await writeJsonAuthorityFile(
-      seriesRoot,
-      codexProgressionPath(seriesRoot, progression.id),
-      progression,
-      (value) => CodexProgressionSchema.parse(value),
-    );
+    const raw = serializeJsonAuthority(progression);
+    await commit([{ targetPath: codexProgressionPath(seriesRoot, progression.id), content: raw }]);
     return CodexProgressionDocumentSchema.parse({
-      progression: written.data,
-      revision: written.revision,
+      progression,
+      revision: jsonAuthorityRevision(raw),
+    });
     });
   }
 
@@ -3336,6 +3466,7 @@ export class ProjectRepository {
   ): Promise<CodexProgressionDocument> {
     const input = UpdateCodexProgressionInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return runSeriesFileTransaction(seriesRoot, async (commit) => {
     const current = await this.readCodexProgression(seriesRoot, progressionId);
     if (current.revision !== input.baseRevision) {
       throw new StorageError("Progression was modified by another operation", "CONFLICT", {
@@ -3354,15 +3485,12 @@ export class ProjectRepository {
       updatedAt: new Date().toISOString(),
     });
     await this.assertCodexProgressionReferences(seriesId, seriesRoot, progression);
-    const written = await writeJsonAuthorityFile(
-      seriesRoot,
-      codexProgressionPath(seriesRoot, progression.id),
-      progression,
-      (value) => CodexProgressionSchema.parse(value),
-    );
+    const raw = serializeJsonAuthority(progression);
+    await commit([{ targetPath: codexProgressionPath(seriesRoot, progression.id), content: raw }]);
     return CodexProgressionDocumentSchema.parse({
-      progression: written.data,
-      revision: written.revision,
+      progression,
+      revision: jsonAuthorityRevision(raw),
+    });
     });
   }
 
@@ -3373,6 +3501,7 @@ export class ProjectRepository {
   ): Promise<DeleteCodexProgressionResult> {
     const input = DeleteCodexDocumentInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return runSeriesFileTransaction(seriesRoot, async (commit) => {
     const current = await this.readCodexProgression(seriesRoot, progressionId);
     if (current.revision !== input.baseRevision) {
       throw new StorageError("Progression was modified by another operation", "CONFLICT", {
@@ -3386,10 +3515,11 @@ export class ProjectRepository {
         blockers,
       });
     }
-    await applyFileTransaction(seriesRoot, [
+    await commit([
       { targetPath: codexProgressionPath(seriesRoot, progressionId), delete: true },
     ]);
     return DeleteCodexProgressionResultSchema.parse({ deletedId: progressionId, blockers: [] });
+    });
   }
 
   async archiveCodexProgression(
@@ -4585,6 +4715,428 @@ export class ProjectRepository {
       ]);
       return readWorkshopMessageFile(seriesRoot, message.id);
     });
+  }
+
+  async executeWorkshopCodexCreateCommand(
+    seriesId: string,
+    rawCommand: ExecuteWorkshopCodexCreateCommand,
+  ): Promise<WorkshopCodexCreateCommandResult> {
+    const entryInput = CreateCodexEntryInputSchema.parse(rawCommand.entryInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const result = await runSeriesFileTransaction(seriesRoot, async (commit) => {
+      const session = await readWorkshopSessionFile(seriesRoot, rawCommand.sessionId);
+      const toolMessage = await readWorkshopMessageFile(seriesRoot, rawCommand.messageId);
+      this.assertRunningWorkshopCodexCommand(
+        seriesId,
+        session,
+        toolMessage,
+        rawCommand.requestHash,
+      );
+      await this.assertCodexCategoryWritable(seriesRoot, entryInput.categoryId);
+
+      const currentDetailTypes = await this.listCodexDetailTypes(seriesId, {
+        categoryId: entryInput.categoryId,
+      });
+      const detailTypeDocuments = [...currentDetailTypes];
+      const createdDetailTypes: CodexDetailTypeDocument[] = [];
+      const detailTypeMutations: FileMutation[] = [];
+      const seenDetailTypeIds = new Set(currentDetailTypes.map((item) => item.detailType.id));
+      const now = new Date().toISOString();
+      for (const creation of rawCommand.detailTypeCreations) {
+        if (seenDetailTypeIds.has(creation.id)) {
+          throw new StorageError("Codex detail type command repeats an existing id", "INVALID_DATA", {
+            detailTypeId: creation.id,
+          });
+        }
+        this.assertCodexDetailTypeNameAvailable(
+          detailTypeDocuments,
+          creation.name,
+          entryInput.categoryId,
+        );
+        const detailType = CodexDetailTypeSchema.parse({
+          schemaVersion: 1,
+          id: creation.id,
+          categoryId: entryInput.categoryId,
+          name: creation.name,
+          nsfw: creation.nsfw ?? false,
+          createdAt: now,
+          updatedAt: now,
+        });
+        const detailTypePath = codexDetailTypePath(seriesRoot, detailType.id);
+        if (await pathExists(detailTypePath)) {
+          throw new StorageError("Codex detail type target already exists", "CONFLICT", {
+            detailTypeId: detailType.id,
+          });
+        }
+        const raw = serializeJsonAuthority(detailType);
+        const document = CodexDetailTypeDocumentSchema.parse({
+          detailType,
+          revision: jsonAuthorityRevision(raw),
+        });
+        seenDetailTypeIds.add(detailType.id);
+        detailTypeDocuments.push(document);
+        createdDetailTypes.push(document);
+        detailTypeMutations.push({ targetPath: detailTypePath, content: raw });
+      }
+      this.assertWorkshopCodexDetailReferences(
+        entryInput.categoryId,
+        entryInput.details,
+        entryInput.detailAiContext,
+        detailTypeDocuments,
+      );
+
+      const entryId = randomUUID();
+      const metadata = CodexEntryMetadataSchema.parse({
+        schemaVersion: 1,
+        id: entryId,
+        categoryId: entryInput.categoryId,
+        name: entryInput.name,
+        aliases: normalizeUniqueStrings(entryInput.aliases),
+        thumbnail: entryInput.thumbnail,
+        details: entryInput.details,
+        detailAiContext: entryInput.detailAiContext,
+        aiContextPolicy: entryInput.aiContextPolicy,
+        mention: {
+          ...entryInput.mention,
+          excludedTerms: normalizeUniqueStrings(entryInput.mention.excludedTerms),
+        },
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+      });
+      const researchMetadata = CodexResearchMetadataSchema.parse({
+        schemaVersion: 1,
+        entryId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const entryPath = assertInside(
+        seriesRoot,
+        codexEntryPath(seriesRoot, metadata.categoryId, entryId),
+      );
+      const researchPath = assertInside(seriesRoot, codexResearchPath(seriesRoot, entryId));
+      const entryRaw = serializeCodexEntry(metadata, entryInput.description);
+      const researchRaw = serializeCodexResearch(researchMetadata, entryInput.research);
+      const entry = CodexEntryDocumentSchema.parse({
+        metadata,
+        description: entryInput.description,
+        revision: jsonAuthorityRevision(entryRaw),
+        relativePath: path.relative(seriesRoot, entryPath),
+        research: {
+          metadata: researchMetadata,
+          content: entryInput.research,
+          revision: jsonAuthorityRevision(researchRaw),
+          relativePath: path.relative(seriesRoot, researchPath),
+        },
+      });
+      const resultMessage = this.workshopCodexResultMessage({
+        seriesId,
+        session,
+        toolMessage,
+        content: `codex.create_entry created Codex entry: ${entry.metadata.name}`,
+        createdAt: now,
+      });
+      const completed = this.completeWorkshopCodexCommand(
+        session,
+        toolMessage,
+        rawCommand.requestHash,
+        resultMessage,
+        now,
+      );
+
+      await commit([
+        ...detailTypeMutations,
+        { targetPath: entryPath, content: entryRaw },
+        { targetPath: researchPath, content: researchRaw },
+        {
+          targetPath: workshopMessagePath(seriesRoot, resultMessage.id),
+          content: serializeJsonAuthority(resultMessage),
+        },
+        {
+          targetPath: workshopMessagePath(seriesRoot, completed.message.id),
+          content: serializeJsonAuthority(completed.message),
+        },
+        {
+          targetPath: workshopSessionPath(seriesRoot, completed.session.id),
+          content: serializeJsonAuthority(completed.session),
+        },
+      ]);
+      return {
+        createdDetailTypes,
+        entry,
+        message: completed.message,
+        resultMessage,
+      };
+    });
+    await this.rebuildCodexIndex(seriesRoot).catch(() => undefined);
+    return result;
+  }
+
+  async executeWorkshopCodexUpdateCommand(
+    seriesId: string,
+    rawCommand: ExecuteWorkshopCodexUpdateCommand,
+  ): Promise<WorkshopCodexUpdateCommandResult> {
+    const entryInput = rawCommand.entryInput
+      ? UpdateCodexEntryInputSchema.parse(rawCommand.entryInput)
+      : null;
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const result = await runSeriesFileTransaction(seriesRoot, async (commit) => {
+      const session = await readWorkshopSessionFile(seriesRoot, rawCommand.sessionId);
+      const toolMessage = await readWorkshopMessageFile(seriesRoot, rawCommand.messageId);
+      this.assertRunningWorkshopCodexCommand(
+        seriesId,
+        session,
+        toolMessage,
+        rawCommand.requestHash,
+      );
+      const current = await this.findCodexEntry(seriesRoot, rawCommand.entryId);
+      if (
+        current.document.revision !== rawCommand.baseEntryRevision ||
+        current.document.research.revision !== rawCommand.baseResearchRevision
+      ) {
+        throw new StorageError("Workshop Codex update draft is stale", "CONFLICT", {
+          entryId: rawCommand.entryId,
+          currentEntryRevision: current.document.revision,
+          currentResearchRevision: current.document.research.revision,
+        });
+      }
+      if (current.document.metadata.archivedAt) {
+        throw new StorageError("Archived Codex entries cannot be updated", "INVALID_DATA", {
+          entryId: rawCommand.entryId,
+        });
+      }
+
+      const now = new Date().toISOString();
+      const currentDetailTypes = await this.listCodexDetailTypes(seriesId, {
+        categoryId: current.document.metadata.categoryId,
+      });
+      const detailTypeDocuments = [...currentDetailTypes];
+      const createdDetailTypes: CodexDetailTypeDocument[] = [];
+      const mutations: FileMutation[] = [];
+      const seenDetailTypeIds = new Set(currentDetailTypes.map((item) => item.detailType.id));
+      for (const creation of rawCommand.detailTypeCreations) {
+        if (seenDetailTypeIds.has(creation.id)) {
+          throw new StorageError("Codex detail type command repeats an existing id", "INVALID_DATA", {
+            detailTypeId: creation.id,
+          });
+        }
+        this.assertCodexDetailTypeNameAvailable(
+          detailTypeDocuments,
+          creation.name,
+          current.document.metadata.categoryId,
+        );
+        const detailType = CodexDetailTypeSchema.parse({
+          schemaVersion: 1,
+          id: creation.id,
+          categoryId: current.document.metadata.categoryId,
+          name: creation.name,
+          nsfw: creation.nsfw ?? false,
+          createdAt: now,
+          updatedAt: now,
+        });
+        const detailTypePath = codexDetailTypePath(seriesRoot, detailType.id);
+        if (await pathExists(detailTypePath)) {
+          throw new StorageError("Codex detail type target already exists", "CONFLICT", {
+            detailTypeId: detailType.id,
+          });
+        }
+        const raw = serializeJsonAuthority(detailType);
+        const document = CodexDetailTypeDocumentSchema.parse({
+          detailType,
+          revision: jsonAuthorityRevision(raw),
+        });
+        seenDetailTypeIds.add(detailType.id);
+        detailTypeDocuments.push(document);
+        createdDetailTypes.push(document);
+        mutations.push({ targetPath: detailTypePath, content: raw });
+      }
+
+      let updatedEntry = current.document;
+      if (entryInput) {
+        if (
+          entryInput.baseRevision && entryInput.baseRevision !== rawCommand.baseEntryRevision
+        ) {
+          throw new StorageError("Workshop entry command baseline does not match its draft", "CONFLICT");
+        }
+        if (
+          entryInput.baseResearchRevision &&
+          entryInput.baseResearchRevision !== rawCommand.baseResearchRevision
+        ) {
+          throw new StorageError("Workshop research command baseline does not match its draft", "CONFLICT");
+        }
+        updatedEntry = await this.prepareWorkshopCodexEntryUpdate({
+          seriesRoot,
+          current,
+          input: entryInput,
+          detailTypes: detailTypeDocuments,
+          now,
+          mutations,
+        });
+      }
+
+      const createdProgressions: CodexProgressionDocument[] = [];
+      const updatedProgressions: CodexProgressionDocument[] = [];
+      const deletedProgressions: DeleteCodexProgressionResult[] = [];
+      const progressionTargets = new Set<string>();
+      for (const command of rawCommand.progressions) {
+        if (command.action !== "create") {
+          if (progressionTargets.has(command.progressionId)) {
+            throw new StorageError("Workshop command repeats a Progression target", "INVALID_DATA", {
+              progressionId: command.progressionId,
+            });
+          }
+          progressionTargets.add(command.progressionId);
+        }
+        if (command.action === "create") {
+          const input = CreateCodexProgressionInputSchema.parse(command.input);
+          const progression = CodexProgressionSchema.parse({
+            schemaVersion: 1,
+            id: randomUUID(),
+            kind: input.kind,
+            entryId: input.entryId ?? null,
+            relationId: input.relationId ?? null,
+            field: input.field ?? null,
+            fieldKey: input.fieldKey ?? null,
+            operation: input.operation,
+            body: input.body ?? "",
+            summary: input.summary,
+            effectiveFromSceneId: input.effectiveFromSceneId,
+            effectiveToSceneId: input.effectiveToSceneId ?? null,
+            source: input.source,
+            evidence: input.evidence,
+            createdAt: now,
+            updatedAt: now,
+            archivedAt: null,
+          });
+          await this.assertWorkshopProgressionOwnedByEntry(
+            seriesRoot,
+            rawCommand.entryId,
+            progression,
+          );
+          await this.assertCodexProgressionReferences(seriesId, seriesRoot, progression, {
+            knownDetailTypes: createdDetailTypes.map((item) => item.detailType),
+          });
+          const raw = serializeJsonAuthority(progression);
+          mutations.push({
+            targetPath: codexProgressionPath(seriesRoot, progression.id),
+            content: raw,
+          });
+          createdProgressions.push(CodexProgressionDocumentSchema.parse({
+            progression,
+            revision: jsonAuthorityRevision(raw),
+          }));
+          continue;
+        }
+
+        const currentProgression = await this.readCodexProgression(
+          seriesRoot,
+          command.progressionId,
+        );
+        if (
+          currentProgression.revision !== command.baseRevision ||
+          !codexProgressionBindingMatches(currentProgression.progression, command.binding)
+        ) {
+          throw new StorageError("Workshop Progression target is stale or was rebound", "CONFLICT", {
+            progressionId: command.progressionId,
+            currentRevision: currentProgression.revision,
+          });
+        }
+        await this.assertWorkshopProgressionOwnedByEntry(
+          seriesRoot,
+          rawCommand.entryId,
+          currentProgression.progression,
+        );
+        if (command.action === "update") {
+          const input = UpdateCodexProgressionInputSchema.parse(command.input);
+          assertAgentProgressionUpdateDoesNotRetarget(input);
+          if (input.baseRevision !== command.baseRevision) {
+            throw new StorageError("Workshop Progression command baseline does not match its draft", "CONFLICT");
+          }
+          const { baseRevision: _baseRevision, ...changes } = input;
+          const progression = CodexProgressionSchema.parse({
+            ...currentProgression.progression,
+            ...changes,
+            updatedAt: now,
+          });
+          await this.assertCodexProgressionReferences(seriesId, seriesRoot, progression, {
+            knownDetailTypes: createdDetailTypes.map((item) => item.detailType),
+          });
+          const raw = serializeJsonAuthority(progression);
+          mutations.push({
+            targetPath: codexProgressionPath(seriesRoot, progression.id),
+            content: raw,
+          });
+          updatedProgressions.push(CodexProgressionDocumentSchema.parse({
+            progression,
+            revision: jsonAuthorityRevision(raw),
+          }));
+        } else {
+          const blockers = await this.progressionDeleteBlockers(seriesId, command.progressionId);
+          if (blockers.length > 0) {
+            throw new StorageError("Progression has blocking references", "INVALID_DATA", {
+              progressionId: command.progressionId,
+              blockers,
+            });
+          }
+          mutations.push({
+            targetPath: codexProgressionPath(seriesRoot, command.progressionId),
+            delete: true,
+          });
+          deletedProgressions.push(DeleteCodexProgressionResultSchema.parse({
+            deletedId: command.progressionId,
+            blockers: [],
+          }));
+        }
+      }
+
+      const progressionSummary = [
+        createdProgressions.length ? `${createdProgressions.length} progression(s) created` : "",
+        updatedProgressions.length ? `${updatedProgressions.length} progression(s) updated` : "",
+        deletedProgressions.length ? `${deletedProgressions.length} progression(s) deleted` : "",
+      ].filter(Boolean).join("; ");
+      const resultMessage = this.workshopCodexResultMessage({
+        seriesId,
+        session,
+        toolMessage,
+        content: progressionSummary
+          ? `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name} (${progressionSummary})`
+          : `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name}`,
+        createdAt: now,
+      });
+      const completed = this.completeWorkshopCodexCommand(
+        session,
+        toolMessage,
+        rawCommand.requestHash,
+        resultMessage,
+        now,
+      );
+      mutations.push(
+        {
+          targetPath: workshopMessagePath(seriesRoot, resultMessage.id),
+          content: serializeJsonAuthority(resultMessage),
+        },
+        {
+          targetPath: workshopMessagePath(seriesRoot, completed.message.id),
+          content: serializeJsonAuthority(completed.message),
+        },
+        {
+          targetPath: workshopSessionPath(seriesRoot, completed.session.id),
+          content: serializeJsonAuthority(completed.session),
+        },
+      );
+      await commit(mutations);
+      return {
+        createdDetailTypes,
+        createdProgressions,
+        deletedProgressions,
+        entry: updatedEntry,
+        message: completed.message,
+        resultMessage,
+        updatedProgressions,
+      };
+    });
+    await this.rebuildCodexIndex(seriesRoot).catch(() => undefined);
+    return result;
   }
 
   async deleteWorkshopMessage(
@@ -7125,7 +7677,7 @@ export class ProjectRepository {
       if (!entry.isDirectory()) continue;
       const root = assertInside(this.libraryRoot, path.join(this.libraryRoot, entry.name));
       try {
-        await recoverFileTransactions(root);
+        await this.recoverSeriesRootOnce(root);
         const manifest = await readJson(path.join(root, SERIES_FILE), (value) =>
           SeriesManifestSchema.parse(value),
         );
@@ -7519,6 +8071,7 @@ export class ProjectRepository {
   ): Promise<CodexEntryDocument> {
     const input = ArchiveCodexDocumentInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return runSeriesFileTransaction(seriesRoot, async (commit) => {
     const current = await this.findCodexEntry(seriesRoot, entryId);
     if (current.document.revision !== input.baseRevision) {
       throw new StorageError("Codex 条目已被其他修改更新", "CONFLICT", {
@@ -7534,12 +8087,13 @@ export class ProjectRepository {
       updatedAt: now,
       archivedAt: archived ? now : null,
     });
-    await atomicWrite(
-      current.filePath,
-      serializeCodexEntry(metadata, current.document.description),
-    );
+    await commit([{
+      targetPath: current.filePath,
+      content: serializeCodexEntry(metadata, current.document.description),
+    }]);
     await this.rebuildCodexIndex(seriesRoot);
     return (await this.findCodexEntry(seriesRoot, entryId)).document;
+    });
   }
 
   private async assertCodexEntryDeletable(
@@ -7641,6 +8195,7 @@ export class ProjectRepository {
   ): Promise<CodexRelationDocument> {
     const input = ArchiveCodexDocumentInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return runSeriesFileTransaction(seriesRoot, async (commit) => {
     const current = await this.readCodexRelation(seriesRoot, relationId);
     if (current.revision !== input.baseRevision) {
       throw new StorageError("Codex 关系已被其他修改更新", "CONFLICT", {
@@ -7655,10 +8210,11 @@ export class ProjectRepository {
       archivedAt: archived ? now : null,
     });
     const raw = serializeJsonAuthority(relation);
-    await atomicWrite(codexRelationPath(seriesRoot, relation.id), raw);
+    await commit([{ targetPath: codexRelationPath(seriesRoot, relation.id), content: raw }]);
     return CodexRelationDocumentSchema.parse({
       relation,
       revision: jsonAuthorityRevision(raw),
+    });
     });
   }
 
@@ -7986,11 +8542,267 @@ export class ProjectRepository {
     }
   }
 
+  private assertRunningWorkshopCodexCommand(
+    seriesId: string,
+    session: WorkshopSession,
+    message: WorkshopMessage,
+    requestHash: string,
+  ): void {
+    if (
+      session.seriesId !== seriesId ||
+      message.seriesId !== seriesId ||
+      message.sessionId !== session.id
+    ) {
+      throw new StorageError("Workshop Codex command crosses a Series or session boundary", "INVALID_DATA");
+    }
+    if (session.status !== "active") {
+      throw new StorageError("Archived Workshop sessions cannot execute Codex commands", "CONFLICT", {
+        sessionId: session.id,
+      });
+    }
+    if (
+      session.kind !== "agent" ||
+      message.role !== "tool" ||
+      message.mode !== "agent" ||
+      message.status !== "succeeded"
+    ) {
+      throw new StorageError("Only successful Agent tool messages can execute Codex commands", "INVALID_DATA", {
+        messageId: message.id,
+      });
+    }
+    if (
+      !message.toolExecution ||
+      message.toolExecution.status !== "running" ||
+      message.toolExecution.requestHash !== requestHash
+    ) {
+      throw new StorageError("Workshop Codex command execution identity does not match its claim", "CONFLICT", {
+        messageId: message.id,
+      });
+    }
+  }
+
+  private assertWorkshopCodexDetailReferences(
+    categoryId: CodexCategoryId,
+    details: Record<string, string>,
+    detailAiContext: Record<string, boolean>,
+    detailTypes: CodexDetailTypeDocument[],
+  ): void {
+    const known = new Map(detailTypes.map((document) => [document.detailType.id, document.detailType]));
+    for (const detailTypeId of new Set([
+      ...Object.keys(details),
+      ...Object.keys(detailAiContext),
+    ])) {
+      const detailType = known.get(detailTypeId);
+      if (!detailType || detailType.categoryId !== categoryId) {
+        throw new StorageError("Workshop Codex command references an unknown detail type", "INVALID_DATA", {
+          categoryId,
+          detailTypeId,
+        });
+      }
+    }
+  }
+
+  private workshopCodexResultMessage(input: {
+    seriesId: string;
+    session: WorkshopSession;
+    toolMessage: WorkshopMessage;
+    content: string;
+    createdAt: string;
+  }): WorkshopMessage {
+    return WorkshopMessageSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      seriesId: input.seriesId,
+      sessionId: input.session.id,
+      role: "result",
+      mode: "agent",
+      status: "succeeded",
+      content: input.content,
+      reasoningContent: "",
+      contextBundleId: input.toolMessage.contextBundleId,
+      modelCallId: input.toolMessage.modelCallId,
+      proposalIds: [],
+      attachmentIds: [],
+      errorCode: null,
+      errorMessage: null,
+      createdAt: new Date(Date.parse(input.createdAt) + 1).toISOString(),
+    });
+  }
+
+  private completeWorkshopCodexCommand(
+    session: WorkshopSession,
+    toolMessage: WorkshopMessage,
+    requestHash: string,
+    resultMessage: WorkshopMessage,
+    completedAt: string,
+  ): { message: WorkshopMessage; session: WorkshopSession } {
+    const execution = WorkshopToolExecutionSchema.parse({
+      requestHash,
+      status: "succeeded",
+      startedAt: toolMessage.toolExecution?.startedAt ?? completedAt,
+      completedAt,
+      resultMessageId: resultMessage.id,
+      errorCode: null,
+      errorMessage: null,
+    });
+    return {
+      message: WorkshopMessageSchema.parse({
+        ...toolMessage,
+        toolExecution: execution,
+      }),
+      session: WorkshopSessionSchema.parse({
+        ...session,
+        lastMessageAt: resultMessage.createdAt,
+        updatedAt: resultMessage.createdAt,
+      }),
+    };
+  }
+
+  private async prepareWorkshopCodexEntryUpdate(input: {
+    seriesRoot: string;
+    current: {
+      document: CodexEntryDocument;
+      filePath: string;
+      researchPath: string;
+    };
+    input: UpdateCodexEntryInput;
+    detailTypes: CodexDetailTypeDocument[];
+    now: string;
+    mutations: FileMutation[];
+  }): Promise<CodexEntryDocument> {
+    const changesEntry = [
+      input.input.categoryId,
+      input.input.name,
+      input.input.aliases,
+      input.input.thumbnail,
+      input.input.details,
+      input.input.detailAiContext,
+      input.input.aiContextPolicy,
+      input.input.mention,
+      input.input.description,
+    ].some((value) => value !== undefined);
+    const changesResearch = input.input.research !== undefined;
+    const nextCategoryId = input.input.categoryId ?? input.current.document.metadata.categoryId;
+    if (
+      input.input.categoryId !== undefined &&
+      input.input.categoryId !== input.current.document.metadata.categoryId
+    ) {
+      await this.assertCodexCategoryWritable(input.seriesRoot, input.input.categoryId);
+    }
+    const nextDetails = input.input.details ?? input.current.document.metadata.details;
+    const nextDetailAiContext = input.input.detailAiContext ??
+      input.current.document.metadata.detailAiContext;
+    this.assertWorkshopCodexDetailReferences(
+      nextCategoryId,
+      nextDetails,
+      nextDetailAiContext,
+      input.detailTypes,
+    );
+
+    let metadata = input.current.document.metadata;
+    let description = input.current.document.description;
+    let entryRevision = input.current.document.revision;
+    let relativePath = input.current.document.relativePath;
+    if (changesEntry) {
+      metadata = CodexEntryMetadataSchema.parse({
+        ...input.current.document.metadata,
+        categoryId: nextCategoryId,
+        name: input.input.name ?? input.current.document.metadata.name,
+        aliases: input.input.aliases === undefined
+          ? input.current.document.metadata.aliases
+          : normalizeUniqueStrings(input.input.aliases),
+        thumbnail: input.input.thumbnail === undefined
+          ? input.current.document.metadata.thumbnail
+          : input.input.thumbnail,
+        details: nextDetails,
+        detailAiContext: nextDetailAiContext,
+        aiContextPolicy: input.input.aiContextPolicy ?? input.current.document.metadata.aiContextPolicy,
+        mention: input.input.mention
+          ? {
+            ...input.input.mention,
+            excludedTerms: normalizeUniqueStrings(input.input.mention.excludedTerms),
+          }
+          : input.current.document.metadata.mention,
+        updatedAt: input.now,
+      });
+      description = input.input.description ?? input.current.document.description;
+      const nextEntryPath = assertInside(
+        input.seriesRoot,
+        codexEntryPath(input.seriesRoot, nextCategoryId, metadata.id),
+      );
+      if (nextEntryPath !== input.current.filePath && await pathExists(nextEntryPath)) {
+        throw new StorageError("Codex entry target category already contains this id", "CONFLICT", {
+          entryId: metadata.id,
+        });
+      }
+      const raw = serializeCodexEntry(metadata, description);
+      input.mutations.push({ targetPath: nextEntryPath, content: raw });
+      if (nextEntryPath !== input.current.filePath) {
+        input.mutations.push({ targetPath: input.current.filePath, delete: true });
+      }
+      entryRevision = jsonAuthorityRevision(raw);
+      relativePath = path.relative(input.seriesRoot, nextEntryPath);
+    }
+
+    let research = input.current.document.research;
+    if (changesResearch) {
+      const researchMetadata = CodexResearchMetadataSchema.parse({
+        ...input.current.document.research.metadata,
+        updatedAt: input.now,
+      });
+      const content = input.input.research!;
+      const raw = serializeCodexResearch(researchMetadata, content);
+      input.mutations.push({ targetPath: input.current.researchPath, content: raw });
+      research = CodexResearchDocumentSchema.parse({
+        metadata: researchMetadata,
+        content,
+        revision: jsonAuthorityRevision(raw),
+        relativePath: path.relative(input.seriesRoot, input.current.researchPath),
+      });
+    }
+    return CodexEntryDocumentSchema.parse({
+      metadata,
+      description,
+      revision: entryRevision,
+      relativePath,
+      research,
+    });
+  }
+
+  private async assertWorkshopProgressionOwnedByEntry(
+    seriesRoot: string,
+    entryId: string,
+    progression: CodexProgression,
+  ): Promise<void> {
+    if (progression.kind === "field" || progression.kind === "world") {
+      if (progression.entryId !== entryId) {
+        throw new StorageError("Workshop Progression belongs to another Codex entry", "INVALID_DATA", {
+          entryId,
+          progressionEntryId: progression.entryId,
+        });
+      }
+      return;
+    }
+    const relation = await this.readCodexRelation(seriesRoot, progression.relationId!);
+    if (
+      relation.relation.sourceEntryId !== entryId &&
+      relation.relation.targetEntryId !== entryId
+    ) {
+      throw new StorageError("Workshop Progression relation does not involve the target entry", "INVALID_DATA", {
+        entryId,
+        relationId: progression.relationId,
+      });
+    }
+  }
+
   private async assertCodexProgressionReferences(
     seriesId: string,
     seriesRoot: string,
     progression: CodexProgression,
-    options: { knownWriteBlock?: { sceneId: string; blockId: string } } = {},
+    options: {
+      knownWriteBlock?: { sceneId: string; blockId: string };
+      knownDetailTypes?: CodexDetailType[];
+    } = {},
   ): Promise<void> {
     const { sceneIndexes } = await this.narrativeSceneIndexes(seriesId);
     this.assertEffectiveSceneRange(
@@ -8043,7 +8855,15 @@ export class ProjectRepository {
         });
       }
       if (progression.kind === "field" && progression.field?.kind === "detail") {
-        const detailType = await this.readCodexDetailType(seriesRoot, progression.field.detailTypeId);
+        const knownDetailType = options.knownDetailTypes?.find(
+          (detailType) => detailType.id === progression.field?.detailTypeId,
+        );
+        const detailType = knownDetailType
+          ? CodexDetailTypeDocumentSchema.parse({
+            detailType: knownDetailType,
+            revision: jsonAuthorityRevision(serializeJsonAuthority(knownDetailType)),
+          })
+          : await this.readCodexDetailType(seriesRoot, progression.field.detailTypeId);
         if (detailType.detailType.categoryId !== entry.metadata.categoryId) {
           throw new StorageError("Progression detail type does not belong to the entry category", "INVALID_DATA", {
             entryId,
@@ -8157,6 +8977,7 @@ export class ProjectRepository {
   ): Promise<CodexProgressionDocument> {
     const input = ArchiveCodexDocumentInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return runSeriesFileTransaction(seriesRoot, async (commit) => {
     const current = await this.readCodexProgression(seriesRoot, progressionId);
     if (current.revision !== input.baseRevision) {
       throw new StorageError("Progression was modified by another operation", "CONFLICT", {
@@ -8169,15 +8990,12 @@ export class ProjectRepository {
       updatedAt: new Date().toISOString(),
       archivedAt: archived ? new Date().toISOString() : null,
     });
-    const written = await writeJsonAuthorityFile(
-      seriesRoot,
-      codexProgressionPath(seriesRoot, progression.id),
-      progression,
-      (value) => CodexProgressionSchema.parse(value),
-    );
+    const raw = serializeJsonAuthority(progression);
+    await commit([{ targetPath: codexProgressionPath(seriesRoot, progression.id), content: raw }]);
     return CodexProgressionDocumentSchema.parse({
-      progression: written.data,
-      revision: written.revision,
+      progression,
+      revision: jsonAuthorityRevision(raw),
+    });
     });
   }
 

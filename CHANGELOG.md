@@ -26,4 +26,5 @@ This changelog records user-visible product changes. Task status, command logs, 
 - AI-produced semantic changes remain candidate or explicitly confirmed actions.
 - Project authority uses schema-versioned JSON and conflict-safe atomic storage; indexes remain rebuildable.
 - Workshop tool execution rejects repeated or archived-session execution on the current limited path.
+- Confirmed Agent Codex create/update commands now apply detail types, entry/research changes, Progressions, and result history atomically, and refuse stale or cross-target requests.
 - User visual acceptance remains separate from command and functional verification.

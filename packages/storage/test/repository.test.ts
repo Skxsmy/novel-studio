@@ -776,6 +776,56 @@ describe("ProjectRepository", () => {
       .toBe(category.category.id);
   });
 
+  it("serializes stale-checked Codex entry and Progression commands per series", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "CodexCommandSerialization" });
+    const entry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Concurrent Alice",
+      description: "Baseline.",
+    });
+    const entryUpdates = await Promise.allSettled([
+      store.updateCodexEntry(series.manifest.id, entry.metadata.id, {
+        baseRevision: entry.revision,
+        name: "Concurrent Alice A",
+      }),
+      store.updateCodexEntry(series.manifest.id, entry.metadata.id, {
+        baseRevision: entry.revision,
+        name: "Concurrent Alice B",
+      }),
+    ]);
+    expect(entryUpdates.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+    const rejectedEntryUpdate = entryUpdates.find((result) => result.status === "rejected");
+    expect(rejectedEntryUpdate?.reason).toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    const progression = await store.createCodexProgression(series.manifest.id, {
+      kind: "field",
+      entryId: entry.metadata.id,
+      field: { kind: "description", detailTypeId: null },
+      operation: "replace",
+      body: "Progression baseline.",
+      summary: "Progression baseline.",
+      effectiveFromSceneId: series.scenes[0]!.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null, sourceId: null },
+      evidence: [],
+    });
+    const progressionUpdates = await Promise.allSettled([
+      store.updateCodexProgression(series.manifest.id, progression.progression.id, {
+        baseRevision: progression.revision,
+        body: "Progression A.",
+      }),
+      store.updateCodexProgression(series.manifest.id, progression.progression.id, {
+        baseRevision: progression.revision,
+        body: "Progression B.",
+      }),
+    ]);
+    expect(progressionUpdates.map((result) => result.status).sort())
+      .toEqual(["fulfilled", "rejected"]);
+    const rejectedProgressionUpdate = progressionUpdates.find((result) => result.status === "rejected");
+    expect(rejectedProgressionUpdate?.reason)
+      .toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+  });
+
   it("rejects duplicate custom Codex category names", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "CodexCategoryDuplicate" });
@@ -2596,7 +2646,7 @@ describe("ProjectRepository", () => {
     expect(validation.issues.some((issue) => issue.code === "MISSING_CHAPTER")).toBe(true);
   });
 
-  it("rolls back an interrupted multi-file transaction on the next access", async () => {
+  it("rolls back an interrupted multi-file transaction after repository restart", async () => {
     const store = await repository();
     const title = "事务恢复";
     const series = await store.createSeries({ title });
@@ -2631,10 +2681,11 @@ describe("ProjectRepository", () => {
       "utf8",
     );
 
-    expect((await store.getChapter(series.manifest.id, scene.metadata.chapterId)).id).toBe(
+    const restarted = new ProjectRepository(store.libraryRoot);
+    expect((await restarted.getChapter(series.manifest.id, scene.metadata.chapterId)).id).toBe(
       scene.metadata.chapterId,
     );
-    expect(await store.validateHierarchy(series.manifest.id)).toMatchObject({ valid: true });
+    expect(await restarted.validateHierarchy(series.manifest.id)).toMatchObject({ valid: true });
   });
 
   it("quarantines malformed transaction journals instead of applying recovery", async () => {
@@ -2647,7 +2698,8 @@ describe("ProjectRepository", () => {
     const journalPath = path.join(transactionDirectory, "00000000-0000-4000-8000-00000000bad0.json");
     await writeFile(journalPath, "{ not json", "utf8");
 
-    await expect(store.getSeries(series.manifest.id))
+    const restarted = new ProjectRepository(store.libraryRoot);
+    await expect(restarted.getSeries(series.manifest.id))
       .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
     await expect(readFile(`${journalPath}.invalid`, "utf8")).resolves.toContain("not json");
   });

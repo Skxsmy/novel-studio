@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -9,6 +10,13 @@ export interface FileMutation {
   targetPath: string;
   content?: string;
   delete?: boolean;
+}
+
+export interface FileTransactionOptions {
+  afterMutationApplied?: (input: {
+    index: number;
+    targetPath: string;
+  }) => void | Promise<void>;
 }
 
 interface TransactionEntry {
@@ -23,6 +31,42 @@ interface TransactionJournal {
   id: string;
   status: "prepared" | "committing" | "committed";
   entries: TransactionEntry[];
+}
+
+type FileTransactionCommit = (mutations: FileMutation[]) => Promise<void>;
+
+const seriesTransactionTails = new Map<string, Promise<void>>();
+const seriesTransactionContext = new AsyncLocalStorage<ReadonlySet<string>>();
+
+async function withSeriesTransactionCoordinator<T>(
+  seriesRoot: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const key = path.resolve(seriesRoot);
+  const activeKeys = seriesTransactionContext.getStore();
+  if (activeKeys?.has(key)) {
+    return operation();
+  }
+  const previous = seriesTransactionTails.get(key) ?? Promise.resolve();
+  const waitForPrevious = previous.catch(() => undefined);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = waitForPrevious.then(() => gate);
+  seriesTransactionTails.set(key, tail);
+  await waitForPrevious;
+  try {
+    return await seriesTransactionContext.run(
+      new Set([...(activeKeys ?? []), key]),
+      operation,
+    );
+  } finally {
+    release();
+    if (seriesTransactionTails.get(key) === tail) {
+      seriesTransactionTails.delete(key);
+    }
+  }
 }
 
 const TransactionEntrySchema = z.object({
@@ -60,7 +104,7 @@ async function readTransactionJournal(journalPath: string): Promise<TransactionJ
   }
 }
 
-export async function recoverFileTransactions(seriesRoot: string): Promise<void> {
+async function recoverFileTransactionsUnlocked(seriesRoot: string): Promise<void> {
   const transactionRoot = path.join(seriesRoot, ".studio", "transactions");
   let files: string[];
   try {
@@ -117,16 +161,16 @@ export async function recoverFileTransactions(seriesRoot: string): Promise<void>
   }
 }
 
-export async function applyFileTransaction(
+async function applyFileTransactionUnlocked(
   seriesRoot: string,
   mutations: FileMutation[],
+  options: FileTransactionOptions = {},
 ): Promise<void> {
   const uniqueTargets = new Set(mutations.map((mutation) => path.resolve(mutation.targetPath)));
   if (uniqueTargets.size !== mutations.length) {
     throw new StorageError("文件事务包含重复目标", "INVALID_DATA");
   }
 
-  await recoverFileTransactions(seriesRoot);
   const id = randomUUID();
   const transactionRoot = path.join(seriesRoot, ".studio", "transactions");
   await mkdir(transactionRoot, { recursive: true });
@@ -158,11 +202,12 @@ export async function applyFileTransaction(
   await writeJournal("prepared");
   try {
     await writeJournal("committing");
-    for (const entry of entries) {
+    for (const [index, entry] of entries.entries()) {
       const target = path.join(seriesRoot, entry.target);
       const backup = path.join(seriesRoot, entry.backup);
       if (entry.hadOriginal) await rename(target, backup);
       if (entry.temporary) await rename(path.join(seriesRoot, entry.temporary), target);
+      await options.afterMutationApplied?.({ index, targetPath: target });
     }
     await Promise.all([...new Set(entries.map((entry) => path.dirname(path.join(seriesRoot, entry.target))))].map(
       (directory) => flushDirectory(directory),
@@ -171,7 +216,40 @@ export async function applyFileTransaction(
     await Promise.all(entries.map((entry) => rm(path.join(seriesRoot, entry.backup), { force: true })));
     await rm(journalPath, { force: true });
   } catch (error) {
-    await recoverFileTransactions(seriesRoot);
+    await recoverFileTransactionsUnlocked(seriesRoot);
     throw error;
   }
+}
+
+export async function runSeriesFileTransaction<T>(
+  seriesRoot: string,
+  operation: (commit: FileTransactionCommit) => Promise<T>,
+): Promise<T> {
+  return withSeriesTransactionCoordinator(seriesRoot, async () => {
+    await recoverFileTransactionsUnlocked(seriesRoot);
+    let committed = false;
+    const commit: FileTransactionCommit = async (mutations) => {
+      if (committed) {
+        throw new StorageError("A coordinated file transaction can commit only once", "INVALID_DATA");
+      }
+      committed = true;
+      await applyFileTransactionUnlocked(seriesRoot, mutations);
+    };
+    return operation(commit);
+  });
+}
+
+export async function recoverFileTransactions(seriesRoot: string): Promise<void> {
+  await withSeriesTransactionCoordinator(seriesRoot, () => recoverFileTransactionsUnlocked(seriesRoot));
+}
+
+export async function applyFileTransaction(
+  seriesRoot: string,
+  mutations: FileMutation[],
+  options: FileTransactionOptions = {},
+): Promise<void> {
+  await withSeriesTransactionCoordinator(seriesRoot, async () => {
+    await recoverFileTransactionsUnlocked(seriesRoot);
+    await applyFileTransactionUnlocked(seriesRoot, mutations, options);
+  });
 }

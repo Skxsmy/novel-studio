@@ -2,6 +2,7 @@ import type {
   CodexBuiltInCategoryId,
   CodexDetailTypeDocument,
   CodexEntryDocument,
+  CodexProgression,
   CreateCodexProgressionInput,
   CreateCodexEntryInput,
   DeleteCodexDocumentInput,
@@ -50,6 +51,24 @@ export interface WorkshopCodexUpdateTarget {
   name?: string;
 }
 
+export interface WorkshopCodexUpdateBaseline {
+  entryRevision: string;
+  researchRevision: string;
+}
+
+export interface WorkshopCodexProgressionBaseline {
+  revision: string;
+  binding: {
+    kind: CodexProgression["kind"];
+    entryId: string | null;
+    relationId: string | null;
+    field: CodexProgression["field"];
+    fieldKey: string | null;
+    effectiveFromSceneId: string;
+    effectiveToSceneId: string | null;
+  };
+}
+
 export interface WorkshopCodexUpdatePatch {
   aliases?: string[];
   description?: string;
@@ -67,17 +86,20 @@ export type WorkshopCodexProgressionDraft =
   | {
     action: "update";
     progressionId: string;
-    input: Partial<UpdateCodexProgressionInput> & { baseRevision: string };
+    input: Partial<UpdateCodexProgressionInput>;
+    baseline?: WorkshopCodexProgressionBaseline;
   }
   | {
     action: "delete";
     progressionId: string;
-    input: DeleteCodexDocumentInput;
+    input: Partial<DeleteCodexDocumentInput>;
+    baseline?: WorkshopCodexProgressionBaseline;
   };
 
 export interface WorkshopCodexUpdateDraft {
   target: WorkshopCodexUpdateTarget;
   patch: WorkshopCodexUpdatePatch;
+  baseline?: WorkshopCodexUpdateBaseline;
 }
 
 export interface CodexUpdateEntryToolRequest {
@@ -443,6 +465,39 @@ function optionalStringValue(value: unknown): string | undefined {
   return text ? text : undefined;
 }
 
+function parseProgressionBaseline(value: unknown): WorkshopCodexProgressionBaseline | undefined {
+  const baseline = recordValue(value);
+  const binding = recordValue(baseline?.binding);
+  const revision = optionalStringValue(baseline?.revision);
+  const kind = optionalStringValue(binding?.kind);
+  const effectiveFromSceneId = optionalStringValue(binding?.effectiveFromSceneId);
+  if (
+    !revision?.match(/^[a-f0-9]{64}$/u) ||
+    !binding ||
+    !kind ||
+    !["field", "world", "relationship"].includes(kind) ||
+    !effectiveFromSceneId
+  ) {
+    return undefined;
+  }
+  const rawField = binding.field;
+  const field = rawField === null
+    ? null
+    : recordValue(rawField) as CodexProgression["field"];
+  return {
+    revision,
+    binding: {
+      kind: kind as CodexProgression["kind"],
+      entryId: optionalStringValue(binding.entryId) ?? null,
+      relationId: optionalStringValue(binding.relationId) ?? null,
+      field,
+      fieldKey: optionalStringValue(binding.fieldKey) ?? null,
+      effectiveFromSceneId,
+      effectiveToSceneId: optionalStringValue(binding.effectiveToSceneId) ?? null,
+    },
+  };
+}
+
 function parseProgressionDrafts(value: unknown): WorkshopCodexProgressionDraft[] {
   if (!Array.isArray(value)) return [];
   const drafts: WorkshopCodexProgressionDraft[] = [];
@@ -460,26 +515,27 @@ function parseProgressionDrafts(value: unknown): WorkshopCodexProgressionDraft[]
     }
     const progressionId = optionalStringValue(record.progressionId);
     if (!progressionId) continue;
+    const baseline = parseProgressionBaseline(record.baseline);
     if (action === "update") {
       const baseRevision = optionalStringValue(rawInput.baseRevision ?? record.baseRevision);
-      if (!baseRevision) continue;
       drafts.push({
         action: "update",
         progressionId,
         input: {
           ...rawInput,
-          baseRevision,
-        } as Partial<UpdateCodexProgressionInput> & { baseRevision: string },
+          ...(baseRevision ? { baseRevision } : {}),
+        } as Partial<UpdateCodexProgressionInput>,
+        ...(baseline ? { baseline } : {}),
       });
       continue;
     }
     if (action === "delete") {
       const baseRevision = optionalStringValue(rawInput.baseRevision ?? record.baseRevision);
-      if (!baseRevision) continue;
       drafts.push({
         action: "delete",
         progressionId,
-        input: { baseRevision },
+        input: baseRevision ? { baseRevision } : {},
+        ...(baseline ? { baseline } : {}),
       });
     }
   }
@@ -544,6 +600,14 @@ function parseStructuredCodexUpdateEntryToolRequest(content: string): CodexUpdat
     normalizedPatch.research !== undefined;
   if (!hasPatch) return null;
 
+  const baselineRecord = recordValue((draft as unknown as Record<string, unknown>).baseline);
+  const entryRevision = optionalStringValue(baselineRecord?.entryRevision);
+  const researchRevision = optionalStringValue(baselineRecord?.researchRevision);
+  const baseline = entryRevision?.match(/^[a-f0-9]{64}$/u) &&
+      researchRevision?.match(/^[a-f0-9]{64}$/u)
+    ? { entryRevision, researchRevision }
+    : undefined;
+
   return {
     schemaVersion: 1,
     tool: "codex.update_entry",
@@ -553,6 +617,7 @@ function parseStructuredCodexUpdateEntryToolRequest(content: string): CodexUpdat
         ...(targetName ? { name: targetName } : {}),
       },
       patch: normalizedPatch,
+      ...(baseline ? { baseline } : {}),
     },
   };
 }
@@ -737,6 +802,9 @@ export function codexUpdateEntryInputFromWorkshopDraft(
   detailTypes: CodexDetailTypeDocument[],
   detailMappings: WorkshopCodexDraftDetailMapping[] = [],
 ): UpdateCodexEntryInput | null {
+  if (!draft.baseline) {
+    throw new Error("Codex update tool request is missing server-owned draft baselines.");
+  }
   const input: Partial<UpdateCodexEntryInput> = {};
   let changesEntry = false;
 
@@ -770,10 +838,10 @@ export function codexUpdateEntryInputFromWorkshopDraft(
   }
 
   if (changesEntry) {
-    input.baseRevision = entry.revision;
+    input.baseRevision = draft.baseline.entryRevision;
   }
   if (draft.patch.research !== undefined) {
-    input.baseResearchRevision = entry.research.revision;
+    input.baseResearchRevision = draft.baseline.researchRevision;
     input.research = mergedResearch(entry.research.content, draft.patch.research);
   }
   if (!changesEntry && input.research === undefined) {

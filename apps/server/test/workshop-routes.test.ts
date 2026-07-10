@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -31,7 +31,7 @@ async function createSeriesWithMockProfile(model = "mock-continuity-v1") {
     },
   });
   expect(profile.statusCode).toBe(201);
-  return { app, series, profile: profile.json() };
+  return { app, root, series, profile: profile.json() };
 }
 
 async function createPromptFixture(
@@ -90,7 +90,7 @@ async function createSeriesWithOpenAiCompatibleProfile(
     },
   });
   expect(profile.statusCode).toBe(201);
-  return { app, series, profile: profile.json() };
+  return { app, root, series, profile: profile.json() };
 }
 
 function parseSseEvents(payload: string): Array<Record<string, unknown>> {
@@ -2048,7 +2048,7 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
-  it("executes an author-approved Agent codex.create_entry tool call as a new Codex entry", async () => {
+  it("atomically executes an approved Agent codex.create_entry command", async () => {
     const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(agentToolStep({
       tool: "codex.create_entry",
       message: "已整理为待确认的 Codex 草稿。",
@@ -2409,7 +2409,68 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
-  it("executes Agent codex.update_entry progression create update and delete operations", async () => {
+  it("leaves confirmed detail types uncreated when an atomic create command fails", async () => {
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(agentToolStep({
+      tool: "codex.create_entry",
+      draft: {
+        aliases: [],
+        categoryId: "character",
+        description: "Atomic create must not leave partial detail types.",
+        details: [{ label: "Status", value: "Active" }],
+        name: "Atomic Create Failure",
+        research: "Author decision.",
+      },
+    })));
+    const existingDetailType = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: { categoryId: "character", name: "Appearance" },
+    });
+    expect(existingDetailType.statusCode).toBe(201);
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Atomic create failure" },
+    });
+    const session = sessionResponse.json();
+    const draftMessage = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
+    });
+    const execute = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.create_entry/execute`,
+      payload: {
+        confirm: true,
+        createMissingDetailTypes: true,
+        detailCreations: [{ label: "Status", name: "Appearance" }],
+      },
+    });
+    expect(execute.statusCode).toBe(400);
+    const detailTypes = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types?categoryId=character`,
+    });
+    expect(detailTypes.json().map((item: { detailType: { name: string } }) => item.detailType.name))
+      .toEqual(["Appearance"]);
+    const entries = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+    });
+    expect(entries.json()).toEqual([]);
+    const messages = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+    });
+    expect(messages.json().some((message: { role: string }) => message.role === "result"))
+      .toBe(false);
+
+    await app.close();
+  });
+
+  it("atomically executes Agent codex.update_entry entry research and progression changes", async () => {
     let agentResponseText = "";
     const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(() => agentResponseText));
     const scene = series.scenes[0]!;
@@ -2469,6 +2530,8 @@ describe("M5 Workshop API routes", () => {
       draft: {
         target: { entryId: entry.metadata.id },
         patch: {
+          name: "Alice Updated",
+          research: "Author confirmed the combined update in this Agent session.",
           progressions: [
             {
               action: "create",
@@ -2515,6 +2578,8 @@ describe("M5 Workshop API routes", () => {
     });
     expect(apply.statusCode).toBe(201);
     expect(apply.json().entry.metadata.id).toBe(entry.metadata.id);
+    expect(apply.json().entry.metadata.name).toBe("Alice Updated");
+    expect(apply.json().entry.research.content).toContain("Author confirmed the combined update");
     expect(apply.json().createdProgressions).toHaveLength(1);
     expect(apply.json().createdProgressions[0].progression).toMatchObject({
       entryId: entry.metadata.id,
@@ -2562,7 +2627,7 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
-  it("records a failed Agent tool execution and refuses to replay it after a post-claim write failure", async () => {
+  it("leaves every semantic target unchanged when an atomic update command becomes stale", async () => {
     let agentResponseText = "";
     const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(() => agentResponseText));
     const sessionResponse = await app.inject({
@@ -2583,19 +2648,35 @@ describe("M5 Workshop API routes", () => {
     });
     expect(entryResponse.statusCode).toBe(201);
     const entry = entryResponse.json();
+    const progressionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        kind: "field",
+        entryId: entry.metadata.id,
+        field: { kind: "description", detailTypeId: null },
+        operation: "replace",
+        body: "Original progression body.",
+        summary: "Original progression summary.",
+        effectiveFromSceneId: series.scenes[0]!.metadata.id,
+        source: { kind: "codex-page", sceneId: null, blockId: null, sourceId: null },
+        evidence: [],
+      },
+    });
+    expect(progressionResponse.statusCode).toBe(201);
+    const progression = progressionResponse.json();
 
     agentResponseText = agentToolStep({
       tool: "codex.update_entry",
       draft: {
         target: { entryId: entry.metadata.id },
         patch: {
-          name: "Alice partially updated",
+          name: "Alice must not be partially updated",
           progressions: [{
             action: "update",
-            progressionId: "11111111-1111-4111-8111-111111111199",
+            progressionId: progression.progression.id,
             input: {
-              baseRevision: "0".repeat(64),
-              body: "This target does not exist.",
+              body: "Agent progression body.",
             },
           }],
         },
@@ -2607,13 +2688,22 @@ describe("M5 Workshop API routes", () => {
       sessionId: session.id,
       modelProfileId: profile.id,
     });
+    const externalUpdate = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions/${progression.progression.id}`,
+      payload: {
+        baseRevision: progression.revision,
+        body: "External progression update.",
+      },
+    });
+    expect(externalUpdate.statusCode).toBe(200);
     const executeUrl = `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.update_entry/execute`;
     const failed = await app.inject({
       method: "POST",
       url: executeUrl,
       payload: { confirm: true },
     });
-    expect(failed.statusCode).toBe(400);
+    expect(failed.statusCode).toBe(409);
 
     const messages = await app.inject({
       method: "GET",
@@ -2621,7 +2711,7 @@ describe("M5 Workshop API routes", () => {
     });
     expect(messages.statusCode).toBe(200);
     expect(messages.json().find((message: { id: string }) => message.id === draftMessage.id).toolExecution)
-      .toMatchObject({ status: "failed", errorCode: "INVALID_DATA" });
+      .toMatchObject({ status: "failed", errorCode: "CONFLICT" });
     expect(messages.json().map((message: { role: string }) => message.role)).not.toContain("result");
     const contextPreview = await app.inject({
       method: "POST",
@@ -2643,12 +2733,407 @@ describe("M5 Workshop API routes", () => {
     expect(repeated.statusCode).toBe(409);
     expect(repeated.json()).toMatchObject({ code: "WORKSHOP_TOOL_EXECUTION_FAILED" });
 
-    const partiallyUpdatedEntry = await app.inject({
+    const unchangedEntry = await app.inject({
       method: "GET",
       url: `/api/v1/series/${series.manifest.id}/codex/entries/${entry.metadata.id}`,
     });
-    expect(partiallyUpdatedEntry.statusCode).toBe(200);
-    expect(partiallyUpdatedEntry.json().metadata.name).toBe("Alice partially updated");
+    expect(unchangedEntry.statusCode).toBe(200);
+    expect(unchangedEntry.json().metadata.name).toBe("Alice");
+    const progressionAfterFailure = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions/${progression.progression.id}`,
+    });
+    expect(progressionAfterFailure.statusCode).toBe(200);
+    expect(progressionAfterFailure.json().progression.body).toBe("External progression update.");
+
+    await app.close();
+  });
+
+  it("refuses an Agent Codex update after its entry or research baseline becomes stale", async () => {
+    let agentResponseText = "";
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(
+      openAiStreamFetch(() => agentResponseText),
+    );
+
+    for (const staleTarget of ["entry", "research"] as const) {
+      const sessionResponse = await app.inject({
+        method: "POST",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+        payload: { kind: "agent", title: `Stale ${staleTarget} baseline` },
+      });
+      const session = sessionResponse.json();
+      const entryResponse = await app.inject({
+        method: "POST",
+        url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+        payload: {
+          categoryId: "character",
+          name: `Baseline ${staleTarget}`,
+          description: "Original description.",
+          research: "Original research.",
+        },
+      });
+      const entry = entryResponse.json();
+      agentResponseText = agentToolStep({
+        tool: "codex.update_entry",
+        draft: {
+          target: { entryId: entry.metadata.id },
+          patch: {
+            name: `Agent ${staleTarget} update`,
+            research: `Agent ${staleTarget} research.`,
+          },
+        },
+      });
+      const draftMessage = await createAgentToolMessage({
+        app,
+        seriesId: series.manifest.id,
+        sessionId: session.id,
+        modelProfileId: profile.id,
+      });
+      const captured = JSON.parse(draftMessage.content);
+      expect(captured.draft.baseline).toEqual({
+        entryRevision: entry.revision,
+        researchRevision: entry.research.revision,
+      });
+
+      const externalUpdate = await app.inject({
+        method: "PUT",
+        url: `/api/v1/series/${series.manifest.id}/codex/entries/${entry.metadata.id}`,
+        payload: staleTarget === "entry"
+          ? { baseRevision: entry.revision, name: `External ${staleTarget} update` }
+          : {
+            baseResearchRevision: entry.research.revision,
+            research: `External ${staleTarget} update`,
+          },
+      });
+      expect(externalUpdate.statusCode).toBe(200);
+
+      const execute = await app.inject({
+        method: "POST",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.update_entry/execute`,
+        payload: { confirm: true },
+      });
+      expect(execute.statusCode).toBe(409);
+      expect(execute.json().code).toBe("CONFLICT");
+      const after = await app.inject({
+        method: "GET",
+        url: `/api/v1/series/${series.manifest.id}/codex/entries/${entry.metadata.id}`,
+      });
+      expect(after.statusCode).toBe(200);
+      expect(after.json().metadata.name).toBe(
+        staleTarget === "entry" ? `External ${staleTarget} update` : `Baseline ${staleTarget}`,
+      );
+      expect(after.json().research.content).toBe(
+        staleTarget === "research" ? `External ${staleTarget} update` : "Original research.",
+      );
+      const messages = await app.inject({
+        method: "GET",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+      });
+      expect(messages.json().some((message: { role: string }) => message.role === "result"))
+        .toBe(false);
+    }
+
+    await app.close();
+  });
+
+  it("refuses legacy update requests without server-owned baselines", async () => {
+    let agentResponseText = "";
+    const { app, root, series, profile } = await createSeriesWithOpenAiCompatibleProfile(
+      openAiStreamFetch(() => agentResponseText),
+    );
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Legacy baseline" },
+    });
+    const session = sessionResponse.json();
+    const entryResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: { categoryId: "character", name: "Legacy Alice", description: "Original." },
+    });
+    const entry = entryResponse.json();
+    agentResponseText = agentToolStep({
+      tool: "codex.update_entry",
+      draft: {
+        target: { entryId: entry.metadata.id },
+        patch: { description: "Unsafe legacy update." },
+      },
+    });
+    const draftMessage = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
+    });
+    const seriesDirectory = (await readdir(root, { withFileTypes: true }))
+      .find((item) => item.isDirectory() && item.name.endsWith(series.manifest.id.slice(0, 8)));
+    if (!seriesDirectory) throw new Error("Expected the Series directory");
+    const messagePath = path.join(
+      root,
+      seriesDirectory.name,
+      "workshop",
+      "messages",
+      `${draftMessage.id}.json`,
+    );
+    const messageAuthority = JSON.parse(await readFile(messagePath, "utf8"));
+    const legacyRequest = JSON.parse(messageAuthority.content);
+    delete legacyRequest.draft.baseline;
+    messageAuthority.content = JSON.stringify(legacyRequest, null, 2);
+    await writeFile(messagePath, `${JSON.stringify(messageAuthority, null, 2)}\n`, "utf8");
+
+    const execute = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.update_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(execute.statusCode).toBe(409);
+    expect(execute.json().code).toBe("WORKSHOP_TOOL_BASELINE_REQUIRED");
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries/${entry.metadata.id}`,
+    });
+    expect(after.json().description).toBe("Original.");
+
+    await app.close();
+  });
+
+  it("rejects cross-entry and unrelated-relation progression targets", async () => {
+    let agentResponseText = "";
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(
+      openAiStreamFetch(() => agentResponseText),
+    );
+    const entries = [];
+    for (const name of ["Target", "Other", "Third"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+        payload: { categoryId: "character", name, description: `${name} description.` },
+      });
+      entries.push(response.json());
+    }
+    const relationResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/relations`,
+      payload: {
+        sourceEntryId: entries[1].metadata.id,
+        targetEntryId: entries[2].metadata.id,
+        type: "knows",
+        directed: true,
+      },
+    });
+    expect(relationResponse.statusCode).toBe(201);
+    const relation = relationResponse.json();
+    const fieldProgression = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        kind: "field",
+        entryId: entries[1].metadata.id,
+        field: { kind: "description", detailTypeId: null },
+        operation: "replace",
+        body: "Other state.",
+        summary: "Other state.",
+        effectiveFromSceneId: series.scenes[0]!.metadata.id,
+        source: { kind: "codex-page", sceneId: null, blockId: null, sourceId: null },
+        evidence: [],
+      },
+    });
+    const relationProgression = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        kind: "relationship",
+        relationId: relation.relation.id,
+        fieldKey: "status",
+        operation: "replace",
+        body: "strained",
+        summary: "Relation became strained.",
+        effectiveFromSceneId: series.scenes[0]!.metadata.id,
+        source: { kind: "codex-page", sceneId: null, blockId: null, sourceId: null },
+        evidence: [{
+          sourceType: "relation",
+          sourceId: relation.relation.id,
+          quote: "",
+          note: "Existing relation evidence.",
+        }],
+      },
+    });
+    expect(fieldProgression.statusCode).toBe(201);
+    expect(relationProgression.statusCode).toBe(201);
+
+    for (const progression of [fieldProgression.json(), relationProgression.json()]) {
+      const sessionResponse = await app.inject({
+        method: "POST",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+        payload: { kind: "agent", title: "Wrong progression target" },
+      });
+      const session = sessionResponse.json();
+      agentResponseText = agentToolStep({
+        tool: "codex.update_entry",
+        draft: {
+          target: { entryId: entries[0].metadata.id },
+          patch: {
+            progressions: [{
+              action: "update",
+              progressionId: progression.progression.id,
+              input: { body: "Must not apply." },
+            }],
+          },
+        },
+      });
+      const call = await app.inject({
+        method: "POST",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+        payload: {
+          mode: "agent",
+          userRequest: "Update the progression.",
+          modelProfileId: profile.id,
+        },
+      });
+      expect(call.statusCode).toBe(200);
+      expect(call.json().toolMessages).toEqual([]);
+      expect(call.json().assistantMessage.content).toMatch(/does not belong|does not involve/iu);
+      const unchanged = await app.inject({
+        method: "GET",
+        url: `/api/v1/series/${series.manifest.id}/codex/progressions/${progression.progression.id}`,
+      });
+      expect(unchanged.json().progression.body).toBe(progression.progression.body);
+    }
+
+    await app.close();
+  });
+
+  it("rejects progression Scene moves without changing authority", async () => {
+    let agentResponseText = "";
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(
+      openAiStreamFetch(() => agentResponseText),
+    );
+    const entryResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: { categoryId: "character", name: "Scene Bound", description: "Original." },
+    });
+    const entry = entryResponse.json();
+    const progressionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions`,
+      payload: {
+        kind: "field",
+        entryId: entry.metadata.id,
+        field: { kind: "description", detailTypeId: null },
+        operation: "replace",
+        body: "Scene-bound body.",
+        summary: "Scene-bound summary.",
+        effectiveFromSceneId: series.scenes[0]!.metadata.id,
+        source: { kind: "codex-page", sceneId: null, blockId: null, sourceId: null },
+        evidence: [],
+      },
+    });
+    const progression = progressionResponse.json();
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Scene move" },
+    });
+    const session = sessionResponse.json();
+    agentResponseText = agentToolStep({
+      tool: "codex.update_entry",
+      draft: {
+        target: { entryId: entry.metadata.id },
+        patch: {
+          progressions: [{
+            action: "update",
+            progressionId: progression.progression.id,
+            input: {
+              body: "Moved body.",
+              effectiveFromSceneId: "11111111-1111-4111-8111-111111111199",
+            },
+          }],
+        },
+      },
+    });
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "agent",
+        userRequest: "Move this progression.",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(call.statusCode).toBe(200);
+    expect(call.json().toolMessages).toEqual([]);
+    expect(call.json().assistantMessage.content).toContain("effective Scene cannot be changed");
+    const unchanged = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/progressions/${progression.progression.id}`,
+    });
+    expect(unchanged.json().progression).toMatchObject({
+      body: "Scene-bound body.",
+      effectiveFromSceneId: series.scenes[0]!.metadata.id,
+    });
+
+    await app.close();
+  });
+
+  it("binds Agent Codex execution to the exact confirmation payload", async () => {
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(
+      openAiStreamFetch(agentToolStep({
+        tool: "codex.create_entry",
+        draft: {
+          aliases: [],
+          categoryId: "character",
+          description: "Confirmation identity entry.",
+          details: [{ label: "Status", value: "Active" }],
+          name: "Confirmation Identity",
+          research: "Author decision.",
+        },
+      })),
+    );
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Confirmation identity" },
+    });
+    const session = sessionResponse.json();
+    const draftMessage = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
+    });
+    const executeUrl = `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.create_entry/execute`;
+    const first = await app.inject({
+      method: "POST",
+      url: executeUrl,
+      payload: {
+        confirm: true,
+        createMissingDetailTypes: true,
+        detailCreations: [{ label: "Status", name: "State" }],
+      },
+    });
+    expect(first.statusCode).toBe(201);
+    expect(first.json().createdDetailTypes[0].detailType.name).toBe("State");
+
+    const changedConfirmation = await app.inject({
+      method: "POST",
+      url: executeUrl,
+      payload: {
+        confirm: true,
+        createMissingDetailTypes: true,
+        detailCreations: [{ label: "Status", name: "Condition" }],
+      },
+    });
+    expect(changedConfirmation.statusCode).toBe(409);
+    expect(changedConfirmation.json().code).toBe("WORKSHOP_TOOL_EXECUTION_CONFLICT");
+    const entries = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+    });
+    expect(entries.json().filter((item: { metadata: { name: string } }) =>
+      item.metadata.name === "Confirmation Identity"
+    )).toHaveLength(1);
 
     await app.close();
   });

@@ -30,12 +30,10 @@ import {
   WorkshopToolExecutionSchema,
   CreateCodexProgressionInputSchema,
   UpdateCodexProgressionInputSchema,
-  DeleteCodexDocumentInputSchema,
   type CodexDetailTypeDocument,
   type CodexEntryDocument,
   type CodexProgressionDocument,
   type ContextBundle,
-  type DeleteCodexProgressionResult,
   type ModelCallError,
   type ModelCallLog,
   type ModelParameters,
@@ -49,7 +47,12 @@ import {
   type WorkshopToolExecution,
 } from "@novel-studio/contracts";
 import type { ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
-import type { ProjectRepository } from "@novel-studio/storage";
+import type {
+  ProjectRepository,
+  WorkshopCodexDetailTypeCreationCommand,
+  WorkshopCodexProgressionBinding,
+  WorkshopCodexProgressionCommand,
+} from "@novel-studio/storage";
 import {
   ensureCredentialBoundary,
   modelError,
@@ -84,8 +87,37 @@ function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-function workshopToolRequestHash(message: WorkshopMessage): string {
-  return hashText(message.content);
+function workshopToolConfirmationIdentity(input: {
+  confirm: true;
+  createMissingDetailTypes?: boolean;
+  detailCreations?: Array<{ label: string; name: string }>;
+  detailMappings?: WorkshopCodexDraftDetailMapping[];
+}) {
+  return {
+    confirm: true,
+    createMissingDetailTypes: input.createMissingDetailTypes ?? false,
+    detailCreations: [...(input.detailCreations ?? [])]
+      .map((item) => ({ label: item.label.trim(), name: item.name.trim() }))
+      .sort((left, right) =>
+        left.label.localeCompare(right.label, "und") || left.name.localeCompare(right.name, "und")
+      ),
+    detailMappings: [...(input.detailMappings ?? [])]
+      .map((item) => ({ label: item.label.trim(), detailTypeId: item.detailTypeId }))
+      .sort((left, right) =>
+        left.label.localeCompare(right.label, "und") ||
+        left.detailTypeId.localeCompare(right.detailTypeId)
+      ),
+  };
+}
+
+function workshopToolRequestHash(
+  message: WorkshopMessage,
+  confirmation?: Parameters<typeof workshopToolConfirmationIdentity>[0],
+): string {
+  return hashText(JSON.stringify({
+    toolRequest: message.content,
+    confirmation: confirmation ? workshopToolConfirmationIdentity(confirmation) : null,
+  }));
 }
 
 function workshopToolConflict(message: WorkshopMessage, requestHash: string): { code: string; message: string } | null {
@@ -113,31 +145,6 @@ function workshopToolConflict(message: WorkshopMessage, requestHash: string): { 
     code: "WORKSHOP_TOOL_EXECUTION_FAILED",
     message: "This Workshop tool message already has a failed execution record.",
   };
-}
-
-async function markWorkshopToolExecutionSucceeded(input: {
-  repository: ProjectRepository;
-  seriesId: string;
-  message: WorkshopMessage;
-  resultMessageId: string;
-}): Promise<WorkshopMessage> {
-  const current = input.message.toolExecution;
-  const completedAt = new Date().toISOString();
-  const execution = WorkshopToolExecutionSchema.parse({
-    requestHash: current?.requestHash ?? workshopToolRequestHash(input.message),
-    status: "succeeded",
-    startedAt: current?.startedAt ?? completedAt,
-    completedAt,
-    resultMessageId: input.resultMessageId,
-    errorCode: null,
-    errorMessage: null,
-  }) as WorkshopToolExecution;
-  return input.repository.updateWorkshopMessageToolExecution(
-    input.seriesId,
-    input.message.sessionId,
-    input.message.id,
-    execution,
-  );
 }
 
 async function markWorkshopToolExecutionFailed(input: {
@@ -633,6 +640,151 @@ async function resolveCodexUpdateTarget(input: {
   return matches[0]!;
 }
 
+function progressionBindingFromDocument(
+  document: CodexProgressionDocument,
+): WorkshopCodexProgressionBinding {
+  return {
+    kind: document.progression.kind,
+    entryId: document.progression.entryId,
+    relationId: document.progression.relationId,
+    field: document.progression.field,
+    fieldKey: document.progression.fieldKey,
+    effectiveFromSceneId: document.progression.effectiveFromSceneId,
+    effectiveToSceneId: document.progression.effectiveToSceneId,
+  };
+}
+
+async function assertProgressionTargetsWorkshopEntry(input: {
+  entryId: string;
+  progression: CodexProgressionDocument["progression"];
+  repository: ProjectRepository;
+  seriesId: string;
+}): Promise<void> {
+  if (input.progression.kind === "field" || input.progression.kind === "world") {
+    if (input.progression.entryId !== input.entryId) {
+      throw new CodexUpdateTargetResolutionError(
+        "Progression target does not belong to the Codex entry being updated.",
+        409,
+        "CONFLICT",
+      );
+    }
+    return;
+  }
+  const relations = await input.repository.listCodexRelations(input.seriesId, {
+    entryId: input.entryId,
+    includeArchived: false,
+  });
+  if (!relations.some((document) => document.relation.id === input.progression.relationId)) {
+    throw new CodexUpdateTargetResolutionError(
+      "Progression relation does not involve the Codex entry being updated.",
+      409,
+      "CONFLICT",
+    );
+  }
+}
+
+async function captureCodexUpdateDraftBaselines(input: {
+  draft: WorkshopCodexUpdateDraft;
+  repository: ProjectRepository;
+  seriesId: string;
+}): Promise<WorkshopCodexUpdateDraft> {
+  const entry = await resolveCodexUpdateTarget({
+    ...(input.draft.target.entryId ? { entryId: input.draft.target.entryId } : {}),
+    ...(input.draft.target.name ? { name: input.draft.target.name } : {}),
+    repository: input.repository,
+    seriesId: input.seriesId,
+  });
+  const progressions: WorkshopCodexProgressionDraft[] = [];
+  for (const draft of input.draft.patch.progressions ?? []) {
+    if (draft.action === "create") {
+      const progressionInput = codexProgressionCreateInputFromDraft(draft, entry);
+      await assertProgressionTargetsWorkshopEntry({
+        entryId: entry.metadata.id,
+        progression: {
+          ...progressionInput,
+          schemaVersion: 1,
+          id: randomUUID(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          archivedAt: null,
+        },
+        repository: input.repository,
+        seriesId: input.seriesId,
+      });
+      progressions.push({ action: "create", input: progressionInput });
+      continue;
+    }
+    const current = await input.repository.getCodexProgression(
+      input.seriesId,
+      draft.progressionId,
+    );
+    await assertProgressionTargetsWorkshopEntry({
+      entryId: entry.metadata.id,
+      progression: current.progression,
+      repository: input.repository,
+      seriesId: input.seriesId,
+    });
+    const baseline = {
+      revision: current.revision,
+      binding: progressionBindingFromDocument(current),
+    };
+    if (draft.action === "delete") {
+      progressions.push({
+        action: "delete",
+        progressionId: draft.progressionId,
+        input: { baseRevision: current.revision },
+        baseline,
+      });
+      continue;
+    }
+    const requested = { ...draft.input } as Record<string, unknown>;
+    const protectedFields = [
+      "kind",
+      "entryId",
+      "relationId",
+      "field",
+      "fieldKey",
+      "effectiveFromSceneId",
+      "effectiveToSceneId",
+      "source",
+    ];
+    const attemptedRetarget = protectedFields.find((field) =>
+      Object.prototype.hasOwnProperty.call(requested, field) &&
+      JSON.stringify(requested[field]) !==
+        JSON.stringify((current.progression as unknown as Record<string, unknown>)[field])
+    );
+    if (attemptedRetarget) {
+      throw new CodexUpdateTargetResolutionError(
+        "Progression target and effective Scene cannot be changed by codex.update_entry.",
+        409,
+        "CONFLICT",
+      );
+    }
+    for (const field of protectedFields) delete requested[field];
+    delete requested.baseRevision;
+    progressions.push({
+      action: "update",
+      progressionId: draft.progressionId,
+      input: {
+        ...requested,
+        baseRevision: current.revision,
+      },
+      baseline,
+    });
+  }
+  return {
+    target: { entryId: entry.metadata.id },
+    patch: {
+      ...input.draft.patch,
+      ...(input.draft.patch.progressions ? { progressions } : {}),
+    },
+    baseline: {
+      entryRevision: entry.revision,
+      researchRevision: entry.research.revision,
+    },
+  };
+}
+
 function codexProgressionCreateInputFromDraft(
   draft: Extract<WorkshopCodexProgressionDraft, { action: "create" }>,
   targetEntry: CodexEntryDocument,
@@ -655,52 +807,103 @@ function codexProgressionCreateInputFromDraft(
   return CreateCodexProgressionInputSchema.parse(input);
 }
 
-function codexProgressionUpdateInputFromDraft(
-  draft: Extract<WorkshopCodexProgressionDraft, { action: "update" }>,
-) {
-  return UpdateCodexProgressionInputSchema.parse(draft.input);
-}
-
-function codexProgressionDeleteInputFromDraft(
-  draft: Extract<WorkshopCodexProgressionDraft, { action: "delete" }>,
-) {
-  return DeleteCodexDocumentInputSchema.parse(draft.input);
-}
-
-async function executeCodexProgressionDrafts(input: {
-  drafts: WorkshopCodexProgressionDraft[];
-  entry: CodexEntryDocument;
-  repository: ProjectRepository;
-  seriesId: string;
-}): Promise<{
-  createdProgressions: CodexProgressionDocument[];
-  deletedProgressions: DeleteCodexProgressionResult[];
-  updatedProgressions: CodexProgressionDocument[];
-}> {
-  const createdProgressions: CodexProgressionDocument[] = [];
-  const updatedProgressions: CodexProgressionDocument[] = [];
-  const deletedProgressions: DeleteCodexProgressionResult[] = [];
-  for (const draft of input.drafts) {
+function progressionCommandsFromDraft(
+  drafts: WorkshopCodexProgressionDraft[],
+  entry: CodexEntryDocument,
+): WorkshopCodexProgressionCommand[] {
+  return drafts.map((draft) => {
     if (draft.action === "create") {
-      createdProgressions.push(await input.repository.createCodexProgression(
-        input.seriesId,
-        codexProgressionCreateInputFromDraft(draft, input.entry),
-      ));
-    } else if (draft.action === "update") {
-      updatedProgressions.push(await input.repository.updateCodexProgression(
-        input.seriesId,
-        draft.progressionId,
-        codexProgressionUpdateInputFromDraft(draft),
-      ));
-    } else {
-      deletedProgressions.push(await input.repository.deleteCodexProgression(
-        input.seriesId,
-        draft.progressionId,
-        codexProgressionDeleteInputFromDraft(draft),
-      ));
+      return {
+        action: "create",
+        input: codexProgressionCreateInputFromDraft(draft, entry),
+      };
+    }
+    if (!draft.baseline) {
+      throw new Error("Codex update tool request is missing a Progression baseline.");
+    }
+    if (draft.action === "update") {
+      const rawInput = { ...draft.input } as Record<string, unknown>;
+      delete rawInput.kind;
+      delete rawInput.entryId;
+      delete rawInput.relationId;
+      delete rawInput.field;
+      delete rawInput.fieldKey;
+      delete rawInput.effectiveFromSceneId;
+      delete rawInput.effectiveToSceneId;
+      delete rawInput.source;
+      return {
+        action: "update",
+        progressionId: draft.progressionId,
+        baseRevision: draft.baseline.revision,
+        binding: draft.baseline.binding,
+        input: UpdateCodexProgressionInputSchema.parse({
+          ...rawInput,
+          baseRevision: draft.baseline.revision,
+        }),
+      };
+    }
+    return {
+      action: "delete",
+      progressionId: draft.progressionId,
+      baseRevision: draft.baseline.revision,
+      binding: draft.baseline.binding,
+    };
+  });
+}
+
+function planWorkshopDetailTypeCreations(input: {
+  categoryId: string;
+  confirmation: {
+    detailCreations: Array<{ label: string; name: string }>;
+  };
+  missing: WorkshopCodexDraftMissingDetailType[];
+}): {
+  commands: WorkshopCodexDetailTypeCreationCommand[];
+  documents: CodexDetailTypeDocument[];
+  mappings: WorkshopCodexDraftDetailMapping[];
+} {
+  const requested = new Map<string, { label: string; name: string }>();
+  for (const creation of input.confirmation.detailCreations) {
+    const key = normalizeCodexLookupName(creation.label);
+    if (requested.has(key)) {
+      throw new Error(`Detail type creation for "${creation.label}" is duplicated.`);
+    }
+    requested.set(key, creation);
+  }
+  const missingKeys = new Set(input.missing.map((item) => normalizeCodexLookupName(item.label)));
+  for (const [key, creation] of requested) {
+    if (!missingKeys.has(key)) {
+      throw new Error(`Detail type creation for "${creation.label}" is not required by this draft.`);
     }
   }
-  return { createdProgressions, deletedProgressions, updatedProgressions };
+  const now = new Date().toISOString();
+  const commands = input.missing.map((item) => {
+    const requestedCreation = requested.get(normalizeCodexLookupName(item.label));
+    return {
+      id: randomUUID(),
+      name: requestedCreation?.name ?? item.label,
+      nsfw: false,
+    };
+  });
+  return {
+    commands,
+    mappings: input.missing.map((item, index) => ({
+      label: item.label,
+      detailTypeId: commands[index]!.id,
+    })),
+    documents: commands.map((command) => ({
+      detailType: {
+        schemaVersion: 1,
+        id: command.id,
+        categoryId: input.categoryId,
+        name: command.name,
+        nsfw: command.nsfw ?? false,
+        createdAt: now,
+        updatedAt: now,
+      },
+      revision: "0".repeat(64),
+    } as CodexDetailTypeDocument)),
+  };
 }
 
 export function registerWorkshopRoutes(
@@ -1009,13 +1212,13 @@ export function registerWorkshopRoutes(
           message: "Archived Workshop sessions cannot execute Agent tool requests.",
         });
       }
-      const toolRequestHash = workshopToolRequestHash(source.message);
+      const toolRequestHash = workshopToolRequestHash(source.message, input);
       const conflict = workshopToolConflict(source.message, toolRequestHash);
       if (conflict) {
         return reply.status(409).send(conflict);
       }
       let codexInput;
-      let createdDetailTypes: CodexDetailTypeDocument[] = [];
+      let detailTypeCreations: WorkshopCodexDetailTypeCreationCommand[] = [];
       let missingDetailTypes: WorkshopCodexDraftMissingDetailType[] = [];
       let draft: WorkshopCodexCreateDraft | null = null;
       let detailTypes: CodexDetailTypeDocument[] = [];
@@ -1057,6 +1260,26 @@ export function registerWorkshopRoutes(
           message: "Codex Draft could not be parsed.",
         });
       }
+      if (missingDetailTypes.length > 0) {
+        try {
+          const planned = planWorkshopDetailTypeCreations({
+            categoryId: draft.categoryId,
+            confirmation: input,
+            missing: missingDetailTypes,
+          });
+          detailTypeCreations = planned.commands;
+          codexInput = codexCreateEntryInputFromWorkshopDraft(
+            draft,
+            [...detailTypes, ...planned.documents],
+            [...input.detailMappings, ...planned.mappings],
+          );
+        } catch (error) {
+          return reply.status(400).send({
+            code: "INVALID_DATA",
+            message: error instanceof Error ? error.message : "Detail type creation could not be planned.",
+          });
+        }
+      }
       const claim = await repository.claimWorkshopMessageToolExecution(
         request.params.seriesId,
         source.session.id,
@@ -1075,75 +1298,35 @@ export function registerWorkshopRoutes(
           message: "This Workshop tool message already has an execution record.",
         });
       }
-      let executingMessage = claim.message;
       try {
-        if (missingDetailTypes.length > 0) {
-          createdDetailTypes = [];
-          for (const missingDetailType of missingDetailTypes) {
-            createdDetailTypes.push(
-              await repository.createCodexDetailType(request.params.seriesId, {
-                categoryId: draft.categoryId,
-                name: missingDetailType.label,
-                nsfw: false,
-              }),
-            );
-          }
-          codexInput = codexCreateEntryInputFromWorkshopDraft(
-            draft,
-            [...detailTypes, ...createdDetailTypes],
-            input.detailMappings,
-          );
-        }
         if (!codexInput) {
           throw new Error("Codex Draft could not be applied.");
         }
-        const entry = await repository.createCodexEntry(request.params.seriesId, codexInput);
-        const resultMessage = await repository.saveWorkshopMessage(
+        const result = await repository.executeWorkshopCodexCreateCommand(
           request.params.seriesId,
-          WorkshopMessageSchema.parse({
-            schemaVersion: 1,
-            id: randomUUID(),
-            seriesId: request.params.seriesId,
+          {
             sessionId: source.session.id,
-            role: "result",
-            mode: "agent",
-            status: "succeeded",
-            content: `codex.create_entry created Codex entry: ${entry.metadata.name}`,
-            reasoningContent: "",
-            contextBundleId: source.message.contextBundleId,
-            modelCallId: source.message.modelCallId,
-            proposalIds: [],
-            attachmentIds: [],
-            errorCode: null,
-            errorMessage: null,
-            createdAt: new Date().toISOString(),
-          }),
+            messageId: source.message.id,
+            requestHash: toolRequestHash,
+            detailTypeCreations,
+            entryInput: codexInput,
+          },
         );
-        executingMessage = await markWorkshopToolExecutionSucceeded({
-          repository,
-          seriesId: request.params.seriesId,
-          message: executingMessage,
-          resultMessageId: resultMessage.id,
-        });
-        return reply.status(201).send(
-          WorkshopCodexCreateEntryToolResultSchema.parse({
-            createdDetailTypes,
-            message: executingMessage,
-            resultMessage,
-            entry,
-          }),
-        );
+        return reply.status(201).send(WorkshopCodexCreateEntryToolResultSchema.parse(result));
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Codex Draft could not be applied.";
         await markWorkshopToolExecutionFailed({
           repository,
           seriesId: request.params.seriesId,
-          message: executingMessage,
-          code: "INVALID_DATA",
+          message: claim.message,
+          code: error instanceof Error && "code" in error && error.code === "CONFLICT"
+            ? "CONFLICT"
+            : "INVALID_DATA",
           messageText,
         });
-        return reply.status(400).send({
-          code: "INVALID_DATA",
+        const isConflict = error instanceof Error && "code" in error && error.code === "CONFLICT";
+        return reply.status(isConflict ? 409 : 400).send({
+          code: isConflict ? "CONFLICT" : "INVALID_DATA",
           message: messageText,
         });
       }
@@ -1182,22 +1365,26 @@ export function registerWorkshopRoutes(
           message: "Archived Workshop sessions cannot execute Agent tool requests.",
         });
       }
-      const toolRequestHash = workshopToolRequestHash(source.message);
+      const toolRequestHash = workshopToolRequestHash(source.message, input);
       const conflict = workshopToolConflict(source.message, toolRequestHash);
       if (conflict) {
         return reply.status(409).send(conflict);
       }
       let codexInput;
       let entry: CodexEntryDocument | null = null;
-      let createdDetailTypes: CodexDetailTypeDocument[] = [];
+      let detailTypeCreations: WorkshopCodexDetailTypeCreationCommand[] = [];
       let missingDetailTypes: WorkshopCodexDraftMissingDetailType[] = [];
       let detailTypes: CodexDetailTypeDocument[] = [];
-      let createdProgressions: CodexProgressionDocument[] = [];
-      let updatedProgressions: CodexProgressionDocument[] = [];
-      let deletedProgressions: DeleteCodexProgressionResult[] = [];
+      let progressionCommands: WorkshopCodexProgressionCommand[] = [];
       let toolRequest: CodexUpdateEntryToolRequest | null = null;
       try {
         toolRequest = parseCodexUpdateEntryToolRequest(source.message.content);
+        if (!toolRequest.draft.baseline) {
+          return reply.status(409).send({
+            code: "WORKSHOP_TOOL_BASELINE_REQUIRED",
+            message: "This Codex update request has no server-owned draft baseline and must be regenerated.",
+          });
+        }
         entry = await resolveCodexUpdateTarget({
           ...(toolRequest.draft.target.entryId ? { entryId: toolRequest.draft.target.entryId } : {}),
           ...(toolRequest.draft.target.name ? { name: toolRequest.draft.target.name } : {}),
@@ -1207,6 +1394,10 @@ export function registerWorkshopRoutes(
         detailTypes = await repository.listCodexDetailTypes(request.params.seriesId, {
           categoryId: entry.metadata.categoryId,
         });
+        progressionCommands = progressionCommandsFromDraft(
+          toolRequest.draft.patch.progressions ?? [],
+          entry,
+        );
         try {
           codexInput = codexUpdateEntryInputFromWorkshopDraft(
             entry,
@@ -1246,7 +1437,27 @@ export function registerWorkshopRoutes(
           message: "Codex update draft could not be parsed.",
         });
       }
-      let updatedEntry = entry;
+      if (missingDetailTypes.length > 0) {
+        try {
+          const planned = planWorkshopDetailTypeCreations({
+            categoryId: entry.metadata.categoryId,
+            confirmation: input,
+            missing: missingDetailTypes,
+          });
+          detailTypeCreations = planned.commands;
+          codexInput = codexUpdateEntryInputFromWorkshopDraft(
+            entry,
+            toolRequest.draft,
+            [...detailTypes, ...planned.documents],
+            [...input.detailMappings, ...planned.mappings],
+          );
+        } catch (error) {
+          return reply.status(400).send({
+            code: "INVALID_DATA",
+            message: error instanceof Error ? error.message : "Detail type creation could not be planned.",
+          });
+        }
+      }
       const claim = await repository.claimWorkshopMessageToolExecution(
         request.params.seriesId,
         source.session.id,
@@ -1265,109 +1476,37 @@ export function registerWorkshopRoutes(
           message: "This Workshop tool message already has an execution record.",
         });
       }
-      let executingMessage = claim.message;
       try {
-        if (missingDetailTypes.length > 0) {
-          createdDetailTypes = [];
-          for (const missingDetailType of missingDetailTypes) {
-            createdDetailTypes.push(
-              await repository.createCodexDetailType(request.params.seriesId, {
-                categoryId: entry.metadata.categoryId,
-                name: missingDetailType.label,
-                nsfw: false,
-              }),
-            );
-          }
-          codexInput = codexUpdateEntryInputFromWorkshopDraft(
-            entry,
-            toolRequest.draft,
-            [...detailTypes, ...createdDetailTypes],
-            input.detailMappings,
-          );
+        if (!toolRequest.draft.baseline) {
+          throw new Error("Codex update tool request is missing server-owned draft baselines.");
         }
-        if (codexInput) {
-          updatedEntry = await repository.updateCodexEntry(request.params.seriesId, entry.metadata.id, codexInput);
-        }
-        const progressionResult = await executeCodexProgressionDrafts({
-          drafts: toolRequest.draft.patch.progressions ?? [],
-          entry,
-          repository,
-          seriesId: request.params.seriesId,
-        });
-        createdProgressions = progressionResult.createdProgressions;
-        updatedProgressions = progressionResult.updatedProgressions;
-        deletedProgressions = progressionResult.deletedProgressions;
-      } catch (error) {
-        const messageText = error instanceof Error ? error.message : "Codex progression update draft could not be applied.";
-        await markWorkshopToolExecutionFailed({
-          repository,
-          seriesId: request.params.seriesId,
-          message: executingMessage,
-          code: "INVALID_DATA",
-          messageText,
-        });
-        return reply.status(400).send({
-          code: "INVALID_DATA",
-          message: messageText,
-        });
-      }
-      try {
-        const progressionSummary = [
-          createdProgressions.length ? `${createdProgressions.length} progression(s) created` : "",
-          updatedProgressions.length ? `${updatedProgressions.length} progression(s) updated` : "",
-          deletedProgressions.length ? `${deletedProgressions.length} progression(s) deleted` : "",
-        ].filter(Boolean).join("; ");
-        const resultMessage = await repository.saveWorkshopMessage(
+        const result = await repository.executeWorkshopCodexUpdateCommand(
           request.params.seriesId,
-          WorkshopMessageSchema.parse({
-            schemaVersion: 1,
-            id: randomUUID(),
-            seriesId: request.params.seriesId,
+          {
             sessionId: source.session.id,
-            role: "result",
-            mode: "agent",
-            status: "succeeded",
-            content: progressionSummary
-              ? `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name} (${progressionSummary})`
-              : `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name}`,
-            reasoningContent: "",
-            contextBundleId: source.message.contextBundleId,
-            modelCallId: source.message.modelCallId,
-            proposalIds: [],
-            attachmentIds: [],
-            errorCode: null,
-            errorMessage: null,
-            createdAt: new Date().toISOString(),
-          }),
+            messageId: source.message.id,
+            requestHash: toolRequestHash,
+            entryId: entry.metadata.id,
+            baseEntryRevision: toolRequest.draft.baseline.entryRevision,
+            baseResearchRevision: toolRequest.draft.baseline.researchRevision,
+            detailTypeCreations,
+            entryInput: codexInput ?? null,
+            progressions: progressionCommands,
+          },
         );
-        executingMessage = await markWorkshopToolExecutionSucceeded({
-          repository,
-          seriesId: request.params.seriesId,
-          message: executingMessage,
-          resultMessageId: resultMessage.id,
-        });
-        return reply.status(201).send(
-          WorkshopCodexUpdateEntryToolResultSchema.parse({
-            createdDetailTypes,
-            createdProgressions,
-            deletedProgressions,
-            message: executingMessage,
-            resultMessage,
-            entry: updatedEntry,
-            updatedProgressions,
-          }),
-        );
+        return reply.status(201).send(WorkshopCodexUpdateEntryToolResultSchema.parse(result));
       } catch (error) {
-        const messageText = error instanceof Error ? error.message : "Codex update result could not be recorded.";
+        const messageText = error instanceof Error ? error.message : "Codex update command could not be applied.";
+        const isConflict = error instanceof Error && "code" in error && error.code === "CONFLICT";
         await markWorkshopToolExecutionFailed({
           repository,
           seriesId: request.params.seriesId,
-          message: executingMessage,
-          code: "INVALID_DATA",
+          message: claim.message,
+          code: isConflict ? "CONFLICT" : "INVALID_DATA",
           messageText,
         });
-        return reply.status(400).send({
-          code: "INVALID_DATA",
+        return reply.status(isConflict ? 409 : 400).send({
+          code: isConflict ? "CONFLICT" : "INVALID_DATA",
           message: messageText,
         });
       }
@@ -1582,9 +1721,22 @@ export function registerWorkshopRoutes(
         responseText = assistantContent;
         toolRequestContent = serializeCodexCreateEntryToolRequest(step.draft);
       } else if (step.type === "request_tool" && step.tool === "codex.update_entry") {
-        assistantContent = step.message.trim() || "Prepared a Codex entry update tool request.";
-        responseText = assistantContent;
-        toolRequestContent = serializeCodexUpdateEntryToolRequest(step.draft);
+        try {
+          const capturedDraft = await captureCodexUpdateDraftBaselines({
+            draft: step.draft,
+            repository,
+            seriesId: input.seriesId,
+          });
+          assistantContent = step.message.trim() || "Prepared a Codex entry update tool request.";
+          responseText = assistantContent;
+          toolRequestContent = serializeCodexUpdateEntryToolRequest(capturedDraft);
+        } catch (error) {
+          assistantContent = error instanceof Error
+            ? error.message
+            : "The Codex update target could not be bound safely.";
+          responseText = assistantContent;
+          toolRequestContent = null;
+        }
       } else {
         assistantContent = step.message;
         responseText = step.message;

@@ -118,19 +118,22 @@ function asProgressions(value: unknown): NonNullable<WorkshopCodexUpdatePatch["p
       }
       const progressionId = asString(record.progressionId);
       const baseRevision = asString(rawInput.baseRevision ?? record.baseRevision);
-      if (!progressionId || !baseRevision) return null;
+      if (!progressionId) return null;
       if (action === "update") {
         return {
           action: "update" as const,
           progressionId,
-          input: { ...rawInput, baseRevision },
+          input: {
+            ...rawInput,
+            ...(baseRevision ? { baseRevision } : {}),
+          },
         };
       }
       if (action === "delete") {
         return {
           action: "delete" as const,
           progressionId,
-          input: { baseRevision },
+          input: baseRevision ? { baseRevision } : {},
         };
       }
       return null;

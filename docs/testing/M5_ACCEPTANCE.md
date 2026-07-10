@@ -42,9 +42,9 @@ This record is the milestone evidence index. Child NS task acceptance records ow
 | M5-A30 | planned | Future child NS task must test durable Tool Plan storage and execution refusal without a Grant |
 | M5-A31 | planned | Future child NS task must test expired, scope-mismatched, and plan-hash-mismatched Grants |
 | M5-A32 | planned | Future child NS task must test unauthorized tool refusal before any authority mutation; M5.6A containment is partial evidence only |
-| M5-A33 | planned | NS-507/M5.6B: exact adapter tests for Codex create/update and existing domain/repository command delegation |
+| M5-A33 | passed | `docs/testing/NS-507_ACCEPTANCE.md` NS-507-A02/A03: execute routes delegate to repository-owned atomic create/update commands; success and no-partial-write failure scenarios pass |
 | M5-A34 | planned | Future Tool Plan child NS task: risk classification and dangerous-action-specific confirmation scenarios |
-| M5-A35 | planned | NS-507/M5.6B: draft-time entry/research revisions and stale refusal before mutation |
+| M5-A35 | passed | `docs/testing/NS-507_ACCEPTANCE.md` NS-507-A04/A05: draft-time entry/research/Progression baselines, wrong-target refusal, and effective-Scene immutability pass |
 | M5-A36 | planned | Future Tool Plan child NS task: mixed completed/skipped/failed/blocked result fixture |
 | M5-A37 | planned | Future Tool Plan child NS task: Proposal fallback preserves source, evidence, reason, and target revision |
 | M5-A38 | planned | NS-513/M5.7: two first-round Provider requests prove no peer output in either context |
@@ -58,21 +58,22 @@ This record is the milestone evidence index. Child NS task acceptance records ow
 
 ## Current Limited Tool Evidence
 
-M5.6A containment is verified only for the existing limited Agent Codex path:
+M5.6A containment and NS-507 atomicity are verified for the existing limited Agent Codex path:
 
 - `packages/storage/test/workshop.test.ts` — `atomically claims Agent tool execution and blocks destructive session changes while running`, `preserves successful Agent tool result links across deletion and branching`.
-- `apps/server/test/workshop-routes.test.ts` — `rejects Agent codex.create_entry execution for archived sessions before any Codex write`, `records a failed Agent tool execution and refuses to replay it after a post-claim write failure`.
+- `apps/server/test/workshop-routes.test.ts` — `rejects Agent codex.create_entry execution for archived sessions before any Codex write`, `atomically executes an approved Agent codex.create_entry command`, `atomically executes Agent codex.update_entry entry research and progression changes`, and the stale, wrong-target, Scene-movement, and confirmation-identity refusal scenarios indexed by `docs/testing/NS-507_ACCEPTANCE.md`.
+- `packages/storage/test/file-transactions.test.ts` — per-Series serialization and injected mid-commit rollback scenarios.
 - `apps/web/src/app/AppShell.test.tsx` — `reloads terminal Workshop Agent tool state after execution failure`.
 
-These tests do not pass M5-A30 through M5-A37 because durable Tool Plan/Grant and stale-safe atomic adapters do not yet exist.
+M5.6A alone did not pass M5-A30 through M5-A37. NS-507 now passes M5-A33 and M5-A35 for the limited Codex tools; durable Tool Plan/Grant, dangerous-action confirmation, partial-result reporting, and Proposal fallback remain planned.
 
 ## Milestone Run Ledger
 
-Detailed command history remains in the acceptance records of completed child work and Git history. After GOV-001 normalized the unpublished commit subjects, the latest M5.6A/NS-506 lifecycle baseline is `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps` on `codex/ns-410-json-authority`. GOV-001 changes documentation governance only and does not re-run or re-accept M5 runtime behavior.
+Detailed command history remains in the acceptance records of completed child work and Git history. `docs/testing/NS-507_ACCEPTANCE.md` records the focused adversarial tests, full repository suite, package builds, and documentation check for M5.6B. Earlier M5.6A lifecycle evidence remains anchored at `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`.
 
 ## Open Gates
 
 - M5-A17 and M5-A24 require explicit user visual acceptance.
 - M5-A28 still requires user visual acceptance for its displayed states.
-- M5-A30 through M5-A45 require new child NS tasks and actual evidence.
+- M5-A30 through M5-A32, M5-A34, and M5-A36 through M5-A45 require new child NS tasks and actual evidence.
 - M5 must remain `milestone_in_progress` until all open gates pass.
