@@ -6,15 +6,15 @@ This file is an index. Scope, implementation detail, acceptance IDs, and evidenc
 
 ## Active Support Work
 
-| Task | Status | Summary | Records |
-| --- | --- | --- | --- |
-| GOV-001 | in_progress | Documentation governance and delivery skeleton | `docs/tasks/GOV-001.md`; `docs/testing/GOV-001_ACCEPTANCE.md` |
+No support task is active.
 
 ## Project Mainline
 
 | Mainline item | Status | Summary | Record |
 | --- | --- | --- | --- |
-| NS-500-NS-506 / M5.0-M5.6A | complete/current-scope | Historical M5 slices mapped to their required product-mainline identities | `docs/tasks/M5.md` |
+| NS-500-NS-502 / M5.0-M5.2 | complete | Protection lock, Proposal contract, and Proposal/Review storage/API foundation | `docs/tasks/M5.md` |
+| NS-503-NS-505 / M5.3-M5.5 | paused | Command/function evidence exists; explicit user visual-acceptance gates remain | `docs/tasks/M5.md`; `docs/testing/M5_ACCEPTANCE.md` |
+| NS-506 / M5.6A | complete | Limited Agent tool execution-containment scope only | `docs/tasks/M5.md`; `docs/testing/M5_ACCEPTANCE.md` |
 | NS-507 / M5.6B | todo | Atomic Codex adapters, stale baselines, and Progression target/scene binding | `docs/tasks/M5.md` |
 | NS-508-NS-512 / M5.6C-M5.6G | todo | Detail schema planning, durable Agent runner, capability cleanup, Prompt customization, Tool Plan/Grant layer | `docs/tasks/M5.md` |
 | NS-513 / M5.7 | todo | Council, conflict/failure states, responsive/copy review, and user visual acceptance | `docs/tasks/M5.md` |
@@ -37,5 +37,11 @@ This file is an index. Scope, implementation detail, acceptance IDs, and evidenc
 | NS-400-NS-407 | complete | Architecture preparation and AI/context/Prompt/call foundation |
 | PROJECT-RECOVERY | complete | Accepted current-stage recovery baseline |
 | NS-410 | complete | JSON authority, SceneBlockDocument, unified Codex Progression, and compatibility closure |
+
+## Completed Support Work
+
+| Task | Status | Summary | Records |
+| --- | --- | --- | --- |
+| GOV-001 | complete | Documentation governance, mainline/support numbering separation, canonical hierarchy mapping, and unpublished commit-prefix repair | `docs/tasks/GOV-001.md`; `docs/testing/GOV-001_ACCEPTANCE.md` |
 
 Historical task details remain in `docs/tasks/` and their acceptance records. They are not part of the default reading path unless an active task names them.

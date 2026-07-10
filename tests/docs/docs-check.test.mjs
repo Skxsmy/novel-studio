@@ -66,7 +66,7 @@ test("keeps support work separate from the sequential M-to-NS mainline", () => {
   withFixture((root) => {
     write(root, "STATUS.md", [
       "- Active milestone: `M5 Workshop`.",
-      "- Last completed mainline task: `NS-506 / M5.6A Execution Containment`.",
+      "- Last reached mainline task: `NS-506 / M5.6A Execution Containment`.",
       "- Next mainline task: `NS-507 / M5.6B Atomic Codex Adapters`.",
       "- Active task: `GOV-001 Governance`.",
       "",
@@ -75,7 +75,7 @@ test("keeps support work separate from the sequential M-to-NS mainline", () => {
 
     write(root, "STATUS.md", [
       "- Active milestone: `M5 Workshop`.",
-      "- Last completed mainline task: `NS-506 / M5.6A Execution Containment`.",
+      "- Last reached mainline task: `NS-506 / M5.6A Execution Containment`.",
       "- Next mainline task: `NS-508 / M5.6B Atomic Codex Adapters`.",
       "- Active task: `GOV-001 Governance`.",
       "",
@@ -84,12 +84,23 @@ test("keeps support work separate from the sequential M-to-NS mainline", () => {
 
     write(root, "STATUS.md", [
       "- Active milestone: `M5 Workshop`.",
-      "- Last completed mainline task: `NS-506 / M5.6A Execution Containment`.",
+      "- Last reached mainline task: `NS-506 / M5.6A Execution Containment`.",
       "- Next mainline task: `NS-507 / M5.6B Atomic Codex Adapters`.",
       "- Active task: `NS-507 Documentation Governance`.",
       "",
     ].join("\n"));
     assert.ok(checkMainlineMapping(root).some((error) => error.includes("NS is mainline-only")));
+  });
+});
+
+test("allows an explicit idle state with no in-progress typed task", () => {
+  withFixture((root) => {
+    write(root, "STATUS.md", "- Active task: none.\n");
+    write(root, "TASKS.md", "No support task is active.\n");
+    assert.deepEqual(checkActiveTask(root), []);
+
+    write(root, "TASKS.md", "| GOV-001 | in_progress | Example | records |\n");
+    assert.ok(checkActiveTask(root).some((error) => error.includes("expected no in_progress")));
   });
 });
 

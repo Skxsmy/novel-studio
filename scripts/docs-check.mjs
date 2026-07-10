@@ -141,12 +141,20 @@ function extractAcceptanceIds(text, taskId) {
 export function checkActiveTask(root) {
   const errors = [];
   const taskId = getActiveTaskId(root);
-  if (!taskId) return ["STATUS.md: missing one supported Active task declaration"];
-
   const tasks = read(root, "TASKS.md");
   const activeRows = [...tasks.matchAll(/^\|\s*((?:NS|GOV)-\d{3})\s*\|\s*in_progress\s*\|/gmu)].map(
     (match) => match[1],
   );
+  if (!taskId) {
+    const status = read(root, "STATUS.md");
+    if (!/Active task:\s*none\./u.test(status)) {
+      return ["STATUS.md: missing one supported Active task declaration or explicit none state"];
+    }
+    if (activeRows.length > 0) {
+      errors.push(`TASKS.md: expected no in_progress typed row while Active task is none; found ${activeRows.join(", ")}`);
+    }
+    return errors;
+  }
   if (activeRows.length !== 1 || activeRows[0] !== taskId) {
     errors.push(`TASKS.md: expected exactly one in_progress row for ${taskId}; found ${activeRows.join(", ") || "none"}`);
   }
@@ -195,11 +203,11 @@ export function checkMainlineMapping(root) {
   const errors = [];
   const activeTaskId = getActiveTaskId(root);
   const milestone = status.match(/Active milestone:\s*`M(\d+)\b/u)?.[1] ?? null;
-  const last = status.match(/Last completed mainline task:\s*`NS-(\d{3})\s*\/\s*M(\d+)(?:\.[^`]*)?`/u);
+  const last = status.match(/Last reached mainline task:\s*`NS-(\d{3})\s*\/\s*M(\d+)(?:\.[^`]*)?`/u);
   const next = status.match(/Next mainline task:\s*`NS-(\d{3})\s*\/\s*M(\d+)(?:\.[^`]*)?`/u);
 
   if (!milestone) errors.push("STATUS.md: missing Active milestone `M#` declaration");
-  if (!last) errors.push("STATUS.md: missing Last completed mainline task `NS-### / M#...` declaration");
+  if (!last) errors.push("STATUS.md: missing Last reached mainline task `NS-### / M#...` declaration");
   if (!next) errors.push("STATUS.md: missing Next mainline task `NS-### / M#...` declaration");
   if (!milestone || !last || !next) return errors;
 

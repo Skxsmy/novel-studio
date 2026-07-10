@@ -5,12 +5,11 @@ Purpose: resume incomplete work only
 
 ## Resume Point
 
-- Product mainline: M5; completed through `NS-506 / M5.6A`.
+- Product mainline: M5; implementation reached `NS-506 / M5.6A`.
 - Next product-mainline task: `NS-507 / M5.6B`.
-- Active support task: `GOV-001 Documentation Governance And Delivery Skeleton`.
-- Resume from `docs/tasks/GOV-001.md` and `docs/testing/GOV-001_ACCEPTANCE.md`.
-- Runtime application behavior is out of scope.
-- NS-507/M5.6B remains queued until this governance task closes.
+- Active support task: none; GOV-001 is complete.
+- Before implementation, create the scoped NS-507 task and acceptance record from the templates.
+- NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 still retain explicit user visual-acceptance gates.
 
 ## Work Completed In This Task
 
@@ -23,12 +22,11 @@ Purpose: resume incomplete work only
 
 ## Still Required
 
-- Synchronize the confirmed `Series → Volume → Chapter → Act → Scene` English hierarchy and legacy storage mapping.
-- Run final verification, update the acceptance ledger, review the final diff, and commit only task files.
+- Product work resumes at NS-507/M5.6B; GOV-001 has no remaining implementation work.
 
 ## Repository Safety
 
 - Branch at task start: `codex/ns-410-json-authority`.
-- Baseline at task start: `1e9bd66`.
+- Rewritten pre-GOV baseline: `6fbabac`; original history is preserved by the named backup ref.
 - Preserve the pre-existing untracked `.hermes/plans/` directory.
-- Commit this support task with the GOV-001 prefix; preserve NS-507 for the next product-mainline task.
+- Preserve NS-507 for the next product-mainline task.

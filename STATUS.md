@@ -6,25 +6,27 @@ Authority: current operational state only
 ## Project Mainline
 
 - Active milestone: `M5 Workshop, Proposal, And Review`.
-- Last completed mainline task: `NS-506 / M5.6A Execution Containment`.
+- Last reached mainline task: `NS-506 / M5.6A Execution Containment`.
 - Next mainline task: `NS-507 / M5.6B Atomic Codex Adapters`.
-- Mainline state: paused only while the active support task is completed; GOV-001 does not consume or renumber an NS task.
+- Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
+- Mainline state: ready to resume at NS-507; GOV-001 did not consume or renumber an NS task.
 
 ## Active Support Work
 
-- Active task: `GOV-001 Documentation Governance And Delivery Skeleton`.
+- Active task: none.
+- Last completed support task: `GOV-001 Documentation Governance And Delivery Skeleton`.
 - Task record: `docs/tasks/GOV-001.md`.
 - Acceptance record: `docs/testing/GOV-001_ACCEPTANCE.md`.
-- State: in progress.
-- Next action: synchronize the confirmed English hierarchy, run final verification, and commit GOV-001.
+- Next action: open the scoped NS-507 task and acceptance record before M5.6B implementation begins.
 
 ## Repository State
 
 - Branch: `codex/ns-410-json-authority`.
-- Baseline observed before GOV-001 edits: `1e9bd66 NS-410 fix(workshop): close tool execution lifecycle gaps`.
-- The branch was 28 commits ahead of `origin/codex/ns-410-json-authority` when GOV-001 started.
+- Rewritten pre-GOV-001 mainline tip: `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`.
+- Numbering-repair verification tip before closure: `578a74a GOV-001 docs(governance): separate support work from product mainline`.
+- Local recovery ref: `backup/gov-001-before-numbering-rewrite-20260710` preserves the original pre-rewrite history; the rewritten and backup tips have identical tree `deae3c9fae1f797239b975c464106126df530765`.
 - Pre-existing unrelated worktree item: untracked `.hermes/plans/`; GOV-001 must not modify or commit it.
-- GOV-001 changes are currently uncommitted, so the support task remains in progress.
+- The unpublished range contains 29 rewritten commits including the first GOV-001 commit; no remote history was rewritten.
 
 ## Current Product And Implementation Boundary
 

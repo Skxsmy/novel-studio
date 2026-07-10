@@ -68,7 +68,7 @@ These tests do not pass M5-A30 through M5-A37 because durable Tool Plan/Grant an
 
 ## Milestone Run Ledger
 
-Detailed command history remains in the acceptance records of completed child work and Git history. The latest pre-GOV-001 M5.6A/NS-506 lifecycle baseline observed was commit `1e9bd66` on `codex/ns-410-json-authority`. GOV-001 changes documentation governance only and does not re-run or re-accept M5 runtime behavior.
+Detailed command history remains in the acceptance records of completed child work and Git history. After GOV-001 normalized the unpublished commit subjects, the latest M5.6A/NS-506 lifecycle baseline is `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps` on `codex/ns-410-json-authority`. GOV-001 changes documentation governance only and does not re-run or re-accept M5 runtime behavior.
 
 ## Open Gates
 

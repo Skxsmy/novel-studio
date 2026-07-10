@@ -26,7 +26,7 @@ Work on exactly one active work item at a time. `M0` through `M8` are product-ma
 
 `NS-x00` may be used for a milestone preparation/protection task, followed by `NS-x01`, `NS-x02`, and so on. Historical milestone slices must be assigned their matching NS identities when the mapping is reconstructed; for example, M5.0 through M5.6A map to NS-500 through NS-506.
 
-Audit, governance, repository-maintenance, and other support work that does not advance the product mainline must use a separate typed namespace such as `GOV-###`. A support task never consumes, renumbers, or reassigns an NS identity. While support work is active, `STATUS.md` must still state the active product milestone, the last completed mainline task, and the next mainline task. Use `<TASK-ID> type(scope): summary` for commits.
+Audit, governance, repository-maintenance, and other support work that does not advance the product mainline must use a separate typed namespace such as `GOV-###`. A support task never consumes, renumbers, or reassigns an NS identity. While support work is active, `STATUS.md` must still state the active product milestone, the last reached mainline task, its open gates, and the next mainline task. Use `<TASK-ID> type(scope): summary` for commits.
 
 For any repository mutation, always read:
 
