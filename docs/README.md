@@ -1,45 +1,50 @@
 # Documentation Map
 
-This directory is for durable project knowledge. Temporary browser notes, failed screenshot runs, and duplicate status notes should not be added here.
+This directory contains durable product knowledge, architecture decisions, scoped work, and acceptance evidence. Live repository state is owned only by `../STATUS.md`.
 
-## Fast Reading Path
+## Start Here
 
-For the current M5 state and accepted recovery baseline, read:
+For repository mutation, read in this order:
 
-1. `../STATUS.md`
-2. `../HANDOFF.md`
-3. `../TASKS.md`
-4. `tasks/M5.md`
-5. `testing/M5_ACCEPTANCE.md`
-6. `design/ui-redesign/M5_WORKSHOP_CURRENT_FUNCTION_AND_UI_MAP.md`
-7. `testing/M5_WORKSHOP_VERIFIED_DEFECT_AUDIT_2026-07-09.md`
-8. `design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`
-9. `design/ui-redesign/M5_FIGMA_UI_REVIEW.md`
-10. `design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
-11. `tasks/NS-410.md`
-12. `testing/NS-410_ACCEPTANCE.md`
-13. `adr/0012-scene-block-documents-and-codex-field-progression.md`
-14. `tasks/PROJECT_RECOVERY.md`
-15. `testing/PROJECT_RECOVERY_ACCEPTANCE.md`
+1. `../PROJECT.md`
+2. `../STATUS.md`
+3. The active row in `../TASKS.md`
+4. The active task file
+5. The active acceptance record
+6. Only the product, architecture, ADR, design, and historical documents named by that task
 
-Only read older milestone documents when the current task depends on that area.
+Use the task-kind routing table in `../AGENTS.md`. Do not read every completed milestone by default.
 
-## Directory Roles
+## Authority And Directory Roles
 
-- `product/`: product scope, UX rules, AI editorial model, feature matrix, reference library, import/export/versioning. Highest authority for product intent.
-- `architecture/`: API, data model, security, and target architecture. Highest authority for technical boundaries.
-- `adr/`: accepted architectural decisions. Read the relevant ADR before changing a governed subsystem.
-- `tasks/`: milestone and task specs. Current active implementation line is `tasks/M5.md`; accepted recovery baseline remains in `tasks/PROJECT_RECOVERY.md`.
-- `testing/`: acceptance records and test strategy. Current M5 acceptance record is `testing/M5_ACCEPTANCE.md`; accepted recovery baseline is `testing/PROJECT_RECOVERY_ACCEPTANCE.md`.
-- `design/ui-redesign/`: historical UI baselines, current design evidence, and protected backups.
+| Location | Owns | Must not own |
+| --- | --- | --- |
+| `product/` | Stable product behavior, UX, domain constraints, requirement-to-milestone mapping | Current implementation status or dated implementation logs |
+| `architecture/` | Current system shape, target boundaries, API/data/security contracts | Product-roadmap status or task run logs |
+| `adr/` | Architectural decisions, consequences, and supersession | Implementation progress |
+| `tasks/` | One scoped work item, closure boundary, decisions, acceptance IDs, open questions | Test run transcripts or unrelated roadmap history |
+| `testing/` | Exact acceptance mappings, commands, fixtures, results, and manual gates | New product requirements |
+| `design/` | Approved design constraints, mappings, historical baselines, protected backups | General current status |
+
+Root entry-document ownership:
+
+- `README.md`: stable repository onboarding.
+- `ROADMAP.md`: milestone intent only.
+- `STATUS.md`: current task, repository state, blockers, and next action.
+- `TASKS.md`: task index only.
+- `HANDOFF.md`: incomplete-work resume point only.
+- `CHANGELOG.md`: user-visible product changes only.
+
+## Current Task
+
+The current task is resolved through `../STATUS.md`; this file intentionally does not repeat its identity or next action.
 
 ## Cleanup Rules
 
-- Do not create new status or handoff files for routine progress. Update `STATUS.md`, `HANDOFF.md`, `TASKS.md`, `CHANGELOG.md`, the current task file, and the current acceptance file.
-- Do not delete anything under `design/**/backups/` unless the user explicitly names the backup to delete.
-- Delete only non-backup files that are superseded, temporary, duplicated, or explicitly marked obsolete.
-- Generated directories such as `node_modules`, `dist`, `.vite`, `.npm-cache`, reports, and caches are not documentation and should never be part of the reading path.
+- Do not create routine status, handoff, audit, or acceptance variants.
+- Keep completed task and acceptance records outside the default reading path unless an active task names them.
+- Preserve everything under `design/**/backups/` unless the user explicitly names a backup for deletion.
+- Delete a non-backup document only after confirming it is not referenced by the active task, acceptance record, documentation index, or an unsuperseded ADR.
+- Temporary validation output and generated reports must not become durable project knowledge.
 
-## Current Warning
-
-Project Recovery is accepted for the current stage by user decision on 2026-06-30. `NS-410` JSON Authority, Block Write Editor, and Unified Codex Progression is command-verified through post-Slice 11 audit repair; do not treat that as separate future M5 visual acceptance. The active line is `M5` Workshop, Proposal, and Review through `docs/tasks/M5.md` and `docs/testing/M5_ACCEPTANCE.md`; M5.1-M5.5 are command/function verified as of 2026-07-01, while M5.6+ and user visual acceptance remain unfinished. The Workshop current-function map and verified defect audit are required reading before redesigning or repairing Workshop. The deleted older Workshop functional/prompt audits must not be used as current guidance. Agent-owned screenshot acceptance is prohibited.
+Run `npm.cmd run docs:check` before completing a documentation or governance task.

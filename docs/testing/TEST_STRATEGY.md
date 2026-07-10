@@ -1,30 +1,46 @@
 # Test Strategy
 
-## Current Rule
+Tests prove specified behavior. They do not define product requirements and do not prove user visual acceptance.
 
-Tests prove behavior. They do not prove visual acceptance. For the project recovery phase, user visual review is the acceptance authority.
+## Evidence Layers
 
-## Layers
+- Unit tests: schemas, pure domain rules, helpers, view models, Provider behavior, and storage primitives.
+- Integration tests: repository transactions, server routes, persistence, conflicts, recovery, and Provider request boundaries.
+- Browser/E2E tests: stable functional user journeys against isolated temporary libraries.
+- Source/contract review: static boundaries that are not usefully exercised through a UI.
+- Manual functional verification: hardware, OS, Provider, or recovery behavior that cannot be reliably automated.
+- User visual acceptance: explicit user decision for layout, hierarchy, copy, and visual quality.
 
-- Unit tests: schemas, helpers, view models, storage behavior, provider behavior.
-- Integration tests: server routes, repository operations, API persistence, conflict paths.
-- Browser/E2E tests: real user flows that are stable enough to automate.
-- Manual visual review: required for UI/layout acceptance.
+A screenshot, DOM measurement, build, test count, or Figma file does not substitute for user visual acceptance. Diagnostic visual inspection may support implementation but must not be recorded as the acceptance decision.
 
-## Current Recovery Commands
+## Acceptance Mapping
 
-```powershell
-npm.cmd run test -w @novel-studio/web -- AppShell.test.tsx
-npm.cmd run build
-git diff --check
-```
+Before implementation, every active-task acceptance ID must map to one of:
 
-## Acceptance Records
+1. An existing test file and exact test name.
+2. A planned test file and named scenario.
+3. A named manual verification with actor, environment, and expected result.
 
-- Current recovery acceptance record: `PROJECT_RECOVERY_ACCEPTANCE.md`
-- General browser process history: `BROWSER_ACCEPTANCE.md`
-- Older `NS-*.md` acceptance files are historical evidence, not current UI acceptance.
+“Covered by tests” is not an acceptable evidence locator. Each acceptance ID should express one independently decidable invariant; split IDs that require unrelated proof paths.
 
-## Cleanup Rule
+## Risk-Proportionate Adversarial Coverage
 
-Do not add temporary browser notes for each failed exploration. Put durable outcomes in the active acceptance file only.
+Where applicable, cover damaged input, missing members, duplicate IDs, stale revisions, invalid references, permission denial, cancellation, partial/mid-operation failure, restart recovery, and rollback. Migration/recovery fixtures must actually enter the legacy or failed state; a no-op path is not evidence.
+
+## Run Ledger
+
+The active acceptance record owns command evidence. Each verification run records:
+
+- Date and commit/worktree state.
+- Exact command.
+- Exit result and relevant test counts.
+- Initial failure and correction when the failure affected the task reasoning.
+- Manual or user-owned gates that remain pending.
+
+Do not copy the same command transcript into STATUS, HANDOFF, TASKS, CHANGELOG, product specs, or architecture documents.
+
+## Browser Process
+
+Use isolated test libraries and clean up temporary services. Functional browser automation may verify real controls and data flow. Follow `BROWSER_ACCEPTANCE.md` for process details and the active task for its specific browser scope.
+
+Do not create a new acceptance or browser-notes file for each failed exploration. Keep durable evidence in the active acceptance record.

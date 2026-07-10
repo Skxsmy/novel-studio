@@ -1,8 +1,8 @@
 # ADR-0010: CodeMirror editor runtime
 
-Status: Accepted
+Status: Superseded by ADR-0012 for the Write scene runtime
 
-Superseded note: ADR-0012 supersedes this ADR's Markdown/YAML persistence assumption with schema-versioned JSON project authority. The CodeMirror runtime decision and editor-private-state boundary still apply.
+ADR-0012 and the NS-410 Write implementation replace the scene-runtime and persistence assumptions with a block document plus Tiptap/ProseMirror boundary. CodeMirror remains an implementation choice for current pure-text Codex surfaces, while the editor-private-state boundary is restated in current architecture.
 
 ## Context
 

@@ -1,8 +1,8 @@
 # ADR-0008：Codex 文档、关系边与提及索引
 
-状态：已接受
+Status: Accepted
 
-Superseded note: ADR-0012 supersedes the Markdown/YAML file-format assumption with schema-versioned JSON project authority. The separation of Canon, Research, relations, mentions, and rebuildable indexes still applies.
+Format update: ADR-0012 replaces the old Markdown/YAML format assumption with JSON authority. The separation of Canon, Research, relations, mentions, and rebuildable indexes remains accepted.
 
 ## 背景
 

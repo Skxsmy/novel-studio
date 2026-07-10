@@ -1,95 +1,127 @@
 # AI Development Collaboration Protocol
 
-This file applies to all AI agents and automation tools participating in Novel Studio.
+This file defines durable collaboration invariants for Novel Studio. Current task state belongs in `STATUS.md`; product behavior belongs in `docs/product/`; implementation evidence belongs in the active acceptance record.
 
-## Before Starting A Task
+## Authority Order
 
-You must read the following in order:
+Resolve conflicts in this order:
+
+1. An explicit user decision for the current task, after it is recorded in the authoritative product/task document.
+2. `docs/product/PRODUCT_SPEC.md` and the relevant domain specification.
+3. Accepted ADRs that have not been superseded.
+4. Current and target architecture documents.
+5. The active work-item specification.
+6. The active acceptance record, as evidence rather than a source of new requirements.
+7. Current implementation.
+
+`STATUS.md`, `HANDOFF.md`, `TASKS.md`, chat history, screenshots, and placeholder UI are operational context, not product authority.
+
+## Start A Task
+
+Work on exactly one active work item at a time. `M0` through `M8` are product-mainline milestone goals. `NS-###` identifiers are reserved exclusively for executable product-mainline tasks, using the matching hundred range:
+
+- M3 tasks use `NS-3xx`.
+- M4 tasks use `NS-4xx`.
+- M5 tasks use `NS-5xx`.
+
+`NS-x00` may be used for a milestone preparation/protection task, followed by `NS-x01`, `NS-x02`, and so on. Historical milestone slices must be assigned their matching NS identities when the mapping is reconstructed; for example, M5.0 through M5.6A map to NS-500 through NS-506.
+
+Audit, governance, repository-maintenance, and other support work that does not advance the product mainline must use a separate typed namespace such as `GOV-###`. A support task never consumes, renumbers, or reassigns an NS identity. While support work is active, `STATUS.md` must still state the active product milestone, the last completed mainline task, and the next mainline task. Use `<TASK-ID> type(scope): summary` for commits.
+
+For any repository mutation, always read:
 
 1. `PROJECT.md`
-2. `docs/product/README.md`
-3. `docs/product/PRODUCT_SPEC.md`
-4. `docs/product/REQUIREMENTS_TRACEABILITY.md`
-5. `STATUS.md`
-6. `HANDOFF.md`
-7. `TASKS.md`
-8. `docs/architecture/TARGET_ARCHITECTURE.md`
-9. The domain specification, architecture documents, and ADRs relevant to the current task
+2. `STATUS.md`
+3. The active row in `TASKS.md`
+4. `docs/README.md`
+5. The active task file
+6. The active acceptance record
 
-You must also read `docs/README.md` and the acceptance record relevant to the current task. Before coding, map every acceptance ID in the task specification to an existing test, a planned new test, or an explicit manual verification. Acceptance items that cannot be mapped must not be silently ignored.
+Then read only the material routed by the task:
 
-Handle only one `NS-###` task at a time. Do not opportunistically expand scope, rewrite unrelated modules, or describe roadmap placeholder UI as completed functionality.
+| Task kind | Additional required reading |
+| --- | --- |
+| Product behavior or scope | `docs/product/README.md`, relevant `docs/product/PRODUCT_SPEC.md` sections, relevant domain spec, traceability rows |
+| UI, layout, copy, or Figma | `docs/product/USER_EXPERIENCE_SPEC.md`, the named design checklist, `docs/design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md` |
+| Data authority, schema, migration, deletion, or recovery | Current/target architecture, data model, governing ADRs, migration and rollback acceptance items |
+| AI, Prompt, Context, Proposal, Agent, or Provider | `docs/product/AI_EDITORIAL_SYSTEM.md`, `docs/architecture/SECURITY.md`, relevant architecture and ADRs; Provider work also requires official Provider documentation |
+| Read-only audit or explanation | The scoped authority documents and evidence under review; task/acceptance files only when auditing a work item |
 
-Chat context is not a long-term source of project requirements. If you find an important product decision that exists only in chat, first add it to the authoritative specification, then implement it. If a requirement is unclear, do not infer it from the current code; record the product question in `STATUS.md` and ask the user to decide.
+Do not read historical milestone records unless the active task depends on them. The task specification must name any required historical record.
 
-Tasks involving UI, layout, or copy must also read `docs/product/USER_EXPERIENCE_SPEC.md`. During implementation, judge information hierarchy from the author's perspective: the main writing, planning, and review screens must not display engineering audit fields such as invocation IDs, baseline versions, source hashes, or internal task names. These details may appear only in logs, detail pages, or debug views. New screens must reuse the unified visual language and component style; do not invent separate buttons, cards, fonts, spacing, or colors for each page. The main interface must not be written as an operation manual; "how to use" guidance may appear only lightly as short labels, input placeholders, icon tooltips, concise empty states, and necessary error messages. Tutorial cards, long explanations, or persistent help copy must not crowd the manuscript and workspace.
+Before changing files, map every acceptance ID to an exact existing test, a planned test, or an explicit manual verification. Generic phrases such as “covered by tests” are not a sufficient map.
 
-## UI And Figma Implementation Discipline
+## Decisions And Scope
 
-For UI work backed by Figma, Figma is a binding implementation constraint, not an inspiration image. Before editing UI code, extract the target Figma node into a concrete checklist covering node ID, product route, entry and return paths, column structure, region order, row heights, control sizes, key cards, state surfaces, component mapping, data source, and disabled/deferred behavior. Code changes must correspond to that checklist. Do not replace a Figma structure with a personally preferred layout, an easier existing CSS pattern, or an API-shaped placeholder unless the deviation is explicitly recorded and approved.
+- Do not infer unclear product behavior from current code or a lower-authority task record.
+- Record an unresolved product question in the active task and ask the user. Do not place durable product questions in `STATUS.md`.
+- When the user makes a material product decision, update the authoritative product/domain specification before implementation. Add or supersede an ADR only when the decision changes an architectural boundary.
+- Do not expand into unrelated modules or report roadmap placeholders as completed functionality.
+- A task may remain in progress when a user decision, manual verification, or visual acceptance is pending.
 
-Unimplemented Figma controls must remain honest: disabled, deferred, or absent according to the current slice. Do not redesign the page to hide missing behavior, and do not present unbacked buttons, fake counts, static proposal cards, or dead links as working UI.
+## Logical Closure And Tests
 
-Agents must not perform screenshot-based UI acceptance for this project. Do not start browser screenshot loops, visual-diff loops, or screenshot QA as a completion gate. Screenshots may be captured only when the user explicitly requests a screenshot artifact; they must be treated as a reference artifact, not as agent-owned visual acceptance. If a browser or screenshot tool fails, stop that path and report the tool failure instead of debugging the screenshot pipeline.
+Define a closure boundary proportionate to the task. Include only applicable items from: authoritative data, read/write paths, derived state, user entry points, lifecycle operations, migration/rollback, fixtures, and acceptance records.
 
-UI acceptance must be argued from the Figma checklist, component mapping, real data/control backing, focused functional tests where appropriate, and explicit user visual review. A passing build, test count, screenshot, or DOM measurement must not be described as visual acceptance.
+For refactoring, migration, authority-format switching, architecture cleanup, or legacy deletion, search all old runtime paths, interfaces, fixtures, documentation claims, and user entry points. A remaining old path must be a specified boundary with tests and exit conditions, or an explicitly recorded open risk.
 
-Do not add hard time-box rules for UI work. The constraint is procedural: keep Figma checklist adherence, implementation, and verification separate; do not let verification tooling replace the actual UI work.
+Treat a failing test as evidence of a possible specification, implementation, fixture, or assertion inconsistency. Verify the governing acceptance item before changing the test. Do not delete assertions, reduce coverage, bypass the path, or relabel a defect merely to obtain a pass.
 
-The NS-409 frontend redo must build maintainable architecture before full pages. The fixed boundaries are: `src/ui/` for design tokens and base components, `src/features/<domain>/` for domain-composed pages, `src/api/` for an independent API layer, and `src/app/` for the application shell and global boundaries. Global styles may contain only `reset.css`, `tokens.css`, and a small amount of base layout. A multi-thousand-line global `styles.css` must not reappear. Before full implementation, first deliver the English UI designs for the three core pages: writing, planning, and settings. Then complete the vertical slice "project selection -> writing page -> save status -> settings entry". Every control must come from the component library.
+Audits must report every confirmed defect and documentation overstatement inside their declared scope.
 
-## Minimum Verifiable Logical Work
+## Runtime Authority And Safety
 
-"Minimum" must not be understood as the smallest code diff, the fewest changed files, or only fixing the current error. The minimum unit of work must be an independently verifiable product/architecture logic closure: it covers the corresponding acceptance IDs, specification invariants, authoritative data read/write paths, API/UI entry points, test evidence, and necessary documentation state.
+- Project authority is schema-versioned JSON inside the project directory. Markdown and Word are import, export, mirror, and migration boundary formats. SQLite, vectors, caches, localStorage, and editor runtime state are not the only project copy.
+- AI, bulk replacement, Word import, and similar semantic changes require a Proposal or an explicit user-confirmed action.
+- Product runtime writes to authority files use same-directory temporary files, validation, checksum/revision protection, and atomic replacement. This rule does not require source-code or documentation editors to implement product storage transactions.
+- Authority-schema changes require an ADR where the architectural contract changes, an explicit migration, and rollback tests. Rebuildable derived-index schema changes may instead prove delete-and-rebuild behavior.
+- Do not log API keys, complete private manuscript text, credentials, cookies, authorization headers, or unredacted request headers.
+- Do not add telemetry, accounts, remote listeners, automatic network research, or cloud fallback without an explicit product decision.
+- New dependencies must record purpose, version, and license in the task or acceptance record; prefer permissive licenses.
+- Do not reduce, hide, bypass, or downgrade an existing real capability without recording the impact and obtaining user confirmation.
+- Do not remove Proposal, evidence, permissions, story time, or character-knowledge boundaries as a simplification.
 
-When the user asks for refactoring, migration, authoritative format switching, architecture cleanup, or deletion of old implementation, the default target is logical closure inside the requested scope, not compatibility remnants. You must systematically search for old formats, old interfaces, old runtime paths, old test fixtures, old documentation claims, and old UI entry points. Any old path that remains must satisfy one of the following:
+## UI And Figma
 
-- It is explicitly required by the specification as an import, export, mirror, migration, rollback, or compatibility boundary.
-- It has clear old/new boundary naming, test coverage, and exit conditions.
-- It is recorded as an unfinished risk or product question and is not marked as completed in the acceptance record.
+- Figma-backed work must begin with the named node, route, entry/return paths, layout structure, component mapping, data source, states, and deferred behavior checklist.
+- Figma is binding for the approved structure. Record and obtain approval for a deviation before implementing it.
+- Unimplemented controls must be disabled, deferred, or absent. Do not show fake counts, static result cards, dead links, or unbacked actions as working UI.
+- Main writing, planning, and review paths must not expose invocation IDs, revisions, hashes, internal task names, or other engineering audit fields.
+- Reuse `src/ui/` components and tokens, compose domain pages under `src/features/`, keep API access under `src/api/`, and global boundaries under `src/app/`. Do not reintroduce a global multi-thousand-line style sheet.
+- Keep user-facing copy centralized and natural. Do not mix Chinese and English accidentally or expose data-field names as UI labels.
+- The canonical author-facing hierarchy labels are always English and ordered `Series → Volume → Chapter → Act → Scene`. Do not translate, reorder, or replace them with internal storage names. Until a separately approved schema migration, the compatibility mapping is `Series → series`, `Volume → book`, `Chapter → act`, `Act → chapter`, and `Scene → scene`; internal names remain implementation details.
+- A screenshot, DOM measurement, build, or test count cannot prove visual acceptance. Diagnostic visual inspection is allowed when the task requires it, but do not run screenshot loops or claim user acceptance. User visual acceptance remains an explicit separate gate.
 
-Do not use "keep the change minimal", "avoid expanding scope", or "simplify first" as a reason to skip legacy remnants, tests, migrations, rollbacks, deletion entry points, documentation synchronization, or acceptance updates that are within the user-specified scope. If complete closure would touch modules outside the current task, first explain the dependency relationship and record the unclosed items in `STATUS.md`, the current task document, or an audit report. Do not describe a local compatibility path as a completed migration.
+## Completion And Records
 
-Before implementation or audit, you must list the logical closure boundary for the work: authoritative data sources, all read paths, all write paths, derived caches/indexes, user-visible entry points, delete/archive/restore paths, migration/rollback paths, test fixtures, and acceptance records. Before completion, prove item by item through search, tests, or manual verification that these boundaries have been handled. Do not use only test counts, a successful build, or a no-op path as completion proof.
+Run the commands required by the active task and record actual results in its acceptance record. Include adversarial cases proportionate to risk, including applicable damaged input, omitted members, duplicate IDs, stale versions, and mid-operation failures.
 
-Test failures must first be treated as evidence of inconsistency between implementation, specifications, fixtures, or acceptance records. Do not prioritize changing test code just to make the result green. Before handling a failing test, first verify: the authoritative specification and acceptance ID for the failing path, whether the original implementation or the current change violates the specification, whether the test fixture still represents a valid scenario, and whether the assertion is obsolete because of an explicit product decision. You may modify tests only after proving that the test conflicts with the authoritative specification, the fixture has been deprecated by specification, or the test itself is constructed incorrectly. Test modifications must record the reason and add enough implementation verification to prove the new behavior. Do not obtain a pass by deleting assertions, reducing coverage, changing snapshots, bypassing the failing path, or rewriting a real defect as a test problem.
+Update documents by ownership, not by blanket fan-out:
 
-Audit tasks must list every defect and overstatement found inside the target scope, not only the easiest item to fix. If an acceptance record, status document, or ADR claims more than the implementation actually provides, the documentation overstatement itself must be listed as an issue.
+| Document | Update when |
+| --- | --- |
+| `STATUS.md` | The active task, next action, blocker, or repository state changes |
+| `TASKS.md` | A task is added or its top-level status changes |
+| `HANDOFF.md` | Work is intentionally handed off while incomplete |
+| `CHANGELOG.md` | A user-visible capability changes |
+| Active task | Scope, decision, plan, or open question changes |
+| Active acceptance record | Evidence or acceptance status changes |
 
-## Implementation Constraints
+Before completion:
 
-- Starting with NS-410, authoritative work data must be structured JSON files inside the project directory. Markdown/Word may be used only as import, export, mirror, and migration boundary formats. The index database, cache, localStorage, and editor runtime JSON must not become the only copy.
-- AI, bulk replacement, Word import, and similar writes must go through a Proposal or an explicit user action.
-- All file writes must use same-directory temporary files, validation/checksum, and atomic replacement.
-- Do not log API keys, complete private manuscript text, or unredacted request headers.
-- Do not add telemetry, accounts, remote listeners, or automatic cloud fallback.
-- New dependencies must document their purpose and license; prefer permissive licenses.
-- When changing a data format or database structure, add an ADR, migration, and rollback tests.
-- Unless the user explicitly says otherwise, no fix may reduce, hide, bypass, or downgrade existing functionality. If a fix must temporarily disable or replace a capability, first record the impact scope and request user confirmation.
-- Do not remove core product constraints such as Proposals, evidence, permissions, story time, or character knowledge on the grounds of "simplifying first".
-- Product scope changes must update the product specification, requirements traceability, ADRs, tasks, and acceptance records in sync. Do not change only code.
-- UI changes must also check whether Chinese copy reads naturally, whether Chinese and English are mixed, and whether translations sound unnatural. Do not move data field names directly into the user interface.
+1. Re-check each specification invariant against its exact proof and actual result.
+2. Run documentation/link consistency checks required by the task.
+3. Record branch, commit, worktree, dirty files, and commands from actual output.
+4. Ensure only task-related changes are committed; preserve unrelated user changes.
+5. Keep the task in progress if task-related files remain uncommitted or a required manual/user gate is pending.
 
-## Before Completing A Task
+`main` must remain buildable with passing required checks. Sequential work continues on the current milestone branch unless the user directs otherwise. Parallel work requires explicit module ownership.
 
-1. Run the tests required by the task and record the actual commands and results.
-2. Update `STATUS.md`, `TASKS.md`, `HANDOFF.md`, and necessary `CHANGELOG.md`.
-3. Ensure the worktree contains only task-related changes.
-4. Commit format: `NS-### type(scope): summary`.
+## Documentation Hygiene
 
-Completion declarations must also satisfy the following:
-
-- Run adversarial tests proportionate to the task risk for damaged input, omitted members, duplicate IDs, stale versions, and mid-operation failures.
-- The implementer must re-check each item in "specification invariant -> test -> actual result". Do not use the total number of tests as a substitute for coverage proof.
-- Worktree status, branch, commit, dirty files, and test counts must be recorded according to actual commands. If the work is uncommitted or still has task-related dirty files, keep the status as "in progress".
-- A no-op path cannot prove migration, recovery, or rollback success. Fixtures must truly enter the state that requires migration or failure handling.
-
-`main` must always be buildable and have passing tests. Sequential handoff defaults to continuing the current milestone branch. Parallel work must first allocate module ownership.
-
-## Documentation Cleanup Rules
-
-- When organizing project records, update the existing entry documents by default: `STATUS.md`, `HANDOFF.md`, `TASKS.md`, `CHANGELOG.md`, the current `docs/tasks/NS-*.md`, and the current `docs/testing/NS-*_ACCEPTANCE.md`. Do not create extra documents for ordinary status records.
-- `docs/design/**/backups/` contains historical baseline backups confirmed by the user and must be preserved by default. Unless the user explicitly names a backup directory or file that may be deleted, do not treat backups as obsolete documents to clean up.
-- Deletable objects are limited to temporary validation records, failed intermediate screenshots, duplicate drafts, and clearly deprecated non-backup assets that have already been replaced by the current entry documents. Before deletion, first confirm that the object is not in an effective reference chain from the current task, acceptance record, or README.
-- UI implementation records must distinguish "command verification passed" from "user visual acceptance passed". If user visual acceptance has not passed, do not write the stage as complete, and do not treat the current screenshot or implementation as the new baseline.
-- New UI copy must be centralized in `uiText`, feature view models, or future i18n resources. Components must not continue hardcoding mixed-language copy.
+- Keep live state in `STATUS.md`; do not copy the same next-step narrative into README, ROADMAP, HANDOFF, TASKS, CHANGELOG, product specs, and architecture docs.
+- Product specs contain stable behavior, traceability contains requirement mappings, ADRs contain decisions, tasks contain scoped plans, acceptance records contain proof, and changelogs contain user-visible release changes.
+- Do not create routine status or handoff variants.
+- Preserve `docs/design/**/backups/` unless the user explicitly names a backup for deletion.
+- Before deleting a non-backup document, confirm it is not referenced by the active task, acceptance record, or documentation index.
+- Use normalized status values defined by the documentation checker. Superseded ADRs must identify their replacement.

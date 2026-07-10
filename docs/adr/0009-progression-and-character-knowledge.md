@@ -1,8 +1,8 @@
 # ADR-0009：进展记录与角色所知分离
 
-状态：已接受（2026-06-20）；Progression 存储与形状已被 ADR-0012/NS-410 取代
+Status: Accepted
 
-Superseded note: ADR-0012/NS-410 retires `codex/progressions/*.yaml` and replaces the old world-fact progression shape with unified schema-versioned JSON Progression at `codex/progressions/*.json`. The separation of Progression and character knowledge still applies.
+Format update: ADR-0012 retires `codex/progressions/*.yaml` and replaces the old progression shape with unified schema-versioned JSON Progression. The decision to keep Progression and character knowledge separate remains accepted.
 
 ## 背景
 

@@ -1,8 +1,8 @@
 # ADR-0011：Codex 可复用详情类型
 
-状态：已接受
+Status: Accepted
 
-Superseded note: ADR-0012 supersedes the YAML/frontmatter file-format assumption with schema-versioned JSON project authority. Reusable detail types should use stable detail type IDs as JSON keys where this ADR conflicts with NS-410.
+Format update: ADR-0012 replaces the YAML/frontmatter format assumption with JSON authority. The reusable-detail-type decision remains accepted, using stable detail type IDs where the old name-keyed format conflicts.
 
 ## 背景
 

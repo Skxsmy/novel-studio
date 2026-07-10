@@ -93,6 +93,8 @@ AI 在某场景工作时只能看到截至该叙事位置有效的状态。未�
 
 应用界面、内置角色、默认提示词和正文工具以中文写作为中心。参考资料可为任意语言，分析结果默认用中文呈现并保留原文定位。
 
+固定层级名称是明确例外：无论界面语言如何，作者视角都使用英文 `Series → Volume → Chapter → Act → Scene`，不得翻译、调序或替换为内部存储字段名。
+
 ### P-07 AI 不应一味附和
 
 “更换人格”不是装饰。不同编辑必须具有不同职责、评价标准、可见资料和反对义务。重要会审第一轮相互隔离，不得先看其他编辑的结论再形成意见。
@@ -111,7 +113,7 @@ AI 在某场景工作时只能看到截至该叙事位置有效的状态。未�
 
 主界面必须简洁、大气、克制且有明确审美取向。Novel Studio 可以参考“战术终端 / 明日方舟式”的硬朗、干净、清晰层级感：明确边界、紧凑操作、适度高对比、充足留白和少量强调色。但不得照搬任何商业作品的具体素材、图标、字体或受保护视觉元素。
 
-中文文案必须自然、准确，避免翻译腔、过度简化、牵强比喻和不恰当动词。除必要技术名词、模型名和文件格式外，不应中英文混搭。按钮和状态文案必须从作者动作出发，例如“保留 / 撤回 / 开始审稿 / 生成改写”，而不是“提交任务 / 应用补丁 / 来源调用”。
+中文文案必须自然、准确，避免翻译腔、过度简化、牵强比喻和不恰当动词。除必要技术名词、模型名、文件格式以及固定层级标签 `Series / Volume / Chapter / Act / Scene` 外，不应中英文混搭。按钮和状态文案必须从作者动作出发，例如“保留 / 撤回 / 开始审稿 / 生成改写”，而不是“提交任务 / 应用补丁 / 来源调用”。
 
 主界面不得用说明文字填满空间。Novel Studio 不是操作手册，写作和规划区域应优先留给正文、结构和用户决策。功能提示只能以 placeholder、tooltip、短空状态、必要错误提示或帮助页的形式存在；输入框 placeholder 必须是淡色提示，用户输入后立即消失。
 
@@ -143,7 +145,7 @@ AI 在某场景工作时只能看到截至该叙事位置有效的状态。未�
 
 ### 4.2 顶层工作区
 
-1. **Library / 作品库**：系列、单本、归档、最近项目和全局设置。
+1. **Library / 作品库**：Series、Volume、归档、最近项目和全局设置。
 2. **Overview / 概览**：项目进度、最近场景、待处理 Proposal、连续性警告和下一写作入口。
 3. **Plan / 规划**：Grid、Outline、Matrix、叙事顺序和故事时间。
 4. **Write / 写作**：结构化 block 正文、场景节拍、Sections、局部 AI 操作和专注模式。
@@ -158,7 +160,7 @@ AI 在某场景工作时只能看到截至该叙事位置有效的状态。未�
 ### FR-PROJECT-01 作品库
 
 - 首次启动选择作品库与独立备份目录；不能默认要求放在代码仓库中。
-- 可创建多个系列；系列可包含多本书。
+- 可创建多个 Series；每个 Series 可包含多个 Volume。
 - 最近打开项目、最后修改时间和待处理事项可见。
 - 删除项目必须先进入 Trash / 回收站；回收站项目默认从日常列表隐藏，但可恢复。
 - 永久删除项目会删除项目目录及其权威文件，必须在确认弹窗中完整输入项目名称，且服务端必须再次校验名称一致后才允许执行。
@@ -170,29 +172,33 @@ AI 在某场景工作时只能看到截至该叙事位置有效的状态。未�
 
 1. **空白开始**：立即进入第一场景，不强制访谈。
 2. **引导访谈**：围绕题材、核心承诺、主题、人物、冲突和关键节点逐步提问；每一步都可跳过；结果作为候选故事圣经和大纲。
-3. **导入旧稿**：解析 Markdown 或 DOCX，预览幕章场景识别结果后建立项目。
+3. **导入旧稿**：解析 Markdown 或 DOCX，预览 `Volume / Chapter / Act / Scene` 识别结果后建立项目。
 
 ### FR-PROJECT-03 层级
 
 固定结构为：
 
-`作品库 → 系列 → 单本 → 幕 → 章 → 场景 → 正文与 Sections`
+作者视角的固定层级为：
+
+`Series → Volume → Chapter → Act → Scene`
+
+Library 位于 Series 之上，Manuscript 与 Sections 属于 Scene。所有五个层级标签始终使用以上英文，不得翻译或重排。
 
 - 所有实体使用稳定 UUID；名称和位置不是身份。
-- 改名、重排或跨章移动场景不得破坏 Codex、Evidence、Proposal 和时间线引用。
-- 系列共享 Codex；单本可增加本书资料或从指定场景起覆盖状态。
+- 改名、重排或跨 Act 移动 Scene 不得破坏 Codex、Evidence、Proposal 和时间线引用。
+- Series 共享 Codex；Volume 可增加本卷资料或从指定 Scene 起覆盖状态。
 
 ## 6. 规划系统
 
-### FR-PLAN-01 场景是规划核心
+### FR-PLAN-01 Scene 是规划核心
 
-每个场景可包含：
+每个 Scene 可包含：
 
 - 标题、状态、标签和叙事顺序。
-- 所属幕、章和单本。
+- 所属 Volume、Chapter 和 Act。
 - POV、地点、出现人物和相关情节线。
-- 场景目标、冲突、结果和 Scene Beats。
-- 作者摘要与经确认的场景摘要。
+- Scene 目标、冲突、结果和 Scene Beats。
+- 作者摘要与经确认的 Scene 摘要。
 - 故事时间、持续时长和时间精度。
 - 计划字数、实际字符数和修订状态。
 
@@ -200,14 +206,14 @@ AI 在某场景工作时只能看到截至该叙事位置有效的状态。未�
 
 ### FR-PLAN-02 Grid
 
-- 卡片按幕和章分组，支持拖动排序和跨章移动。
+- 卡片按 Chapter 和 Act 分组，支持拖动排序和跨 Act 移动。
 - 卡片显示作者选择的字段，不强制固定信息密度。
 - 可筛选 POV、人物、地点、标签、状态和情节线。
 - 批量移动或改状态前显示影响预览。
 
 ### FR-PLAN-03 Outline
 
-- 线性展示幕、章、场景和摘要。
+- 线性展示 Volume、Chapter、Act、Scene 和摘要。
 - 可折叠层级、快速编辑标题和摘要。
 - 支持只看主线或指定人物/情节线相关场景。
 
@@ -382,10 +388,10 @@ Sections 使用独立文件和权限元数据，不混入正文后再靠隐藏�
 - 持久聊天、命名、搜索、归档和分支。新会话默认标题必须是中性的，不得暗示已经绑定某个场景或任务；会话开始后应根据首条作者消息或附件文件名自动生成可读标题，且作者可在会话列表中双击手动改名。
 - 从某条消息创建分支时，新分支必须复制源会话从开头到源消息为止的可见消息历史和消息附件快照，不能打开成空聊天。复制出的消息和附件使用新的分支内 ID，不继承旧 Proposal 链接或旧模型调用审计链接。
 - 选择单个角色或编辑会审。
-- 主动选择全书正文、全书大纲、幕、章、多个场景、Codex、Snippet、研究片段和风格档案。
+- 主动选择整个 Series 正文、整个 Series 大纲、Volume、Chapter、Act、多个 Scene、Codex、Snippet、研究片段和风格档案。
 - Workshop 的上下文选择不得作为常驻右侧大面板挤占对话区；应使用靠近输入框的高折叠选择器。已选择内容必须在选择器状态中可见，用户再次选择同一项时可以取消选择。
-- 选择幕、章或场景后，其中按 Codex 提及规则命中的条目必须自动进入同一次请求上下文，并立即在选择器中显示；条目级 `manual` 和 `never` 策略仍然阻止自动加入。
-- Workshop 对话不得默认绑定当前写作场景；场景、章、幕、全书正文、全书大纲和 Codex 都必须来自用户显式选择的上下文。
+- 选择 Volume、Chapter、Act 或 Scene 后，其中按 Codex 提及规则命中的条目必须自动进入同一次请求上下文，并立即在选择器中显示；条目级 `manual` 和 `never` 策略仍然阻止自动加入。
+- Workshop 对话不得默认绑定当前写作 Scene；Series 正文、Series 大纲、Volume、Chapter、Act、Scene 和 Codex 都必须来自用户显式选择的上下文。
 - General Chat 是讨论模式，不暴露进入 Proposal 的操作；它的 system prompt 必须完整显示并可编辑，不得在 Workshop 调用路径追加不可见的隐藏 prompt。
 - Workshop conversations are created as either `chat` or `agent` sessions. This kind is fixed at session creation and is not a mutable per-message mode selector. General Chat remains discussion-only, uses the visible author-editable system prompt, and never exposes Proposal or Codex write actions. Agent sessions are separate dialogue-agent runs: a user turn may create multiple ordered messages in the same session, including assistant draft text, server-owned `tool` request messages, later `result` messages, and follow-up assistant messages.
 - General Chat author messages may be edited and resent. Resend is available only in `chat` sessions for successful `author` / `general-chat` messages that are not linked to Proposals. The operation replaces that author message's content, deletes later unprotected General Chat messages and their message-bound attachments/branch records from the durable history, then runs a new General Chat model call from the revised history. If later history contains protected records such as Proposal-linked messages, Agent/tool/result records, or other non-chat protocol records, the resend must be blocked with an author-readable error instead of asking the author to repair storage manually. Agent sessions do not support edit/resend in this slice.

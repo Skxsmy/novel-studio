@@ -1,164 +1,135 @@
-# 当前架构
+# Current Architecture
 
-本文描述截至 M3 完成、NS-400 整备中的真实实现。M8 的完整目标模块、资料库、Word 往返、备份和长期运行任务见 `TARGET_ARCHITECTURE.md`；产品行为以 `../product/PRODUCT_SPEC.md` 为准。
+Status: current implementation boundary
+Updated: 2026-07-10
+Target: `TARGET_ARCHITECTURE.md`
+Product authority: `../product/PRODUCT_SPEC.md`
 
-## 运行拓扑
+This document describes the current system shape. It does not own milestone status, next tasks, or acceptance claims.
 
-```text
-Browser (React/Vite)
-        |
-   REST /api/v1
-        |
-Fastify local server (127.0.0.1)
-   |          |
-File store   SQLite / FTS5
-(authority)  (index/cache)
-```
-
-当前已具备 `ProviderAdapter`、MockProvider、DeepSeek 独立 Provider、OpenAI/OpenRouter/Ollama/OpenAI-compatible 基础路径、Anthropic Messages API 路径、Google Gemini GenerateContent API 路径、上下文预览、SSE 流式调用和调用日志 API。用户侧已确认 DeepSeek 连接正常并能获取模型列表；真实外部非写入调用和完整调用记录 UI 仍在 M4 后续任务中。
-
-## 工作区和依赖方向
-
-- `apps/web`：中文浏览器界面，包含概览、规划、写作、设定库、编辑室和待确认。
-- `apps/server`：Fastify 本地 API、错误处理、静态资源服务和领域路由注册。
-- `packages/contracts`：Zod 契约和共享 TypeScript 类型。
-- `packages/storage`：JSON 权威文件原子写入、Markdown/Word 边界格式导入导出、层级校验、索引重建和查询。
-
-依赖方向固定为：
+## Runtime Topology
 
 ```text
-apps/* -> packages/storage -> packages/contracts
-apps/* -> packages/contracts
-packages/contracts -> no app/storage dependency
+React/Vite browser application
+          |
+     REST + SSE /api/v1
+          |
+Fastify local server on 127.0.0.1
+   |              |                |
+JSON authority    SQLite/FTS5      Provider/Credential adapters
+files             derived index    and long-running model calls
 ```
 
-任何 M4 模型、上下文或 Proposal 能力都不能绕过 contracts 与 storage 的写入保护。
+The current release line runs as a local Windows-oriented web application. It has no account system, telemetry, automatic cloud fallback, or unauthenticated remote listener.
 
-## 当前数据权威
-
-作品目录中的结构化 JSON 文件是权威数据；Markdown/Word 是导入导出边界格式；SQLite 只保存可重建索引。
+## Repository Boundaries
 
 ```text
-series.json
-books/<book-id>/book.json
-books/<book-id>/acts/<act-id>.json
-books/<book-id>/chapters/<chapter-id>.json
-books/<book-id>/manuscript/<act-id>/<chapter-id>/<scene-id>.json
-planning/events/<event-id>.json
-sections/<scene-id>/<section-id>.json
-review/anchors/<anchor-id>.json
-codex/categories/<category-id>.json
-codex/<category-id>/<entry-id>.json
-codex/entry-research/<entry-id>.json
-codex/relations/<relation-id>.json
-codex/progressions/<id>.json
-codex/knowledge/<id>.json
-.studio/index.sqlite
-.studio/transactions/*.json
+apps/web                 React application shell and domain workspaces
+apps/server              Fastify composition root and domain routes
+packages/contracts       Zod schemas, DTOs, event shapes, and error contracts
+packages/storage         JSON authority, transactions, snapshots, indexes, and repository queries
+packages/ai              Provider adapters, capability/error normalization, and embedding routing
 ```
 
-删除 `.studio/index.sqlite` 后，场景搜索、设定库搜索、正文提及和歧义索引必须能从文件重建。
-
-## 写入流程
-
-1. 客户端读取实体和 `revision`。
-2. 客户端提交变更和 `baseRevision`。
-3. 服务端重新读取磁盘并比较版本。
-4. 不一致返回 409，不做覆盖。
-5. 一致时通过临时文件、事务日志和原子替换写入。
-6. 成功后更新可重建索引并返回新版本。
-
-普通生命周期使用归档和恢复，不用删除表达。读取操作不得为了“顺手修复”改写权威文件。
-
-## 已实现领域
-
-### 作品层级
-
-已实现 `Series → Book → Act → Chapter → Scene` 的显式父子清单和稳定 UUID。排序命令必须提交完整、无重复排列；场景移动只接受目标章，由服务端推导父链。跨单本移动当前明确拒绝。
-
-### 规划
-
-规划工作区使用同一个 `PlanningBoard` 投影生成 Grid、Outline、Matrix、叙事时间线和故事时间线。故事时间线事件保存在独立 JSON 文件中；未放置场景不会被读取操作自动写入时间线。
-
-### 正文与附属文档
-
-正文使用 JSON `SceneBlockDocument` 文件；当前 Write 场景正文采用 Tiptap/ProseMirror 运行时并在保存边界转换回 `SceneBlockDocument`，Codex Canon/Detail 文本编辑仍可使用 CodeMirror 6 `EditorSurface`，详见 ADR-0010 和 ADR-0012。Markdown 只作为导入导出/镜像格式。Sections、候选资料和敏感资料保存为独立 JSON 文件，并拥有独立 revision 与 AI 权限。审阅锚点保存为独立 JSON，查询时只返回定位状态，不写回。
-
-### 设定库与连续性
-
-设定库条目、参考笔记、关系、提及索引、故事进展和角色所知已经分离：
-
-- 已确认设定不混入参考笔记。
-- 关系状态变化通过 Progression 追加，不覆盖基础关系。
-- 角色所知支持“知道 / 相信 / 误解”，不覆盖世界事实。
-- 按当前叙事场景计算有效状态；未来记录只返回数量，不泄露摘要、证据或 ID。
-- `never` 策略即使被主动选择也不得进入模型上下文预览。
-
-## 服务端结构
-
-NS-400 开始把集中路由拆成领域模块：
+Current package dependencies are intentionally one-way:
 
 ```text
-apps/server/src/app.ts              # 创建 Fastify、错误处理、静态资源、领域路由注册
-apps/server/src/routes/codex.ts     # 设定库、进展、角色所知和上下文预览路由
+apps/* -> packages/*
+packages/storage -> packages/contracts
+packages/ai -> packages/contracts
+packages/contracts -> no application package
 ```
 
-后续应继续拆出层级、规划、写作和系统配置路由。`buildApp` 不应重新膨胀成所有 API 的总文件。
+The target architecture may introduce additional domain/import/security packages, but documents must not describe them as current implementation until they exist.
 
-## 当前整理风险
+## Frontend Structure
 
-以下文件仍然偏大，属于 NS-400 后续拆分对象：
-
-| 文件 | 风险 |
-|---|---|
-| `packages/storage/src/index.ts` | 领域混杂；M4 若继续堆上下文/Proposal 会难以审计 |
-| `apps/web/src/CodexView.tsx` | 详情、关系、进展和角色所知都在同一视图内 |
-| `packages/contracts/src/index.ts` | M4 结构化输出、调用日志和 Proposal 会进一步扩大 |
-| `packages/storage/test/repository.test.ts` | 覆盖强但定位慢，应随领域拆分测试 |
-
-拆分必须以行为不变为前提，不能为了行数指标改变文件格式或错误语义。
-
-## 前端结构
-
-NS-400 已开始拆分大视图：
+The current frontend uses these boundaries:
 
 ```text
-apps/web/src/CodexView.tsx          # 设定库类别、列表、选择和顶层载入
-apps/web/src/CodexEntryEditor.tsx   # 单个条目的编辑状态、保存和附属数据加载
-apps/web/src/CodexEntryPanels.tsx   # 此刻有效、关系、进展、角色所知、正文提及面板
+apps/web/src/app          application shell, workspace routing, global boundaries
+apps/web/src/api          API clients and transport mapping
+apps/web/src/features     library, write, plan, Codex, Workshop, Review, Settings, and shared domain UI
+apps/web/src/ui           reusable primitives and design-system tokens/components
 ```
 
-后续 M4 的上下文预览、模型资料范围和候选事实入口不得重新塞回 `CodexView.tsx`；应继续以面板或领域组件承载。
+Feature components must not bypass the API layer to read project files. User-facing copy should stay in centralized text/view-model resources rather than being scattered through feature logic.
 
-## 存储层结构
+## Server Structure
 
-NS-400 已开始把所有写入共用的安全层从大仓库文件中拆出：
+`apps/server/src/app.ts` is the composition root. Domain routes are separated under `apps/server/src/routes/`, including AI/model settings, Codex, context, model calls, prompts, Proposals, Workshop, and Workshop attachments.
 
-```text
-packages/storage/src/index.ts             # ProjectRepository 和领域读写逻辑
-packages/storage/src/errors.ts            # StorageError
-packages/storage/src/fileSystem.ts        # 路径归属、原子写入、存在性检查
-packages/storage/src/fileTransactions.ts  # 多文件事务、事务恢复和 FileMutation
-```
+New domain behavior should extend or add a route module rather than growing `app.ts` into a monolithic API file.
 
-后续应继续提取层级、规划、Codex 和索引相关模块。拆分时 `index.ts` 仍可作为包的公开出口，避免破坏外部导入路径。
+Workshop-specific General Chat and Agent prompts live under the Workshop server module. They are separate from user-created non-Workshop global role/template records.
 
-## 故障边界
+## Authority And Derived State
 
-- JSON 权威文件或 Markdown/Word 边界输入无法解析：返回明确错误，不静默修复。
-- 层级引用缺失、重复、遗漏或父链不一致：校验报告问题，结构命令返回 `INVALID_DATA`。
-- 多文件事务中断：下次访问前恢复到提交前状态或完成提交，不留下半状态。
-- SQLite 损坏或缺失：从权威文件重建。
-- 外部文件变化：带 revision 的写入必须冲突保护，不覆盖用户版本。
+Project authority is schema-versioned JSON inside the project directory. Current authority includes:
 
-## M4 接入前硬门槛
+- Author-facing `Series → Volume → Chapter → Act → Scene` hierarchy and `SceneBlockDocument` manuscript blocks.
+- Planning events, Sections, review anchors, and snapshots.
+- Codex categories, entries, research, reusable detail types, relations, Progressions, and character knowledge.
+- Prompt/model/context/call metadata, Proposals, and Workshop session/message/attachment/context records.
 
-进入真实模型调用前必须先完成：
+Markdown and Word are import, export, mirror, preview, and migration boundary formats. Tiptap/ProseMirror, CodeMirror, browser state, localStorage, SQLite, FTS5, vectors, and caches are not the only saved project copy.
 
-- Context Bundle / Context Item 契约：已定义于 `packages/contracts/src/index.ts`。
-- Prompt Template 版本契约：已定义于 `packages/contracts/src/index.ts`。
-- Model Call Log 契约：已定义于 `packages/contracts/src/index.ts`。
-- Proposal 契约和基础版本冲突规则：已定义于 `packages/contracts/src/index.ts`，应用前必须比较目标 revision。
-- 至少三条可重复烟测：已通过 `npm.cmd run test:smoke` 覆盖创建写作恢复、层级创建校验、设定库提及与资料范围。
+SQLite/FTS5 stores rebuildable projections such as search and mention indexes. Deleting derived state must not prevent the application from opening and editing authority files; rebuilding must validate source revisions and hashes.
 
-AI、导入器和后台任务只能产生候选变更或可审计记录；不得直接改写正文、已确认设定、摘要或角色状态。
+### Hierarchy Compatibility Boundary
+
+The product hierarchy and the current storage names are intentionally separated:
+
+| Product label | Current internal type/field/path |
+| --- | --- |
+| Series | `series` |
+| Volume | `book` / `bookId` / `books/` |
+| Chapter | `act` / `actId` / `acts/` |
+| Act | `chapter` / `chapterId` / `chapters/` |
+| Scene | `scene` / `sceneId` / `manuscript/` |
+
+The internal names are a compatibility boundary, not alternate product terminology. UI and product-facing API descriptions must present `Series → Volume → Chapter → Act → Scene`; a future schema rename requires its own ADR, migration, and rollback evidence.
+
+## Write And Codex Projection
+
+- Scene authority is `SceneBlockDocument`; the active Write surface uses a Tiptap/ProseMirror runtime and converts at the storage boundary.
+- Existing scene APIs may expose projected `content` for compatibility, but compatibility does not make Markdown authoritative.
+- Codex Canon/Detail pure-text surfaces may use CodeMirror without saving editor-private state.
+- Unified JSON Progression projects Canon Description, reusable details, world facts, and relation state by narrative scene and same-scene block position.
+- Character knowledge remains a separate authority and cannot overwrite world truth.
+- Future scene/progression content, summaries, evidence, and IDs must not leak into earlier projections or AI context.
+
+## Commands, Proposals, And Transactions
+
+Normal authority writes carry stable IDs and `baseRevision`. The server re-reads authority, rejects stale writes, validates references, writes same-directory temporary files, and atomically replaces targets. Multi-file invariants use recoverable file transactions.
+
+AI and imports do not receive generic file-write authority. Semantic changes enter a Proposal or a limited author-confirmed command path. Proposal acceptance validates target revisions, creates required snapshots, applies through domain/repository commands, and records the decision.
+
+The current Workshop Agent path supports limited author-confirmed Codex create/update requests with execution containment. Full Tool Plan/Grant records, atomic composed adapters, stale draft baselines, broader tool scopes, and durable multi-step continuation remain target work and must not be inferred from the limited path.
+
+## Lifecycle And Deletion
+
+Archive is a reversible visibility state, not a retention substitute. Archive-capable product objects require an explicit cleanup or permanent-delete design. Destructive cleanup must validate references or preserve the minimum immutable history snapshot required by audit views.
+
+Projects currently support Trash, restore, and exact-name-confirmed permanent directory deletion. Other domains must not claim complete lifecycle support until their delete/reference behavior is implemented and accepted.
+
+## AI And Credentials
+
+- Model calls use an explicitly selected Provider/model profile and never silently cross a local/cloud boundary.
+- Credentials are library-global references resolved through the credential service; plaintext keys do not enter project JSON, logs, or API responses.
+- Context assembly applies source permission, Codex policy, per-detail switches, story position, character knowledge, and token budgeting before Provider delivery.
+- `EmbeddingModelProfile` and `EmbeddingRouter` are shared infrastructure separate from generation-model configuration. Embeddings and vector indexes are rebuildable derived data, not evidence or Canon.
+
+## Long-Running And Failure Boundaries
+
+AI streaming is cancellable and session-scoped. Model failures preserve author input/context and must not create an empty Proposal. Index failure degrades search rather than corrupting authority. Damaged JSON or invalid references produce diagnostics and must not be silently rewritten by a read operation.
+
+Document parsing, embedding/index rebuild, Word diff, backup, and large migration work belong on cancellable long-running paths as they are implemented. Ordinary manuscript saving must not wait for those operations.
+
+## Current Structural Risks
+
+- `packages/storage/src/index.ts` remains oversized and mixes multiple domains.
+- Full Tool Plan/Grant and atomic Agent adapter boundaries are unfinished.
+- First-start library selection, in-app shutdown/tray flow, broader provider real-world validation, Reference Library ingestion, Word round trip, backup, and final performance hardening remain incomplete product areas.
+- Current UI command/function evidence is not equivalent to user visual acceptance.

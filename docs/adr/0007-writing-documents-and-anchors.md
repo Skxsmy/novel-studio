@@ -1,8 +1,8 @@
 # ADR-0007：写作附属文档与审阅锚点
 
-状态：已接受
+Status: Superseded by ADR-0010 and ADR-0012
 
-Note: ADR-0010 supersedes the Milkdown runtime choice for the current web Write scene and Codex Canon editor surfaces. ADR-0012 later supersedes the Markdown/YAML persistence decision with schema-versioned JSON project authority.
+ADR-0010 replaced the editor-runtime decision and ADR-0012 replaced the Markdown/YAML persistence decision. Surviving Section permission and anchor-relocation invariants are restated in current product and architecture documents.
 
 
 ## 背景

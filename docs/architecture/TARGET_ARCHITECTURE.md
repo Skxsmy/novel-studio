@@ -50,7 +50,7 @@ packages/
 - Query 读取规范化领域对象，不返回任意磁盘路径。
 - Command 携带目标 ID、`baseRevision` 和用户意图。
 - 文件写入由 Storage Transaction 统一完成。
-- AI 和导入器只创建 Proposal，不调用写入 Command。
+- AI 和导入器默认只创建 Proposal；受限工具只能在持久 Tool Plan/Grant 或等价的作者明确确认边界内调用已批准领域 Command，不得直接写文件。
 - 应用 Proposal 时 Domain 校验权限、revision、引用和生效范围，再创建快照和写入。
 
 未来 API 可以采用 REST 路由，但领域命令保持与传输层无关，以便测试和桌面壳复用。
@@ -59,13 +59,14 @@ packages/
 
 ### 权威文件
 
-- 系列、书、幕、章清单：JSON。
-- 场景、Codex、Progression、角色知识、Snippet、Style、Prompt 和 Research Note：JSON。NS-410 起，场景正文的内部权威是 `SceneBlockDocument`，Markdown/Word 只是导入、导出、镜像和迁移边界格式；旧 `codex/progressions/*.yaml` 退役。
-- Workshop：M5 起按 `workshop/sessions/<session-id>.json`、`workshop/messages/<message-id>.json`、`workshop/attachments/<attachment-id>.json` 和会话上下文选择 JSON 保存结构化权威数据；索引必须可重建，不使用 JSONL 作为权威存储。当前内部对象名仍可保留 `WorkshopContextBasket`，但 UI 不再把它呈现为常驻右侧篮子面板，而是通过折叠菜单编辑同一份会话上下文选择数据。Workshop 会话不得把当前场景作为默认上下文；新会话默认标题中性，首条作者消息或附件发送后可更新会话标题，作者手动重命名通过 session 更新命令持久化。分支创建必须在新 session 中复制源会话从开头到源消息的消息历史和消息附件快照，复制记录使用新 ID 并清除旧 Proposal/model-call/context 审计链接；不能只创建一个空 session。流式调用通过事件流传递作者消息、metadata、正式回答增量、reasoning 增量、最终消息、错误和完成事件；普通未关联 Proposal 的消息可删除，已关联 Proposal 的消息必须由存储层阻止删除。Workshop message attachments are parsed draft/message-bound context files, not Reference Library SourceDocuments or retrieval index records; deleting an unlinked message cascades its attachment JSON after the ContextBundle has already snapshotted the extracted text it used. Workshop model calls include same-session visible prior messages as `workshop-chat-history` context, including extracted text from historical message-bound attachments, while excluding the current author message from that history item to avoid duplicating `userRequest`.
-- In-flight Workshop stream state is keyed by session and merged with persisted session detail when the author switches back before completion. Permanent Workshop session delete is a separate lifecycle operation from archive: it removes unlinked session records, messages, attachments, context basket, and branch records, but blocks sessions with Proposal-linked messages rather than breaking audit/source references.
-- General Chat resend is a storage/API history replacement operation, not a UI-only retry. It is valid only in `chat` sessions for successful author General Chat messages. The repository updates the selected author message, removes later unprotected General Chat messages, deletes their bound attachments, clears branch records/pointers for deleted source messages, and then the server creates a new ContextBundle/ModelCallLog/assistant message from the revised history. Agent sessions and protected later histories are rejected in the current slice.
-- Workshop conversations are created as fixed `chat` or `agent` sessions. Chat sessions use the visible author-editable discussion prompt and expose no write actions. Workshop Chat and Agent prompts are defined in the Workshop-specific prompt module and are isolated from global role/template records. Agent sessions run through a server-side structured-step protocol: provider output is buffered and parsed into assistant text or server-owned `role: tool` request messages. The current limited Agent tools are `codex.create_entry` and `codex.update_entry`; they execute only from structured JSON tool request messages after author confirmation. `codex.update_entry` may update entry fields/research/details and create/update/delete unified Codex Progression records through the existing validated repository commands. Explicit author authorization in the current Agent conversation is valid source material for limited Codex drafting. Broader Write/Codex mutations, relation writes, character knowledge writes, durable multi-step continuation, and full command grants still require Proposal or future Tool Plan/Grant adapters.
-- Workshop session export is a derived read path from persisted session, message, attachment, ContextBundle, and ModelCallLog records. It creates no authority state. The export route filters records to the requested session and defaults to readable chat history plus attachment file records only. It includes saved reasoning only when the author explicitly requests it, includes reconstructed provider prompt/context audit only behind a separate explicit option, emits UTF-8 Markdown with a BOM for local Windows readers, and omits extracted attachment body text.
+- 作者视角层级固定为英文 `Series → Volume → Chapter → Act → Scene`，其清单使用 JSON。目标领域模型使用这些产品名，不新增另一套作者术语。
+- 当前物理兼容映射是 `Series → series`、`Volume → book`、`Chapter → act`、`Act → chapter`、`Scene → scene`。它只允许存在于 Storage/API 兼容边界；迁移前不得把内部名称暴露为产品标签。
+- Scene、Codex、Progression、角色知识、Snippet、Style、Prompt 和 Research Note：JSON。NS-410 起，Scene 正文的内部权威是 `SceneBlockDocument`，Markdown/Word 只是导入、导出、镜像和迁移边界格式；旧 `codex/progressions/*.yaml` 退役。
+- Workshop sessions, messages, message attachments, context selections, branches, tool requests/results, and lifecycle metadata use schema-versioned JSON authority; indexes remain rebuildable and JSONL is not an authority format.
+- Workshop context is explicit and auditable. Message attachments are conversation context records rather than Reference Library sources, and same-session history must not duplicate the current request.
+- Session branch, resend, archive, and permanent-delete commands preserve or block Proposal/model-call/context audit references instead of silently breaking history.
+- Chat and Agent are fixed session kinds with separate visible/versioned Prompt boundaries. Chat has no write actions. Agent tool requests are server-owned protocol records and require an approved author-confirmation/Grant boundary before domain commands run.
+- Workshop export is a derived read path. Reasoning, prompt audit, and attachment-body inclusion are explicit independent choices; the default is readable session history without hidden/audit content.
 - Embedding model profiles are library-global JSON settings under `.studio/embedding-profiles/`. They are separate from generation `ModelProfile` records and store Provider, endpoint, model, dimensions, batch limits, profile-level concurrency, normalization, license, and credential reference. They do not contain vectors or source text.
 - Proposal、Evidence、调用审计和版本元数据：`.studio` 下可导出的结构化文件。
 - JSON authority 是 Project/File Service 的内部职责；API 层应在可行处继续提供当前前端所需的兼容投影，例如场景 `content`。
@@ -86,8 +87,8 @@ Archive is not a data-retention substitute for deletion. Every archive-capable d
 应用加载项目时执行：
 
 1. 验证顶层 manifest 与 schemaVersion。
-2. 读取书/幕/章引用图，报告缺失或重复引用。
-3. 读取场景和 Codex，生成 revision。
+2. 通过兼容映射读取 Volume/Chapter/Act 引用图，报告缺失或重复引用。
+3. 读取 Scene 和 Codex，生成 revision。
 4. 对比索引中的文件哈希，只更新变化实体。
 5. 计算叙事顺序投影、同场景 block 顺序投影和故事时间投影。
 6. 按场景/block 计算有效统一 Codex Progression，并按场景计算角色知识和活跃情节线。

@@ -65,7 +65,7 @@ It excludes:
 ## Release A Scope Decisions (2026-06-24)
 
 - Release A is Start-to-Write plus Codex Core plus minimum Settings plus honest navigation. Overview and Plan remain limited support surfaces. Review and Workshop are unavailable unless a later slice deliberately defines one real workflow.
-- The accepted writing hierarchy is `Volume -> Chapter -> Act -> Scene`. The current durable storage remains `Series -> Book -> Act -> Chapter -> Scene` for Release A unless implementation proves the projection is more dangerous than a contract migration. The projection must be explicit in code and tests, not hidden by swapped labels.
+- The accepted author-facing hierarchy is `Series → Volume → Chapter → Act → Scene`. Release A keeps the compatibility storage mapping `Series → series`, `Volume → book`, `Chapter → act`, `Act → chapter`, and `Scene → scene` unless a separately approved migration replaces it. The projection must be explicit in code and tests, not hidden by swapped labels.
 - Codex Release A covers entry list/search, create, open/close detail, rename, edit details/canon description, edit research, save/reload, archive/restore, and visible conflict behavior. Relations, progressions, knowledge, effective state, and scene context are not allowed as fake editable tabs.
 - Settings Release A no longer includes Slice E. On 2026-06-25 the user marked Slice E permanently skipped. Existing Settings code may remain as an unaccepted working draft, but it must not be used as recovery completion evidence.
 - Review and Workshop remain visible in the UI, but Release A treats them as not connected to backend workflows. Their future product workflows must be designed and implemented from scratch.

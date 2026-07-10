@@ -20,8 +20,10 @@
     "test:e2e": "npm run build && playwright test",
     "test:e2e:quick": "playwright test",
     "test:e2e:headed": "npm run build && playwright test --headed",
+    "test:docs": "node --test tests/docs/docs-check.test.mjs",
+    "docs:check": "node scripts/docs-check.mjs",
     "start": "npm run start -w @novel-studio/server",
-    "check": "npm run typecheck && npm run test && npm run build"
+    "check": "npm run docs:check && npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.0",

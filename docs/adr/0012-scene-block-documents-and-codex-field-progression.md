@@ -1,6 +1,6 @@
 # ADR-0012: JSON authority, scene block documents, and unified Codex progression
 
-Status: Accepted; NS-410 implementation active on the controlled slice plan
+Status: Accepted
 
 ## Context
 

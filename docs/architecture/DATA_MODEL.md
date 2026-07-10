@@ -2,7 +2,21 @@
 
 详细产品语义见 `docs/product/PRODUCT_SPEC.md`，层级操作、写作附属文档和 Codex 的强制不变量见 `docs/tasks/M3.md`，JSON 权威决策见 ADR-0012；ADR-0001、ADR-0005、ADR-0007、ADR-0008 与 ADR-0011 的历史约束如与 ADR-0012 冲突，以 ADR-0012 为准。
 
-本文件描述 NS-410 及后续工作的目标磁盘格式：作品权威数据应落在项目目录中的 schema-versioned JSON 文件。当前实现进度以 `STATUS.md` 与 `docs/testing/NS-410_ACCEPTANCE.md` 为准；尚未迁移的 YAML/Markdown runtime authority path 必须保留在验收清单中，不能把目标目录树当成已完成事实。
+本文件描述当前 JSON 权威磁盘模型及后续兼容边界。作品权威数据落在项目目录中的 schema-versioned JSON 文件；Markdown/Word 是导入、导出、镜像和迁移边界，SQLite、向量和缓存是可重建派生数据。当前任务进度只由根目录 `STATUS.md` 和对应任务/验收记录描述。
+
+## 产品层级与存储兼容映射
+
+作者视角的唯一层级是全英文 `Series → Volume → Chapter → Act → Scene`。当前磁盘格式沿用较早的内部名称，必须按下表解释：
+
+| 产品层级 | 当前内部名称 | 代表性字段/目录 |
+| --- | --- | --- |
+| Series | `series` | `series.json` |
+| Volume | `book` | `bookIds`, `bookId`, `books/` |
+| Chapter | `act` | `actIds`, `actId`, `acts/` |
+| Act | `chapter` | `chapterIds`, `chapterId`, `chapters/` |
+| Scene | `scene` | `sceneIds`, `sceneId`, `manuscript/` |
+
+该映射是兼容边界，不是产品层级的第二种定义。当前代码、契约或磁盘路径中的 `book/act/chapter` 不得直接成为 UI 标签。若要重命名磁盘字段，必须通过独立 ADR、迁移和回滚测试完成。
 
 ## 系列目录
 
@@ -39,10 +53,10 @@ series-slug-id/
 
 ## 父子清单
 
-- `series.json.bookIds`：系列内单本成员。
-- `book.json.actIds`：单本内幕成员及顺序。
-- `acts/<id>.json.chapterIds`：幕内章成员及顺序。
-- `chapters/<id>.json.sceneIds`：章内场景成员及顺序。
+- `series.json.bookIds`：Series 内的 Volume 成员。
+- `book.json.actIds`：Volume 内的 Chapter 成员及顺序。
+- `acts/<id>.json.chapterIds`：Chapter 内的 Act 成员及顺序。
+- `chapters/<id>.json.sceneIds`：Act 内的 Scene 成员及顺序。
 
 子文件同时保存父 ID，并要求 `order = 父清单下标 + 1`。父清单、子父 ID、Scene 物理路径三者不一致时数据无效，不做静默容错。
 
@@ -414,4 +428,4 @@ Preset 只保存默认角色、模板版本、模型配置和输入项，不保�
 
 位置：`.studio/inbox/proposals/<proposal-id>.json`
 
-M4 只保留 `Proposal` 契约，不实现应用流程。AI 输出如需影响正文、设定、摘要、进展或角色所知，必须进入 M5 的候选变更流程。每个 patch 必须记录目标类型、目标 ID、基础 revision、字段路径、差异和证据；目标已变化时不得直接应用。
+`Proposal` 是候选变更权威记录。AI 输出如需影响正文、设定、摘要、进展或角色所知，必须进入 Proposal/Review 流程或受限的作者明确确认命令。每个 patch 必须记录目标类型、目标 ID、基础 revision、字段路径、差异和证据；目标已变化时不得直接应用。

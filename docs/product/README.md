@@ -36,6 +36,6 @@
 - 把 SQLite、缓存、localStorage 或编辑器运行时状态变成唯一作品副本；权威 JSON 项目文件除外。
 - 用模型常识代替资料来源和证据定位。
 - 因首版单机而在局域网无认证监听。
+- 把固定的作者层级 `Series → Volume → Chapter → Act → Scene` 翻译、调序，或用当前内部 `series → book → act → chapter → scene` 字段名代替。兼容映射必须留在架构边界，不得进入产品标签。
 
 确需调整上述方向时，必须先向用户说明代价并获得确认。
-

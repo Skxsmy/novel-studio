@@ -1,8 +1,8 @@
 # ADR-0005：显式层级清单与可恢复文件事务
 
-状态：已接受（2026-06-20）
+Status: Accepted
 
-Superseded note: ADR-0012 supersedes the Markdown/YAML file-format assumption with schema-versioned JSON project authority. The explicit parent-list and recoverable transaction principles still apply.
+Format update: ADR-0012 replaces the old Markdown/YAML format assumption with JSON authority. The explicit parent-list and recoverable transaction decision remains accepted.
 
 ## 背景
 

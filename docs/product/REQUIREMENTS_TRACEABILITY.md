@@ -20,7 +20,7 @@
 
 覆盖：`FR-PROJECT-01/03` 的基础、`FR-WRITE-01` 的保存状态、文件权威、冲突、索引重建、基础搜索。
 
-完成标准：创建系列 → 写入 Markdown → 重启读取 → 搜索 → 删除索引重建全链路通过；项目生命周期必须提供回收站、恢复和永久删除项目目录的路径，永久删除前必须完整输入项目名称并由服务端校验。
+完成标准：创建 `Series → Volume → Chapter → Act → Scene` → 写入 Scene 权威文件 → 重启读取 → 搜索 → 删除索引重建全链路通过；项目生命周期必须提供回收站、恢复和永久删除项目目录的路径，永久删除前必须完整输入项目名称并由服务端校验。当前 Scene 权威格式以 NS-410/ADR-0012 的 JSON `SceneBlockDocument` 为准。
 
 ## M3 规划、编辑器与 Codex
 
@@ -32,7 +32,7 @@
 - `FR-WRITE-01`–`FR-WRITE-04`、`FR-WRITE-06/07`
 - `FR-CODEX-01`–`FR-CODEX-08`
 
-完成标准：四种规划视图和双时间线使用真实数据；编辑器与 Markdown 往返；Codex 条目、按类别复用的详情类型、详情类型 NSFW 标记、条目级 detail AI 发送开关、Relations、Progression、角色知识和提及索引均有文件契约和测试。
+完成标准：四种规划视图和双时间线使用真实数据，并统一呈现英文 `Series → Volume → Chapter → Act → Scene`；编辑器与 Markdown 往返；Codex 条目、按类别复用的详情类型、详情类型 NSFW 标记、条目级 detail AI 发送开关、Relations、Progression、角色知识和提及索引均有文件契约和测试。
 
 ## M4 模型、Prompt 与上下文
 
@@ -79,21 +79,9 @@
 
 覆盖：全部角色、单角色调用、独立会审、Workshop、Proposal、Review、正文候选和后台分析策略。
 
-完成标准：Proposal/Review 闭环先可用，Review 主路径必须是待审队列加清晰的修改前后差异，不能变成 Proposal 管理台或常驻批量/影响/证据仪表盘；Workshop 作为可靠 Proposal 来源进入闭环；Workshop 上下文选择必须支持折叠菜单式选择全书、全书大纲、幕、章、多个场景和 Codex，并让按规则自动加入的 Codex 与后端实际请求保持可见一致；Workshop 会话默认标题中性，首次发送后按聊天内容自动命名，并支持作者双击改名；Branch 必须复制分支点之前的消息历史和附件快照，不能创建空聊天；Codex detail 的发送开关必须实际影响 Context Bundle；General Chat 不默认绑定场景、不暴露 Proposal 操作、system prompt 完整可见且无隐藏追加 prompt，流式 reasoning 与正式回答分离并可折叠；两个编辑独立评审产生可见分歧；候选应用前磁盘不变；过期 Proposal 被拒；事实提取进入收件箱而非 Canon；Tool Plan 只有在用户明确授权后才能通过共享命令适配器操作 Write/Codex，或退回 Proposal。
+完成标准：Proposal/Review 闭环先可用，Review 主路径必须是待审队列加清晰的修改前后差异，不能变成 Proposal 管理台或常驻批量/影响/证据仪表盘；Workshop 作为可靠 Proposal 来源进入闭环；Workshop 上下文选择必须支持折叠菜单式选择 Series 正文、Series 大纲、Volume、Chapter、Act、多个 Scene 和 Codex，并让按规则自动加入的 Codex 与后端实际请求保持可见一致；Workshop 会话默认标题中性，首次发送后按聊天内容自动命名，并支持作者双击改名；Branch 必须复制分支点之前的消息历史和附件快照，不能创建空聊天；Codex detail 的发送开关必须实际影响 Context Bundle；General Chat 不默认绑定 Scene、不暴露 Proposal 操作、system prompt 完整可见且无隐藏追加 prompt，流式 reasoning 与正式回答分离并可折叠；两个编辑独立评审产生可见分歧；候选应用前磁盘不变；过期 Proposal 被拒；事实提取进入收件箱而非 Canon；Tool Plan 只有在用户明确授权后才能通过共享命令适配器操作 Write/Codex，或退回 Proposal。
 
 验收 ID：`M5-A01` 至 `M5-A45`，详见 `docs/testing/M5_ACCEPTANCE.md`。
-
-2026-07-03 follow-up trace: Workshop session lifecycle and streaming-session-switch behavior are part of the M5 Workshop acceptance boundary. In-flight stream output must remain attached to its originating session across session switches, and permanent Workshop session delete must be exposed separately from Archive with cascade/reference-blocking behavior.
-
-2026-07-06 follow-up trace: Workshop no longer treats Codex creation as a mutable chat mode. Sessions are created as fixed `chat` or `agent` conversations. Agent sessions use a server-side runner: the model produces draft content, while tool requests are server-owned `role: tool` messages. The `codex.create_entry` workflow is invoked only from Agent Codex creation intent, suppresses raw simulated tool-call text from streaming into the UI, and creates a pending tool request that must be author-confirmed before writing. Details match existing reusable detail types by stable ID or exact normalized name; unmatched labels require explicit detail-type creation confirmation; unknown categories do not silently fall back. The create-only limitation in this 2026-07-06 record is superseded by the 2026-07-08 limited `codex.update_entry` repair below; relations, knowledge, and broader Codex tools still require a dedicated Codex Proposal or approved Tool Plan/Grant adapter.
-
-2026-07-07 follow-up trace: General Chat author-message edit/resend is intentionally limited to `chat` sessions. Resend updates the selected successful `author` / `general-chat` message, removes later unprotected General Chat messages plus their bound attachments and branch records from the durable history, then creates a new ContextBundle/ModelCallLog/assistant reply from the revised history. Agent sessions do not expose or accept this feature in the current slice. Protected later records block resend instead of requiring the author to create or repair storage records manually.
-
-2026-07-07 follow-up trace: Workshop session export is a session-level read path for stored conversation records. Markdown export defaults to visible messages without reasoning and without prompt/context audit dumps; the explicit `includeReasoning` option adds saved provider reasoning content, and the separate `includePromptAudit` option reconstructs provider prompt/context records from durable ContextBundle and ModelCallLog links when available. Exported Markdown must be UTF-8 portable for local Windows readers. Attachment files are represented only as records and extracted attachment body text is omitted. Export must not fabricate tool calls, hidden prompts, unsaved reasoning, or attachment bodies.
-
-2026-07-08 follow-up trace: Agent authorization and limited Codex update execution are now part of the M5 Workshop boundary. When the author explicitly grants permission in an Agent session, the Agent prompt/runtime must treat the current-session author decision as valid source material for limited Codex drafting. `codex.update_entry` is available as a server-owned Agent tool request beside `codex.create_entry`; after author confirmation it can update one existing Codex entry's fields/research/details and can create, update, or delete unified Codex Progression records through the existing validated Progression commands. This remains below full M5.6 Tool Plan/Grant scope and does not authorize relation, character knowledge, category, or broad Write mutations.
-
-2026-07-09 follow-up trace: Workshop General Chat and Agent prompts are isolated from global role/template records. Their definitions live in the Workshop-specific server prompt module, while user-created global roles/templates remain available for non-Workshop context/model-call paths. Fixed global built-in editorial roles are no longer a product requirement or runtime seed path.
 
 ## M6 资料分析库
 
@@ -101,7 +89,7 @@
 
 完成标准：六种 fixture 解析；多语言检索；结果回指来源；扫描 PDF 诚实失败；危险文件隔离；资料不能越权进入模型。
 
-2026-07-08 foundation trace: Embedding is now a shared infrastructure concept with `EmbeddingModelProfile`, use-case routing, local HTTP adapter, profile-level concurrency, and library-global storage methods. M6 semantic search must build on this layer instead of introducing a Reference-Library-only embedding path. This foundation does not implement SourceDocument parsing or vector indexes yet.
+M6 语义检索必须复用产品与目标架构定义的共享 `EmbeddingModelProfile`、按用途路由和 profile 级并发基础设施，不得创建资料库私有的第二套 Embedding 配置或静默云端回退。
 
 ## M7 Word、版本与备份
 

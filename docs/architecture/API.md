@@ -42,7 +42,7 @@
 - `GET /series/:seriesId/search?q=`
 - `PATCH /series/:seriesId/scenes/:sceneId/planning`
 
-场景创建默认落在第一本书的第一个可用章节；若客户端要把场景放入指定位置，`POST /series/:seriesId/scenes` 必须同时提供 `bookId`、`actId` 和 `chapterId`。NS-410 起，`/document` 是 JSON `SceneBlockDocument` 主路径，更新必须提供 `baseRevision`。传统 Markdown content 更新仅作为导入/迁移兼容入口，并转换为 block document 后写入 JSON 权威文件。Markdown 导出从 block document 投影，不返回编辑器私有状态。移动只接受 `targetChapterId` 与可选 `order`，祖先 ID 由服务端推导。
+Scene 创建默认落在第一个 Volume 的第一个可用 Act；若客户端要把 Scene 放入指定位置，`POST /series/:seriesId/scenes` 当前必须同时提供兼容字段 `bookId`、`actId` 和 `chapterId`，分别表示产品层级的 Volume、Chapter 和 Act。NS-410 起，`/document` 是 JSON `SceneBlockDocument` 主路径，更新必须提供 `baseRevision`。传统 Markdown content 更新仅作为导入/迁移兼容入口，并转换为 block document 后写入 JSON 权威文件。Markdown 导出从 block document 投影，不返回编辑器私有状态。移动只接受内部 `targetChapterId`（产品 Act）与可选 `order`，祖先 ID 由服务端推导。
 
 ## Act 与 Chapter
 
@@ -253,7 +253,7 @@ Embedding router 调用不直接写权威数据。索引调用者负责在向量
 NS-407 已允许两类调用：
 
 - 分析型任务：`analysis`、`critique`、`continuity-check`、`style-review`、`brainstorm` 等，只在写作页侧栏显示结果，不写入正文或设定。
-- 正文候选任务：`rewrite` 等可以生成候选文本，但服务端只返回流式文本和调用日志；前端必须把候选放入正文编辑器并整段选中，作者点击“保留”后才按普通场景保存流程写入 Markdown。写作主界面不展示调用来源、基准版本、用量或调用 ID。
+- 正文候选任务：`rewrite` 等可以生成候选文本，但服务端只返回流式文本和调用日志；前端必须把候选放入正文编辑器并整段选中，作者点击“保留”后才按普通场景保存流程写入 JSON `SceneBlockDocument` 权威文件。Markdown 仅是投影、导出或外部往返边界。写作主界面不展示调用来源、基准版本、用量或调用 ID。
 
 应用补丁、候选事实收件箱、摘要 / 人物状态 / 设定更新仍属于 M5。
 

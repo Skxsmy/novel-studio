@@ -1,32 +1,27 @@
 # Task Documents
 
-Task files turn product goals into implementable and testable increments.
+Task files turn authoritative product and architecture requirements into one implementable, verifiable `NS-###` task. The first digit follows the milestone: M3 uses NS-3xx, M4 uses NS-4xx, and M5 uses NS-5xx. Do not create a parallel task-ID namespace for documentation or governance work inside a milestone.
 
-## Current Reading Path
+## Reading Rule
 
-For current work, read only:
+Resolve the active task from `../../STATUS.md` and `../../TASKS.md`. Read that task, its acceptance record, and only the product/architecture/design/history documents named by the task.
 
-1. `../../TASKS.md`
-2. `M5.md`
-3. `../testing/M5_ACCEPTANCE.md`
-4. `../design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`
-5. `../design/ui-redesign/M5_FIGMA_UI_REVIEW.md`
-6. `../design/ui-redesign/FIGMA_TO_IMPLEMENTATION_WORKFLOW.md`
-7. `PROJECT_RECOVERY.md`
-8. `../testing/PROJECT_RECOVERY_ACCEPTANCE.md`
+Milestone files such as `M3.md`, `M4.md`, and `M5.md` organize work but are not active commit identities. Historical tasks are not part of the default reading path.
 
-Older task files are historical context. Do not start from them unless the current task touches that subsystem.
+## Required Task Shape
 
-## Historical Files
+New tasks start from `TEMPLATE.md` and contain:
 
-- `M0.md`: project governance and engineering baseline.
-- `M3.md`: hierarchy, planning, editor, and Codex foundation.
-- `M4_PREP.md`: M3 to M4 preparation.
-- `M4.md`: model/context/prompt/call-log milestone.
-- `NS-401.md` through `NS-408.md`: M4 slices.
-- `PROJECT_RECOVERY.md`: accepted current-stage project recovery baseline.
-- `M5.md`: current active Workshop, Proposal, and Review line.
+- Stable task ID, normalized status, owner, and acceptance link.
+- Objective, in-scope and out-of-scope boundaries.
+- Required reading routed by task type.
+- Proportionate logical closure boundary.
+- Material decisions and unresolved product questions.
+- Atomic acceptance IDs mapped before implementation.
+- Completion criteria without command transcripts.
+
+Implementation evidence and command results belong in the matching acceptance record, not the task narrative.
 
 ## Rule
 
-Do not create new task documents for routine notes or cleanup. Update the active task file and root `TASKS.md`.
+Do not create task documents for routine notes, exploratory logs, or status copies. Add a task only for a real scoped work item. Update `../../TASKS.md` only when its top-level status changes.

@@ -1,8 +1,8 @@
 # ADR-0006：显式故事事件与共享规划投影
 
-状态：已接受（2026-06-20）
+Status: Accepted
 
-Superseded note: ADR-0012 supersedes the YAML/Markdown file-format assumption with schema-versioned JSON project authority. The explicit event and shared projection semantics still apply.
+Format update: ADR-0012 replaces the old YAML/Markdown format assumption with JSON authority. The explicit event and shared projection decision remains accepted.
 
 ## 背景
 
