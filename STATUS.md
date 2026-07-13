@@ -6,11 +6,11 @@ Authority: current operational state only
 ## Project Mainline
 
 - Active milestone: `M5 Workshop, Proposal, And Review`.
-- Active task: none.
+- Active task: `NS-509 / M5.6D Durable Agent Runner`.
 - Last reached mainline task: `NS-508 / M5.6C Detail Schema Planning And Author Mapping`.
 - Next mainline task: `NS-509 / M5.6D Durable Agent Runner`.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
-- Mainline state: NS-508 is command-verified and ready for its completion commit.
+- Mainline state: NS-508 is complete at `a8eae7b`; NS-509 task and acceptance boundaries are open.
 
 ## Active Support Work
 
@@ -18,7 +18,7 @@ Authority: current operational state only
 - Last completed support task: `GOV-001 Documentation Governance And Delivery Skeleton`.
 - Task record: `docs/tasks/GOV-001.md`.
 - Acceptance record: `docs/testing/GOV-001_ACCEPTANCE.md`.
-- Next action: open the scoped NS-509 task and acceptance record before durable Agent runner implementation begins.
+- Next action: complete NS-509 regression/build evidence and close its acceptance record; NS-510 follows after closure.
 
 ## Repository State
 
@@ -26,7 +26,7 @@ Authority: current operational state only
 - Rewritten pre-GOV-001 mainline tip: `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`.
 - Numbering-repair verification tip before closure: `578a74a GOV-001 docs(governance): separate support work from product mainline`.
 - Local recovery ref: `backup/gov-001-before-numbering-rewrite-20260710` preserves the original pre-rewrite history; the rewritten and backup tips have identical tree `deae3c9fae1f797239b975c464106126df530765`.
-- Unrelated worktree items preserved outside NS-508: existing `docs/design/ui-redesign/` deletions and README edit, untracked `.hermes/plans/`, and `docs/design/ui-redesign/novel-studio-full-ui-redesign-reference.html`.
+- Unrelated worktree items preserved outside NS-509: existing `HANDOFF.md` and `docs/testing/NS-507_ACCEPTANCE.md` edits, `docs/design/ui-redesign/` deletions and README edit, untracked `.hermes/plans/`, and `docs/design/ui-redesign/novel-studio-full-ui-redesign-reference.html`.
 - The unpublished range contains 29 rewritten commits including the first GOV-001 commit; no remote history was rewritten.
 
 ## Current Product And Implementation Boundary

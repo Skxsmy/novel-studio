@@ -651,12 +651,17 @@ function mappingByLabel(mappings: WorkshopCodexDraftDetailMapping[]): Map<string
   return result;
 }
 
-function resolveDraftDetails(
+function collectDraftDetailResolution(
   draftDetails: WorkshopCodexDraftDetail[],
   detailTypes: CodexDetailTypeDocument[],
   detailMappings: WorkshopCodexDraftDetailMapping[],
-): { details: Record<string, string>; detailAiContext: Record<string, boolean> } {
-  if (!draftDetails.length) return { details: {}, detailAiContext: {} };
+  sourceAiContext: Map<string, boolean> = new Map(),
+): {
+  details: Record<string, string>;
+  detailAiContext: Record<string, boolean>;
+  missingDetailTypes: WorkshopCodexDraftMissingDetailType[];
+} {
+  if (!draftDetails.length) return { details: {}, detailAiContext: {}, missingDetailTypes: [] };
 
   const detailTypesById = new Map(detailTypes.map((document) => [document.detailType.id, document]));
   const exactDetailTypesByName = new Map<string, CodexDetailTypeDocument[]>();
@@ -687,6 +692,7 @@ function resolveDraftDetails(
     const exactMatches = exactDetailTypesByName.get(normalizedLabel) ?? [];
     let resolvedDetailType: CodexDetailTypeDocument | null = null;
 
+    let preserveSourceLabel = false;
     if (explicitDetailTypeId) {
       const explicitDetailType = detailTypesById.get(explicitDetailTypeId);
       if (!explicitDetailType) {
@@ -695,6 +701,7 @@ function resolveDraftDetails(
         );
       }
       resolvedDetailType = explicitDetailType;
+      preserveSourceLabel = normalizedLabel !== normalizeDetailLabel(explicitDetailType.detailType.name);
     } else if (labelDetailTypeId && detailTypesById.has(labelDetailTypeId)) {
       resolvedDetailType = detailTypesById.get(labelDetailTypeId) ?? null;
     } else if (exactMatches.length === 1) {
@@ -712,20 +719,27 @@ function resolveDraftDetails(
       throw new Error(`Detail type for "${draftDetail.label}" could not be resolved.`);
     }
     const resolvedDetailTypeId = resolvedDetailType.detailType.id;
-    const value = normalizeDetailLabel(draftDetail.label) === normalizeDetailLabel(resolvedDetailType.detailType.name)
-      ? draftDetail.value
-      : `${draftDetail.label}: ${draftDetail.value}`;
+    const value = preserveSourceLabel ? `${draftDetail.label}: ${draftDetail.value}` : draftDetail.value;
     details[resolvedDetailTypeId] = details[resolvedDetailTypeId]
       ? `${details[resolvedDetailTypeId]}\n${value}`
       : value;
-    detailAiContext[resolvedDetailTypeId] = true;
+    detailAiContext[resolvedDetailTypeId] = sourceAiContext.get(normalizedLabel) ?? true;
   }
 
-  if (missingDetailTypes.length) {
-    throw new WorkshopCodexDetailTypeCreationRequiredError(missingDetailTypes, detailTypes);
+  return { details, detailAiContext, missingDetailTypes };
+}
+
+function resolveDraftDetails(
+  draftDetails: WorkshopCodexDraftDetail[],
+  detailTypes: CodexDetailTypeDocument[],
+  detailMappings: WorkshopCodexDraftDetailMapping[],
+): { details: Record<string, string>; detailAiContext: Record<string, boolean> } {
+  const resolved = collectDraftDetailResolution(draftDetails, detailTypes, detailMappings);
+  if (resolved.missingDetailTypes.length) {
+    throw new WorkshopCodexDetailTypeCreationRequiredError(resolved.missingDetailTypes, detailTypes);
   }
 
-  return { details, detailAiContext };
+  return { details: resolved.details, detailAiContext: resolved.detailAiContext };
 }
 
 export function parseWorkshopCodexCreateDraft(content: string): WorkshopCodexCreateDraft {
@@ -821,19 +835,49 @@ export function codexUpdateEntryInputFromWorkshopDraft(
     input.description = draft.patch.description;
     changesEntry = true;
   }
-  if (draft.patch.details?.length) {
-    const { details, detailAiContext } = resolveDraftDetails(
-      draft.patch.details,
-      detailTypes.filter((document) => document.detailType.categoryId === entry.metadata.categoryId),
+  const categoryDetailTypes = detailTypes.filter(
+    (document) => document.detailType.categoryId === entry.metadata.categoryId,
+  );
+  const knownDetailTypeIds = new Set(categoryDetailTypes.map((document) => document.detailType.id));
+  const existingDetailKeys = new Set([
+    ...Object.keys(entry.metadata.details),
+    ...Object.keys(entry.metadata.detailAiContext),
+  ]);
+  const existingNeedsNormalization = [...existingDetailKeys].some((key) => !knownDetailTypeIds.has(key));
+  if (draft.patch.details?.length || existingNeedsNormalization) {
+    const patchLabels = new Set((draft.patch.details ?? []).map((detail) => normalizeDetailLabel(detail.label)));
+    const existingDraftDetails = [...existingDetailKeys]
+      .filter((label) => !patchLabels.has(normalizeDetailLabel(label)))
+      .map((label) => ({ label, value: entry.metadata.details[label] ?? "" }));
+    const existingAiContext = new Map(existingDraftDetails.map((detail) => [
+      normalizeDetailLabel(detail.label),
+      entry.metadata.detailAiContext[detail.label] ?? true,
+    ]));
+    const existingResolution = collectDraftDetailResolution(
+      existingDraftDetails,
+      categoryDetailTypes,
+      detailMappings,
+      existingAiContext,
+    );
+    const patchResolution = collectDraftDetailResolution(
+      draft.patch.details ?? [],
+      categoryDetailTypes,
       detailMappings,
     );
-    input.details = {
-      ...entry.metadata.details,
-      ...details,
-    };
+    const missingByLabel = new Map<string, WorkshopCodexDraftMissingDetailType>();
+    for (const missing of [
+      ...existingResolution.missingDetailTypes,
+      ...patchResolution.missingDetailTypes,
+    ]) {
+      missingByLabel.set(normalizeDetailLabel(missing.label), missing);
+    }
+    if (missingByLabel.size > 0) {
+      throw new WorkshopCodexDetailTypeCreationRequiredError([...missingByLabel.values()], categoryDetailTypes);
+    }
+    input.details = { ...existingResolution.details, ...patchResolution.details };
     input.detailAiContext = {
-      ...entry.metadata.detailAiContext,
-      ...detailAiContext,
+      ...existingResolution.detailAiContext,
+      ...patchResolution.detailAiContext,
     };
     changesEntry = true;
   }

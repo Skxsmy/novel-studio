@@ -93,6 +93,8 @@ import {
   UpdateWorkshopContextBasketInputSchema,
   UpdateWorkshopSessionInputSchema,
   WorkshopBranchSchema,
+  WorkshopAgentRunListResultSchema,
+  WorkshopAgentRunSchema,
   WorkshopContextBasketSchema,
   WorkshopContextItemRefSchema,
   WorkshopMessageAttachmentSchema,
@@ -231,6 +233,9 @@ import {
   type UpdateWorkshopContextBasketInput,
   type UpdateWorkshopSessionInput,
   type WorkshopBranch,
+  type WorkshopAgentRun,
+  type WorkshopAgentRunDocument,
+  type WorkshopAgentRunListResult,
   type WorkshopContextBasket,
   type WorkshopContextItemRef,
   type WorkshopMessageAttachment,
@@ -331,22 +336,27 @@ import {
   writeProposalAuthorityFile,
 } from "./proposalFiles.js";
 import {
+  createWorkshopAgentRunFile,
   createWorkshopAttachmentFile,
   createWorkshopSessionFile,
+  listWorkshopAgentRunFiles,
   listWorkshopAttachmentFiles,
   listWorkshopBranchFiles,
   listWorkshopMessageFiles,
   listWorkshopSessionFiles,
   readWorkshopAttachmentFile,
+  readWorkshopAgentRunFile,
   readWorkshopContextBasketFile,
   readWorkshopMessageFile,
   readWorkshopSessionFile,
   workshopAttachmentPath,
+  workshopAgentRunPath,
   workshopBranchPath,
   workshopContextBasketPath,
   workshopMessagePath,
   workshopSessionPath,
   writeWorkshopContextBasketFile,
+  writeWorkshopAgentRunFile,
   writeWorkshopSessionFile,
 } from "./workshopFiles.js";
 export * from "./jsonAuthority.js";
@@ -1449,6 +1459,95 @@ async function withWorkshopSessionMutationLock<T>(key: string, operation: () => 
 
 function workshopSessionMutationKey(seriesRoot: string, sessionId: string): string {
   return `${seriesRoot}\u0000${sessionId}`;
+}
+
+const workshopAgentStepTransitions: Record<string, Set<string>> = {
+  pending: new Set(["pending", "running", "failed", "interrupted", "abandoned"]),
+  running: new Set(["running", "succeeded", "failed", "interrupted", "abandoned"]),
+  "waiting-confirmation": new Set(["waiting-confirmation", "running", "succeeded", "interrupted", "abandoned"]),
+  succeeded: new Set(["succeeded"]),
+  failed: new Set(["failed"]),
+  interrupted: new Set(["interrupted"]),
+  abandoned: new Set(["abandoned"]),
+};
+
+const workshopAgentRunTransitions: Record<string, Set<string>> = {
+  running: new Set(["running", "waiting-confirmation", "completed", "failed", "interrupted"]),
+  "waiting-confirmation": new Set(["waiting-confirmation", "interrupted", "abandoned"]),
+  completed: new Set(["completed"]),
+  failed: new Set(["failed", "running", "abandoned"]),
+  interrupted: new Set(["interrupted", "running", "waiting-confirmation", "abandoned"]),
+  abandoned: new Set(["abandoned"]),
+};
+
+function assertWorkshopAgentRunEvolution(current: WorkshopAgentRun, next: WorkshopAgentRun): void {
+  if (!workshopAgentRunTransitions[current.status]?.has(next.status)) {
+    throw new StorageError("Workshop Agent run state transition is invalid", "INVALID_DATA", {
+      runId: current.id,
+      from: current.status,
+      to: next.status,
+    });
+  }
+  if (
+    current.modelOverride !== next.modelOverride ||
+    JSON.stringify(current.parameters) !== JSON.stringify(next.parameters) ||
+    JSON.stringify(current.promptSnapshot) !== JSON.stringify(next.promptSnapshot)
+  ) {
+    throw new StorageError("Workshop Agent run invocation inputs cannot change", "INVALID_DATA", {
+      runId: current.id,
+    });
+  }
+  if (current.degradedStructuredOutput && !next.degradedStructuredOutput) {
+    throw new StorageError("Workshop Agent run degraded history cannot be cleared", "INVALID_DATA", {
+      runId: current.id,
+    });
+  }
+  if (next.steps.length < current.steps.length) {
+    throw new StorageError("Workshop Agent run steps are append-only", "INVALID_DATA", { runId: current.id });
+  }
+  for (let index = 0; index < current.steps.length; index += 1) {
+    const before = current.steps[index]!;
+    const after = next.steps[index]!;
+    if (
+      before.id !== after.id ||
+      before.index !== after.index ||
+      before.kind !== after.kind ||
+      before.attempt !== after.attempt ||
+      before.modelCallId !== after.modelCallId ||
+      JSON.stringify(before.promptSnapshot) !== JSON.stringify(after.promptSnapshot) ||
+      JSON.stringify(before.inputMessageIds) !== JSON.stringify(after.inputMessageIds) ||
+      before.degradedStructuredOutput !== after.degradedStructuredOutput ||
+      before.startedAt !== after.startedAt
+    ) {
+      throw new StorageError("Workshop Agent step immutable fields changed", "INVALID_DATA", {
+        runId: current.id,
+        stepId: before.id,
+      });
+    }
+    if (!workshopAgentStepTransitions[before.status]?.has(after.status)) {
+      throw new StorageError("Workshop Agent step state transition is invalid", "INVALID_DATA", {
+        runId: current.id,
+        stepId: before.id,
+        from: before.status,
+        to: after.status,
+      });
+    }
+    if (before.messageId !== null && before.messageId !== after.messageId) {
+      throw new StorageError("Workshop Agent step message link cannot change", "INVALID_DATA", {
+        runId: current.id,
+        stepId: before.id,
+      });
+    }
+    if (
+      ["succeeded", "failed", "interrupted", "abandoned"].includes(before.status) &&
+      JSON.stringify(before) !== JSON.stringify(after)
+    ) {
+      throw new StorageError("Terminal Workshop Agent steps cannot change", "INVALID_DATA", {
+        runId: current.id,
+        stepId: before.id,
+      });
+    }
+  }
 }
 
 export class ProjectRepository {
@@ -4098,6 +4197,319 @@ export class ProjectRepository {
     return session;
   }
 
+  async createWorkshopAgentRun(
+    seriesId: string,
+    rawRun: WorkshopAgentRun,
+  ): Promise<WorkshopAgentRunDocument> {
+    const run = WorkshopAgentRunSchema.parse(rawRun);
+    if (run.seriesId !== seriesId) {
+      throw new StorageError("Workshop Agent run belongs to another series", "INVALID_DATA", { runId: run.id });
+    }
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, run.sessionId), async () => {
+      const session = await readWorkshopSessionFile(seriesRoot, run.sessionId);
+      if (session.kind !== "agent" || session.status !== "active") {
+        throw new StorageError("Workshop Agent runs require an active Agent session", "INVALID_DATA", {
+          sessionId: session.id,
+        });
+      }
+      const authorMessage = await readWorkshopMessageFile(seriesRoot, run.authorMessageId);
+      if (
+        authorMessage.seriesId !== seriesId ||
+        authorMessage.sessionId !== session.id ||
+        authorMessage.role !== "author" ||
+        authorMessage.mode !== "agent"
+      ) {
+        throw new StorageError("Workshop Agent run author message is not owned by the Agent session", "INVALID_DATA", {
+          authorMessageId: run.authorMessageId,
+          sessionId: session.id,
+        });
+      }
+      return createWorkshopAgentRunFile(seriesRoot, run);
+    });
+  }
+
+  async getWorkshopAgentRun(
+    seriesId: string,
+    sessionId: string,
+    runId: string,
+  ): Promise<WorkshopAgentRunDocument> {
+    const document = await readWorkshopAgentRunFile(await this.findSeriesRoot(seriesId), runId);
+    if (document.run.seriesId !== seriesId || document.run.sessionId !== sessionId) {
+      throw new StorageError("Workshop Agent run belongs to another session", "INVALID_DATA", {
+        runId,
+        sessionId,
+      });
+    }
+    return document;
+  }
+
+  async listWorkshopAgentRuns(
+    seriesId: string,
+    sessionId: string,
+  ): Promise<WorkshopAgentRunListResult> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+    if (session.seriesId !== seriesId) {
+      throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", { sessionId });
+    }
+    const result = await listWorkshopAgentRunFiles(seriesRoot, sessionId);
+    return WorkshopAgentRunListResultSchema.parse(result);
+  }
+
+  async updateWorkshopAgentRun(
+    seriesId: string,
+    sessionId: string,
+    runId: string,
+    baseRevision: string,
+    rawRun: WorkshopAgentRun,
+  ): Promise<WorkshopAgentRunDocument> {
+    const run = WorkshopAgentRunSchema.parse(rawRun);
+    if (run.id !== runId || run.seriesId !== seriesId || run.sessionId !== sessionId) {
+      throw new StorageError("Workshop Agent run identity cannot change", "INVALID_DATA", { runId, sessionId });
+    }
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const current = await readWorkshopAgentRunFile(seriesRoot, runId);
+      if (current.revision !== baseRevision) {
+        throw new StorageError("Workshop Agent run changed since it was read", "CONFLICT", {
+          runId,
+          currentRevision: current.revision,
+        });
+      }
+      if (
+        current.run.seriesId !== run.seriesId ||
+        current.run.sessionId !== run.sessionId ||
+        current.run.authorMessageId !== run.authorMessageId ||
+        current.run.modelProfileId !== run.modelProfileId ||
+        current.run.contextBundleId !== run.contextBundleId ||
+        current.run.promptTemplateId !== run.promptTemplateId ||
+        current.run.promptTemplateVersion !== run.promptTemplateVersion ||
+        current.run.createdAt !== run.createdAt
+      ) {
+        throw new StorageError("Workshop Agent run immutable identity changed", "INVALID_DATA", { runId });
+      }
+      assertWorkshopAgentRunEvolution(current.run, run);
+      return writeWorkshopAgentRunFile(seriesRoot, run);
+    });
+  }
+
+  async commitWorkshopAgentRunEffects(
+    seriesId: string,
+    sessionId: string,
+    runId: string,
+    baseRevision: string,
+    rawRun: WorkshopAgentRun,
+    rawMessages: WorkshopMessage[],
+  ): Promise<{ run: WorkshopAgentRunDocument; messages: WorkshopMessage[] }> {
+    const run = WorkshopAgentRunSchema.parse(rawRun);
+    const messages = rawMessages.map((message) => WorkshopMessageSchema.parse(message));
+    if (run.id !== runId || run.seriesId !== seriesId || run.sessionId !== sessionId) {
+      throw new StorageError("Workshop Agent run identity cannot change", "INVALID_DATA", { runId, sessionId });
+    }
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+      if (session.status !== "active" || session.kind !== "agent") {
+        throw new StorageError("Workshop Agent effects require an active Agent session", "INVALID_DATA", { sessionId });
+      }
+      const current = await readWorkshopAgentRunFile(seriesRoot, runId);
+      if (current.revision !== baseRevision) {
+        throw new StorageError("Workshop Agent run changed since it was read", "CONFLICT", {
+          runId,
+          currentRevision: current.revision,
+        });
+      }
+      assertWorkshopAgentRunEvolution(current.run, run);
+      const stepIds = new Set(run.steps.map((step) => step.id));
+      for (const message of messages) {
+        if (
+          message.seriesId !== seriesId ||
+          message.sessionId !== sessionId ||
+          message.mode !== "agent" ||
+          message.agentRunId !== runId ||
+          !message.agentStepId ||
+          !stepIds.has(message.agentStepId)
+        ) {
+          throw new StorageError("Workshop Agent effect message is not bound to this run", "INVALID_DATA", {
+            runId,
+            messageId: message.id,
+          });
+        }
+        if (await pathExists(workshopMessagePath(seriesRoot, message.id))) {
+          throw new StorageError("Workshop Agent effect message already exists", "CONFLICT", { messageId: message.id });
+        }
+      }
+      const now = run.updatedAt;
+      const latestMessageAt = messages.reduce(
+        (latest, message) => message.createdAt > latest ? message.createdAt : latest,
+        session.lastMessageAt ?? "",
+      ) || session.lastMessageAt;
+      const runRaw = serializeJsonAuthority(run);
+      await applyFileTransaction(seriesRoot, [
+        { targetPath: workshopAgentRunPath(seriesRoot, run.id), content: runRaw },
+        ...messages.map((message) => ({
+          targetPath: workshopMessagePath(seriesRoot, message.id),
+          content: serializeJsonAuthority(message),
+        })),
+        {
+          targetPath: workshopSessionPath(seriesRoot, session.id),
+          content: serializeJsonAuthority({
+            ...session,
+            updatedAt: now,
+            lastMessageAt: latestMessageAt,
+          }),
+        },
+      ]);
+      return {
+        run: { run, revision: jsonAuthorityRevision(runRaw) },
+        messages: await Promise.all(messages.map((message) => readWorkshopMessageFile(seriesRoot, message.id))),
+      };
+    });
+  }
+
+  async abandonWorkshopAgentRun(
+    seriesId: string,
+    sessionId: string,
+    runId: string,
+    baseRevision: string,
+    reason: string,
+  ): Promise<WorkshopAgentRunDocument> {
+    const current = await this.getWorkshopAgentRun(seriesId, sessionId, runId);
+    if (current.revision !== baseRevision) {
+      throw new StorageError("Workshop Agent run changed since it was read", "CONFLICT", {
+        runId,
+        currentRevision: current.revision,
+      });
+    }
+    if (!["waiting-confirmation", "failed", "interrupted"].includes(current.run.status)) {
+      throw new StorageError("Workshop Agent run cannot be abandoned from its current state", "CONFLICT", {
+        runId,
+        status: current.run.status,
+      });
+    }
+    const now = new Date().toISOString();
+    const steps = current.run.activeStepId
+      ? current.run.steps.map((step) => step.id === current.run.activeStepId ? {
+        ...step,
+        status: "abandoned" as const,
+        retryable: false,
+        errorCode: "AGENT_RUN_ABANDONED",
+        errorMessage: reason,
+        startedAt: step.startedAt ?? now,
+        completedAt: now,
+      } : step)
+      : current.run.steps;
+    const run = WorkshopAgentRunSchema.parse({
+      ...current.run,
+      status: "abandoned",
+      activeStepId: null,
+      steps,
+      retryable: false,
+      updatedAt: now,
+      completedAt: now,
+    });
+    return this.updateWorkshopAgentRun(seriesId, sessionId, runId, baseRevision, run);
+  }
+
+  async reconcileWorkshopAgentRuns(
+    seriesId: string,
+    sessionId: string,
+  ): Promise<WorkshopAgentRunListResult> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+      const listed = await listWorkshopAgentRunFiles(seriesRoot, sessionId);
+      const messages = await listWorkshopMessageFiles(seriesRoot, sessionId);
+      const now = new Date().toISOString();
+      const mutations: FileMutation[] = [];
+      const reconciledRuns: WorkshopAgentRunDocument[] = [];
+
+      for (const document of listed.runs) {
+        if (document.run.status !== "running") {
+          reconciledRuns.push(document);
+          continue;
+        }
+        const activeStepId = document.run.activeStepId;
+        const steps = document.run.steps.map((step) => step.id === activeStepId
+          ? {
+            ...step,
+            status: "interrupted" as const,
+            retryable: true,
+            errorCode: "AGENT_RUN_INTERRUPTED",
+            errorMessage: "The server stopped before this Agent step completed.",
+            startedAt: step.startedAt ?? now,
+            completedAt: now,
+          }
+          : step);
+        const run = WorkshopAgentRunSchema.parse({
+          ...document.run,
+          status: "interrupted",
+          activeStepId: null,
+          steps,
+          retryable: true,
+          updatedAt: now,
+          completedAt: now,
+        });
+        const raw = serializeJsonAuthority(run);
+        mutations.push({ targetPath: workshopAgentRunPath(seriesRoot, run.id), content: raw });
+        reconciledRuns.push({ run, revision: jsonAuthorityRevision(raw) });
+      }
+
+      for (const message of messages) {
+        if (message.toolExecution?.status !== "running") continue;
+        const nextMessage = WorkshopMessageSchema.parse({
+          ...message,
+          toolExecution: {
+            ...message.toolExecution,
+            status: "interrupted",
+            retryable: true,
+            completedAt: now,
+            resultMessageId: null,
+            errorCode: "TOOL_EXECUTION_INTERRUPTED",
+            errorMessage: "The server stopped before the tool command completed.",
+          },
+        });
+        mutations.push({
+          targetPath: workshopMessagePath(seriesRoot, message.id),
+          content: serializeJsonAuthority(nextMessage),
+        });
+        if (message.agentRunId && message.agentStepId) {
+          const runIndex = reconciledRuns.findIndex((document) => document.run.id === message.agentRunId);
+          const currentRun = runIndex >= 0 ? reconciledRuns[runIndex] : undefined;
+          if (
+            currentRun?.run.status === "waiting-confirmation" &&
+            currentRun.run.activeStepId === message.agentStepId
+          ) {
+            const run = WorkshopAgentRunSchema.parse({
+              ...currentRun.run,
+              status: "interrupted",
+              activeStepId: null,
+              retryable: true,
+              updatedAt: now,
+              completedAt: now,
+            });
+            const raw = serializeJsonAuthority(run);
+            mutations.push({ targetPath: workshopAgentRunPath(seriesRoot, run.id), content: raw });
+            reconciledRuns[runIndex] = { run, revision: jsonAuthorityRevision(raw) };
+          }
+        }
+      }
+
+      if (mutations.length > 0) {
+        mutations.push({
+          targetPath: workshopSessionPath(seriesRoot, session.id),
+          content: serializeJsonAuthority({ ...session, updatedAt: now }),
+        });
+        await applyFileTransaction(seriesRoot, mutations);
+      }
+      return WorkshopAgentRunListResultSchema.parse({
+        runs: reconciledRuns,
+        diagnostics: listed.diagnostics,
+      });
+    });
+  }
+
   async updateWorkshopSession(
     seriesId: string,
     sessionId: string,
@@ -4124,6 +4536,14 @@ export class ProjectRepository {
         throw new StorageError("Workshop sessions with a running tool execution cannot be archived", "CONFLICT", {
           sessionId,
           messageId: runningToolMessage.id,
+        });
+      }
+      const agentRuns = await listWorkshopAgentRunFiles(seriesRoot, sessionId);
+      const runningAgentRun = agentRuns.runs.find((document) => document.run.status === "running");
+      if (runningAgentRun) {
+        throw new StorageError("Workshop sessions with a running Agent run cannot be archived", "CONFLICT", {
+          sessionId,
+          runId: runningAgentRun.run.id,
         });
       }
       const now = new Date().toISOString();
@@ -4160,6 +4580,20 @@ export class ProjectRepository {
         });
       }
       const messages = await listWorkshopMessageFiles(seriesRoot, session.id);
+      const agentRuns = await listWorkshopAgentRunFiles(seriesRoot, session.id);
+      if (agentRuns.diagnostics.length > 0) {
+        throw new StorageError("Workshop session has damaged Agent run records", "INVALID_DATA", {
+          sessionId,
+          diagnostics: agentRuns.diagnostics,
+        });
+      }
+      const runningAgentRun = agentRuns.runs.find((document) => document.run.status === "running");
+      if (runningAgentRun) {
+        throw new StorageError("Workshop sessions with a running Agent run cannot be deleted", "CONFLICT", {
+          sessionId,
+          runId: runningAgentRun.run.id,
+        });
+      }
       const runningToolMessage = messages.find((message) => message.toolExecution?.status === "running");
       if (runningToolMessage) {
         throw new StorageError("Workshop sessions with a running tool execution cannot be deleted", "CONFLICT", {
@@ -4198,6 +4632,10 @@ export class ProjectRepository {
         { targetPath: workshopContextBasketPath(seriesRoot, session.id), delete: true },
         ...messages.map((message) => ({
           targetPath: workshopMessagePath(seriesRoot, message.id),
+          delete: true,
+        })),
+        ...agentRuns.runs.map((document) => ({
+          targetPath: workshopAgentRunPath(seriesRoot, document.run.id),
           delete: true,
         })),
         ...attachments.map((attachment) => ({
@@ -4261,8 +4699,8 @@ export class ProjectRepository {
     }
     const clonedMessageIds = new Map(branchMessages.map((message) => [message.id, randomUUID()]));
     const toolWithMissingResult = branchMessages.find((message) => (
-      message.toolExecution?.status === "succeeded" &&
-      message.toolExecution.resultMessageId !== null &&
+      message.toolExecution?.resultMessageId !== null &&
+      message.toolExecution?.resultMessageId !== undefined &&
       !clonedMessageIds.has(message.toolExecution.resultMessageId)
     ));
     if (toolWithMissingResult) {
@@ -4326,6 +4764,8 @@ export class ProjectRepository {
         contextBundleId: null,
         modelCallId: null,
         proposalIds: [],
+        agentRunId: null,
+        agentStepId: null,
         attachmentIds: nextAttachmentIds,
         toolExecution: message.toolExecution
           ? {
@@ -4671,7 +5111,56 @@ export class ProjectRepository {
         });
       }
       if (message.toolExecution) {
-        return { status: "existing", message };
+        if (
+          message.toolExecution.status !== "interrupted" ||
+          !message.toolExecution.retryable ||
+          message.toolExecution.requestHash !== requestHash
+        ) {
+          return { status: "existing", message };
+        }
+        const restartedAt = new Date().toISOString();
+        const nextMessage = WorkshopMessageSchema.parse({
+          ...message,
+          toolExecution: {
+            ...message.toolExecution,
+            status: "running",
+            attempt: message.toolExecution.attempt + 1,
+            retryable: false,
+            startedAt: restartedAt,
+            completedAt: null,
+            resultMessageId: null,
+            errorCode: null,
+            errorMessage: null,
+          },
+        });
+        const mutations: FileMutation[] = [{
+          targetPath: workshopMessagePath(seriesRoot, message.id),
+          content: serializeJsonAuthority(nextMessage),
+        }];
+        if (message.agentRunId && message.agentStepId) {
+          const currentRun = await readWorkshopAgentRunFile(seriesRoot, message.agentRunId);
+          if (currentRun.run.status !== "interrupted") {
+            return { status: "existing", message };
+          }
+          const restartedRun = WorkshopAgentRunSchema.parse({
+            ...currentRun.run,
+            status: "waiting-confirmation",
+            activeStepId: message.agentStepId,
+            retryable: false,
+            updatedAt: restartedAt,
+            completedAt: null,
+          });
+          mutations.push({
+            targetPath: workshopAgentRunPath(seriesRoot, restartedRun.id),
+            content: serializeJsonAuthority(restartedRun),
+          });
+        }
+        mutations.push({
+          targetPath: workshopSessionPath(seriesRoot, session.id),
+          content: serializeJsonAuthority({ ...session, updatedAt: restartedAt }),
+        });
+        await applyFileTransaction(seriesRoot, mutations);
+        return { status: "claimed", message: await readWorkshopMessageFile(seriesRoot, message.id) };
       }
       const startedAt = new Date().toISOString();
       const nextMessage = WorkshopMessageSchema.parse({
@@ -4862,13 +5351,20 @@ export class ProjectRepository {
           relativePath: path.relative(seriesRoot, researchPath),
         },
       });
-      const resultMessage = this.workshopCodexResultMessage({
+      let resultMessage = this.workshopCodexResultMessage({
         seriesId,
         session,
         toolMessage,
         content: `codex.create_entry created Codex entry: ${entry.metadata.name}`,
         createdAt: now,
       });
+      const agentCompletion = await this.completeWorkshopAgentToolResult(
+        seriesRoot,
+        toolMessage,
+        resultMessage,
+        now,
+      );
+      resultMessage = agentCompletion.resultMessage;
       const completed = this.completeWorkshopCodexCommand(
         session,
         toolMessage,
@@ -4893,16 +5389,78 @@ export class ProjectRepository {
           targetPath: workshopSessionPath(seriesRoot, completed.session.id),
           content: serializeJsonAuthority(completed.session),
         },
+        ...(agentCompletion.runMutation ? [agentCompletion.runMutation] : []),
       ]);
       return {
         createdDetailTypes,
         entry,
         message: completed.message,
         resultMessage,
+        agentRun: agentCompletion.runDocument,
       };
     });
     await this.rebuildCodexIndex(seriesRoot).catch(() => undefined);
     return result;
+  }
+
+  async recordWorkshopCodexCommandFailure(
+    seriesId: string,
+    input: {
+      sessionId: string;
+      messageId: string;
+      requestHash: string;
+      errorCode: string;
+      errorMessage: string;
+    },
+  ): Promise<{
+    message: WorkshopMessage;
+    resultMessage: WorkshopMessage;
+    agentRun: WorkshopAgentRunDocument | null;
+  }> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return runSeriesFileTransaction(seriesRoot, async (commit) => {
+      const session = await readWorkshopSessionFile(seriesRoot, input.sessionId);
+      const toolMessage = await readWorkshopMessageFile(seriesRoot, input.messageId);
+      this.assertRunningWorkshopCodexCommand(seriesId, session, toolMessage, input.requestHash);
+      const completedAt = new Date().toISOString();
+      const errorCode = input.errorCode.slice(0, 120) || "INVALID_DATA";
+      const errorMessage = input.errorMessage.slice(0, 4000) || "The confirmed Codex command failed.";
+      let resultMessage = this.workshopCodexResultMessage({
+        seriesId,
+        session,
+        toolMessage,
+        content: `${JSON.parse(toolMessage.content).tool ?? "Codex command"} failed: ${errorMessage}`,
+        createdAt: completedAt,
+        status: "failed",
+        errorCode,
+        errorMessage,
+      });
+      const agentCompletion = await this.completeWorkshopAgentToolResult(
+        seriesRoot,
+        toolMessage,
+        resultMessage,
+        completedAt,
+      );
+      resultMessage = agentCompletion.resultMessage;
+      const completed = this.completeWorkshopCodexCommand(
+        session,
+        toolMessage,
+        input.requestHash,
+        resultMessage,
+        completedAt,
+      );
+      await commit([
+        { targetPath: workshopMessagePath(seriesRoot, resultMessage.id), content: serializeJsonAuthority(resultMessage) },
+        { targetPath: workshopMessagePath(seriesRoot, completed.message.id), content: serializeJsonAuthority(completed.message) },
+        { targetPath: workshopSessionPath(seriesRoot, completed.session.id), content: serializeJsonAuthority(completed.session) },
+        ...(agentCompletion.runMutation ? [agentCompletion.runMutation] : []),
+      ]);
+      return {
+        message: completed.message,
+        resultMessage,
+        agentRun: agentCompletion.runDocument,
+      };
+    });
   }
 
   async executeWorkshopCodexUpdateCommand(
@@ -5127,7 +5685,7 @@ export class ProjectRepository {
         updatedProgressions.length ? `${updatedProgressions.length} progression(s) updated` : "",
         deletedProgressions.length ? `${deletedProgressions.length} progression(s) deleted` : "",
       ].filter(Boolean).join("; ");
-      const resultMessage = this.workshopCodexResultMessage({
+      let resultMessage = this.workshopCodexResultMessage({
         seriesId,
         session,
         toolMessage,
@@ -5136,6 +5694,13 @@ export class ProjectRepository {
           : `codex.update_entry updated Codex entry: ${updatedEntry.metadata.name}`,
         createdAt: now,
       });
+      const agentCompletion = await this.completeWorkshopAgentToolResult(
+        seriesRoot,
+        toolMessage,
+        resultMessage,
+        now,
+      );
+      resultMessage = agentCompletion.resultMessage;
       const completed = this.completeWorkshopCodexCommand(
         session,
         toolMessage,
@@ -5156,6 +5721,7 @@ export class ProjectRepository {
           targetPath: workshopSessionPath(seriesRoot, completed.session.id),
           content: serializeJsonAuthority(completed.session),
         },
+        ...(agentCompletion.runMutation ? [agentCompletion.runMutation] : []),
       );
       await commit(mutations);
       return {
@@ -5166,6 +5732,7 @@ export class ProjectRepository {
         message: completed.message,
         resultMessage,
         updatedProgressions,
+        agentRun: agentCompletion.runDocument,
       };
     });
     await this.rebuildCodexIndex(seriesRoot).catch(() => undefined);
@@ -8641,6 +9208,9 @@ export class ProjectRepository {
     toolMessage: WorkshopMessage;
     content: string;
     createdAt: string;
+    status?: "succeeded" | "failed";
+    errorCode?: string | null;
+    errorMessage?: string | null;
   }): WorkshopMessage {
     return WorkshopMessageSchema.parse({
       schemaVersion: 1,
@@ -8649,17 +9219,98 @@ export class ProjectRepository {
       sessionId: input.session.id,
       role: "result",
       mode: "agent",
-      status: "succeeded",
+      status: input.status ?? "succeeded",
       content: input.content,
       reasoningContent: "",
       contextBundleId: input.toolMessage.contextBundleId,
       modelCallId: input.toolMessage.modelCallId,
       proposalIds: [],
       attachmentIds: [],
-      errorCode: null,
-      errorMessage: null,
+      errorCode: input.errorCode ?? null,
+      errorMessage: input.errorMessage ?? null,
       createdAt: new Date(Date.parse(input.createdAt) + 1).toISOString(),
     });
+  }
+
+  private async completeWorkshopAgentToolResult(
+    seriesRoot: string,
+    toolMessage: WorkshopMessage,
+    rawResultMessage: WorkshopMessage,
+    completedAt: string,
+  ): Promise<{
+    resultMessage: WorkshopMessage;
+    runDocument: WorkshopAgentRunDocument | null;
+    runMutation: FileMutation | null;
+  }> {
+    if (!toolMessage.agentRunId || !toolMessage.agentStepId) {
+      return { resultMessage: rawResultMessage, runDocument: null, runMutation: null };
+    }
+    const current = await readWorkshopAgentRunFile(seriesRoot, toolMessage.agentRunId);
+    if (
+      current.run.sessionId !== toolMessage.sessionId ||
+      current.run.status !== "waiting-confirmation" ||
+      current.run.activeStepId !== toolMessage.agentStepId
+    ) {
+      throw new StorageError("Workshop Agent run is not waiting for this tool request", "CONFLICT", {
+        runId: current.run.id,
+        messageId: toolMessage.id,
+      });
+    }
+    const activeStep = current.run.steps.find((step) => step.id === toolMessage.agentStepId);
+    if (!activeStep || activeStep.kind !== "tool-request" || activeStep.messageId !== toolMessage.id) {
+      throw new StorageError("Workshop Agent tool step does not match the tool message", "CONFLICT", {
+        runId: current.run.id,
+        messageId: toolMessage.id,
+      });
+    }
+    const resultStepId = randomUUID();
+    const resultMessage = WorkshopMessageSchema.parse({
+      ...rawResultMessage,
+      agentRunId: current.run.id,
+      agentStepId: resultStepId,
+    });
+    const resultFailed = resultMessage.status === "failed";
+    const steps = [
+      ...current.run.steps.map((step) => step.id === activeStep.id ? {
+        ...step,
+        status: "succeeded" as const,
+        completedAt,
+      } : step),
+      {
+        schemaVersion: 1 as const,
+        id: resultStepId,
+        index: current.run.steps.length,
+        kind: "tool-result" as const,
+        status: resultFailed ? "failed" as const : "succeeded" as const,
+        attempt: activeStep.attempt,
+        modelCallId: null,
+        promptSnapshot: null,
+        messageId: resultMessage.id,
+        inputMessageIds: [toolMessage.id],
+        degradedStructuredOutput: false,
+        retryable: false,
+        errorCode: resultFailed ? resultMessage.errorCode : null,
+        errorMessage: resultFailed ? resultMessage.errorMessage : null,
+        startedAt: completedAt,
+        completedAt,
+      },
+    ];
+    const run = WorkshopAgentRunSchema.parse({
+      ...current.run,
+      status: "interrupted",
+      activeStepId: null,
+      steps,
+      retryable: true,
+      updatedAt: resultMessage.createdAt,
+      completedAt: resultMessage.createdAt,
+    });
+    assertWorkshopAgentRunEvolution(current.run, run);
+    const raw = serializeJsonAuthority(run);
+    return {
+      resultMessage,
+      runDocument: { run, revision: jsonAuthorityRevision(raw) },
+      runMutation: { targetPath: workshopAgentRunPath(seriesRoot, run.id), content: raw },
+    };
   }
 
   private completeWorkshopCodexCommand(
@@ -8669,14 +9320,15 @@ export class ProjectRepository {
     resultMessage: WorkshopMessage,
     completedAt: string,
   ): { message: WorkshopMessage; session: WorkshopSession } {
+    const failed = resultMessage.status === "failed";
     const execution = WorkshopToolExecutionSchema.parse({
       requestHash,
-      status: "succeeded",
+      status: failed ? "failed" : "succeeded",
       startedAt: toolMessage.toolExecution?.startedAt ?? completedAt,
       completedAt,
       resultMessageId: resultMessage.id,
-      errorCode: null,
-      errorMessage: null,
+      errorCode: failed ? resultMessage.errorCode : null,
+      errorMessage: failed ? resultMessage.errorMessage : null,
     });
     return {
       message: WorkshopMessageSchema.parse({

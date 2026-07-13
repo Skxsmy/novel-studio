@@ -8,6 +8,7 @@ import {
   ResendWorkshopMessageResultSchema,
   RunWorkshopCallInputSchema,
   WorkshopCallStreamEventSchema,
+  WorkshopAgentRunSchema,
   WorkshopContextBasketSchema,
   WorkshopMessageAttachmentSchema,
   WorkshopMessageSchema,
@@ -91,6 +92,17 @@ describe("M5 Workshop contracts", () => {
         completedAt: now,
       },
     }).success).toBe(false);
+    expect(WorkshopMessageSchema.parse({
+      ...claimedToolMessage,
+      toolExecution: {
+        ...claimedToolMessage.toolExecution,
+        status: "failed",
+        completedAt: now,
+        resultMessageId: "55555555-5555-4555-8555-555555555555",
+        errorCode: "INVALID_DATA",
+        errorMessage: "The confirmed command failed without writing authority.",
+      },
+    }).toolExecution?.resultMessageId).toBe("55555555-5555-4555-8555-555555555555");
   });
 
   it("validates Workshop message attachments in draft and message-bound states", () => {
@@ -131,6 +143,150 @@ describe("M5 Workshop contracts", () => {
       text: "Visible answer.",
     });
     expect(delta).toMatchObject({ type: "delta" });
+  });
+
+  it("validates durable Workshop Agent run and ordered step invariants", () => {
+    const run = WorkshopAgentRunSchema.parse({
+      schemaVersion: 1,
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      seriesId: "22222222-2222-4222-8222-222222222222",
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      authorMessageId: "33333333-3333-4333-8333-333333333333",
+      status: "waiting-confirmation",
+      modelProfileId: "44444444-4444-4444-8444-444444444444",
+      contextBundleId: "55555555-5555-4555-8555-555555555555",
+      promptTemplateId: "66666666-6666-4666-8666-666666666666",
+      promptTemplateVersion: 1,
+      promptSnapshot: {
+        system: "Write with the author.",
+        instructions: "Return a structured step.",
+        user: "Add Mara to the Codex.",
+        hash: "b".repeat(64),
+      },
+      activeStepId: "88888888-8888-4888-8888-888888888888",
+      steps: [
+        {
+          schemaVersion: 1,
+          id: "77777777-7777-4777-8777-777777777777",
+          index: 0,
+          kind: "model",
+          status: "succeeded",
+          modelCallId: "99999999-9999-4999-8999-999999999999",
+          promptSnapshot: {
+            system: "Write with the author.",
+            instructions: "Return a structured step.",
+            user: "Add Mara to the Codex.",
+            hash: "b".repeat(64),
+          },
+          messageId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+          startedAt: now,
+          completedAt: now,
+        },
+        {
+          schemaVersion: 1,
+          id: "88888888-8888-4888-8888-888888888888",
+          index: 1,
+          kind: "tool-request",
+          status: "waiting-confirmation",
+          messageId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          startedAt: now,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(run.status).toBe("waiting-confirmation");
+    expect(run.steps).toHaveLength(2);
+    expect(run.degradedStructuredOutput).toBe(false);
+  });
+
+  it("preserves long Workshop Agent prompt snapshots beyond the message limit", () => {
+    const longUserPrompt = "x".repeat(400_001);
+    const run = WorkshopAgentRunSchema.parse({
+      schemaVersion: 1,
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      seriesId: "22222222-2222-4222-8222-222222222222",
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      authorMessageId: "33333333-3333-4333-8333-333333333333",
+      status: "completed",
+      modelProfileId: "44444444-4444-4444-8444-444444444444",
+      contextBundleId: "55555555-5555-4555-8555-555555555555",
+      promptTemplateId: "66666666-6666-4666-8666-666666666666",
+      promptTemplateVersion: 1,
+      promptSnapshot: {
+        system: "Write with the author.",
+        instructions: "Return a structured step.",
+        user: longUserPrompt,
+        hash: "b".repeat(64),
+      },
+      steps: [{
+        schemaVersion: 1,
+        id: "77777777-7777-4777-8777-777777777777",
+        index: 0,
+        kind: "model",
+        status: "succeeded",
+        modelCallId: "99999999-9999-4999-8999-999999999999",
+        promptSnapshot: {
+          system: "Write with the author.",
+          instructions: "Return a structured step.",
+          user: longUserPrompt,
+          hash: "b".repeat(64),
+        },
+        messageId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        startedAt: now,
+        completedAt: now,
+      }],
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+    expect(run.promptSnapshot.user).toHaveLength(400_001);
+  });
+
+  it("rejects duplicate steps and invalid terminal Agent run state", () => {
+    const step = {
+      schemaVersion: 1,
+      id: "77777777-7777-4777-8777-777777777777",
+      index: 0,
+      kind: "model",
+      status: "succeeded",
+      modelCallId: "99999999-9999-4999-8999-999999999999",
+      promptSnapshot: {
+        system: "Write with the author.",
+        instructions: "Return a structured step.",
+        user: "Talk through the scene.",
+        hash: "b".repeat(64),
+      },
+      messageId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      startedAt: now,
+      completedAt: now,
+    };
+    const result = WorkshopAgentRunSchema.safeParse({
+      schemaVersion: 1,
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      seriesId: "22222222-2222-4222-8222-222222222222",
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      authorMessageId: "33333333-3333-4333-8333-333333333333",
+      status: "completed",
+      modelProfileId: "44444444-4444-4444-8444-444444444444",
+      contextBundleId: "55555555-5555-4555-8555-555555555555",
+      promptTemplateId: "66666666-6666-4666-8666-666666666666",
+      promptTemplateVersion: 1,
+      promptSnapshot: {
+        system: "Write with the author.",
+        instructions: "Return a structured step.",
+        user: "Talk through the scene.",
+        hash: "b".repeat(64),
+      },
+      steps: [step, { ...step, index: 2 }],
+      createdAt: now,
+      updatedAt: now,
+      completedAt: null,
+    });
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error?.issues)).toContain("duplicate");
+    expect(JSON.stringify(result.error?.issues)).toContain("contiguous");
+    expect(JSON.stringify(result.error?.issues)).toContain("completion timestamp");
   });
 
   it("validates permanent Workshop session delete results", () => {

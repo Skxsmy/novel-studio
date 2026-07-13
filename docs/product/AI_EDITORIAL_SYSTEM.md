@@ -55,6 +55,8 @@ Workshop 的 `general-chat` 和 `agent` 模式使用 Workshop 专属 prompt 配�
 
 Workshop Agent 是对话 agent，不是单次聊天发射器。普通讨论、写作、prompt 修改和小说推敲应自然回复；只有在作者表达 Codex/story-memory 创建或更新意图且目标内容清楚时，才生成 server-owned 工具请求。
 
+每个作者回合对应一个持久化 Agent run。run 记录有序的模型、结构修复、工具请求、等待确认、工具结果和续跑步骤；普通自然语言回复可以直接完成 run。工具结果必须作为同一 run 的后续输入，续跑产生的新工具请求仍需单独确认。结构化输出最多修复一次；不支持结构化输出的模型使用显式降级的严格 JSON 边界。进程重启后不得静默重放未完成步骤，只有标记为可重试的中断步骤才能由作者显式重试，作者也可以终止该 run。
+
 ## 3. 调用模式
 
 ### 3.1 单角色调用
@@ -217,7 +219,7 @@ Workshop 的 General Chat 属于讨论型单角色调用。它必须满足：
 - `validateConnection`
 - `listModels`
 - `streamText`
-- `generateStructured`
+- `generateObject`
 - `embed`
 - `estimateTokens`
 - `capabilities`

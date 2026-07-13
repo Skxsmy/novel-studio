@@ -1,5 +1,6 @@
 import type {
   AgentRole,
+  AbandonWorkshopAgentRunInput,
   ContextBundle,
   CreateWorkshopBranchInput,
   CreateWorkshopMessageProposalInput,
@@ -12,11 +13,15 @@ import type {
   DeleteWorkshopSessionResult,
   ResendWorkshopMessageInput,
   ResendWorkshopMessageResult,
+  RetryWorkshopAgentRunInput,
   RunWorkshopCallInput,
   UploadWorkshopAttachmentInput,
   UpdateWorkshopContextBasketInput,
   UpdateWorkshopSessionInput,
   WorkshopBranch,
+  WorkshopAgentRunActionResult,
+  WorkshopAgentRunDocument,
+  WorkshopAgentRunListResult,
   WorkshopCallResult,
   WorkshopCallStreamEvent,
   WorkshopCodexCreateEntryToolError,
@@ -38,6 +43,7 @@ export interface WorkshopSessionDetail {
   basket: WorkshopContextBasket;
   messages: WorkshopMessage[];
   attachments: WorkshopMessageAttachment[];
+  agentRuns: WorkshopAgentRunListResult;
 }
 
 export interface WorkshopBranchResult {
@@ -58,6 +64,18 @@ export function createWorkshopApi(client: ApiClient) {
     },
     getSession(seriesId: string, sessionId: string) {
       return client.requestJson<WorkshopSessionDetail>(`/series/${seriesId}/workshop/sessions/${sessionId}`);
+    },
+    retryAgentRun(seriesId: string, sessionId: string, runId: string, input: RetryWorkshopAgentRunInput) {
+      return client.requestJson<WorkshopAgentRunActionResult>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/agent-runs/${runId}/retry`,
+        { body: input, method: "POST" },
+      );
+    },
+    abandonAgentRun(seriesId: string, sessionId: string, runId: string, input: AbandonWorkshopAgentRunInput) {
+      return client.requestJson<WorkshopAgentRunDocument>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/agent-runs/${runId}/abandon`,
+        { body: input, method: "POST" },
+      );
     },
     exportSession(
       seriesId: string,
@@ -250,6 +268,7 @@ export function createWorkshopApi(client: ApiClient) {
 
 export type {
   AgentRole,
+  AbandonWorkshopAgentRunInput,
   ContextBundle,
   CreateWorkshopBranchInput,
   CreateWorkshopMessageProposalInput,
@@ -262,11 +281,15 @@ export type {
   DeleteWorkshopSessionResult,
   ResendWorkshopMessageInput,
   ResendWorkshopMessageResult,
+  RetryWorkshopAgentRunInput,
   RunWorkshopCallInput,
   UploadWorkshopAttachmentInput,
   UpdateWorkshopContextBasketInput,
   UpdateWorkshopSessionInput,
   WorkshopBranch,
+  WorkshopAgentRunActionResult,
+  WorkshopAgentRunDocument,
+  WorkshopAgentRunListResult,
   WorkshopCallResult,
   WorkshopCallStreamEvent,
   WorkshopCodexCreateEntryToolError,

@@ -159,13 +159,19 @@ export class MockProvider implements ProviderAdapter {
     this.assertProfileProvider(request.modelProfile);
     this.throwForScenario(request.modelProfile);
     this.assertContextFits(request);
-    const object = {
-      provider: this.provider,
-      model: request.modelProfile.model,
-      outputSchemaName: request.outputSchemaName,
-      summary: "MockProvider 结构化输出。",
-      safeToWrite: false,
-    };
+    const object = request.outputSchemaName === "workshop_agent_step_v1"
+      ? {
+        schemaVersion: 1,
+        type: "respond",
+        message: "[MockProvider] Let's continue working through the story choice together.",
+      }
+      : {
+        provider: this.provider,
+        model: request.modelProfile.model,
+        outputSchemaName: request.outputSchemaName,
+        summary: "MockProvider 结构化输出。",
+        safeToWrite: false,
+      };
     return schema.parse(object);
   }
 

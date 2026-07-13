@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProjectRepository, StorageError } from "../src/index.js";
-import { workshopMessagePath } from "../src/workshopFiles.js";
+import { workshopAgentRunPath, workshopMessagePath } from "../src/workshopFiles.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -45,6 +45,66 @@ function workshopAttachment(overrides: Partial<Record<string, unknown>> = {}) {
     createdAt: "2026-07-03T00:00:00.000Z",
     updatedAt: "2026-07-03T00:00:00.000Z",
     ...overrides,
+  };
+}
+
+function agentRun(input: {
+  seriesId: string;
+  sessionId: string;
+  authorMessageId: string;
+  status?: "running" | "completed";
+}) {
+  const timestamp = "2026-07-13T00:00:00.000Z";
+  const completed = input.status === "completed";
+  const stepId = randomUUID();
+  return {
+    schemaVersion: 1 as const,
+    id: randomUUID(),
+    seriesId: input.seriesId,
+    sessionId: input.sessionId,
+    authorMessageId: input.authorMessageId,
+    status: completed ? "completed" as const : "running" as const,
+    modelProfileId: randomUUID(),
+    modelOverride: null,
+    parameters: {},
+    contextBundleId: randomUUID(),
+    promptTemplateId: randomUUID(),
+    promptTemplateVersion: 1,
+    promptSnapshot: {
+      system: "Workshop Agent",
+      instructions: "Return one structured step.",
+      user: "Talk through this scene.",
+      hash: textHash("Workshop Agent\nReturn one structured step.\nTalk through this scene."),
+    },
+    activeStepId: completed ? null : stepId,
+    steps: [{
+      schemaVersion: 1 as const,
+      id: stepId,
+      index: 0,
+      kind: "model" as const,
+      status: completed ? "succeeded" as const : "running" as const,
+      attempt: 1,
+      modelCallId: randomUUID(),
+      promptSnapshot: {
+        system: "Workshop Agent",
+        instructions: "Return one structured step.",
+        user: "Talk through this scene.",
+        hash: textHash("Workshop Agent\nReturn one structured step.\nTalk through this scene."),
+      },
+      messageId: completed ? randomUUID() : null,
+      inputMessageIds: [input.authorMessageId],
+      degradedStructuredOutput: false,
+      retryable: false,
+      errorCode: null,
+      errorMessage: null,
+      startedAt: timestamp,
+      completedAt: completed ? timestamp : null,
+    }],
+    degradedStructuredOutput: false,
+    retryable: false,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    completedAt: completed ? timestamp : null,
   };
 }
 
@@ -108,6 +168,271 @@ describe("M5 Workshop storage", () => {
       role: "author",
       content: "Check this scene for continuity.",
       proposalIds: [],
+    });
+  });
+
+  it("persists revision-bound Workshop Agent runs across repository restart", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "AgentRunPersistence" });
+    const session = await store.createWorkshopSession(series.manifest.id, { kind: "agent", title: "Agent run" });
+    const author = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "agent",
+      content: "Talk through this scene.",
+    });
+    const created = await store.createWorkshopAgentRun(series.manifest.id, agentRun({
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      authorMessageId: author.id,
+    }));
+
+    const reloaded = new ProjectRepository(store.libraryRoot);
+    const loaded = await reloaded.getWorkshopAgentRun(series.manifest.id, session.id, created.run.id);
+    expect(loaded).toEqual(created);
+    const completedAt = new Date(Date.parse(author.createdAt) + 1_000).toISOString();
+    const completedRun = {
+      ...loaded.run,
+      status: "completed" as const,
+      activeStepId: null,
+      steps: loaded.run.steps.map((step) => ({
+        ...step,
+        status: "succeeded" as const,
+        messageId: randomUUID(),
+        completedAt,
+      })),
+      updatedAt: completedAt,
+      completedAt,
+    };
+    const updated = await reloaded.updateWorkshopAgentRun(
+      series.manifest.id,
+      session.id,
+      loaded.run.id,
+      loaded.revision,
+      completedRun,
+    );
+    expect(updated.run.status).toBe("completed");
+    await expect(reloaded.updateWorkshopAgentRun(
+      series.manifest.id,
+      session.id,
+      loaded.run.id,
+      loaded.revision,
+      completedRun,
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    await expect(reloaded.updateWorkshopAgentRun(
+      series.manifest.id,
+      session.id,
+      updated.run.id,
+      updated.revision,
+      { ...updated.run, modelOverride: "different-model" },
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    const restartedAt = new Date(Date.parse(completedAt) + 1_000).toISOString();
+    const appendedStep = {
+      ...updated.run.steps[0]!,
+      id: randomUUID(),
+      index: 1,
+      kind: "continuation" as const,
+      status: "running" as const,
+      attempt: 2,
+      modelCallId: randomUUID(),
+      messageId: null,
+      inputMessageIds: [updated.run.steps[0]!.messageId!],
+      retryable: false,
+      errorCode: null,
+      errorMessage: null,
+      startedAt: restartedAt,
+      completedAt: null,
+    };
+    await expect(reloaded.updateWorkshopAgentRun(
+      series.manifest.id,
+      session.id,
+      updated.run.id,
+      updated.revision,
+      {
+        ...updated.run,
+        status: "running",
+        activeStepId: appendedStep.id,
+        steps: [...updated.run.steps, appendedStep],
+        updatedAt: restartedAt,
+        completedAt: null,
+      },
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+  });
+
+  it("detaches Agent run links when branching and deletes runs with their source session", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "AgentRunLifecycle" });
+    const session = await store.createWorkshopSession(series.manifest.id, { kind: "agent", title: "Source" });
+    const author = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "agent",
+      content: "Discuss the scene.",
+    });
+    const created = await store.createWorkshopAgentRun(series.manifest.id, agentRun({
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      authorMessageId: author.id,
+    }));
+    const assistantMessageId = randomUUID();
+    const completedAt = new Date(Date.parse(author.createdAt) + 1_000).toISOString();
+    const completedRun = {
+      ...created.run,
+      status: "completed" as const,
+      activeStepId: null,
+      steps: created.run.steps.map((step) => ({
+        ...step,
+        status: "succeeded" as const,
+        messageId: assistantMessageId,
+        completedAt,
+      })),
+      updatedAt: completedAt,
+      completedAt,
+    };
+    await store.commitWorkshopAgentRunEffects(
+      series.manifest.id,
+      session.id,
+      created.run.id,
+      created.revision,
+      completedRun,
+      [{
+        schemaVersion: 1,
+        id: assistantMessageId,
+        seriesId: series.manifest.id,
+        sessionId: session.id,
+        role: "assistant",
+        mode: "agent",
+        status: "succeeded",
+        content: "The scene can proceed without a Codex change.",
+        reasoningContent: "",
+        contextBundleId: created.run.contextBundleId,
+        modelCallId: created.run.steps[0]!.modelCallId,
+        agentRunId: created.run.id,
+        agentStepId: created.run.steps[0]!.id,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: completedAt,
+      }],
+    );
+
+    const branch = await store.branchWorkshopSession(series.manifest.id, session.id, {
+      sourceMessageId: assistantMessageId,
+      title: "Independent branch",
+    });
+    const branchMessages = await store.listWorkshopMessages(series.manifest.id, branch.session.id);
+    expect(branchMessages).toHaveLength(2);
+    expect(branchMessages.every((message) => message.agentRunId === null && message.agentStepId === null)).toBe(true);
+
+    await store.deleteWorkshopSession(series.manifest.id, session.id);
+    await expect(store.getWorkshopAgentRun(series.manifest.id, session.id, created.run.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+    expect(await store.listWorkshopMessages(series.manifest.id, branch.session.id)).toHaveLength(2);
+  });
+
+  it("rejects stale and cross-session Agent run updates", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "AgentRunOwnership" });
+    const session = await store.createWorkshopSession(series.manifest.id, { kind: "agent", title: "First" });
+    const other = await store.createWorkshopSession(series.manifest.id, { kind: "agent", title: "Second" });
+    const author = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "agent",
+      content: "Continue.",
+    });
+    const created = await store.createWorkshopAgentRun(series.manifest.id, agentRun({
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      authorMessageId: author.id,
+    }));
+    await expect(store.getWorkshopAgentRun(series.manifest.id, other.id, created.run.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(store.updateWorkshopAgentRun(
+      series.manifest.id,
+      other.id,
+      created.run.id,
+      created.revision,
+      { ...created.run, sessionId: other.id },
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+  });
+
+  it("isolates damaged Agent run records without rewriting them", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "AgentRunDamage" });
+    const session = await store.createWorkshopSession(series.manifest.id, { kind: "agent", title: "Damage" });
+    const author = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "agent",
+      content: "Continue.",
+    });
+    const created = await store.createWorkshopAgentRun(series.manifest.id, agentRun({
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      authorMessageId: author.id,
+      status: "completed",
+    }));
+    const root = seriesRoot(store, "AgentRunDamage", series.manifest.id);
+    const damagedId = randomUUID();
+    await writeFile(workshopAgentRunPath(root, damagedId), "{not-json\n", "utf8");
+
+    const listed = await store.listWorkshopAgentRuns(series.manifest.id, session.id);
+    expect(listed.runs.map((document) => document.run.id)).toEqual([created.run.id]);
+    expect(listed.diagnostics).toEqual([expect.objectContaining({
+      fileName: `${damagedId}.json`,
+      code: "INVALID_DATA",
+    })]);
+    await expect(store.getWorkshopAgentRun(series.manifest.id, session.id, damagedId))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+  });
+
+  it("reconciles unfinished Agent runs and running tools without replay", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "AgentRunRecovery" });
+    const session = await store.createWorkshopSession(series.manifest.id, { kind: "agent", title: "Recovery" });
+    const author = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "agent",
+      content: "Create the keeper.",
+    });
+    const created = await store.createWorkshopAgentRun(series.manifest.id, agentRun({
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      authorMessageId: author.id,
+    }));
+    const toolMessage = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
+      role: "tool",
+      mode: "agent",
+      content: JSON.stringify({ schemaVersion: 1, tool: "codex.create_entry", draft: { name: "Keeper" } }),
+    });
+    await store.claimWorkshopMessageToolExecution(
+      series.manifest.id,
+      session.id,
+      toolMessage.id,
+      textHash(toolMessage.content),
+    );
+
+    const restarted = new ProjectRepository(store.libraryRoot);
+    const reconciled = await restarted.reconcileWorkshopAgentRuns(series.manifest.id, session.id);
+    const run = reconciled.runs.find((document) => document.run.id === created.run.id)?.run;
+    expect(run).toMatchObject({ status: "interrupted", retryable: true, activeStepId: null });
+    expect(run?.steps[0]).toMatchObject({ status: "interrupted", retryable: true });
+    const messages = await restarted.listWorkshopMessages(series.manifest.id, session.id);
+    expect(messages.find((message) => message.id === toolMessage.id)?.toolExecution).toMatchObject({
+      status: "interrupted",
+      retryable: true,
+      attempt: 1,
+    });
+    expect(messages.filter((message) => message.role === "result")).toHaveLength(0);
+    const reclaimed = await restarted.claimWorkshopMessageToolExecution(
+      series.manifest.id,
+      session.id,
+      toolMessage.id,
+      textHash(toolMessage.content),
+    );
+    expect(reclaimed.status).toBe("claimed");
+    expect(reclaimed.message.toolExecution).toMatchObject({
+      status: "running",
+      retryable: false,
+      attempt: 2,
     });
   });
 

@@ -5,6 +5,7 @@ import {
   CreateWorkshopMessageProposalInputSchema,
   CreateWorkshopMessageInputSchema,
   CreateWorkshopSessionInputSchema,
+  AbandonWorkshopAgentRunInputSchema,
   ContextBundleSchema,
   ExecuteWorkshopCodexCreateEntryToolInputSchema,
   ExecuteWorkshopCodexUpdateEntryToolInputSchema,
@@ -18,16 +19,17 @@ import {
   ModelCallLogSchema,
   ResendWorkshopMessageInputSchema,
   ResendWorkshopMessageResultSchema,
+  RetryWorkshopAgentRunInputSchema,
   RunWorkshopCallInputSchema,
   UpdateWorkshopContextBasketInputSchema,
   UpdateWorkshopSessionInputSchema,
   UploadWorkshopAttachmentInputSchema,
   WorkshopCallResultSchema,
   WorkshopCallStreamEventSchema,
+  WorkshopAgentRunActionResultSchema,
   WorkshopContextPreviewInputSchema,
   WorkshopMessageAttachmentSchema,
   WorkshopMessageSchema,
-  WorkshopToolExecutionSchema,
   CreateCodexProgressionInputSchema,
   UpdateCodexProgressionInputSchema,
   type CodexDetailTypeDocument,
@@ -40,11 +42,11 @@ import {
   type ModelProfile,
   type TokenUsage,
   type WorkshopContextBasket,
+  type WorkshopAgentRunDocument,
   type WorkshopCallStreamEvent,
   type WorkshopCodexDraftDetailMapping,
   type WorkshopCodexDraftMissingDetailType,
   type WorkshopMessage,
-  type WorkshopToolExecution,
 } from "@novel-studio/contracts";
 import type { EmbeddingRouter, ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
 import type {
@@ -66,10 +68,6 @@ import {
   codexUpdateEntryInputFromWorkshopDraft,
   parseCodexCreateEntryToolRequest,
   parseCodexUpdateEntryToolRequest,
-  renderWorkshopCodexCreateDraft,
-  renderWorkshopCodexUpdateDraft,
-  serializeCodexCreateEntryToolRequest,
-  serializeCodexUpdateEntryToolRequest,
   type CodexUpdateEntryToolRequest,
   type WorkshopCodexCreateDraft,
   type WorkshopCodexProgressionDraft,
@@ -78,7 +76,8 @@ import {
 } from "../workshop/codexDraft.js";
 import { exportWorkshopSessionMarkdown } from "../workshop/sessionExport.js";
 import { planWorkshopDetailSchema } from "../workshop/detailSchemaPlanner.js";
-import { applyWorkshopAgentPrompt, parseWorkshopAgentStep, type WorkshopAgentStep } from "../workshop/workshopAgent.js";
+import { applyWorkshopAgentPrompt } from "../workshop/workshopAgent.js";
+import { continueWorkshopAgentAfterToolResult, retryWorkshopAgent, runWorkshopAgent } from "../workshop/workshopAgentRunner.js";
 import {
   workshopPromptDefinition,
   workshopProviderPrompt as workshopModeProviderPrompt,
@@ -144,40 +143,17 @@ function workshopToolConflict(message: WorkshopMessage, requestHash: string): { 
       message: "This Workshop tool message execution is already recorded as running.",
     };
   }
+  if (execution.status === "interrupted" && execution.retryable) return null;
+  if (execution.status === "abandoned") {
+    return {
+      code: "WORKSHOP_TOOL_EXECUTION_ABANDONED",
+      message: "This Workshop tool execution was abandoned and cannot be replayed.",
+    };
+  }
   return {
     code: "WORKSHOP_TOOL_EXECUTION_FAILED",
     message: "This Workshop tool message already has a failed execution record.",
   };
-}
-
-async function markWorkshopToolExecutionFailed(input: {
-  repository: ProjectRepository;
-  seriesId: string;
-  message: WorkshopMessage;
-  code: string;
-  messageText: string;
-}): Promise<void> {
-  const current = input.message.toolExecution;
-  const completedAt = new Date().toISOString();
-  const execution = WorkshopToolExecutionSchema.parse({
-    requestHash: current?.requestHash ?? workshopToolRequestHash(input.message),
-    status: "failed",
-    startedAt: current?.startedAt ?? completedAt,
-    completedAt,
-    resultMessageId: current?.resultMessageId ?? null,
-    errorCode: input.code,
-    errorMessage: input.messageText,
-  }) as WorkshopToolExecution;
-  try {
-    await input.repository.updateWorkshopMessageToolExecution(
-      input.seriesId,
-      input.message.sessionId,
-      input.message.id,
-      execution,
-    );
-  } catch {
-    // Preserve the original route error; M5.6B will cover full recovery semantics.
-  }
 }
 
 const OPEN_REASONING_TAGS = ["<think>", "<thinking>"];
@@ -400,9 +376,9 @@ async function workshopProviderPrompt(
 
 function workshopProviderContextBundle(
   contextBundle: ContextBundle,
-  input: ReturnType<typeof RunWorkshopCallInputSchema.parse>,
+  mode: ReturnType<typeof RunWorkshopCallInputSchema.parse>["mode"],
 ): ContextBundle {
-  if (!shouldFilterPromptContext(input.mode)) return contextBundle;
+  if (!shouldFilterPromptContext(mode)) return contextBundle;
   const items = contextBundle.items.filter((item) => !WORKSHOP_PROMPT_CONTEXT_KINDS.has(item.kind));
   const inputTokens = items.reduce((sum, item) => sum + item.tokenEstimate, 0);
   return ContextBundleSchema.parse({
@@ -980,6 +956,44 @@ export function registerWorkshopRoutes(
 ): void {
   const { embeddingRouter, providerRegistry } = options;
 
+  async function continueToolResult(input: {
+    seriesId: string;
+    sessionId: string;
+    result: { agentRun?: WorkshopAgentRunDocument | null; resultMessage: WorkshopMessage };
+  }): Promise<{ continuationMessages: WorkshopMessage[]; agentRun: WorkshopAgentRunDocument | null }> {
+    if (!input.result.agentRun) return { continuationMessages: [], agentRun: null };
+    try {
+      const contextBundle = await repository.getContextBundle(
+        input.seriesId,
+        input.result.agentRun.run.contextBundleId,
+      );
+      const baseProfile = await repository.getModelProfile(input.result.agentRun.run.modelProfileId);
+      const modelProfile = effectiveModelProfile(baseProfile, input.result.agentRun.run.modelOverride);
+      const continuation = await continueWorkshopAgentAfterToolResult({
+        repository,
+        providerRegistry,
+        seriesId: input.seriesId,
+        sessionId: input.sessionId,
+        run: input.result.agentRun,
+        resultMessage: input.result.resultMessage,
+        contextBundle,
+        providerContextBundle: workshopProviderContextBundle(contextBundle, "agent"),
+        modelProfile,
+        prepareUpdateDraft: (draft) => captureCodexUpdateDraftBaselines({
+          draft,
+          repository,
+          seriesId: input.seriesId,
+        }),
+      });
+      return {
+        continuationMessages: [continuation.assistantMessage, ...continuation.toolMessages],
+        agentRun: continuation.run,
+      };
+    } catch {
+      return { continuationMessages: [], agentRun: input.result.agentRun };
+    }
+  }
+
   app.get<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions",
     async (request) => repository.listWorkshopSessions(request.params.seriesId),
@@ -996,13 +1010,16 @@ export function registerWorkshopRoutes(
   app.get<{ Params: { seriesId: string; sessionId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId",
     async (request) => {
-      const [session, basket, messages, attachments] = await Promise.all([
-        repository.getWorkshopSession(request.params.seriesId, request.params.sessionId),
+      const session = await repository.getWorkshopSession(request.params.seriesId, request.params.sessionId);
+      const agentRuns = session.kind === "agent"
+        ? await repository.reconcileWorkshopAgentRuns(request.params.seriesId, request.params.sessionId)
+        : { runs: [], diagnostics: [] };
+      const [basket, messages, attachments] = await Promise.all([
         repository.getWorkshopContextBasket(request.params.seriesId, request.params.sessionId),
         repository.listWorkshopMessages(request.params.seriesId, request.params.sessionId),
         repository.listWorkshopAttachments(request.params.seriesId, request.params.sessionId),
       ]);
-      return { session, basket, messages, attachments };
+      return { session, basket, messages, attachments, agentRuns };
     },
   );
 
@@ -1023,6 +1040,70 @@ export function registerWorkshopRoutes(
         .header("content-type", "text/markdown; charset=utf-8")
         .header("content-disposition", `attachment; filename="workshop-${request.params.sessionId}.md"`)
         .send(`\uFEFF${markdown}`);
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; sessionId: string; runId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/agent-runs/:runId/retry",
+    async (request, reply) => {
+      const input = RetryWorkshopAgentRunInputSchema.parse(request.body);
+      const run = await repository.getWorkshopAgentRun(
+        request.params.seriesId,
+        request.params.sessionId,
+        request.params.runId,
+      );
+      if (run.revision !== input.baseRevision) {
+        return reply.status(409).send({
+          code: "CONFLICT",
+          message: "The Agent run changed before retry.",
+          currentRevision: run.revision,
+        });
+      }
+      if (!run.run.retryable || !["failed", "interrupted"].includes(run.run.status)) {
+        return reply.status(409).send({
+          code: "AGENT_RUN_NOT_RETRYABLE",
+          message: "This Agent run is not retryable.",
+        });
+      }
+      const contextBundle = await repository.getContextBundle(request.params.seriesId, run.run.contextBundleId);
+      const baseProfile = await repository.getModelProfile(run.run.modelProfileId);
+      const modelProfile = effectiveModelProfile(baseProfile, run.run.modelOverride);
+      const result = await retryWorkshopAgent({
+        repository,
+        providerRegistry,
+        seriesId: request.params.seriesId,
+        sessionId: request.params.sessionId,
+        run,
+        contextBundle,
+        providerContextBundle: workshopProviderContextBundle(contextBundle, "agent"),
+        modelProfile,
+        prepareUpdateDraft: (draft) => captureCodexUpdateDraftBaselines({
+          draft,
+          repository,
+          seriesId: request.params.seriesId,
+        }),
+      });
+      return WorkshopAgentRunActionResultSchema.parse({
+        agentRun: result.run,
+        assistantMessage: result.assistantMessage,
+        toolMessages: result.toolMessages,
+        modelCallId: result.modelCall.id,
+        responseText: result.responseText,
+      });
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; sessionId: string; runId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/agent-runs/:runId/abandon",
+    async (request) => {
+      const input = AbandonWorkshopAgentRunInputSchema.parse(request.body);
+      return repository.abandonWorkshopAgentRun(
+        request.params.seriesId,
+        request.params.sessionId,
+        request.params.runId,
+        input.baseRevision,
+        input.reason,
+      );
     },
   );
 
@@ -1194,7 +1275,7 @@ export function registerWorkshopRoutes(
         callInput.modelOverride,
       );
       const prompt = await workshopProviderPrompt(contextBundle, callInput);
-      const providerContextBundle = workshopProviderContextBundle(contextBundle, callInput);
+      const providerContextBundle = workshopProviderContextBundle(contextBundle, callInput.mode);
       const { log, responseText } = await executeWorkshopCall({
         repository,
         providerRegistry,
@@ -1384,22 +1465,35 @@ export function registerWorkshopRoutes(
             entryInput: codexInput,
           },
         );
-        return reply.status(201).send(WorkshopCodexCreateEntryToolResultSchema.parse(result));
+        const continuation = await continueToolResult({
+          seriesId: request.params.seriesId,
+          sessionId: source.session.id,
+          result,
+        });
+        return reply.status(201).send(WorkshopCodexCreateEntryToolResultSchema.parse({
+          ...result,
+          ...continuation,
+        }));
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Codex Draft could not be applied.";
-        await markWorkshopToolExecutionFailed({
-          repository,
-          seriesId: request.params.seriesId,
-          message: claim.message,
-          code: error instanceof Error && "code" in error && error.code === "CONFLICT"
-            ? "CONFLICT"
-            : "INVALID_DATA",
-          messageText,
-        });
         const isConflict = error instanceof Error && "code" in error && error.code === "CONFLICT";
+        const failure = await repository.recordWorkshopCodexCommandFailure(request.params.seriesId, {
+          sessionId: source.session.id,
+          messageId: claim.message.id,
+          requestHash: toolRequestHash,
+          errorCode: isConflict ? "CONFLICT" : "INVALID_DATA",
+          errorMessage: messageText,
+        });
+        const continuation = await continueToolResult({
+          seriesId: request.params.seriesId,
+          sessionId: source.session.id,
+          result: failure,
+        });
         return reply.status(isConflict ? 409 : 400).send({
           code: isConflict ? "CONFLICT" : "INVALID_DATA",
           message: messageText,
+          resultMessage: failure.resultMessage,
+          ...continuation,
         });
       }
     },
@@ -1467,7 +1561,13 @@ export function registerWorkshopRoutes(
           categoryId: entry.metadata.categoryId,
         });
         validateWorkshopDetailResolutionChoices({
-          draftDetails: toolRequest.draft.patch.details ?? [],
+          draftDetails: [
+            ...(toolRequest.draft.patch.details ?? []),
+            ...new Set([
+              ...Object.keys(entry.metadata.details),
+              ...Object.keys(entry.metadata.detailAiContext),
+            ]),
+          ].map((detail) => typeof detail === "string" ? { label: detail } : detail),
           confirmation: input,
         });
         progressionCommands = progressionCommandsFromDraft(
@@ -1571,20 +1671,35 @@ export function registerWorkshopRoutes(
             progressions: progressionCommands,
           },
         );
-        return reply.status(201).send(WorkshopCodexUpdateEntryToolResultSchema.parse(result));
+        const continuation = await continueToolResult({
+          seriesId: request.params.seriesId,
+          sessionId: source.session.id,
+          result,
+        });
+        return reply.status(201).send(WorkshopCodexUpdateEntryToolResultSchema.parse({
+          ...result,
+          ...continuation,
+        }));
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Codex update command could not be applied.";
         const isConflict = error instanceof Error && "code" in error && error.code === "CONFLICT";
-        await markWorkshopToolExecutionFailed({
-          repository,
+        const failure = await repository.recordWorkshopCodexCommandFailure(request.params.seriesId, {
+          sessionId: source.session.id,
+          messageId: claim.message.id,
+          requestHash: toolRequestHash,
+          errorCode: isConflict ? "CONFLICT" : "INVALID_DATA",
+          errorMessage: messageText,
+        });
+        const continuation = await continueToolResult({
           seriesId: request.params.seriesId,
-          message: claim.message,
-          code: isConflict ? "CONFLICT" : "INVALID_DATA",
-          messageText,
+          sessionId: source.session.id,
+          result: failure,
         });
         return reply.status(isConflict ? 409 : 400).send({
           code: isConflict ? "CONFLICT" : "INVALID_DATA",
           message: messageText,
+          resultMessage: failure.resultMessage,
+          ...continuation,
         });
       }
     },
@@ -1631,115 +1746,6 @@ export function registerWorkshopRoutes(
     return true;
   }
 
-  type PendingCodexDraft =
-    | { tool: "codex.create_entry"; draft: WorkshopCodexCreateDraft }
-    | { tool: "codex.update_entry"; draft: WorkshopCodexUpdateDraft };
-
-  function cloneJson<T>(value: T): T {
-    return JSON.parse(JSON.stringify(value)) as T;
-  }
-
-  function pendingCodexDraftFromContext(contextBundle: ContextBundle): PendingCodexDraft | null {
-    const item = contextBundle.items.find((candidate) => candidate.kind === "pending-codex-draft");
-    if (!item) return null;
-    const start = item.content.indexOf("{");
-    const end = item.content.lastIndexOf("}");
-    if (start < 0 || end <= start) return null;
-    const json = item.content.slice(start, end + 1);
-    try {
-      const request = parseCodexCreateEntryToolRequest(json);
-      return { tool: request.tool, draft: request.draft };
-    } catch {
-      try {
-        const request = parseCodexUpdateEntryToolRequest(json);
-        return { tool: request.tool, draft: request.draft };
-      } catch {
-        return null;
-      }
-    }
-  }
-
-  function isPendingDraftReviewOnly(userRequest: string): boolean {
-    const normalized = userRequest.toLocaleLowerCase("und");
-    if (/\b(add|remove|cut|change|rename|alias|category|object|lore|refresh|update|revise|use only)\b/iu.test(normalized)) {
-      return false;
-    }
-    return /\b(show|review|preview|plain english|wait|hold|do not write|don't write|not write|do not apply|don't apply)\b/iu
-      .test(normalized);
-  }
-
-  function isPendingDraftRevisionRequest(userRequest: string): boolean {
-    if (isPendingDraftReviewOnly(userRequest)) return false;
-    return /\b(add|remove|cut|change|rename|alias|category|object|lore|refresh|update|revise|use only|one more bit)\b/iu
-      .test(userRequest.toLocaleLowerCase("und"));
-  }
-
-  function requestedAliases(userRequest: string): string[] | null {
-    const match = userRequest.match(/\balias(?:es)?\b\s*(?:is|are|as|to|:)?\s*["'`]?([A-Za-z0-9][A-Za-z0-9 _,-]{0,80})/iu) ??
-      userRequest.match(/\bonly\s+one\s+alias\s*(?:is|as|:)?\s*["'`]?([A-Za-z0-9][A-Za-z0-9 _,-]{0,80})/iu);
-    if (!match?.[1]) return null;
-    return match[1]
-      .replace(/[."'`;:]+$/u, "")
-      .split(/\s*,\s*|\s+and\s+/iu)
-      .map((alias) => alias.trim())
-      .filter(Boolean);
-  }
-
-  function requestedAddedDetail(userRequest: string): WorkshopCodexCreateDraft["details"][number] | null {
-    const match = userRequest.match(/\b(?:add|one more bit)\b[^:]*:\s*(.+)$/iu);
-    const value = match?.[1]?.trim().replace(/[.。]+$/u, "");
-    if (!value) return null;
-    const label = /\bform|forms|formed|formation\b/iu.test(value) ? "Formation" : "Note";
-    return { label, value };
-  }
-
-  function removeInventedCosmicMaterial(description: string): string {
-    return description
-      .split(/(?<=[.!?])\s+/u)
-      .filter((sentence) => !/\b(cosmic|celestial|star origin|dying star|folklore|myth)\b/iu.test(sentence))
-      .join(" ")
-      .trim() || description;
-  }
-
-  function revisedPendingCodexDraft(
-    pending: PendingCodexDraft,
-    userRequest: string,
-  ): PendingCodexDraft | null {
-    if (!isPendingDraftRevisionRequest(userRequest)) return null;
-    if (pending.tool === "codex.update_entry") {
-      const draft = cloneJson(pending.draft);
-      const aliases = requestedAliases(userRequest);
-      if (aliases) draft.patch.aliases = aliases;
-      return { tool: pending.tool, draft };
-    }
-
-    const draft = cloneJson(pending.draft);
-    const aliases = requestedAliases(userRequest);
-    if (aliases) draft.aliases = aliases;
-    if (/\bobject\b/iu.test(userRequest) && !/\bnot\s+(?:an?\s+)?object\b/iu.test(userRequest)) {
-      draft.categoryId = "object";
-    } else if (/\blore\b/iu.test(userRequest) && !/\bnot\s+(?:a\s+)?lore\b/iu.test(userRequest)) {
-      draft.categoryId = "lore";
-    }
-    const addedDetail = requestedAddedDetail(userRequest);
-    if (addedDetail && !draft.details.some((detail) => detail.label === addedDetail.label && detail.value === addedDetail.value)) {
-      draft.details = [...draft.details, addedDetail];
-    }
-    if (/\b(cut|remove)\b.*\b(cosmic|myth|invented|folklore)\b/iu.test(userRequest)) {
-      draft.description = removeInventedCosmicMaterial(draft.description);
-      draft.details = draft.details.filter((detail) =>
-        !/\b(cosmic|celestial|star origin|dying star|folklore|myth)\b/iu.test(`${detail.label} ${detail.value}`)
-      );
-    }
-    return { tool: pending.tool, draft };
-  }
-
-  function pendingDraftPreview(pending: PendingCodexDraft): string {
-    return pending.tool === "codex.create_entry"
-      ? renderWorkshopCodexCreateDraft(pending.draft)
-      : renderWorkshopCodexUpdateDraft(pending.draft);
-  }
-
   async function saveWorkshopAssistantTurn(input: {
     seriesId: string;
     sessionId: string;
@@ -1759,66 +1765,6 @@ export function registerWorkshopRoutes(
       "Model call failed.";
     let assistantContent = rawAssistantContent;
     let responseText = parsedResponse.content || input.visibleText || "";
-    let toolRequestContent: string | null = null;
-
-    if (input.mode === "agent" && input.log.status === "succeeded") {
-      const pendingDraft = pendingCodexDraftFromContext(input.contextBundle);
-      let step: WorkshopAgentStep = parseWorkshopAgentStep(rawAssistantContent);
-      if (pendingDraft && isPendingDraftReviewOnly(input.userRequest) && step.type === "request_tool") {
-        step = {
-          schemaVersion: 1,
-          type: "respond",
-          message: pendingDraftPreview({
-            tool: step.tool,
-            draft: step.draft,
-          } as PendingCodexDraft),
-        };
-      } else if (pendingDraft && step.type === "respond") {
-        const revised = revisedPendingCodexDraft(pendingDraft, input.userRequest);
-        if (revised) {
-          step = revised.tool === "codex.create_entry"
-            ? {
-              schemaVersion: 1,
-              type: "request_tool",
-              tool: "codex.create_entry",
-              message: "Prepared a revised Codex entry draft.",
-              draft: revised.draft,
-            }
-            : {
-              schemaVersion: 1,
-              type: "request_tool",
-              tool: "codex.update_entry",
-              message: "Prepared a revised Codex entry update draft.",
-              draft: revised.draft,
-            };
-        }
-      }
-      if (step.type === "request_tool" && step.tool === "codex.create_entry") {
-        assistantContent = step.message.trim() || "Prepared a Codex entry creation tool request.";
-        responseText = assistantContent;
-        toolRequestContent = serializeCodexCreateEntryToolRequest(step.draft);
-      } else if (step.type === "request_tool" && step.tool === "codex.update_entry") {
-        try {
-          const capturedDraft = await captureCodexUpdateDraftBaselines({
-            draft: step.draft,
-            repository,
-            seriesId: input.seriesId,
-          });
-          assistantContent = step.message.trim() || "Prepared a Codex entry update tool request.";
-          responseText = assistantContent;
-          toolRequestContent = serializeCodexUpdateEntryToolRequest(capturedDraft);
-        } catch (error) {
-          assistantContent = error instanceof Error
-            ? error.message
-            : "The Codex update target could not be bound safely.";
-          responseText = assistantContent;
-          toolRequestContent = null;
-        }
-      } else {
-        assistantContent = step.message;
-        responseText = step.message;
-      }
-    }
 
     const assistantMessage = await repository.saveWorkshopMessage(
       input.seriesId,
@@ -1841,32 +1787,7 @@ export function registerWorkshopRoutes(
         createdAt: new Date().toISOString(),
       }),
     );
-    const toolMessages = [];
-    if (toolRequestContent) {
-      const toolMessage = await repository.saveWorkshopMessage(
-        input.seriesId,
-        WorkshopMessageSchema.parse({
-          schemaVersion: 1,
-          id: randomUUID(),
-          seriesId: input.seriesId,
-          sessionId: input.sessionId,
-          role: "tool",
-          mode: "agent",
-          status: "succeeded",
-          content: toolRequestContent,
-          reasoningContent: "",
-          contextBundleId: input.contextBundle.id,
-          modelCallId: input.log.id,
-          proposalIds: [],
-          attachmentIds: [],
-          errorCode: null,
-          errorMessage: null,
-          createdAt: new Date(Date.now() + 1).toISOString(),
-        }),
-      );
-      toolMessages.push(toolMessage);
-    }
-    return { assistantMessage, toolMessages, responseText };
+    return { assistantMessage, toolMessages: [], responseText };
   }
 
 
@@ -1932,7 +1853,7 @@ export function registerWorkshopRoutes(
         input.modelOverride,
       );
       const prompt = await workshopProviderPrompt(contextBundle, input);
-      const providerContextBundle = workshopProviderContextBundle(contextBundle, input);
+      const providerContextBundle = workshopProviderContextBundle(contextBundle, input.mode);
 
       reply.hijack();
       reply.raw.writeHead(200, {
@@ -1949,6 +1870,55 @@ export function registerWorkshopRoutes(
       const suppressRawAgentStream = input.mode === "agent";
       const parser = createReasoningParser();
       writeWorkshopEvent(reply, { type: "author-message", message: authorMessage });
+
+      if (input.mode === "agent") {
+        const agent = await runWorkshopAgent({
+          repository,
+          providerRegistry,
+          seriesId: request.params.seriesId,
+          sessionId: request.params.sessionId,
+          authorMessage,
+          contextBundle,
+          providerContextBundle,
+          modelProfile,
+          parameters: input.parameters,
+          prompt,
+          prepareUpdateDraft: (draft) => captureCodexUpdateDraftBaselines({
+            draft,
+            repository,
+            seriesId: request.params.seriesId,
+          }),
+        });
+        writeWorkshopEvent(reply, {
+          type: "metadata",
+          contextBundleId: contextBundle.id,
+          modelCallId: agent.modelCall.id,
+        });
+        const result = WorkshopCallResultSchema.parse({
+          authorMessage,
+          assistantMessage: agent.assistantMessage,
+          toolMessages: agent.toolMessages,
+          contextBundleId: contextBundle.id,
+          modelCallId: agent.modelCall.id,
+          status: agent.assistantMessage.status,
+          responseText: agent.responseText,
+          estimatedUsage: agent.modelCall.estimatedUsage,
+          actualUsage: agent.modelCall.actualUsage,
+          agentRun: agent.run,
+        });
+        writeWorkshopEvent(reply, { type: "assistant-message", message: agent.assistantMessage });
+        if (agent.assistantMessage.status === "failed") {
+          writeWorkshopEvent(reply, {
+            type: "error",
+            code: agent.assistantMessage.errorCode,
+            message: agent.assistantMessage.errorMessage ?? agent.assistantMessage.content,
+            assistantMessage: agent.assistantMessage,
+          });
+        }
+        writeWorkshopEvent(reply, { type: "done", result });
+        reply.raw.end();
+        return reply;
+      }
 
       let { log, responseText } = await executeWorkshopCall({
         repository,
@@ -2075,7 +2045,38 @@ export function registerWorkshopRoutes(
         input.modelOverride,
       );
       const prompt = await workshopProviderPrompt(contextBundle, input);
-      const providerContextBundle = workshopProviderContextBundle(contextBundle, input);
+      const providerContextBundle = workshopProviderContextBundle(contextBundle, input.mode);
+      if (input.mode === "agent") {
+        const agent = await runWorkshopAgent({
+          repository,
+          providerRegistry,
+          seriesId: request.params.seriesId,
+          sessionId: request.params.sessionId,
+          authorMessage,
+          contextBundle,
+          providerContextBundle,
+          modelProfile,
+          parameters: input.parameters,
+          prompt,
+          prepareUpdateDraft: (draft) => captureCodexUpdateDraftBaselines({
+            draft,
+            repository,
+            seriesId: request.params.seriesId,
+          }),
+        });
+        return WorkshopCallResultSchema.parse({
+          authorMessage,
+          assistantMessage: agent.assistantMessage,
+          toolMessages: agent.toolMessages,
+          contextBundleId: contextBundle.id,
+          modelCallId: agent.modelCall.id,
+          status: agent.assistantMessage.status,
+          responseText: agent.responseText,
+          estimatedUsage: agent.modelCall.estimatedUsage,
+          actualUsage: agent.modelCall.actualUsage,
+          agentRun: agent.run,
+        });
+      }
       let { log, responseText } = await executeWorkshopCall({
         repository,
         providerRegistry,

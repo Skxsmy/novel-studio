@@ -163,7 +163,7 @@ async function createSeriesWithSemanticDetailPlanner(
     },
   });
   expect(modelProfile.statusCode).toBe(201);
-  return { app, series: created.json(), profile: modelProfile.json() };
+  return { app, root, series: created.json(), profile: modelProfile.json() };
 }
 
 function parseSseEvents(payload: string): Array<Record<string, unknown>> {
@@ -405,9 +405,16 @@ async function uploadAttachment(input: {
 }
 
 function openAiStreamFetch(responseText: string | (() => string)): typeof fetch {
-  return async (input) => {
+  return async (input, init) => {
     if (String(input) === "https://example.test/v1/chat/completions") {
       const text = typeof responseText === "function" ? responseText() : responseText;
+      const body = JSON.parse(String(init?.body ?? "{}")) as { response_format?: unknown };
+      if (body.response_format) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: text } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       return new Response([
         `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}`,
         "",
@@ -1685,15 +1692,15 @@ describe("M5 Workshop API routes", () => {
     const providerFetch: typeof fetch = async (input, init) => {
       if (String(input) === "https://example.test/v1/chat/completions") {
         chatBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
-        return new Response([
-          `data: ${JSON.stringify({ choices: [{ delta: { content: "可以，先讨论这个设定。" } }] })}`,
-          "",
-          "data: [DONE]",
-          "",
-          "",
-        ].join("\n"), {
+        return new Response(JSON.stringify({
+          choices: [{ message: { content: JSON.stringify({
+            schemaVersion: 1,
+            type: "respond",
+            message: "可以，先讨论这个设定。",
+          }) } }],
+        }), {
           status: 200,
-          headers: { "content-type": "text/event-stream" },
+          headers: { "content-type": "application/json" },
         });
       }
       return new Response(JSON.stringify({ error: { message: "not found" } }), {
@@ -1795,15 +1802,9 @@ describe("M5 Workshop API routes", () => {
               research: "Source: current Workshop Agent conversation.",
             },
           });
-        return new Response([
-          `data: ${JSON.stringify({ choices: [{ delta: { content: responseText } }] })}`,
-          "",
-          "data: [DONE]",
-          "",
-          "",
-        ].join("\n"), {
+        return new Response(JSON.stringify({ choices: [{ message: { content: responseText } }] }), {
           status: 200,
-          headers: { "content-type": "text/event-stream" },
+          headers: { "content-type": "application/json" },
         });
       }
       return new Response(JSON.stringify({ error: { message: "not found" } }), {
@@ -1872,7 +1873,9 @@ describe("M5 Workshop API routes", () => {
   it("saves direct structured Agent Codex tool JSON as a tool message", async () => {
     const directToolJson = JSON.stringify({
       schemaVersion: 1,
+      type: "request_tool",
       tool: "codex.create_entry",
+      message: "Prepared a Codex entry draft.",
       draft: {
         aliases: ["WSS"],
         categoryId: "object",
@@ -1913,16 +1916,14 @@ describe("M5 Workshop API routes", () => {
     const providerFetch: typeof fetch = async (input) => {
       if (String(input) === "https://example.test/v1/chat/completions") {
         requestCount += 1;
-        const responseText = "可以。这个设定更适合先写成可选 Codex 草稿，再由你决定是否入库。";
-        return new Response([
-          `data: ${JSON.stringify({ choices: [{ delta: { content: responseText } }] })}`,
-          "",
-          "data: [DONE]",
-          "",
-          "",
-        ].join("\n"), {
+        const responseText = JSON.stringify({
+          schemaVersion: 1,
+          type: "respond",
+          message: "可以。这个设定更适合先写成可选 Codex 草稿，再由你决定是否入库。",
+        });
+        return new Response(JSON.stringify({ choices: [{ message: { content: responseText } }] }), {
           status: 200,
-          headers: { "content-type": "text/event-stream" },
+          headers: { "content-type": "application/json" },
         });
       }
       return new Response(JSON.stringify({ object: "list", data: [] }), {
@@ -1981,15 +1982,9 @@ describe("M5 Workshop API routes", () => {
           }),
           "```",
         ].join("\n");
-        return new Response([
-          `data: ${JSON.stringify({ choices: [{ delta: { content: responseText } }] })}`,
-          "",
-          "data: [DONE]",
-          "",
-          "",
-        ].join("\n"), {
+        return new Response(JSON.stringify({ choices: [{ message: { content: responseText } }] }), {
           status: 200,
-          headers: { "content-type": "text/event-stream" },
+          headers: { "content-type": "application/json" },
         });
       }
       return new Response(JSON.stringify({ error: { message: "not found" } }), {
@@ -2021,12 +2016,11 @@ describe("M5 Workshop API routes", () => {
     expect(JSON.stringify(events)).not.toContain("codex-create");
     const done = events.find((event) => event.type === "done") as {
       result: {
-        assistantMessage: { content: string };
+        assistantMessage: { content: string; status: string };
         toolMessages: Array<{ role: string; mode: string; content: string }>;
       };
     };
-    expect(done.result.assistantMessage.content).toContain("好的，我现在直接创建");
-    expect(done.result.assistantMessage.content).not.toContain("structured response");
+    expect(done.result.assistantMessage.status).toBe("failed");
     expect(done.result.assistantMessage.content).not.toContain("Tool Call");
     expect(done.result.toolMessages).toHaveLength(0);
 
@@ -2063,15 +2057,9 @@ describe("M5 Workshop API routes", () => {
             research: "Author decision recorded in this Agent session.",
           },
         });
-        return new Response([
-          `data: ${JSON.stringify({ choices: [{ delta: { content: responseText } }] })}`,
-          "",
-          "data: [DONE]",
-          "",
-          "",
-        ].join("\n"), {
+        return new Response(JSON.stringify({ choices: [{ message: { content: responseText } }] }), {
           status: 200,
-          headers: { "content-type": "text/event-stream" },
+          headers: { "content-type": "application/json" },
         });
       }
       return new Response(JSON.stringify({ error: { message: "not found" } }), {
@@ -2273,6 +2261,212 @@ describe("M5 Workshop API routes", () => {
     expect(messages.statusCode).toBe(200);
     expect(messages.json()).toEqual([]);
 
+    await app.close();
+  });
+
+  it("continues the same Agent run after confirmed Codex execution", async () => {
+    const responses = [
+      agentToolStep({
+        tool: "codex.create_entry",
+        message: "Prepared the keeper entry.",
+        draft: {
+          aliases: [],
+          categoryId: "character",
+          description: "The keeper of the tide clock.",
+          details: [],
+          name: "Caleb Rook",
+          research: "Author decision in this Agent conversation.",
+        },
+      }),
+      JSON.stringify({
+        schemaVersion: 1,
+        type: "respond",
+        message: "Caleb Rook is now recorded. We can return to the missing keeper scene.",
+      }),
+    ];
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(
+      openAiStreamFetch(() => responses.shift() ?? responses.at(-1)!),
+    );
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Continuation" },
+    });
+    const session = sessionResponse.json();
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: { mode: "agent", userRequest: "Add Caleb Rook to the Codex.", modelProfileId: profile.id },
+    });
+    expect(call.statusCode, call.payload).toBe(200);
+    const tool = call.json().toolMessages[0];
+    const execute = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${tool.id}/tools/codex.create_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(execute.statusCode, execute.payload).toBe(201);
+    expect(execute.json().continuationMessages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "Caleb Rook is now recorded. We can return to the missing keeper scene.",
+      }),
+    ]);
+    expect(execute.json().agentRun.run).toMatchObject({
+      id: call.json().agentRun.run.id,
+      status: "completed",
+    });
+    expect(execute.json().agentRun.run.steps.map((step: { kind: string }) => step.kind)).toEqual([
+      "model",
+      "tool-request",
+      "tool-result",
+      "continuation",
+    ]);
+    const detail = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}`,
+    });
+    expect(detail.json().messages.map((message: { role: string }) => message.role)).toEqual([
+      "author",
+      "assistant",
+      "tool",
+      "result",
+      "assistant",
+    ]);
+    expect(detail.json().agentRuns.runs[0].run.status).toBe("completed");
+    await app.close();
+  });
+
+  it("waits for a second confirmation when Agent continuation requests another tool", async () => {
+    const createDraft = (name: string) => agentToolStep({
+      tool: "codex.create_entry",
+      message: `Prepared ${name}.`,
+      draft: {
+        aliases: [],
+        categoryId: "object",
+        description: `${name} belongs to the keeper case.`,
+        details: [],
+        name,
+        research: "Author decision in this Agent conversation.",
+      },
+    });
+    const responses = [createDraft("Blue-salt key"), createDraft("Clockmaker's seal")];
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(
+      openAiStreamFetch(() => responses.shift() ?? createDraft("Unused")),
+    );
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Two confirmations" },
+    });
+    const session = sessionResponse.json();
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: { mode: "agent", userRequest: "Record the key, then check the seal.", modelProfileId: profile.id },
+    });
+    const firstTool = call.json().toolMessages[0];
+    const execute = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${firstTool.id}/tools/codex.create_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(execute.statusCode, execute.payload).toBe(201);
+    expect(execute.json().continuationMessages.map((message: { role: string }) => message.role)).toEqual([
+      "assistant",
+      "tool",
+    ]);
+    expect(execute.json().agentRun.run.status).toBe("waiting-confirmation");
+    const secondTool = execute.json().continuationMessages[1];
+    expect(JSON.parse(secondTool.content).draft.name).toBe("Clockmaker's seal");
+    expect(secondTool.toolExecution).toBeUndefined();
+    await app.close();
+  });
+
+  it("retries an eligible interrupted Agent run as a new attempt", async () => {
+    let requestCount = 0;
+    const providerFetch: typeof fetch = async (input) => {
+      if (String(input) !== "https://example.test/v1/chat/completions") {
+        return new Response(JSON.stringify({ error: { message: "not found" } }), { status: 404 });
+      }
+      requestCount += 1;
+      if (requestCount === 1) {
+        return new Response(JSON.stringify({ error: { message: "temporary outage" } }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+        schemaVersion: 1,
+        type: "respond",
+        message: "The retry completed without replaying any tool.",
+      }) } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(providerFetch);
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Retry" },
+    });
+    const session = sessionResponse.json();
+    const failed = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: { mode: "agent", userRequest: "Help me revise the scene.", modelProfileId: profile.id },
+    });
+    expect(failed.statusCode, failed.payload).toBe(200);
+    expect(failed.json().agentRun.run).toMatchObject({ status: "failed", retryable: true });
+    const retried = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/agent-runs/${failed.json().agentRun.run.id}/retry`,
+      payload: { baseRevision: failed.json().agentRun.revision },
+    });
+    expect(retried.statusCode, retried.payload).toBe(200);
+    expect(retried.json().agentRun.run.status).toBe("completed");
+    expect(retried.json().agentRun.run.steps.map((step: { status: string }) => step.status)).toEqual([
+      "failed",
+      "succeeded",
+    ]);
+    expect(retried.json().assistantMessage.content).toContain("retry completed");
+    expect(requestCount).toBe(2);
+    await app.close();
+  });
+
+  it("abandons an interrupted Agent run without deleting steps", async () => {
+    const providerFetch: typeof fetch = async () => new Response(
+      JSON.stringify({ error: { message: "temporary outage" } }),
+      { status: 503, headers: { "content-type": "application/json" } },
+    );
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(providerFetch);
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Abandon" },
+    });
+    const session = sessionResponse.json();
+    const failed = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: { mode: "agent", userRequest: "Help me revise the scene.", modelProfileId: profile.id },
+    });
+    const beforeSteps = failed.json().agentRun.run.steps;
+    const abandoned = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/agent-runs/${failed.json().agentRun.run.id}/abandon`,
+      payload: { baseRevision: failed.json().agentRun.revision, reason: "Stop this attempt." },
+    });
+    expect(abandoned.statusCode, abandoned.payload).toBe(200);
+    expect(abandoned.json().run).toMatchObject({ status: "abandoned", retryable: false });
+    expect(abandoned.json().run.steps).toEqual(beforeSteps);
+    const retry = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/agent-runs/${failed.json().agentRun.run.id}/retry`,
+      payload: { baseRevision: abandoned.json().revision },
+    });
+    expect(retry.statusCode).toBe(409);
     await app.close();
   });
 
@@ -2620,6 +2814,80 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
+  it("migrates legacy name-keyed details during a planned Codex update", async () => {
+    let agentResponseText = "";
+    const { app, root, series, profile } = await createSeriesWithSemanticDetailPlanner(
+      openAiStreamFetch(() => agentResponseText),
+    );
+    const appearance = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: { categoryId: "character", name: "Appearance" },
+    })).json();
+    const entry = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: { categoryId: "character", name: "Mara", description: "Baseline." },
+    })).json();
+    const entryPath = path.join(
+      root,
+      `WorkshopSchemaApi-${series.manifest.id.slice(0, 8)}`,
+      "codex",
+      "characters",
+      `${entry.metadata.id}.json`,
+    );
+    const legacyEntry = JSON.parse(await readFile(entryPath, "utf8"));
+    legacyEntry.metadata.details = { Appearance: "Old scar." };
+    legacyEntry.metadata.detailAiContext = { Appearance: false };
+    await writeFile(entryPath, `${JSON.stringify(legacyEntry, null, 2)}\n`, "utf8");
+
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Legacy detail migration" },
+    })).json();
+    agentResponseText = agentToolStep({
+      tool: "codex.update_entry",
+      draft: {
+        target: { entryId: entry.metadata.id },
+        patch: { details: [{ label: "Memory cost", value: "Forgets one name after each use." }] },
+      },
+    });
+    const tool = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
+    });
+    const url = `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${tool.id}/tools/codex.update_entry/execute`;
+    const plan = await app.inject({ method: "POST", url, payload: { confirm: true } });
+    expect(plan.statusCode).toBe(409);
+    expect(plan.json().missingDetailTypes.map((detail: { label: string }) => detail.label))
+      .toEqual(["Memory cost"]);
+
+    const applied = await app.inject({
+      method: "POST",
+      url,
+      payload: {
+        confirm: true,
+        createMissingDetailTypes: true,
+        detailCreations: [{ label: "Memory cost", name: "Memory cost", nsfw: false }],
+      },
+    });
+    expect(applied.statusCode, applied.payload).toBe(201);
+    const createdType = applied.json().createdDetailTypes[0].detailType;
+    expect(applied.json().entry.metadata.details).toEqual({
+      [appearance.detailType.id]: "Old scar.",
+      [createdType.id]: "Forgets one name after each use.",
+    });
+    expect(applied.json().entry.metadata.detailAiContext).toEqual({
+      [appearance.detailType.id]: false,
+      [createdType.id]: true,
+    });
+    expect(applied.json().entry.metadata.details.Appearance).toBeUndefined();
+    await app.close();
+  });
+
   it("refuses incomplete duplicate and cross-category detail resolution choices without Codex writes", async () => {
     const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(agentToolStep({
       tool: "codex.create_entry",
@@ -2743,8 +3011,10 @@ describe("M5 Workshop API routes", () => {
       method: "GET",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
     });
-    expect(messages.json().some((message: { role: string }) => message.role === "result"))
-      .toBe(false);
+    expect(messages.json().find((message: { role: string }) => message.role === "result"))
+      .toMatchObject({ status: "failed", errorCode: "INVALID_DATA" });
+    expect(execute.json().continuationMessages.map((message: { role: string }) => message.role))
+      .toEqual(["assistant", "tool"]);
 
     await app.close();
   });
@@ -2991,7 +3261,10 @@ describe("M5 Workshop API routes", () => {
     expect(messages.statusCode).toBe(200);
     expect(messages.json().find((message: { id: string }) => message.id === draftMessage.id).toolExecution)
       .toMatchObject({ status: "failed", errorCode: "CONFLICT" });
-    expect(messages.json().map((message: { role: string }) => message.role)).not.toContain("result");
+    expect(messages.json().find((message: { role: string }) => message.role === "result"))
+      .toMatchObject({ status: "failed", errorCode: "CONFLICT" });
+    expect(failed.json().continuationMessages.map((message: { role: string }) => message.role))
+      .toEqual(["assistant", "tool"]);
     const contextPreview = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/context-preview`,
@@ -3002,7 +3275,7 @@ describe("M5 Workshop API routes", () => {
     });
     expect(contextPreview.statusCode).toBe(200);
     expect(contextPreview.json().items.some((item: { kind: string }) => item.kind === "pending-codex-draft"))
-      .toBe(false);
+      .toBe(true);
 
     const repeated = await app.inject({
       method: "POST",
@@ -3108,8 +3381,10 @@ describe("M5 Workshop API routes", () => {
         method: "GET",
         url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
       });
-      expect(messages.json().some((message: { role: string }) => message.role === "result"))
-        .toBe(false);
+      expect(messages.json().find((message: { role: string }) => message.role === "result"))
+        .toMatchObject({ status: "failed", errorCode: "CONFLICT" });
+      expect(execute.json().continuationMessages.map((message: { role: string }) => message.role))
+        .toEqual(["assistant", "tool"]);
     }
 
     await app.close();

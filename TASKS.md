@@ -17,7 +17,8 @@ No support task is active.
 | NS-506 / M5.6A | complete | Limited Agent tool execution-containment scope only | `docs/tasks/M5.md`; `docs/testing/M5_ACCEPTANCE.md` |
 | NS-507 | complete | M5.6B atomic Codex adapters, stale baselines, and Progression target/scene binding | `docs/tasks/NS-507.md`; `docs/testing/NS-507_ACCEPTANCE.md` |
 | NS-508 / M5.6C | complete | Detail schema planner, persisted embedding binding, and author mapping/create confirmation | `docs/tasks/NS-508.md`; `docs/testing/NS-508_ACCEPTANCE.md` |
-| NS-509-NS-512 / M5.6D-M5.6G | todo | Durable Agent runner, capability cleanup, Prompt customization, and Tool Plan/Grant layer | `docs/tasks/M5.md` |
+| NS-509 | in_progress | M5.6D durable Agent runner, structured-output repair, continuation, and interrupted-run recovery | `docs/tasks/NS-509.md`; `docs/testing/NS-509_ACCEPTANCE.md` |
+| NS-510-NS-512 / M5.6E-M5.6G | todo | Capability cleanup, Prompt customization, and Tool Plan/Grant layer | `docs/tasks/M5.md` |
 | NS-513 / M5.7 | todo | Council, conflict/failure states, responsive/copy review, and user visual acceptance | `docs/tasks/M5.md` |
 
 ## Incomplete Existing Lines

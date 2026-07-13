@@ -7,6 +7,7 @@ This changelog records user-visible product changes. Task status, command logs, 
 ### Added
 
 - Persistent Workshop Chat and Agent sessions with message attachments, branch history, session export, reasoning display, stop controls, and session lifecycle actions.
+- Durable Workshop Agent runs now support ordinary conversation, structured Codex requests, bounded output repair, confirmed-tool continuation, separately confirmed follow-up tools, and explicit retry or abandon after eligible interruptions.
 - Proposal-backed Review inbox and focused before/after decision workspace.
 - Limited author-confirmed Agent tools for Codex entry creation and update, including unified Codex Progression changes.
 - Shared embedding-profile and routing foundation for future Codex and Reference Library semantic features.
@@ -16,6 +17,8 @@ This changelog records user-visible product changes. Task status, command logs, 
 ### Changed
 
 - Workshop Codex detail drafts now rank reusable same-category detail types, let authors map each unmatched label, and require an explicit final name and NSFW choice before creating a new reusable type.
+- Workshop Agent uses Provider-native structured output when available and visibly degrades to strict JSON on the selected model when it is not, without silent Provider fallback.
+- Workshop Codex update migrates legacy name-keyed Details through the reusable detail planner, and atomically failed tool calls now return to the same Agent run instead of stopping the conversation.
 - Workshop Chat and Agent prompts are isolated from global non-Workshop role/template records.
 - Workshop uses explicit context selection, prior same-session history, and message attachment snapshots rather than an implicit current scene.
 - Review prioritizes the candidate difference and author decision instead of an engineering Proposal dashboard.

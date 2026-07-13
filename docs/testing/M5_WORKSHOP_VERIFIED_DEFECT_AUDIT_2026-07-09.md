@@ -47,65 +47,11 @@ These old findings are no longer open blockers:
 - M5-WV-021 is closed by NS-507: file transactions share a process-wide per-Series coordinator; recovery runs on first repository access or inside the coordinator, not against another live commit. Concurrent stale-checked Codex commands, overlapping file transactions, injected mid-commit rollback, and repository-restart recovery have exact tests in `docs/testing/NS-507_ACCEPTANCE.md`.
 - M5-WV-006 is closed by NS-508: library-global embedding use-case bindings persist and reload; the Workshop planner uses only the explicitly bound `codex.detail-schema` profile, embeds request-local unmatched labels and same-category reusable type names, returns ranked scores/reasons, leaves ambiguous candidates unselected, and degrades to manual mapping without Provider fallback. Current detail-type authority has no description field, so the planner does not invent one.
 - M5-WV-007 is closed by NS-508: every unmatched label requires exactly one author mapping or creation choice. Explicit creation carries the final reusable name and NSFW flag into the confirmation identity and NS-507 atomic command; omitted, duplicate, and cross-category choices are refused before semantic mutation.
+- M5-WV-008 is closed by NS-509: one author turn now owns a revision-protected run with ordered model, repair, tool-request, tool-result, and continuation steps. Successful confirmed Codex execution feeds its result into the same run; a later request creates a new waiting-confirmation step. The previous pending-draft keyword rewrite helpers were removed.
+- M5-WV-009 is closed by NS-509: profiles declaring structured output call `ProviderAdapter.generateObject` with the Workshop Agent step schema. Malformed output receives at most one recorded repair attempt. Profiles without structured output use strict JSON text parsing with a durable degraded marker and no Provider/model fallback; invalid text never becomes prose or executable protocol.
+- M5-WV-022 is closed for execution recovery by NS-509: session-load reconciliation marks unfinished model and tool work interrupted without replay, successful Codex/result writes commit atomically, eligible interruption retries append attempts, and abandon is terminal while preserving history. Proposal conversion remains an explicit NS-512 capability, not an open recovery defect in the limited create/update command path.
 
 ## Current Open Defects
-
-### M5-WV-008: Agent execution is still a single-step parser, not a durable multi-step runner
-
-Status: still open, with a partial follow-up workaround.
-Severity: high.
-
-The Agent path parses one provider response, creates at most one assistant message and one tool request message, then stops. Tool execution appends a result message, but does not feed that result back into a durable Agent continuation loop. The pending-draft repair carries drafts forward, but part of that behavior is implemented by hard-coded English regex heuristics in the server, not by a general runner.
-
-Evidence:
-
-- `saveWorkshopAssistantTurn(...)` calls `parseWorkshopAgentStep(...)` once.
-- `executeCodexToolFromMessage(...)` appends a result message but does not continue the Agent run.
-- `revisedPendingCodexDraft(...)`, `requestedAliases(...)`, `requestedAddedDetail(...)`, and `removeInventedCosmicMaterial(...)` are narrow hard-coded fallback helpers.
-
-Required repair:
-
-- Add durable Agent step records with explicit states: model step, tool request, waiting for confirmation, tool result, continuation, failed repair.
-- Remove hard-coded content-rewrite heuristics from the long-term path.
-
-### M5-WV-009: Tool protocol still depends on prompt compliance
-
-Status: still open.
-Severity: high.
-
-The Agent tool protocol is appended to natural-language prompt instructions and validated after generation. Provider structured-output support exists elsewhere, but Workshop Agent does not yet use structured-output/tool-schema generation with retry/repair.
-
-Evidence:
-
-- `WORKSHOP_AGENT_TOOL_PROTOCOL_PROMPT` is plain prompt text.
-- `parseWorkshopAgentStep(...)` falls back to prose when parsing fails.
-- `ProviderAdapter.generateStructured` exists in AI providers, but the Workshop Agent call path uses text generation plus post-parse.
-
-Required repair:
-
-- Use provider structured-output support where available.
-- Add server-side repair/retry for malformed structured output.
-- Preserve a visible degraded mode when a selected provider cannot support structured output.
-
-### M5-WV-022: running and failed executions have no recovery protocol
-
-Status: open.
-Severity: high.
-
-M5.6A intentionally makes `running`, `succeeded`, and `failed` terminally visible, but no startup reconciliation or author recovery action exists. A process crash after claim leaves `running` indefinitely and blocks archive/delete. A post-claim failure is permanently non-replayable even when no authority write occurred. `markWorkshopToolExecutionFailed(...)` also suppresses a secondary persistence failure, which can leave the source message running.
-
-Evidence:
-
-- `workshopToolConflict(...)` rejects both `running` and `failed` execution records.
-- No startup or session-load path reconciles `running` records with result messages or authority state.
-- `markWorkshopToolExecutionFailed(...)` catches and discards failure while persisting the failed marker.
-- The UI exposes only a status pill; it has no inspect/recover/convert-to-Proposal action.
-
-Required repair:
-
-- Define restart reconciliation states such as interrupted, succeeded-with-result, partial-failure, and safe-to-retry.
-- Store step-level effects or an atomic adapter result so recovery does not guess from prose.
-- Add an explicit author action for safe retry, abandon, or Proposal conversion; never silently replay.
 
 ### M5-WV-023: Workshop Agent prompt versions are not immutable audit records
 

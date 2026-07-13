@@ -971,6 +971,7 @@ function mockFetch(options: {
   initialModelProfiles?: ReturnType<typeof modelProfile>[];
   initialProposals?: ReturnType<typeof proposalDocument>[];
   initialWorkshopAttachments?: Array<Record<string, unknown>>;
+  initialWorkshopAgentRuns?: Array<Record<string, unknown>>;
   initialWorkshopMessages?: Array<Record<string, unknown>>;
   initialWorkshopSessions?: ReturnType<typeof workshopSession>[];
   initialSeriesDetail?: ReturnType<typeof seriesDetail>;
@@ -990,6 +991,7 @@ function mockFetch(options: {
   let proposals = options.initialProposals ?? [proposalDocument()];
   let workshopSessions = options.initialWorkshopSessions ?? [];
   let workshopAttachments: Array<Record<string, unknown>> = options.initialWorkshopAttachments ?? [];
+  let workshopAgentRuns: Array<Record<string, unknown>> = options.initialWorkshopAgentRuns ?? [];
   let workshopMessages: Array<Record<string, unknown>> = options.initialWorkshopMessages ?? [];
   let currentWorkshopBasket = workshopBasket();
   const workshopCallDelayMs = options.workshopCallDelayMs ?? 0;
@@ -1321,7 +1323,75 @@ function mockFetch(options: {
           basket: currentWorkshopBasket,
           messages: workshopMessages.filter((message) => message.sessionId === requestedSessionId),
           attachments: workshopAttachments.filter((attachment) => attachment.sessionId === requestedSessionId),
+          agentRuns: { runs: workshopAgentRuns, diagnostics: [] },
         });
+      }
+      if (segment === "agent-runs" && action && subaction === "retry" && method === "POST") {
+        const body = JSON.parse(String(init?.body));
+        const current = workshopAgentRuns.find((document) =>
+          (document.run as Record<string, unknown>).id === action
+        );
+        if (!current || current.revision !== body.baseRevision) {
+          return jsonResponse({ code: "CONFLICT", message: "The Agent run changed before retry." }, 409);
+        }
+        const assistantMessage = {
+          schemaVersion: 1,
+          id: "abababab-abab-4bab-8bab-abababababab",
+          seriesId,
+          sessionId: requestedSessionId,
+          role: "assistant",
+          mode: "agent",
+          status: "succeeded",
+          content: "Recovered Agent response.",
+          reasoningContent: "",
+          contextBundleId: workshopContextBundleId,
+          modelCallId: workshopModelCallId,
+          agentRunId: action,
+          agentStepId: "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd",
+          proposalIds: [],
+          attachmentIds: [],
+          errorCode: null,
+          errorMessage: null,
+          createdAt: "2026-07-01T00:13:00.000Z",
+        };
+        const currentRun = current.run as Record<string, unknown>;
+        const updated = {
+          ...current,
+          revision: "c".repeat(64),
+          run: {
+            ...currentRun,
+            status: "completed",
+            retryable: false,
+            completedAt: "2026-07-01T00:13:00.000Z",
+          },
+        };
+        workshopAgentRuns = workshopAgentRuns.map((document) =>
+          (document.run as Record<string, unknown>).id === action ? updated : document
+        );
+        workshopMessages = [...workshopMessages, assistantMessage];
+        return jsonResponse({
+          agentRun: updated,
+          assistantMessage,
+          toolMessages: [],
+          modelCallId: workshopModelCallId,
+          responseText: assistantMessage.content,
+        });
+      }
+      if (segment === "agent-runs" && action && subaction === "abandon" && method === "POST") {
+        const current = workshopAgentRuns.find((document) =>
+          (document.run as Record<string, unknown>).id === action
+        );
+        if (!current) return jsonResponse({ code: "NOT_FOUND", message: "Agent run not found" }, 404);
+        const currentRun = current.run as Record<string, unknown>;
+        const updated = {
+          ...current,
+          revision: "d".repeat(64),
+          run: { ...currentRun, status: "abandoned", retryable: false },
+        };
+        workshopAgentRuns = workshopAgentRuns.map((document) =>
+          (document.run as Record<string, unknown>).id === action ? updated : document
+        );
+        return jsonResponse(updated);
       }
       if (!segment && method === "PUT") {
         const body = JSON.parse(String(init?.body));
@@ -4777,6 +4847,74 @@ describe("App shell", () => {
     expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Resend" })).toBeNull();
+  });
+
+  it("renders durable Agent run state and recovers an interrupted run explicitly", async () => {
+    const runId = "edededed-eded-4ded-8ded-edededededed";
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, kind: "agent", title: "Agent recovery" })],
+      initialWorkshopAgentRuns: [{
+        revision,
+        run: {
+          schemaVersion: 1,
+          id: runId,
+          seriesId,
+          sessionId: workshopSessionId,
+          authorMessageId: "f1f1f1f1-f1f1-41f1-81f1-f1f1f1f1f1f1",
+          status: "interrupted",
+          modelProfileId,
+          modelOverride: "mock-continuity-v1",
+          parameters: {},
+          contextBundleId: workshopContextBundleId,
+          promptTemplateId: workshopAgentPromptTemplateId,
+          promptTemplateVersion: 1,
+          promptSnapshot: { system: "Agent", instructions: "Respond.", user: "Continue.", hash: revision },
+          activeStepId: null,
+          steps: [{
+            schemaVersion: 1,
+            id: "f2f2f2f2-f2f2-42f2-82f2-f2f2f2f2f2f2",
+            index: 0,
+            kind: "model",
+            status: "interrupted",
+            attempt: 1,
+            modelCallId: workshopModelCallId,
+            promptSnapshot: { system: "Agent", instructions: "Respond.", user: "Continue.", hash: revision },
+            messageId: null,
+            inputMessageIds: [],
+            degradedStructuredOutput: true,
+            retryable: true,
+            errorCode: "AGENT_RUN_INTERRUPTED",
+            errorMessage: "The server stopped before this Agent step completed.",
+            startedAt: "2026-07-01T00:12:00.000Z",
+            completedAt: "2026-07-01T00:12:10.000Z",
+          }],
+          degradedStructuredOutput: true,
+          retryable: true,
+          createdAt: "2026-07-01T00:12:00.000Z",
+          updatedAt: "2026-07-01T00:12:10.000Z",
+          completedAt: "2026-07-01T00:12:10.000Z",
+        },
+      }],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Workshop" }));
+    expect(await screen.findByText("Agent interrupted")).toBeTruthy();
+    expect(screen.getByText("JSON compatibility mode")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Abandon" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/agent-runs/${runId}/retry`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(await screen.findByText("Agent complete")).toBeTruthy();
+    expect(await screen.findByText("Recovered Agent response.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
   it("maps suggested Codex details or explicitly creates reusable detail types before tool execution", async () => {

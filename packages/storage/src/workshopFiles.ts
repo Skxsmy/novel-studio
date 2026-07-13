@@ -1,11 +1,15 @@
 import { mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 import {
+  WorkshopAgentRunSchema,
   WorkshopBranchSchema,
   WorkshopContextBasketSchema,
   WorkshopMessageAttachmentSchema,
   WorkshopMessageSchema,
   WorkshopSessionSchema,
+  type WorkshopAgentRun,
+  type WorkshopAgentRunDiagnostic,
+  type WorkshopAgentRunDocument,
   type WorkshopBranch,
   type WorkshopContextBasket,
   type WorkshopMessageAttachment,
@@ -22,6 +26,7 @@ const BRANCHES_DIR = "branches";
 const MESSAGES_DIR = "messages";
 const ATTACHMENTS_DIR = "attachments";
 const CONTEXT_BASKETS_DIR = "context-baskets";
+const AGENT_RUNS_DIR = "agent-runs";
 
 function workshopRoot(seriesRoot: string): string {
   return assertInside(seriesRoot, path.join(seriesRoot, WORKSHOP_DIR));
@@ -47,6 +52,10 @@ function contextBasketsRoot(seriesRoot: string): string {
   return assertInside(seriesRoot, path.join(workshopRoot(seriesRoot), CONTEXT_BASKETS_DIR));
 }
 
+function agentRunsRoot(seriesRoot: string): string {
+  return assertInside(seriesRoot, path.join(workshopRoot(seriesRoot), AGENT_RUNS_DIR));
+}
+
 export function workshopSessionPath(seriesRoot: string, sessionId: string): string {
   return assertInside(seriesRoot, path.join(sessionsRoot(seriesRoot), `${sessionId}.json`));
 }
@@ -65,6 +74,10 @@ export function workshopAttachmentPath(seriesRoot: string, attachmentId: string)
 
 export function workshopContextBasketPath(seriesRoot: string, sessionId: string): string {
   return assertInside(seriesRoot, path.join(contextBasketsRoot(seriesRoot), `${sessionId}.json`));
+}
+
+export function workshopAgentRunPath(seriesRoot: string, runId: string): string {
+  return assertInside(seriesRoot, path.join(agentRunsRoot(seriesRoot), `${runId}.json`));
 }
 
 async function listJsonFiles(directory: string): Promise<string[]> {
@@ -118,6 +131,78 @@ async function readAttachmentFile(filePath: string): Promise<WorkshopMessageAtta
     "Workshop message attachment file",
   );
   return document.data;
+}
+
+async function readAgentRunFile(filePath: string): Promise<WorkshopAgentRunDocument> {
+  const document = await readJsonAuthorityFile(
+    path.dirname(filePath),
+    filePath,
+    (value) => WorkshopAgentRunSchema.parse(value),
+    "Workshop Agent run file",
+  );
+  return { run: document.data, revision: document.revision };
+}
+
+export async function listWorkshopAgentRunFiles(
+  seriesRoot: string,
+  sessionId?: string,
+): Promise<{ runs: WorkshopAgentRunDocument[]; diagnostics: WorkshopAgentRunDiagnostic[] }> {
+  const runs: WorkshopAgentRunDocument[] = [];
+  const diagnostics: WorkshopAgentRunDiagnostic[] = [];
+  for (const filePath of await listJsonFiles(agentRunsRoot(seriesRoot))) {
+    try {
+      const document = await readAgentRunFile(filePath);
+      if (!sessionId || document.run.sessionId === sessionId) runs.push(document);
+    } catch (error) {
+      diagnostics.push({
+        fileName: path.basename(filePath),
+        code: error instanceof StorageError ? error.code : "UNKNOWN",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  runs.sort((left, right) => left.run.createdAt.localeCompare(right.run.createdAt));
+  return { runs, diagnostics };
+}
+
+export async function readWorkshopAgentRunFile(
+  seriesRoot: string,
+  runId: string,
+): Promise<WorkshopAgentRunDocument> {
+  try {
+    return await readAgentRunFile(workshopAgentRunPath(seriesRoot, runId));
+  } catch (error) {
+    if (error instanceof StorageError && error.code === "NOT_FOUND") {
+      throw new StorageError("Workshop Agent run does not exist", "NOT_FOUND", { runId });
+    }
+    throw error;
+  }
+}
+
+export async function createWorkshopAgentRunFile(
+  seriesRoot: string,
+  run: WorkshopAgentRun,
+): Promise<WorkshopAgentRunDocument> {
+  const parsed = WorkshopAgentRunSchema.parse(run);
+  const filePath = workshopAgentRunPath(seriesRoot, parsed.id);
+  if (await pathExists(filePath)) {
+    throw new StorageError("Workshop Agent run already exists", "INVALID_DATA", { runId: parsed.id });
+  }
+  await mkdir(agentRunsRoot(seriesRoot), { recursive: true });
+  return writeWorkshopAgentRunFile(seriesRoot, parsed);
+}
+
+export async function writeWorkshopAgentRunFile(
+  seriesRoot: string,
+  run: WorkshopAgentRun,
+): Promise<WorkshopAgentRunDocument> {
+  const document = await writeJsonAuthorityFile(
+    seriesRoot,
+    workshopAgentRunPath(seriesRoot, run.id),
+    run,
+    (value) => WorkshopAgentRunSchema.parse(value),
+  );
+  return { run: document.data, revision: document.revision };
 }
 
 export async function listWorkshopSessionFiles(seriesRoot: string): Promise<WorkshopSession[]> {

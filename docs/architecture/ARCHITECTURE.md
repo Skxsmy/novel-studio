@@ -106,7 +106,7 @@ Normal authority writes carry stable IDs and `baseRevision`. The server re-reads
 
 AI and imports do not receive generic file-write authority. Semantic changes enter a Proposal or a limited author-confirmed command path. Proposal acceptance validates target revisions, creates required snapshots, applies through domain/repository commands, and records the decision.
 
-The current Workshop Agent path supports limited author-confirmed Codex create/update requests with execution containment. Full Tool Plan/Grant records, atomic composed adapters, stale draft baselines, broader tool scopes, and durable multi-step continuation remain target work and must not be inferred from the limited path.
+The current Workshop Agent path persists revision-protected run/step records, uses Provider structured output when declared, bounds malformed-output repair to one attempt, continues after successful or atomically failed author-confirmed Codex create/update commands, and exposes explicit retry or abandon for eligible interruptions. Full Tool Plan/Grant records, broader tool scopes, and Proposal conversion remain target work and must not be inferred from this limited path.
 
 ## Lifecycle And Deletion
 

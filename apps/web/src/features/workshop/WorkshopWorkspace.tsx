@@ -11,6 +11,7 @@ import type {
   WorkshopContextBasket,
   WorkshopContextItemRef,
   WorkshopConversationKind,
+  WorkshopAgentRunDocument,
   WorkshopCallStreamEvent,
   WorkshopCodexCreateEntryToolError,
   WorkshopMessageAttachment,
@@ -330,6 +331,7 @@ export function WorkshopWorkspace({
   const [sessions, setSessions] = useState<WorkshopSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<WorkshopMessage[]>([]);
+  const [agentRuns, setAgentRuns] = useState<WorkshopAgentRunDocument[]>([]);
   const [attachments, setAttachments] = useState<WorkshopMessageAttachment[]>([]);
   const [draftAttachments, setDraftAttachments] = useState<ComposerAttachment[]>([]);
   const [draftToken, setDraftToken] = useState(() => randomId());
@@ -359,6 +361,7 @@ export function WorkshopWorkspace({
   const [isFetchingProviderModels, setIsFetchingProviderModels] = useState(false);
   const [creatingProposalMessageId, setCreatingProposalMessageId] = useState<string | null>(null);
   const [applyingCodexDraftMessageId, setApplyingCodexDraftMessageId] = useState<string | null>(null);
+  const [recoveringAgentRunId, setRecoveringAgentRunId] = useState<string | null>(null);
   const [codexDraftResolution, setCodexDraftResolution] = useState<CodexDraftResolutionState | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
@@ -425,6 +428,7 @@ export function WorkshopWorkspace({
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeSessionId, sessions],
   );
+  const latestAgentRun = agentRuns.at(-1) ?? null;
   function sessionPillClass(session: WorkshopSession) {
     if (session.status === "archived") return "pill muted";
     return session.kind === "agent" ? "pill amber" : "pill blue";
@@ -769,7 +773,12 @@ export function WorkshopWorkspace({
 
   function applyCallResult(
     sessionId: string,
-    result: { authorMessage: WorkshopMessage; assistantMessage: WorkshopMessage; toolMessages?: WorkshopMessage[] },
+    result: {
+      authorMessage: WorkshopMessage;
+      assistantMessage: WorkshopMessage;
+      toolMessages?: WorkshopMessage[];
+      agentRun?: WorkshopAgentRunDocument | null;
+    },
     localAuthorId = result.authorMessage.id,
     localAssistantId = result.assistantMessage.id,
   ) {
@@ -785,6 +794,12 @@ export function WorkshopWorkspace({
     clearLiveSessionMessages(sessionId);
     bindAttachmentsToMessage(result.authorMessage);
     updateSessionFromMessage(result.assistantMessage);
+    if (result.agentRun && activeSessionIdRef.current === sessionId) {
+      setAgentRuns((current) => [
+        ...current.filter((document) => document.run.id !== result.agentRun!.run.id),
+        result.agentRun!,
+      ].sort((left, right) => left.run.createdAt.localeCompare(right.run.createdAt)));
+    }
   }
 
   function bindAttachmentsToMessage(message: WorkshopMessage) {
@@ -869,6 +884,7 @@ export function WorkshopWorkspace({
       if (activeSessionIdRef.current !== sessionId) return;
       setBasket(detail.basket);
       setMessages(mergeMessagesById(detail.messages, liveSessionMessagesRef.current[sessionId] ?? []));
+      setAgentRuns(detail.agentRuns?.runs ?? []);
       setAttachments(detail.attachments ?? []);
       setDraftAttachments([]);
       setDraftToken(randomId());
@@ -909,6 +925,7 @@ export function WorkshopWorkspace({
     if (!activeSessionId) {
       setBasket(null);
       setMessages([]);
+      setAgentRuns([]);
       setIsDetailLoading(false);
       setIsContextMenuOpen(false);
       setCodexDraftResolution(null);
@@ -1577,12 +1594,21 @@ export function WorkshopWorkspace({
       ]);
       setMessages((current) => {
         const withUpdatedSource = current.map((item) => item.id === result.message.id ? result.message : item);
-        if (withUpdatedSource.some((item) => item.id === result.resultMessage.id)) return withUpdatedSource;
-        return [...withUpdatedSource, result.resultMessage].sort((left, right) =>
+        const additions = [result.resultMessage, ...(result.continuationMessages ?? [])];
+        return additions.reduce(
+          (next, addition) => replaceMessageByIdentity(next, addition.id, addition),
+          withUpdatedSource,
+        ).sort((left, right) =>
           left.createdAt.localeCompare(right.createdAt),
         );
       });
-      updateSessionFromMessage(result.resultMessage);
+      if (result.agentRun) {
+        setAgentRuns((current) => [
+          ...current.filter((document) => document.run.id !== result.agentRun!.run.id),
+          result.agentRun!,
+        ].sort((left, right) => left.run.createdAt.localeCompare(right.run.createdAt)));
+      }
+      updateSessionFromMessage(result.continuationMessages?.at(-1) ?? result.resultMessage);
       setCodexDraftResolution(null);
       setStatusMessage(
         toolName === "codex.create_entry"
@@ -1642,6 +1668,51 @@ export function WorkshopWorkspace({
       }
     }
     await executeCodexToolFromMessage(message, { detailCreations, detailMappings }, false);
+  }
+
+  async function retryAgentRun(document: WorkshopAgentRunDocument) {
+    if (!activeSession || recoveringAgentRunId) return;
+    setRecoveringAgentRunId(document.run.id);
+    setError(null);
+    try {
+      const result = await api.workshop.retryAgentRun(seriesId, activeSession.id, document.run.id, {
+        baseRevision: document.revision,
+      });
+      setAgentRuns((current) => [
+        ...current.filter((item) => item.run.id !== result.agentRun.run.id),
+        result.agentRun,
+      ].sort((left, right) => left.run.createdAt.localeCompare(right.run.createdAt)));
+      setMessages((current) => [result.assistantMessage, ...result.toolMessages].reduce(
+        (next, message) => replaceMessageByIdentity(next, message.id, message),
+        current,
+      ).sort((left, right) => left.createdAt.localeCompare(right.createdAt)));
+      updateSessionFromMessage(result.toolMessages.at(-1) ?? result.assistantMessage);
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setRecoveringAgentRunId(null);
+    }
+  }
+
+  async function abandonAgentRun(document: WorkshopAgentRunDocument) {
+    if (!activeSession || recoveringAgentRunId) return;
+    if (!(globalThis.confirm?.(text.agentRun.abandonConfirm) ?? false)) return;
+    setRecoveringAgentRunId(document.run.id);
+    setError(null);
+    try {
+      const abandoned = await api.workshop.abandonAgentRun(seriesId, activeSession.id, document.run.id, {
+        baseRevision: document.revision,
+        reason: text.agentRun.abandonedByAuthor,
+      });
+      setAgentRuns((current) => [
+        ...current.filter((item) => item.run.id !== abandoned.run.id),
+        abandoned,
+      ].sort((left, right) => left.run.createdAt.localeCompare(right.run.createdAt)));
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setRecoveringAgentRunId(null);
+    }
   }
 
   function updateCodexResolutionChoice(label: string, value: string) {
@@ -2715,6 +2786,36 @@ export function WorkshopWorkspace({
                 {selectedModelProfile ? (
                   <span className="pill muted">{selectedModelProfile.title}</span>
                 ) : null}
+                {latestAgentRun ? (
+                  <>
+                    <span className={`pill ${latestAgentRun.run.status === "completed" ? "green" : latestAgentRun.run.status === "waiting-confirmation" ? "amber" : "muted"}`}>
+                      {text.agentRun.status[latestAgentRun.run.status]}
+                    </span>
+                    {latestAgentRun.run.degradedStructuredOutput ? (
+                      <span className="pill amber">{text.agentRun.degraded}</span>
+                    ) : null}
+                    {latestAgentRun.run.retryable ? (
+                      <button
+                        className="btn compact"
+                        disabled={recoveringAgentRunId !== null}
+                        onClick={() => void retryAgentRun(latestAgentRun)}
+                        type="button"
+                      >
+                        {recoveringAgentRunId === latestAgentRun.run.id ? text.agentRun.retrying : text.agentRun.retry}
+                      </button>
+                    ) : null}
+                    {latestAgentRun.run.status === "interrupted" || latestAgentRun.run.status === "failed" ? (
+                      <button
+                        className="btn compact"
+                        disabled={recoveringAgentRunId !== null}
+                        onClick={() => void abandonAgentRun(latestAgentRun)}
+                        type="button"
+                      >
+                        {text.agentRun.abandon}
+                      </button>
+                    ) : null}
+                  </>
+                ) : null}
               </div>
             </div>
             <div className="workshop-head-controls">
@@ -3012,13 +3113,15 @@ export function WorkshopWorkspace({
                           : text.codexDraft.toolNameUpdateEntry}
                       </span>
                     </div>
-                    {message.toolExecution ? (
-                      <span className={`pill ${message.toolExecution.status === "succeeded" ? "green" : "muted"}`}>
+                    {message.toolExecution && !(message.toolExecution.status === "interrupted" && message.toolExecution.retryable) ? (
+                      <span className={`pill ${message.toolExecution.status === "succeeded" ? "green" : message.toolExecution.status === "interrupted" ? "amber" : "muted"}`}>
                         {message.toolExecution.status === "succeeded"
                           ? text.codexDraft.executionSucceeded
                           : message.toolExecution.status === "running"
                             ? text.codexDraft.executionRunning
-                            : text.codexDraft.executionFailed}
+                            : message.toolExecution.status === "interrupted"
+                              ? text.codexDraft.executionInterrupted
+                              : text.codexDraft.executionFailed}
                       </span>
                     ) : (
                       <button
@@ -3029,7 +3132,9 @@ export function WorkshopWorkspace({
                       >
                         {applyingCodexDraftMessageId === message.id
                           ? text.codexDraft.applying
-                          : text.codexDraft.apply}
+                          : message.toolExecution?.status === "interrupted"
+                            ? text.codexDraft.retry
+                            : text.codexDraft.apply}
                       </button>
                     )}
                   </div>
