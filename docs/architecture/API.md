@@ -183,6 +183,14 @@ Both limited execute routes claim the source tool message before the first autho
 - `DELETE /ai/embedding-profiles/:profileId/credential`
 - `POST /ai/embedding-profiles/:profileId/test`
 
+NS-508 已提供独立的 library-global use-case binding 路由，供 Codex schema planner 和后续 Settings UI 复用：
+
+- `GET /ai/embedding-bindings`
+- `PUT /ai/embedding-bindings/:useCase`
+- `DELETE /ai/embedding-bindings/:useCase`
+
+绑定写入必须验证 profile 存在且未归档。删除绑定只会让对应功能进入未配置状态，不删除 profile、向量缓存或任何作品权威数据。
+
 Embedding router 调用不直接写权威数据。索引调用者负责在向量记录中保存来源 revision/hash、profile、模型、维度和归一化策略，并在这些字段变化时重建。Codex 或 Agent 调用者只可把 embedding 结果用于匹配/建议，不可把语义相似度当作事实证据或 Canon 写入许可。
 
 ### 提示词、角色与版本

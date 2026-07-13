@@ -16,7 +16,8 @@ No support task is active.
 | NS-503-NS-505 / M5.3-M5.5 | paused | Command/function evidence exists; explicit user visual-acceptance gates remain | `docs/tasks/M5.md`; `docs/testing/M5_ACCEPTANCE.md` |
 | NS-506 / M5.6A | complete | Limited Agent tool execution-containment scope only | `docs/tasks/M5.md`; `docs/testing/M5_ACCEPTANCE.md` |
 | NS-507 | complete | M5.6B atomic Codex adapters, stale baselines, and Progression target/scene binding | `docs/tasks/NS-507.md`; `docs/testing/NS-507_ACCEPTANCE.md` |
-| NS-508-NS-512 / M5.6C-M5.6G | todo | Detail schema planning, durable Agent runner, capability cleanup, Prompt customization, Tool Plan/Grant layer | `docs/tasks/M5.md` |
+| NS-508 / M5.6C | complete | Detail schema planner, persisted embedding binding, and author mapping/create confirmation | `docs/tasks/NS-508.md`; `docs/testing/NS-508_ACCEPTANCE.md` |
+| NS-509-NS-512 / M5.6D-M5.6G | todo | Durable Agent runner, capability cleanup, Prompt customization, and Tool Plan/Grant layer | `docs/tasks/M5.md` |
 | NS-513 / M5.7 | todo | Council, conflict/failure states, responsive/copy review, and user visual acceptance | `docs/tasks/M5.md` |
 
 ## Incomplete Existing Lines
@@ -24,7 +25,7 @@ No support task is active.
 | Task | Status | Summary | Records |
 | --- | --- | --- | --- |
 | NS-408 | paused | Provider expansion paths exist; broader real external non-writing validation remains | `docs/tasks/NS-408.md`; `docs/testing/NS-408_ACCEPTANCE.md` |
-| M5 | in_progress | Proposal/Review/Workshop milestone through M5.6A command/function evidence | `docs/tasks/M5.md`; `docs/testing/M5_ACCEPTANCE.md` |
+| M5 | in_progress | Proposal/Review/Workshop milestone through M5.6C command/function evidence | `docs/tasks/M5.md`; `docs/testing/M5_ACCEPTANCE.md` |
 
 ## Completed Work
 

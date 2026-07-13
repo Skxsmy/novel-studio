@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CredentialStore } from "@novel-studio/ai";
+import { EmbeddingModelProfileSchema } from "@novel-studio/contracts";
+import { ProjectRepository } from "@novel-studio/storage";
 import { buildApp } from "../src/app.js";
 
 const roots: string[] = [];
@@ -32,6 +35,74 @@ function memoryCredentialStore(values = new Map<string, string>()): CredentialSt
 }
 
 describe("M4 model settings API", () => {
+  it("persists library-global embedding use-case bindings through the API", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-embedding-binding-api-"));
+    roots.push(root);
+    const store = new ProjectRepository(root);
+    await store.initialize();
+    const now = new Date().toISOString();
+    const embeddingProfile = EmbeddingModelProfileSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      title: "Codex detail planner",
+      provider: "mock",
+      baseUrl: null,
+      endpointPath: "/embed",
+      model: "mock-codex-detail",
+      credentialRef: null,
+      dimensions: 4,
+      maxInputTokens: 512,
+      maxBatchSize: 16,
+      maxConcurrentBatches: 2,
+      normalize: true,
+      supportsCustomDimensions: false,
+      license: "MIT",
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    });
+    await store.saveEmbeddingModelProfile(embeddingProfile);
+    const app = await buildApp({ libraryRoot: root });
+    const saved = await app.inject({
+      method: "PUT",
+      url: "/api/v1/ai/embedding-bindings/codex.detail-schema",
+      payload: { profileId: embeddingProfile.id },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({
+      schemaVersion: 1,
+      useCase: "codex.detail-schema",
+      profileId: embeddingProfile.id,
+    });
+    expect((await app.inject({
+      method: "GET",
+      url: "/api/v1/ai/embedding-bindings",
+    })).json()).toHaveLength(1);
+    await app.close();
+
+    const restarted = await buildApp({ libraryRoot: root });
+    expect((await restarted.inject({
+      method: "GET",
+      url: "/api/v1/ai/embedding-bindings",
+    })).json()).toMatchObject([{ profileId: embeddingProfile.id }]);
+    const missing = await restarted.inject({
+      method: "PUT",
+      url: "/api/v1/ai/embedding-bindings/reference.semantic-search",
+      payload: { profileId: randomUUID() },
+    });
+    expect(missing.statusCode).toBe(404);
+    const deleted = await restarted.inject({
+      method: "DELETE",
+      url: "/api/v1/ai/embedding-bindings/codex.detail-schema",
+    });
+    expect(deleted.json()).toEqual({ useCase: "codex.detail-schema", deleted: true });
+    expect((await restarted.inject({
+      method: "GET",
+      url: "/api/v1/ai/embedding-bindings",
+    })).json()).toEqual([]);
+    await restarted.close();
+  });
+
   it("stores model profiles without secrets and tests MockProvider connections", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-ai-api-"));
     roots.push(root);

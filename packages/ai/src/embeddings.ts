@@ -160,6 +160,10 @@ export class EmbeddingRouter {
     this.useCaseBindings.set(useCase, profileId);
   }
 
+  unbindUseCase(useCase: EmbeddingUseCaseId): void {
+    this.useCaseBindings.delete(useCase);
+  }
+
   resolveProfile(profileId?: string, useCase?: EmbeddingUseCaseId): EmbeddingModelProfile {
     return this.resolveRegistration(profileId, useCase).profile;
   }

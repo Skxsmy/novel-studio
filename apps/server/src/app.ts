@@ -5,6 +5,7 @@ import fastifyStatic from "@fastify/static";
 import {
   createDefaultProviderRegistry,
   createSystemCredentialStore,
+  EmbeddingRouter,
   type CredentialStore,
   type ProviderRegistry,
 } from "@novel-studio/ai";
@@ -53,6 +54,7 @@ export interface BuildAppOptions {
   workspaceRoot?: string | null;
   credentialStore?: CredentialStore;
   providerRegistry?: ProviderRegistry;
+  embeddingRouter?: EmbeddingRouter;
   providerFetch?: typeof fetch;
 }
 
@@ -88,6 +90,23 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   };
   if (options.providerFetch) registryOptions.fetchImpl = options.providerFetch;
   const providerRegistry = options.providerRegistry ?? createDefaultProviderRegistry(registryOptions);
+  const embeddingOptions: ConstructorParameters<typeof EmbeddingRouter>[0] = { credentialStore };
+  if (options.providerFetch) embeddingOptions.fetchImpl = options.providerFetch;
+  const embeddingRouter = options.embeddingRouter ?? new EmbeddingRouter(embeddingOptions);
+  if (!options.embeddingRouter) {
+    const embeddingProfiles = await repository.listEmbeddingModelProfiles();
+    for (const profile of embeddingProfiles.filter((item) => item.archivedAt === null)) {
+      embeddingRouter.registerProfile(profile);
+    }
+    const embeddingBindings = await repository.listEmbeddingUseCaseBindings();
+    for (const binding of embeddingBindings) {
+      try {
+        embeddingRouter.bindUseCase(binding.useCase, binding.profileId);
+      } catch {
+        // A stale binding remains visible through storage/API and degrades at its caller.
+      }
+    }
+  }
   const version = firstNonEmpty(options.version, process.env.NOVEL_STUDIO_VERSION) ?? "0.1.0";
   const commit = firstNonEmpty(options.commit, process.env.NOVEL_STUDIO_COMMIT);
   const startedAt =
@@ -375,12 +394,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   );
 
   registerCodexRoutes(app, repository);
-  registerAiRoutes(app, repository, { providerRegistry, credentialStore });
+  registerAiRoutes(app, repository, { providerRegistry, credentialStore, embeddingRouter });
   registerPromptRoutes(app, repository);
   registerModelCallRoutes(app, repository, { providerRegistry });
   registerContextRoutes(app, repository, { providerRegistry });
   registerProposalRoutes(app, repository);
-  registerWorkshopRoutes(app, repository, { providerRegistry });
+  registerWorkshopRoutes(app, repository, { providerRegistry, embeddingRouter });
 
   app.post<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/timeline/events",

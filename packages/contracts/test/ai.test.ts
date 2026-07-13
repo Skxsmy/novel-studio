@@ -3,6 +3,7 @@ import {
   CreateEmbeddingModelProfileInputSchema,
   CreateModelProfileInputSchema,
   EmbeddingModelProfileSchema,
+  EmbeddingUseCaseBindingDocumentSchema,
   EmbeddingUseCaseBindingSchema,
   UpdateEmbeddingModelProfileInputSchema,
   UpdateModelProfileInputSchema,
@@ -63,6 +64,12 @@ describe("AI model profile contracts", () => {
       useCase: "Codex Detail Schema",
       profileId: "11111111-1111-4111-8111-111111111111",
     }).success).toBe(false);
+    expect(EmbeddingUseCaseBindingDocumentSchema.safeParse({
+      schemaVersion: 1,
+      useCase: "codex.detail-schema",
+      profileId: "11111111-1111-4111-8111-111111111111",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+    }).success).toBe(true);
   });
 
   it("keeps embedding profile metadata explicit enough for rebuildable vector indexes", () => {

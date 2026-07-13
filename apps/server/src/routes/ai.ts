@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
   CreateModelProfileInputSchema,
+  DeleteEmbeddingUseCaseBindingResultSchema,
+  EmbeddingUseCaseBindingDocumentSchema,
+  EmbeddingUseCaseIdSchema,
   DeleteModelProfileCredentialResultSchema,
   ModelProfileSchema,
   ModelProfileCredentialStatusSchema,
@@ -9,6 +12,7 @@ import {
   ProviderModelDescriptorSchema,
   SaveModelProfileCredentialInputSchema,
   SaveModelProfileCredentialResultSchema,
+  SetEmbeddingUseCaseBindingInputSchema,
   UpdateModelProfileInputSchema,
   type AiProvider,
   type ModelCapability,
@@ -16,6 +20,7 @@ import {
 } from "@novel-studio/contracts";
 import {
   CredentialStoreError,
+  type EmbeddingRouter,
   type CredentialStore,
   type ProviderRegistry,
 } from "@novel-studio/ai";
@@ -29,6 +34,7 @@ import {
 interface AiRouteOptions {
   providerRegistry: ProviderRegistry;
   credentialStore: CredentialStore;
+  embeddingRouter: EmbeddingRouter;
 }
 
 function modelCredentialRef(profileId: string): string {
@@ -64,7 +70,41 @@ export function registerAiRoutes(
   repository: ProjectRepository,
   options: AiRouteOptions,
 ): void {
-  const { credentialStore, providerRegistry } = options;
+  const { credentialStore, embeddingRouter, providerRegistry } = options;
+
+  app.get(
+    "/api/v1/ai/embedding-bindings",
+    async () => repository.listEmbeddingUseCaseBindings(),
+  );
+
+  app.put<{ Params: { useCase: string } }>(
+    "/api/v1/ai/embedding-bindings/:useCase",
+    async (request) => {
+      const useCase = EmbeddingUseCaseIdSchema.parse(request.params.useCase);
+      const input = SetEmbeddingUseCaseBindingInputSchema.parse(request.body);
+      const binding = await repository.saveEmbeddingUseCaseBinding(EmbeddingUseCaseBindingDocumentSchema.parse({
+        schemaVersion: 1,
+        useCase,
+        profileId: input.profileId,
+        updatedAt: new Date().toISOString(),
+      }));
+      embeddingRouter.bindUseCase(binding.useCase, binding.profileId);
+      return binding;
+    },
+  );
+
+  app.delete<{ Params: { useCase: string } }>(
+    "/api/v1/ai/embedding-bindings/:useCase",
+    async (request) => {
+      const useCase = EmbeddingUseCaseIdSchema.parse(request.params.useCase);
+      const deleted = await repository.deleteEmbeddingUseCaseBinding(useCase);
+      embeddingRouter.unbindUseCase(useCase);
+      return DeleteEmbeddingUseCaseBindingResultSchema.parse({
+        useCase,
+        deleted,
+      });
+    },
+  );
 
   app.get(
     "/api/v1/ai/model-profiles",

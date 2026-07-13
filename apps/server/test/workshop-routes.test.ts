@@ -1,7 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { EmbeddingRouter } from "@novel-studio/ai";
+import { EmbeddingModelProfileSchema } from "@novel-studio/contracts";
+import { ProjectRepository } from "@novel-studio/storage";
 import { buildApp } from "../src/app.js";
 import { applyWorkshopAgentPrompt } from "../src/workshop/workshopAgent.js";
 
@@ -91,6 +95,75 @@ async function createSeriesWithOpenAiCompatibleProfile(
   });
   expect(profile.statusCode).toBe(201);
   return { app, root, series, profile: profile.json() };
+}
+
+async function createSeriesWithSemanticDetailPlanner(
+  providerFetch: typeof fetch,
+) {
+  const root = await mkdtemp(path.join(tmpdir(), "novel-studio-workshop-schema-api-"));
+  roots.push(root);
+  const store = new ProjectRepository(root);
+  await store.initialize();
+  const now = new Date().toISOString();
+  const embeddingProfile = EmbeddingModelProfileSchema.parse({
+    schemaVersion: 1,
+    id: randomUUID(),
+    title: "Workshop detail planner",
+    provider: "mock",
+    baseUrl: null,
+    endpointPath: "/embed",
+    model: "mock-workshop-detail-planner",
+    credentialRef: null,
+    dimensions: 2,
+    maxInputTokens: 512,
+    maxBatchSize: 16,
+    maxConcurrentBatches: 2,
+    normalize: false,
+    supportsCustomDimensions: false,
+    license: "MIT",
+    createdAt: now,
+    updatedAt: now,
+    archivedAt: null,
+  });
+  await store.saveEmbeddingModelProfile(embeddingProfile);
+  await store.saveEmbeddingUseCaseBinding({
+    schemaVersion: 1,
+    useCase: "codex.detail-schema",
+    profileId: embeddingProfile.id,
+    updatedAt: now,
+  });
+  const embeddingRouter = new EmbeddingRouter();
+  embeddingRouter.registerProfile(embeddingProfile, {
+    profile: embeddingProfile,
+    async embedBatch(request) {
+      const vectorFor = (text: string) => {
+        if (text === "Looks" || text === "Appearance") return [1, 0];
+        if (text === "History") return [0, 1];
+        return [0.5, 0.5];
+      };
+      return { vectors: request.inputs.map((input) => vectorFor(input.text)) };
+    },
+  });
+  embeddingRouter.bindUseCase("codex.detail-schema", embeddingProfile.id);
+  const app = await buildApp({ libraryRoot: root, providerFetch, embeddingRouter });
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/v1/series",
+    payload: { title: "WorkshopSchemaApi" },
+  });
+  const modelProfile = await app.inject({
+    method: "POST",
+    url: "/api/v1/ai/model-profiles",
+    payload: {
+      title: "Workshop OpenAI-compatible model",
+      provider: "openai-compatible",
+      baseUrl: "https://example.test/v1",
+      model: "provider-model-a",
+      contextWindowTokens: 1_000_000,
+    },
+  });
+  expect(modelProfile.statusCode).toBe(201);
+  return { app, series: created.json(), profile: modelProfile.json() };
 }
 
 function parseSseEvents(payload: string): Array<Record<string, unknown>> {
@@ -2318,6 +2391,7 @@ describe("M5 Workshop API routes", () => {
       payload: {
         confirm: true,
         createMissingDetailTypes: true,
+        detailCreations: [{ label: "Status", name: "Status", nsfw: false }],
       },
     });
     expect(confirmedApply.statusCode).toBe(201);
@@ -2333,7 +2407,7 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
-  it("creates unmatched Agent draft detail types only after author confirmation", async () => {
+  it("atomically creates author-specified detail types with NSFW metadata and binds confirmation identity", async () => {
     const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(agentToolStep({
       tool: "codex.create_entry",
       draft: {
@@ -2373,7 +2447,8 @@ describe("M5 Workshop API routes", () => {
     expect(apply.statusCode).toBe(409);
     expect(apply.json()).toMatchObject({
       code: "CODEX_DETAIL_TYPE_CREATION_REQUIRED",
-      missingDetailTypes: [{ label: "Looks", valuePreview: "Blonde hair." }],
+      missingDetailTypes: [{ label: "Looks", valuePreview: "Blonde hair.", suggestions: [] }],
+      planner: { status: "unconfigured" },
     });
     expect(apply.json().availableDetailTypes.map((item: { detailType: { name: string } }) =>
       item.detailType.name,
@@ -2392,20 +2467,224 @@ describe("M5 Workshop API routes", () => {
       payload: {
         confirm: true,
         createMissingDetailTypes: true,
+        detailCreations: [{ label: "Looks", name: "Visual Appearance", nsfw: true }],
       },
     });
     expect(confirmedApply.statusCode).toBe(201);
     expect(confirmedApply.json().createdDetailTypes).toHaveLength(1);
     expect(confirmedApply.json().createdDetailTypes[0].detailType).toMatchObject({
       categoryId: "character",
-      name: "Looks",
+      name: "Visual Appearance",
+      nsfw: true,
     });
     expect(confirmedApply.json().entry.metadata.details).toEqual({
-      [confirmedApply.json().createdDetailTypes[0].detailType.id]: "Blonde hair.",
+      [confirmedApply.json().createdDetailTypes[0].detailType.id]: "Looks: Blonde hair.",
     });
     expect(confirmedApply.json().entry.metadata.details.Looks).toBeUndefined();
     expect(confirmedApply.json().entry.metadata.details.Appearance).toBeUndefined();
 
+    const changedNsfw = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${draftMessage.id}/tools/codex.create_entry/execute`,
+      payload: {
+        confirm: true,
+        createMissingDetailTypes: true,
+        detailCreations: [{ label: "Looks", name: "Visual Appearance", nsfw: false }],
+      },
+    });
+    expect(changedNsfw.statusCode).toBe(409);
+    expect(changedNsfw.json().code).toBe("WORKSHOP_TOOL_EXECUTION_CONFLICT");
+
+    await app.close();
+  });
+
+  it("returns ranked detail schema suggestions before Codex create and update execution", async () => {
+    let agentResponseText = "";
+    const { app, series, profile } = await createSeriesWithSemanticDetailPlanner(
+      openAiStreamFetch(() => agentResponseText),
+    );
+    const appearance = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: { categoryId: "character", name: "Appearance" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: { categoryId: "character", name: "History" },
+    });
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Schema planner" },
+    })).json();
+
+    agentResponseText = agentToolStep({
+      tool: "codex.create_entry",
+      draft: {
+        aliases: [],
+        categoryId: "character",
+        description: "A new character.",
+        details: [{ label: "Looks", value: "Silver hair." }],
+        name: "New Character",
+        research: "Author decision.",
+      },
+    });
+    const createTool = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
+    });
+    const createPlan = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${createTool.id}/tools/codex.create_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(createPlan.statusCode).toBe(409);
+    expect(createPlan.json().planner).toMatchObject({ status: "ready" });
+    expect(createPlan.json().missingDetailTypes[0]).toMatchObject({ label: "Looks" });
+    expect(createPlan.json().missingDetailTypes[0].suggestions[0]).toMatchObject({
+      detailTypeId: appearance.json().detailType.id,
+      name: "Appearance",
+      recommended: true,
+    });
+    const beforeCreateMapping = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+    });
+    expect(beforeCreateMapping.json()).toEqual([]);
+    const mappedCreate = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${createTool.id}/tools/codex.create_entry/execute`,
+      payload: {
+        confirm: true,
+        detailMappings: [{ label: "Looks", detailTypeId: appearance.json().detailType.id }],
+      },
+    });
+    expect(mappedCreate.statusCode).toBe(201);
+    expect(mappedCreate.json().createdDetailTypes).toEqual([]);
+    expect(mappedCreate.json().entry.metadata.details).toEqual({
+      [appearance.json().detailType.id]: "Looks: Silver hair.",
+    });
+
+    const entry = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+      payload: { categoryId: "character", name: "Alice", description: "Baseline." },
+    })).json();
+    agentResponseText = agentToolStep({
+      tool: "codex.update_entry",
+      draft: {
+        target: { entryId: entry.metadata.id },
+        patch: { details: [{ label: "Looks", value: "Blonde hair." }] },
+      },
+    });
+    const updateTool = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
+    });
+    const updatePlan = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${updateTool.id}/tools/codex.update_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(updatePlan.statusCode).toBe(409);
+    expect(updatePlan.json().planner).toMatchObject({ status: "ready" });
+    expect(updatePlan.json().missingDetailTypes[0]).toMatchObject({ label: "Looks" });
+    expect(updatePlan.json().missingDetailTypes[0].suggestions[0]).toMatchObject({
+      detailTypeId: appearance.json().detailType.id,
+      recommended: true,
+    });
+    const mappedUpdate = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${updateTool.id}/tools/codex.update_entry/execute`,
+      payload: {
+        confirm: true,
+        detailMappings: [{ label: "Looks", detailTypeId: appearance.json().detailType.id }],
+      },
+    });
+    expect(mappedUpdate.statusCode).toBe(201);
+    expect(mappedUpdate.json().createdDetailTypes).toEqual([]);
+    expect(mappedUpdate.json().entry.metadata.details).toEqual({
+      [appearance.json().detailType.id]: "Looks: Blonde hair.",
+    });
+    const entries = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+    });
+    expect(entries.json().map((item: { metadata: { name: string } }) => item.metadata.name).sort())
+      .toEqual(["Alice", "New Character"]);
+    await app.close();
+  });
+
+  it("refuses incomplete duplicate and cross-category detail resolution choices without Codex writes", async () => {
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(openAiStreamFetch(agentToolStep({
+      tool: "codex.create_entry",
+      draft: {
+        aliases: [],
+        categoryId: "character",
+        description: "Choice validation.",
+        details: [{ label: "Looks", value: "Blonde hair." }],
+        name: "Choice Validation",
+        research: "Author decision.",
+      },
+    })));
+    const characterType = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: { categoryId: "character", name: "Appearance" },
+    })).json();
+    const locationType = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: { categoryId: "location", name: "Appearance" },
+    })).json();
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Resolution validation" },
+    })).json();
+    const tool = await createAgentToolMessage({
+      app,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      modelProfileId: profile.id,
+    });
+    const url = `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${tool.id}/tools/codex.create_entry/execute`;
+    const incomplete = await app.inject({
+      method: "POST",
+      url,
+      payload: { confirm: true, createMissingDetailTypes: true },
+    });
+    expect(incomplete.statusCode).toBe(400);
+    const duplicate = await app.inject({
+      method: "POST",
+      url,
+      payload: {
+        confirm: true,
+        createMissingDetailTypes: true,
+        detailMappings: [{ label: "Looks", detailTypeId: characterType.detailType.id }],
+        detailCreations: [{ label: "Looks", name: "Visual Appearance", nsfw: false }],
+      },
+    });
+    expect(duplicate.statusCode).toBe(400);
+    const crossCategory = await app.inject({
+      method: "POST",
+      url,
+      payload: {
+        confirm: true,
+        detailMappings: [{ label: "Looks", detailTypeId: locationType.detailType.id }],
+      },
+    });
+    expect(crossCategory.statusCode).toBe(400);
+    const entries = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+    });
+    expect(entries.json()).toEqual([]);
     await app.close();
   });
 

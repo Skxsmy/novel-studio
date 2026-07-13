@@ -1,9 +1,9 @@
 # M5 Workshop Verified Defect Audit
 
 Date: 2026-07-09
-Updated: 2026-07-10
-Verified baseline: `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`, plus NS-507 evidence in `docs/testing/NS-507_ACCEPTANCE.md`
-Status: current-source audit for M5 replanning, fully rechecked after NS-507 Atomic Codex Tool Adapters
+Updated: 2026-07-13
+Verified baseline: `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`, plus NS-507/NS-508 evidence in their acceptance records
+Status: current-source audit for M5 replanning, fully rechecked through NS-508 Detail Schema Planning
 
 This file replaces the older Workshop functional audit and prompt/call-chain audit. Those older records mixed pre-repair and post-repair states, so they were removed to avoid misleading later implementers.
 
@@ -45,44 +45,10 @@ These old findings are no longer open blockers:
 - M5-WV-004 is closed by NS-507: server-owned update requests capture entry and research revisions when the tool request is created. Execution refuses changed revisions, and legacy unbound update requests cannot substitute current revisions.
 - M5-WV-005 is closed by NS-507: Progression update/delete requests capture revision, target entry/relation, field target, and effective Scene binding. Cross-entry and unrelated-relation targets are rejected, and Agent updates cannot move the effective Scene.
 - M5-WV-021 is closed by NS-507: file transactions share a process-wide per-Series coordinator; recovery runs on first repository access or inside the coordinator, not against another live commit. Concurrent stale-checked Codex commands, overlapping file transactions, injected mid-commit rollback, and repository-restart recovery have exact tests in `docs/testing/NS-507_ACCEPTANCE.md`.
+- M5-WV-006 is closed by NS-508: library-global embedding use-case bindings persist and reload; the Workshop planner uses only the explicitly bound `codex.detail-schema` profile, embeds request-local unmatched labels and same-category reusable type names, returns ranked scores/reasons, leaves ambiguous candidates unselected, and degrades to manual mapping without Provider fallback. Current detail-type authority has no description field, so the planner does not invent one.
+- M5-WV-007 is closed by NS-508: every unmatched label requires exactly one author mapping or creation choice. Explicit creation carries the final reusable name and NSFW flag into the confirmation identity and NS-507 atomic command; omitted, duplicate, and cross-category choices are refused before semantic mutation.
 
 ## Current Open Defects
-
-### M5-WV-006: Detail schema planning is still exact-match only
-
-Status: still open.
-Severity: high.
-
-The detail resolver supports explicit mappings, embedded stable detail type IDs, and exact normalized type-name matches. It does not call the shared embedding layer and does not return semantic mapping suggestions with scores/reasons.
-
-Evidence:
-
-- `resolveDraftDetails(...)` in `apps/server/src/workshop/codexDraft.ts`.
-- `EmbeddingRouter` exists in `packages/ai/src/embeddings.ts`, but Workshop detail resolution does not use it.
-- `EmbeddingRouter.bindUseCase(...)` stores routing only in memory. `EmbeddingUseCaseBindingSchema` exists, but there is no persisted binding repository/API, so `codex.detail-schema` cannot retain a user-selected model across restarts.
-
-Required repair:
-
-- Add a schema planner that recommends existing reusable detail types before creating new ones.
-- Use profile-routed embeddings where configured, with fallback behavior that does not silently create duplicates.
-- Persist library-global use-case-to-profile bindings before the planner depends on them.
-
-### M5-WV-007: `detailCreations` is ignored and missing-detail creation hardcodes sensitive metadata
-
-Status: still open.
-Severity: high.
-
-`ExecuteWorkshopCodexCreateEntryToolInputSchema` declares `detailCreations`, but the execute routes never read it. Missing detail types are created directly from the draft label with `nsfw: false`.
-
-Evidence:
-
-- `packages/contracts/src/workshop.ts` declares `detailCreations`.
-- `apps/server/src/routes/workshop.ts` creates missing detail types from `missingDetailType.label`.
-- The same route hardcodes `nsfw: false`.
-
-Required repair:
-
-- Either implement the detail creation customization path as part of the schema planner UI, including final name and NSFW flag, or remove the field until it is backed.
 
 ### M5-WV-008: Agent execution is still a single-step parser, not a durable multi-step runner
 
@@ -347,11 +313,10 @@ This is no longer classified as an implementation defect. The control is visibly
 
 M5 remaining work must not be planned from the deleted audits. Recommended order after this re-audit:
 
-1. Implement M5.6C as a deterministic server schema-planner service: persist embedding use-case bindings, embed existing detail type names/descriptions, score candidates, return ranked suggestions/reasons, and require author confirmation only for unmatched creation.
-2. Resolve the immutable Workshop prompt-authority dependency before durable Agent run persistence. Otherwise M5.6D would persist runs against mutable code constants that cannot reproduce historical prompts.
-3. Implement M5.6D durable Agent runs/steps using provider structured output where available, explicit malformed-output repair, pause-for-confirmation, tool result continuation, and startup reconciliation. Delete the English regex draft-rewrite fallback after equivalent tests pass.
-4. Complete M5.6E capability cleanup: prompt scope/session binding, per-message branching, context-kind quarantine, legacy mode removal/migration, turn-aware deletion, copy/i18n, and module splits.
-5. Implement M5.6G Tool Plan/Grant/Tool Call records by reusing the NS-507 command adapters and execution identity. Add approved Codex/Write tool definitions, grant scope/expiry, renewed approval for changed plans, partial-failure state, stale-target refusal, and Proposal fallback.
-6. Only after those foundations pass adversarial and restart tests should M5.7 Council, final state sweep, responsive behavior, and user visual acceptance begin.
+1. Resolve the immutable Workshop prompt-authority dependency before durable Agent run persistence. Otherwise M5.6D would persist runs against mutable code constants that cannot reproduce historical prompts.
+2. Implement M5.6D durable Agent runs/steps using provider structured output where available, explicit malformed-output repair, pause-for-confirmation, tool result continuation, and startup reconciliation. Delete the English regex draft-rewrite fallback after equivalent tests pass.
+3. Complete M5.6E capability cleanup: prompt scope/session binding, per-message branching, context-kind quarantine, legacy mode removal/migration, turn-aware deletion, copy/i18n, and module splits.
+4. Implement M5.6G Tool Plan/Grant/Tool Call records by reusing the NS-507 command adapters and execution identity. Add approved Codex/Write tool definitions, grant scope/expiry, renewed approval for changed plans, partial-failure state, stale-target refusal, and Proposal fallback.
+5. Only after those foundations pass adversarial and restart tests should M5.7 Council, final state sweep, responsive behavior, and user visual acceptance begin.
 
 The original M5.6 requirements are not deleted. They are classified in `docs/tasks/M5.md` as kept, partially started, or replaced. The replaced part is the old monolithic implementation order, not the Tool Plan/Grant product requirement.

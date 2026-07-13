@@ -1,10 +1,12 @@
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type Database from "better-sqlite3";
 import {
   AgentRoleSchema,
   ContextBundleSchema,
   EmbeddingModelProfileSchema,
+  EmbeddingUseCaseBindingDocumentSchema,
+  EmbeddingUseCaseIdSchema,
   ModelCallLogSchema,
   ModelProfileSchema,
   PromptPresetSchema,
@@ -12,6 +14,8 @@ import {
   type AgentRole,
   type ContextBundle,
   type EmbeddingModelProfile,
+  type EmbeddingUseCaseBindingDocument,
+  type EmbeddingUseCaseId,
   type ModelCallLog,
   type ModelProfile,
   type PromptPreset,
@@ -24,6 +28,7 @@ import { readJsonAuthorityFile, writeJsonAuthorityFile } from "./jsonAuthority.j
 const STUDIO_DIR = ".studio";
 const MODEL_PROFILES_DIR = "model-profiles";
 const EMBEDDING_PROFILES_DIR = "embedding-profiles";
+const EMBEDDING_BINDINGS_DIR = "embedding-bindings";
 const CONTEXT_BUNDLES_DIR = "context-bundles";
 const MODEL_CALLS_DIR = "model-calls";
 const PROMPTS_DIR = "prompts";
@@ -110,6 +115,10 @@ function embeddingProfilesRoot(libraryRoot: string): string {
   return assertInside(libraryRoot, path.join(libraryRoot, STUDIO_DIR, EMBEDDING_PROFILES_DIR));
 }
 
+function embeddingBindingsRoot(libraryRoot: string): string {
+  return assertInside(libraryRoot, path.join(libraryRoot, STUDIO_DIR, EMBEDDING_BINDINGS_DIR));
+}
+
 function contextBundlesRoot(seriesRoot: string): string {
   return assertInside(seriesRoot, path.join(seriesRoot, STUDIO_DIR, CONTEXT_BUNDLES_DIR));
 }
@@ -136,6 +145,11 @@ function modelProfilePath(libraryRoot: string, profileId: string): string {
 
 function embeddingProfilePath(libraryRoot: string, profileId: string): string {
   return assertInside(libraryRoot, path.join(embeddingProfilesRoot(libraryRoot), `${profileId}.json`));
+}
+
+function embeddingBindingPath(libraryRoot: string, rawUseCase: EmbeddingUseCaseId): string {
+  const useCase = EmbeddingUseCaseIdSchema.parse(rawUseCase);
+  return assertInside(libraryRoot, path.join(embeddingBindingsRoot(libraryRoot), `${useCase}.json`));
 }
 
 function contextBundlePath(seriesRoot: string, contextBundleId: string): string {
@@ -256,6 +270,52 @@ export async function listEmbeddingModelProfiles(libraryRoot: string): Promise<E
     profiles.push(profile);
   }
   return profiles.sort((left, right) => left.title.localeCompare(right.title, "zh-CN"));
+}
+
+export async function saveEmbeddingUseCaseBinding(
+  libraryRoot: string,
+  rawBinding: EmbeddingUseCaseBindingDocument,
+): Promise<EmbeddingUseCaseBindingDocument> {
+  const binding = EmbeddingUseCaseBindingDocumentSchema.parse(rawBinding);
+  await mkdir(embeddingBindingsRoot(libraryRoot), { recursive: true });
+  return writeJson(embeddingBindingPath(libraryRoot, binding.useCase), binding, (value) =>
+    EmbeddingUseCaseBindingDocumentSchema.parse(value),
+  );
+}
+
+export async function getEmbeddingUseCaseBinding(
+  libraryRoot: string,
+  useCase: EmbeddingUseCaseId,
+): Promise<EmbeddingUseCaseBindingDocument> {
+  return readJson(embeddingBindingPath(libraryRoot, useCase), (value) =>
+    EmbeddingUseCaseBindingDocumentSchema.parse(value),
+  );
+}
+
+export async function listEmbeddingUseCaseBindings(
+  libraryRoot: string,
+): Promise<EmbeddingUseCaseBindingDocument[]> {
+  const files = await listJsonFiles(embeddingBindingsRoot(libraryRoot));
+  const bindings: EmbeddingUseCaseBindingDocument[] = [];
+  for (const filePath of files) {
+    const binding = await readJson(filePath, (value) => EmbeddingUseCaseBindingDocumentSchema.parse(value));
+    assertFileNameMatches(filePath, binding.useCase);
+    bindings.push(binding);
+  }
+  return bindings.sort((left, right) => left.useCase.localeCompare(right.useCase, "und"));
+}
+
+export async function deleteEmbeddingUseCaseBinding(
+  libraryRoot: string,
+  useCase: EmbeddingUseCaseId,
+): Promise<boolean> {
+  try {
+    await rm(embeddingBindingPath(libraryRoot, useCase));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 export async function saveAgentRole(seriesRoot: string, rawRole: AgentRole): Promise<AgentRole> {

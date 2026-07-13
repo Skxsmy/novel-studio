@@ -702,6 +702,7 @@ function resolveDraftDetails(
     } else {
       missingDetailTypes.push({
         label: draftDetail.label,
+        suggestions: [],
         valuePreview: valuePreview(draftDetail.value),
       });
       continue;

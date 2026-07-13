@@ -51,10 +51,16 @@ type ComposerAttachment = Omit<WorkshopMessageAttachment, "parseStatus"> & {
 
 interface CodexDraftResolutionState {
   availableDetailTypes: WorkshopCodexCreateEntryToolError["availableDetailTypes"];
+  choices: Record<string, CodexDraftResolutionChoice | undefined>;
   messageId: string;
   missingDetailTypes: WorkshopCodexCreateEntryToolError["missingDetailTypes"];
+  planner: WorkshopCodexCreateEntryToolError["planner"];
   toolName: CodexToolName;
 }
+
+type CodexDraftResolutionChoice =
+  | { kind: "map"; detailTypeId: string }
+  | { kind: "create"; name: string; nsfw: boolean };
 
 type CodexToolName = "codex.create_entry" | "codex.update_entry";
 
@@ -83,6 +89,8 @@ function codexCreateEntryToolError(error: unknown): WorkshopCodexCreateEntryTool
     payload.code === "CODEX_DETAIL_TYPE_CREATION_REQUIRED" &&
     Array.isArray(payload.missingDetailTypes) &&
     Array.isArray(payload.availableDetailTypes) &&
+    typeof payload.planner === "object" &&
+    payload.planner !== null &&
     typeof payload.message === "string"
   ) {
     return payload as WorkshopCodexCreateEntryToolError;
@@ -1525,7 +1533,10 @@ export function WorkshopWorkspace({
 
   async function executeCodexToolFromMessage(
     message: WorkshopMessage,
-    createMissingDetailTypes = false,
+    resolution: {
+      detailCreations: Array<{ label: string; name: string; nsfw: boolean }>;
+      detailMappings: Array<{ label: string; detailTypeId: string }>;
+    } | null = null,
     requireConfirm = true,
   ) {
     if (!activeSession) return;
@@ -1542,11 +1553,15 @@ export function WorkshopWorkspace({
       const result = toolName === "codex.create_entry"
         ? await api.workshop.executeCodexCreateEntryTool(seriesId, activeSession.id, message.id, {
           confirm: true,
-          createMissingDetailTypes,
+          createMissingDetailTypes: Boolean(resolution?.detailCreations.length),
+          detailCreations: resolution?.detailCreations ?? [],
+          detailMappings: resolution?.detailMappings ?? [],
         })
         : await api.workshop.executeCodexUpdateEntryTool(seriesId, activeSession.id, message.id, {
           confirm: true,
-          createMissingDetailTypes,
+          createMissingDetailTypes: Boolean(resolution?.detailCreations.length),
+          detailCreations: resolution?.detailCreations ?? [],
+          detailMappings: resolution?.detailMappings ?? [],
         });
       if (result.createdDetailTypes.length) {
         setCodexDetailTypes((current) => [
@@ -1577,10 +1592,19 @@ export function WorkshopWorkspace({
     } catch (caught) {
       const mappingError = codexCreateEntryToolError(caught);
       if (mappingError) {
+        const choices = Object.fromEntries(mappingError.missingDetailTypes.map((detail) => {
+          const recommended = detail.suggestions.find((suggestion) => suggestion.recommended);
+          return [
+            detail.label,
+            recommended ? { kind: "map" as const, detailTypeId: recommended.detailTypeId } : undefined,
+          ];
+        }));
         setCodexDraftResolution({
           availableDetailTypes: mappingError.availableDetailTypes,
+          choices,
           messageId: message.id,
           missingDetailTypes: mappingError.missingDetailTypes,
+          planner: mappingError.planner,
           toolName,
         });
         setError(null);
@@ -1605,8 +1629,54 @@ export function WorkshopWorkspace({
       setError(text.codexDraft.creationMessageMissing);
       return;
     }
-    await executeCodexToolFromMessage(message, true, false);
+    const detailMappings: Array<{ label: string; detailTypeId: string }> = [];
+    const detailCreations: Array<{ label: string; name: string; nsfw: boolean }> = [];
+    for (const detail of codexDraftResolution.missingDetailTypes) {
+      const choice = codexDraftResolution.choices[detail.label];
+      if (!choice) return;
+      if (choice.kind === "map") {
+        detailMappings.push({ label: detail.label, detailTypeId: choice.detailTypeId });
+      } else {
+        if (!choice.name.trim()) return;
+        detailCreations.push({ label: detail.label, name: choice.name.trim(), nsfw: choice.nsfw });
+      }
+    }
+    await executeCodexToolFromMessage(message, { detailCreations, detailMappings }, false);
   }
+
+  function updateCodexResolutionChoice(label: string, value: string) {
+    if (!codexDraftResolution) return;
+    const choice: CodexDraftResolutionChoice | undefined = value === "create"
+      ? { kind: "create", name: label, nsfw: false }
+      : value.startsWith("map:")
+        ? { kind: "map", detailTypeId: value.slice(4) }
+        : undefined;
+    setCodexDraftResolution({
+      ...codexDraftResolution,
+      choices: { ...codexDraftResolution.choices, [label]: choice },
+    });
+  }
+
+  function updateCodexCreationChoice(
+    label: string,
+    patch: Partial<Extract<CodexDraftResolutionChoice, { kind: "create" }>>,
+  ) {
+    if (!codexDraftResolution) return;
+    const current = codexDraftResolution.choices[label];
+    if (!current || current.kind !== "create") return;
+    setCodexDraftResolution({
+      ...codexDraftResolution,
+      choices: {
+        ...codexDraftResolution.choices,
+        [label]: { ...current, ...patch },
+      },
+    });
+  }
+
+  const codexResolutionComplete = codexDraftResolution?.missingDetailTypes.every((detail) => {
+    const choice = codexDraftResolution.choices[detail.label];
+    return choice?.kind === "map" || (choice?.kind === "create" && Boolean(choice.name.trim()));
+  }) ?? false;
 
   function beginEditMessage(message: WorkshopMessage) {
     setEditingMessageId(message.id);
@@ -2463,27 +2533,74 @@ export function WorkshopWorkspace({
           <div>
             <strong>{text.codexDraft.creationTitle}</strong>
             <p>{text.codexDraft.creationBody}</p>
+            <p className={`workshop-codex-planner-state is-${codexDraftResolution.planner.status}`}>
+              {codexDraftResolution.planner.message}
+            </p>
           </div>
           <div className="workshop-codex-resolution-list">
-            {codexDraftResolution.missingDetailTypes.map((detail) => (
-              <div className="workshop-codex-resolution-row" key={detail.label}>
-                <span>
-                  <strong>{detail.label}</strong>
-                  {detail.valuePreview ? <small>{detail.valuePreview}</small> : null}
-                </span>
-                <span className="pill amber">{text.codexDraft.creationPending}</span>
-              </div>
-            ))}
+            {codexDraftResolution.missingDetailTypes.map((detail) => {
+              const choice = codexDraftResolution.choices[detail.label];
+              const suggestedIds = new Set(detail.suggestions.map((suggestion) => suggestion.detailTypeId));
+              const orderedTypes = [
+                ...detail.suggestions.flatMap((suggestion) => {
+                  const document = codexDraftResolution.availableDetailTypes.find(
+                    (item) => item.detailType.id === suggestion.detailTypeId,
+                  );
+                  return document ? [document] : [];
+                }),
+                ...codexDraftResolution.availableDetailTypes.filter(
+                  (document) => !suggestedIds.has(document.detailType.id),
+                ),
+              ];
+              return (
+                <div className="workshop-codex-resolution-row" key={detail.label}>
+                  <span>
+                    <strong>{detail.label}</strong>
+                    {detail.valuePreview ? <small>{detail.valuePreview}</small> : null}
+                  </span>
+                  <div className="workshop-codex-resolution-control">
+                    <select
+                      aria-label={text.codexDraft.choiceLabel(detail.label)}
+                      onChange={(event) => updateCodexResolutionChoice(detail.label, event.target.value)}
+                      value={choice?.kind === "map" ? `map:${choice.detailTypeId}` : choice?.kind === "create" ? "create" : ""}
+                    >
+                      <option value="">{text.codexDraft.choicePlaceholder}</option>
+                      {orderedTypes.map((document) => {
+                        const suggestion = detail.suggestions.find(
+                          (item) => item.detailTypeId === document.detailType.id,
+                        );
+                        return (
+                          <option key={document.detailType.id} value={`map:${document.detailType.id}`}>
+                            {suggestion?.recommended
+                              ? text.codexDraft.recommendedType(document.detailType.name)
+                              : document.detailType.name}
+                          </option>
+                        );
+                      })}
+                      <option value="create">{text.codexDraft.createNewType}</option>
+                    </select>
+                    {choice?.kind === "create" ? (
+                      <div className="workshop-codex-creation-fields">
+                        <input
+                          aria-label={text.codexDraft.newTypeName(detail.label)}
+                          onChange={(event) => updateCodexCreationChoice(detail.label, { name: event.target.value })}
+                          value={choice.name}
+                        />
+                        <label>
+                          <input
+                            checked={choice.nsfw}
+                            onChange={(event) => updateCodexCreationChoice(detail.label, { nsfw: event.target.checked })}
+                            type="checkbox"
+                          />
+                          <span>{text.codexDraft.nsfw}</span>
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          {codexDraftResolution.availableDetailTypes.length ? (
-            <p className="brief-text">
-              {text.codexDraft.creationExisting(
-                codexDraftResolution.availableDetailTypes
-                  .map((document) => document.detailType.name)
-                  .join(", "),
-              )}
-            </p>
-          ) : null}
           <div className="workshop-codex-resolution-actions">
             <button
               className="btn compact subtle"
@@ -2494,7 +2611,7 @@ export function WorkshopWorkspace({
             </button>
             <button
               className="btn compact"
-              disabled={applyingCodexDraftMessageId !== null}
+              disabled={applyingCodexDraftMessageId !== null || !codexResolutionComplete}
               onClick={() => void applyResolvedCodexDraft()}
               type="button"
             >

@@ -189,6 +189,29 @@ export const EmbeddingUseCaseBindingSchema = z.object({
 });
 export type EmbeddingUseCaseBinding = z.infer<typeof EmbeddingUseCaseBindingSchema>;
 
+export const EmbeddingUseCaseBindingDocumentSchema = EmbeddingUseCaseBindingSchema.extend({
+  schemaVersion: z.literal(1),
+  updatedAt: z.string().datetime(),
+}).strict();
+export type EmbeddingUseCaseBindingDocument = z.infer<
+  typeof EmbeddingUseCaseBindingDocumentSchema
+>;
+
+export const SetEmbeddingUseCaseBindingInputSchema = z.object({
+  profileId: z.string().uuid(),
+}).strict();
+export type SetEmbeddingUseCaseBindingInput = z.infer<
+  typeof SetEmbeddingUseCaseBindingInputSchema
+>;
+
+export const DeleteEmbeddingUseCaseBindingResultSchema = z.object({
+  useCase: EmbeddingUseCaseIdSchema,
+  deleted: z.boolean(),
+}).strict();
+export type DeleteEmbeddingUseCaseBindingResult = z.infer<
+  typeof DeleteEmbeddingUseCaseBindingResultSchema
+>;
+
 const ModelProfileEditableInputSchema = z.object({
   title: z.string().trim().min(1).max(160),
   provider: AiProviderSchema,

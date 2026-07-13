@@ -58,18 +58,19 @@ This record is the milestone evidence index. Child NS task acceptance records ow
 
 ## Current Limited Tool Evidence
 
-M5.6A containment and NS-507 atomicity are verified for the existing limited Agent Codex path:
+M5.6A containment, NS-507 atomicity, and NS-508 detail schema planning are verified for the existing limited Agent Codex path:
 
 - `packages/storage/test/workshop.test.ts` — `atomically claims Agent tool execution and blocks destructive session changes while running`, `preserves successful Agent tool result links across deletion and branching`.
 - `apps/server/test/workshop-routes.test.ts` — `rejects Agent codex.create_entry execution for archived sessions before any Codex write`, `atomically executes an approved Agent codex.create_entry command`, `atomically executes Agent codex.update_entry entry research and progression changes`, and the stale, wrong-target, Scene-movement, and confirmation-identity refusal scenarios indexed by `docs/testing/NS-507_ACCEPTANCE.md`.
 - `packages/storage/test/file-transactions.test.ts` — per-Series serialization and injected mid-commit rollback scenarios.
 - `apps/web/src/app/AppShell.test.tsx` — `reloads terminal Workshop Agent tool state after execution failure`.
+- `docs/testing/NS-508_ACCEPTANCE.md` — persisted embedding binding, category-scoped ranked suggestions, manual degradation, create/update stable-ID mapping, explicit name/NSFW creation, and exact UI payload evidence.
 
 M5.6A alone did not pass M5-A30 through M5-A37. NS-507 now passes M5-A33 and M5-A35 for the limited Codex tools; durable Tool Plan/Grant, dangerous-action confirmation, partial-result reporting, and Proposal fallback remain planned.
 
 ## Milestone Run Ledger
 
-Detailed command history remains in the acceptance records of completed child work and Git history. `docs/testing/NS-507_ACCEPTANCE.md` records the focused adversarial tests, full repository suite, package builds, and documentation check for M5.6B. Earlier M5.6A lifecycle evidence remains anchored at `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`.
+Detailed command history remains in the acceptance records of completed child work and Git history. `docs/testing/NS-507_ACCEPTANCE.md` and `docs/testing/NS-508_ACCEPTANCE.md` record the focused adversarial tests, full repository suites, package builds, and documentation checks for M5.6B/M5.6C. Earlier M5.6A lifecycle evidence remains anchored at `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`.
 
 ## Open Gates
 

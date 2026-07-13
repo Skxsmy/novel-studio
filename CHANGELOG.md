@@ -15,6 +15,7 @@ This changelog records user-visible product changes. Task status, command logs, 
 
 ### Changed
 
+- Workshop Codex detail drafts now rank reusable same-category detail types, let authors map each unmatched label, and require an explicit final name and NSFW choice before creating a new reusable type.
 - Workshop Chat and Agent prompts are isolated from global non-Workshop role/template records.
 - Workshop uses explicit context selection, prior same-session history, and message attachment snapshots rather than an implicit current scene.
 - Review prioritizes the candidate difference and author decision instead of an engineering Proposal dashboard.

@@ -46,7 +46,7 @@ import {
   type WorkshopMessage,
   type WorkshopToolExecution,
 } from "@novel-studio/contracts";
-import type { ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
+import type { EmbeddingRouter, ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
 import type {
   ProjectRepository,
   WorkshopCodexDetailTypeCreationCommand,
@@ -77,6 +77,7 @@ import {
   WorkshopCodexDetailTypeCreationRequiredError,
 } from "../workshop/codexDraft.js";
 import { exportWorkshopSessionMarkdown } from "../workshop/sessionExport.js";
+import { planWorkshopDetailSchema } from "../workshop/detailSchemaPlanner.js";
 import { applyWorkshopAgentPrompt, parseWorkshopAgentStep, type WorkshopAgentStep } from "../workshop/workshopAgent.js";
 import {
   workshopPromptDefinition,
@@ -90,16 +91,18 @@ function hashText(value: string): string {
 function workshopToolConfirmationIdentity(input: {
   confirm: true;
   createMissingDetailTypes?: boolean;
-  detailCreations?: Array<{ label: string; name: string }>;
+  detailCreations?: Array<{ label: string; name: string; nsfw?: boolean }>;
   detailMappings?: WorkshopCodexDraftDetailMapping[];
 }) {
   return {
     confirm: true,
     createMissingDetailTypes: input.createMissingDetailTypes ?? false,
     detailCreations: [...(input.detailCreations ?? [])]
-      .map((item) => ({ label: item.label.trim(), name: item.name.trim() }))
+      .map((item) => ({ label: item.label.trim(), name: item.name.trim(), nsfw: item.nsfw ?? false }))
       .sort((left, right) =>
-        left.label.localeCompare(right.label, "und") || left.name.localeCompare(right.name, "und")
+        left.label.localeCompare(right.label, "und") ||
+        left.name.localeCompare(right.name, "und") ||
+        Number(left.nsfw) - Number(right.nsfw)
       ),
     detailMappings: [...(input.detailMappings ?? [])]
       .map((item) => ({ label: item.label.trim(), detailTypeId: item.detailTypeId }))
@@ -854,7 +857,7 @@ function progressionCommandsFromDraft(
 function planWorkshopDetailTypeCreations(input: {
   categoryId: string;
   confirmation: {
-    detailCreations: Array<{ label: string; name: string }>;
+    detailCreations: Array<{ label: string; name: string; nsfw?: boolean }>;
   };
   missing: WorkshopCodexDraftMissingDetailType[];
 }): {
@@ -862,7 +865,7 @@ function planWorkshopDetailTypeCreations(input: {
   documents: CodexDetailTypeDocument[];
   mappings: WorkshopCodexDraftDetailMapping[];
 } {
-  const requested = new Map<string, { label: string; name: string }>();
+  const requested = new Map<string, { label: string; name: string; nsfw?: boolean }>();
   for (const creation of input.confirmation.detailCreations) {
     const key = normalizeCodexLookupName(creation.label);
     if (requested.has(key)) {
@@ -879,10 +882,13 @@ function planWorkshopDetailTypeCreations(input: {
   const now = new Date().toISOString();
   const commands = input.missing.map((item) => {
     const requestedCreation = requested.get(normalizeCodexLookupName(item.label));
+    if (!requestedCreation) {
+      throw new Error(`Choose an existing detail type or explicitly create one for "${item.label}".`);
+    }
     return {
       id: randomUUID(),
-      name: requestedCreation?.name ?? item.label,
-      nsfw: false,
+      name: requestedCreation.name,
+      nsfw: requestedCreation.nsfw ?? false,
     };
   });
   return {
@@ -906,12 +912,73 @@ function planWorkshopDetailTypeCreations(input: {
   };
 }
 
+function validateWorkshopDetailResolutionChoices(input: {
+  draftDetails: Array<{ label: string }>;
+  confirmation: {
+    createMissingDetailTypes: boolean;
+    detailCreations: Array<{ label: string }>;
+    detailMappings: WorkshopCodexDraftDetailMapping[];
+  };
+}): void {
+  const draftLabels = new Set(input.draftDetails.map((item) => normalizeCodexLookupName(item.label)));
+  const mapped = new Set<string>();
+  for (const mapping of input.confirmation.detailMappings) {
+    const key = normalizeCodexLookupName(mapping.label);
+    if (!draftLabels.has(key)) {
+      throw new Error(`Detail mapping for "${mapping.label}" does not belong to this draft.`);
+    }
+    if (mapped.has(key)) {
+      throw new Error(`Detail mapping for "${mapping.label}" is duplicated.`);
+    }
+    mapped.add(key);
+  }
+  const created = new Set<string>();
+  for (const creation of input.confirmation.detailCreations) {
+    const key = normalizeCodexLookupName(creation.label);
+    if (!draftLabels.has(key)) {
+      throw new Error(`Detail type creation for "${creation.label}" does not belong to this draft.`);
+    }
+    if (created.has(key)) {
+      throw new Error(`Detail type creation for "${creation.label}" is duplicated.`);
+    }
+    if (mapped.has(key)) {
+      throw new Error(`Detail "${creation.label}" cannot be mapped and created at the same time.`);
+    }
+    created.add(key);
+  }
+  if (created.size > 0 && !input.confirmation.createMissingDetailTypes) {
+    throw new Error("Explicit detail type creations require createMissingDetailTypes=true.");
+  }
+}
+
+async function plannedDetailTypeResolution(input: {
+  categoryId: Parameters<typeof planWorkshopDetailSchema>[0]["categoryId"];
+  error: WorkshopCodexDetailTypeCreationRequiredError;
+  embeddingRouter: EmbeddingRouter;
+  repository: ProjectRepository;
+}) {
+  const plan = await planWorkshopDetailSchema({
+    categoryId: input.categoryId,
+    missingDetailTypes: input.error.missingDetailTypes,
+    availableDetailTypes: input.error.availableDetailTypes,
+    embeddingRouter: input.embeddingRouter,
+    repository: input.repository,
+  });
+  return WorkshopCodexCreateEntryToolErrorSchema.parse({
+    code: input.error.code,
+    message: input.error.message,
+    missingDetailTypes: plan.missingDetailTypes,
+    availableDetailTypes: input.error.availableDetailTypes,
+    planner: plan.planner,
+  });
+}
+
 export function registerWorkshopRoutes(
   app: FastifyInstance,
   repository: ProjectRepository,
-  options: { providerRegistry: ProviderRegistry },
+  options: { providerRegistry: ProviderRegistry; embeddingRouter: EmbeddingRouter },
 ): void {
-  const { providerRegistry } = options;
+  const { embeddingRouter, providerRegistry } = options;
 
   app.get<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions",
@@ -1225,6 +1292,10 @@ export function registerWorkshopRoutes(
       try {
         const toolRequest = parseCodexCreateEntryToolRequest(source.message.content);
         draft = toolRequest.draft;
+        validateWorkshopDetailResolutionChoices({
+          draftDetails: draft.details,
+          confirmation: input,
+        });
         detailTypes = await repository.listCodexDetailTypes(request.params.seriesId, {
           categoryId: draft.categoryId,
         });
@@ -1234,17 +1305,18 @@ export function registerWorkshopRoutes(
             detailTypes,
             input.detailMappings,
           );
+          if (input.detailCreations.length > 0) {
+            throw new Error("Detail type creation was requested for a label that already resolves.");
+          }
         } catch (error) {
           if (!(error instanceof WorkshopCodexDetailTypeCreationRequiredError)) throw error;
           if (!input.createMissingDetailTypes) {
-            return reply.status(409).send(
-              WorkshopCodexCreateEntryToolErrorSchema.parse({
-                code: error.code,
-                message: error.message,
-                missingDetailTypes: error.missingDetailTypes,
-                availableDetailTypes: error.availableDetailTypes,
-              }),
-            );
+            return reply.status(409).send(await plannedDetailTypeResolution({
+              categoryId: draft.categoryId,
+              error,
+              embeddingRouter,
+              repository,
+            }));
           }
           missingDetailTypes = error.missingDetailTypes;
         }
@@ -1394,6 +1466,10 @@ export function registerWorkshopRoutes(
         detailTypes = await repository.listCodexDetailTypes(request.params.seriesId, {
           categoryId: entry.metadata.categoryId,
         });
+        validateWorkshopDetailResolutionChoices({
+          draftDetails: toolRequest.draft.patch.details ?? [],
+          confirmation: input,
+        });
         progressionCommands = progressionCommandsFromDraft(
           toolRequest.draft.patch.progressions ?? [],
           entry,
@@ -1405,17 +1481,18 @@ export function registerWorkshopRoutes(
             detailTypes,
             input.detailMappings,
           );
+          if (input.detailCreations.length > 0) {
+            throw new Error("Detail type creation was requested for a label that already resolves.");
+          }
         } catch (error) {
           if (!(error instanceof WorkshopCodexDetailTypeCreationRequiredError)) throw error;
           if (!input.createMissingDetailTypes) {
-            return reply.status(409).send(
-              WorkshopCodexCreateEntryToolErrorSchema.parse({
-                code: error.code,
-                message: error.message,
-                missingDetailTypes: error.missingDetailTypes,
-                availableDetailTypes: error.availableDetailTypes,
-              }),
-            );
+            return reply.status(409).send(await plannedDetailTypeResolution({
+              categoryId: entry.metadata.categoryId,
+              error,
+              embeddingRouter,
+              repository,
+            }));
           }
           missingDetailTypes = error.missingDetailTypes;
         }

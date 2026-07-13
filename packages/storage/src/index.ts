@@ -197,6 +197,8 @@ import {
   type MoveSceneInput,
   type ContextBundle,
   type EmbeddingModelProfile,
+  type EmbeddingUseCaseBindingDocument,
+  type EmbeddingUseCaseId,
   type ModelCallLog,
   type ModelProfile,
   type PlanningBoard,
@@ -286,9 +288,11 @@ import {
 } from "./fileTransactions.js";
 import {
   ensureAiIndexTables,
+  deleteEmbeddingUseCaseBinding,
   getAgentRole,
   getContextBundle,
   getEmbeddingModelProfile,
+  getEmbeddingUseCaseBinding,
   getModelCallLog,
   getModelProfile,
   getPromptPreset,
@@ -296,6 +300,7 @@ import {
   listAgentRoles,
   listContextBundles,
   listEmbeddingModelProfiles,
+  listEmbeddingUseCaseBindings,
   listModelCallLogs,
   listModelProfiles,
   listPromptPresets,
@@ -304,6 +309,7 @@ import {
   saveAgentRole,
   saveContextBundle,
   saveEmbeddingModelProfile,
+  saveEmbeddingUseCaseBinding,
   saveModelCallLog,
   saveModelProfile,
   savePromptPreset,
@@ -3945,6 +3951,33 @@ export class ProjectRepository {
 
   async listEmbeddingModelProfiles(): Promise<EmbeddingModelProfile[]> {
     return listEmbeddingModelProfiles(this.libraryRoot);
+  }
+
+  async saveEmbeddingUseCaseBinding(
+    binding: EmbeddingUseCaseBindingDocument,
+  ): Promise<EmbeddingUseCaseBindingDocument> {
+    const profile = await this.getEmbeddingModelProfile(binding.profileId);
+    if (profile.archivedAt) {
+      throw new StorageError("Archived Embedding profiles cannot be bound to a use case", "INVALID_DATA", {
+        profileId: profile.id,
+        useCase: binding.useCase,
+      });
+    }
+    return saveEmbeddingUseCaseBinding(this.libraryRoot, binding);
+  }
+
+  async getEmbeddingUseCaseBinding(
+    useCase: EmbeddingUseCaseId,
+  ): Promise<EmbeddingUseCaseBindingDocument> {
+    return getEmbeddingUseCaseBinding(this.libraryRoot, useCase);
+  }
+
+  async listEmbeddingUseCaseBindings(): Promise<EmbeddingUseCaseBindingDocument[]> {
+    return listEmbeddingUseCaseBindings(this.libraryRoot);
+  }
+
+  async deleteEmbeddingUseCaseBinding(useCase: EmbeddingUseCaseId): Promise<boolean> {
+    return deleteEmbeddingUseCaseBinding(this.libraryRoot, useCase);
   }
 
   async saveAgentRole(seriesId: string, role: AgentRole): Promise<AgentRole> {

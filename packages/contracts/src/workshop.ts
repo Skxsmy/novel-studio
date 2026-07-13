@@ -371,6 +371,7 @@ export type WorkshopCodexDraftDetailMapping = z.input<
 export const WorkshopCodexDraftDetailCreationSchema = z.object({
   label: z.string().trim().min(1).max(120),
   name: z.string().trim().min(1).max(120),
+  nsfw: z.boolean().default(false),
 }).strict();
 export type WorkshopCodexDraftDetailCreation = z.input<
   typeof WorkshopCodexDraftDetailCreationSchema
@@ -414,9 +415,29 @@ export type WorkshopCodexUpdateEntryToolResult = z.infer<
   typeof WorkshopCodexUpdateEntryToolResultSchema
 >;
 
+export const WorkshopCodexDetailTypeSuggestionSchema = z.object({
+  detailTypeId: z.string().uuid(),
+  name: z.string().trim().min(1).max(120),
+  score: z.number().min(0).max(1),
+  recommended: z.boolean(),
+  reason: z.string().trim().min(1).max(240),
+}).strict();
+export type WorkshopCodexDetailTypeSuggestion = z.infer<
+  typeof WorkshopCodexDetailTypeSuggestionSchema
+>;
+
+export const WorkshopCodexDetailSchemaPlannerStateSchema = z.object({
+  status: z.enum(["ready", "unconfigured", "unavailable"]),
+  message: z.string().trim().min(1).max(500),
+}).strict();
+export type WorkshopCodexDetailSchemaPlannerState = z.infer<
+  typeof WorkshopCodexDetailSchemaPlannerStateSchema
+>;
+
 export const WorkshopCodexDraftMissingDetailTypeSchema = z.object({
   label: z.string().trim().min(1).max(120),
   valuePreview: z.string().max(240),
+  suggestions: z.array(WorkshopCodexDetailTypeSuggestionSchema).default([]),
 });
 export type WorkshopCodexDraftMissingDetailType = z.infer<
   typeof WorkshopCodexDraftMissingDetailTypeSchema
@@ -427,6 +448,7 @@ export const WorkshopCodexCreateEntryToolErrorSchema = z.object({
   message: z.string().min(1).max(4000),
   missingDetailTypes: z.array(WorkshopCodexDraftMissingDetailTypeSchema),
   availableDetailTypes: z.array(CodexDetailTypeDocumentSchema),
+  planner: WorkshopCodexDetailSchemaPlannerStateSchema,
 });
 export type WorkshopCodexCreateEntryToolError = z.infer<
   typeof WorkshopCodexCreateEntryToolErrorSchema

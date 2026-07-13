@@ -1112,12 +1112,27 @@ function mockFetch(options: {
       if (body.confirm !== true) {
         return jsonResponse({ message: "codex.create_entry requires explicit confirmation" }, 400);
       }
-      if (!body.createMissingDetailTypes) {
+      const hasResolution = Boolean(body.detailMappings?.length || body.detailCreations?.length);
+      if (!hasResolution) {
+        const suggested = codexDetailTypes[0];
         return jsonResponse({
           code: "CODEX_DETAIL_TYPE_CREATION_REQUIRED",
           message: "Codex Draft needs new detail types before writing: Looks.",
-          missingDetailTypes: [{ label: "Looks", valuePreview: "Blonde hair." }],
+          missingDetailTypes: [{
+            label: "Looks",
+            valuePreview: "Blonde hair.",
+            suggestions: suggested ? [{
+              detailTypeId: suggested.detailType.id,
+              name: suggested.detailType.name,
+              score: 0.92,
+              recommended: true,
+              reason: "Strong semantic match to an existing reusable detail type.",
+            }] : [],
+          }],
           availableDetailTypes: codexDetailTypes,
+          planner: suggested
+            ? { status: "ready", message: "Reusable detail type suggestions are ready for author review." }
+            : { status: "unconfigured", message: "Choose a match manually or create a type." },
         }, 409);
       }
       if (options.failWorkshopCodexToolExecution) {
@@ -1136,8 +1151,16 @@ function mockFetch(options: {
         workshopMessages = workshopMessages.map((item) => item.id === message.id ? failedMessage : item);
         return jsonResponse({ code: "INVALID_DATA", message: "Injected tool execution failure." }, 400);
       }
-      const createdDetailType = codexDetailTypeDocument("Looks", "character", secondDetailTypeId);
-      codexDetailTypes = [...codexDetailTypes, createdDetailType];
+      const creation = body.detailCreations?.[0];
+      const mappedId = body.detailMappings?.[0]?.detailTypeId;
+      const createdDetailType = creation
+        ? codexDetailTypeDocument(creation.name, "character", secondDetailTypeId, creation.nsfw)
+        : null;
+      if (createdDetailType) codexDetailTypes = [...codexDetailTypes, createdDetailType];
+      const resolvedDetailType = createdDetailType ?? codexDetailTypes.find(
+        (document) => document.detailType.id === mappedId,
+      );
+      if (!resolvedDetailType) return jsonResponse({ message: "Detail resolution missing" }, 400);
       const created = codexEntryDocument(
         "Alice",
         "character",
@@ -1145,8 +1168,8 @@ function mockFetch(options: {
         relatedCodexEntryId,
         {
           aliases: ["Lin Alice", "Alice"],
-          details: { [createdDetailType.detailType.id]: "Blonde hair." },
-          detailAiContext: { [createdDetailType.detailType.id]: true },
+          details: { [resolvedDetailType.detailType.id]: "Blonde hair." },
+          detailAiContext: { [resolvedDetailType.detailType.id]: true },
           research: "Source: author-approved Workshop character ruling.",
         },
       );
@@ -1186,7 +1209,7 @@ function mockFetch(options: {
         resultMessage,
       ];
       return jsonResponse({
-        createdDetailTypes: [createdDetailType],
+        createdDetailTypes: createdDetailType ? [createdDetailType] : [],
         message: executedMessage,
         resultMessage,
         entry: created,
@@ -4756,10 +4779,11 @@ describe("App shell", () => {
     expect(screen.queryByRole("button", { name: "Resend" })).toBeNull();
   });
 
-  it("confirms missing Workshop Agent codex.create_entry detail type creation before writing entries", async () => {
+  it("maps suggested Codex details or explicitly creates reusable detail types before tool execution", async () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
     const fetchMock = mockFetch({
       initialModelProfiles: [modelProfile()],
+      initialCodexDetailTypes: [codexDetailTypeDocument("Appearance", "character", detailTypeId)],
       initialWorkshopSessions: [workshopSession({ id: workshopSessionId, kind: "agent", title: "Agent drafting" })],
       initialWorkshopMessages: [{
         schemaVersion: 1,
@@ -4798,9 +4822,15 @@ describe("App shell", () => {
     expect(await screen.findByText("codex.create_entry")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm Tool Call" }));
-    expect(await screen.findByText("Create Missing Detail Types")).toBeTruthy();
-    expect(screen.getByText("Will create")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Create Detail Types and Run Tool" }));
+    expect(await screen.findByText("Resolve Detail Types")).toBeTruthy();
+    const choice = screen.getByRole("combobox", { name: "Resolution for Looks" }) as HTMLSelectElement;
+    expect(choice.value).toBe(`map:${detailTypeId}`);
+    expect(screen.getByRole("option", { name: "Appearance (recommended)" })).toBeTruthy();
+    fireEvent.change(choice, { target: { value: "create" } });
+    const nameInput = screen.getByRole("textbox", { name: "New reusable name for Looks" });
+    fireEvent.change(nameInput, { target: { value: "Visual Appearance" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "NSFW" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Mapping and Run Tool" }));
 
     await waitFor(() => {
       const applyCall = fetchMock.mock.calls.find(([url, init]) => (
@@ -4812,6 +4842,8 @@ describe("App shell", () => {
       expect(JSON.parse(String((applyCall![1] as RequestInit).body))).toMatchObject({
         confirm: true,
         createMissingDetailTypes: true,
+        detailCreations: [{ label: "Looks", name: "Visual Appearance", nsfw: true }],
+        detailMappings: [],
       });
     });
     expect(await screen.findByText("Created Codex entry: Alice")).toBeTruthy();
@@ -4866,7 +4898,10 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
     fireEvent.click(await screen.findByRole("button", { name: "Workshop" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm Tool Call" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Create Detail Types and Run Tool" }));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Resolution for Looks" }), {
+      target: { value: "create" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm Mapping and Run Tool" }));
 
     expect(await screen.findByText("Injected tool execution failure.")).toBeTruthy();
     expect(await screen.findByText("Execution failed")).toBeTruthy();

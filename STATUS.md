@@ -1,16 +1,16 @@
 # Current Status
 
-Updated: 2026-07-10
+Updated: 2026-07-13
 Authority: current operational state only
 
 ## Project Mainline
 
 - Active milestone: `M5 Workshop, Proposal, And Review`.
 - Active task: none.
-- Last reached mainline task: `NS-507 / M5.6B Atomic Codex Adapters`.
-- Next mainline task: `NS-508 / M5.6C Detail Schema Planning`.
+- Last reached mainline task: `NS-508 / M5.6C Detail Schema Planning And Author Mapping`.
+- Next mainline task: `NS-509 / M5.6D Durable Agent Runner`.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
-- Mainline state: NS-507 is command-verified and complete; GOV-001 did not consume or renumber an NS task.
+- Mainline state: NS-508 is command-verified and ready for its completion commit.
 
 ## Active Support Work
 
@@ -18,7 +18,7 @@ Authority: current operational state only
 - Last completed support task: `GOV-001 Documentation Governance And Delivery Skeleton`.
 - Task record: `docs/tasks/GOV-001.md`.
 - Acceptance record: `docs/testing/GOV-001_ACCEPTANCE.md`.
-- Next action: open the scoped NS-508 task and acceptance record before M5.6C implementation begins.
+- Next action: open the scoped NS-509 task and acceptance record before durable Agent runner implementation begins.
 
 ## Repository State
 
@@ -26,7 +26,7 @@ Authority: current operational state only
 - Rewritten pre-GOV-001 mainline tip: `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`.
 - Numbering-repair verification tip before closure: `578a74a GOV-001 docs(governance): separate support work from product mainline`.
 - Local recovery ref: `backup/gov-001-before-numbering-rewrite-20260710` preserves the original pre-rewrite history; the rewritten and backup tips have identical tree `deae3c9fae1f797239b975c464106126df530765`.
-- Unrelated worktree items preserved outside NS-507: untracked `.hermes/plans/` and `docs/design/ui-redesign/codex-panel-redesign-v1.html`.
+- Unrelated worktree items preserved outside NS-508: existing `docs/design/ui-redesign/` deletions and README edit, untracked `.hermes/plans/`, and `docs/design/ui-redesign/novel-studio-full-ui-redesign-reference.html`.
 - The unpublished range contains 29 rewritten commits including the first GOV-001 commit; no remote history was rewritten.
 
 ## Current Product And Implementation Boundary
@@ -34,7 +34,7 @@ Authority: current operational state only
 - Project authority is schema-versioned JSON; Markdown and Word are boundary formats, and indexes/caches are rebuildable.
 - NS-410 is command-verified. Its completed task and acceptance records remain historical evidence, not the active work item.
 - Project Recovery is the accepted baseline for the current UI/application stage, not proof of M5 completion.
-- M5.1 through M5.6B have command/function evidence. Detail schema planning, durable Agent runs, Prompt authority, Tool Plans/Grants, broader tool coverage, Council, and final user visual acceptance remain unfinished.
+- M5.1 through M5.6C have command/function evidence. Durable Agent runs, Prompt authority, Tool Plans/Grants, broader tool coverage, Council, and final user visual acceptance remain unfinished.
 - User visual acceptance is distinct from command/function verification. Diagnostic visual inspection cannot be reported as user acceptance.
 
 ## Confirmed Product Decision
@@ -45,6 +45,7 @@ Authority: current operational state only
 ## Known Risks
 
 - Current limited Workshop Codex tools are atomic and stale/target-bound; durable Tool Plans/Grants, broader tools, restartable Agent runs, and Proposal fallback remain unfinished.
+- Embedding profile Settings UI and model lifecycle controls remain deferred; NS-508 exposes the persisted binding/API and manual planner degradation without pretending that Settings UI exists.
 - Some current non-Write surfaces still expose the legacy `act/chapter` interpretation; product-facing mapping closure belongs to the next scoped mainline UI/runtime task and must follow the canonical labels above.
 - `packages/storage/src/index.ts` remains oversized and should be split only when a scoped task touches the relevant domain.
 - First-start library selection, in-app service stop, tray behavior, full provider real-world validation, and broader UI visual acceptance remain incomplete.

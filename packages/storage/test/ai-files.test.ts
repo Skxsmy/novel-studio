@@ -10,6 +10,7 @@ import {
   type AgentRole,
   type ContextBundle,
   type EmbeddingModelProfile,
+  type EmbeddingUseCaseBindingDocument,
   type ModelCallLog,
   type ModelProfile,
   type PromptPreset,
@@ -40,6 +41,65 @@ afterEach(async () => {
 });
 
 describe("M4 AI file persistence", () => {
+  it("persists embedding use-case bindings across repository restart and deletes them explicitly", async () => {
+    const store = await repository();
+    const now = new Date().toISOString();
+    const profile = EmbeddingModelProfileSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      title: "Codex schema embedding",
+      provider: "mock",
+      baseUrl: null,
+      endpointPath: "/embed",
+      model: "mock-codex-schema",
+      credentialRef: null,
+      dimensions: 4,
+      maxInputTokens: 512,
+      maxBatchSize: 16,
+      maxConcurrentBatches: 2,
+      normalize: true,
+      supportsCustomDimensions: false,
+      license: "MIT",
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    });
+    const binding: EmbeddingUseCaseBindingDocument = {
+      schemaVersion: 1,
+      useCase: "codex.detail-schema",
+      profileId: profile.id,
+      updatedAt: now,
+    };
+    await store.saveEmbeddingModelProfile(profile);
+    await store.saveEmbeddingUseCaseBinding(binding);
+
+    const restarted = new ProjectRepository(store.libraryRoot);
+    await restarted.initialize();
+    expect(await restarted.getEmbeddingUseCaseBinding("codex.detail-schema")).toEqual(binding);
+    expect(await restarted.listEmbeddingUseCaseBindings()).toEqual([binding]);
+    expect(await readFile(
+      path.join(store.libraryRoot, ".studio", "embedding-bindings", "codex.detail-schema.json"),
+      "utf8",
+    )).toContain(profile.id);
+
+    expect(await restarted.deleteEmbeddingUseCaseBinding("codex.detail-schema")).toBe(true);
+    expect(await restarted.deleteEmbeddingUseCaseBinding("codex.detail-schema")).toBe(false);
+    await expect(restarted.getEmbeddingUseCaseBinding("codex.detail-schema")).rejects.toMatchObject<Partial<StorageError>>({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("rejects embedding bindings to missing profiles", async () => {
+    const store = await repository();
+    await expect(store.saveEmbeddingUseCaseBinding({
+      schemaVersion: 1,
+      useCase: "codex.detail-schema",
+      profileId: randomUUID(),
+      updatedAt: new Date().toISOString(),
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+    expect(await store.listEmbeddingUseCaseBindings()).toEqual([]);
+  });
+
   it("stores model profiles, prompts, context bundles and call logs without API keys", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "镜城 AI 文件" });
