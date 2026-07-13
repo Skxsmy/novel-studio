@@ -6,11 +6,11 @@ Authority: current operational state only
 ## Project Mainline
 
 - Active milestone: `M5 Workshop, Proposal, And Review`.
-- Active task: `NS-509 / M5.6D Durable Agent Runner`.
-- Last reached mainline task: `NS-508 / M5.6C Detail Schema Planning And Author Mapping`.
-- Next mainline task: `NS-509 / M5.6D Durable Agent Runner`.
+- Active task: none.
+- Last reached mainline task: `NS-509 / M5.6D Durable Agent Runner`.
+- Next mainline task: `NS-510 / M5.6E Capability And Boundary Cleanup`.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
-- Mainline state: NS-508 is complete at `a8eae7b`; NS-509 task and acceptance boundaries are open.
+- Mainline state: NS-509 is complete at `5128b20`; NS-510 is the next executable mainline task.
 
 ## Active Support Work
 
@@ -18,7 +18,7 @@ Authority: current operational state only
 - Last completed support task: `GOV-001 Documentation Governance And Delivery Skeleton`.
 - Task record: `docs/tasks/GOV-001.md`.
 - Acceptance record: `docs/testing/GOV-001_ACCEPTANCE.md`.
-- Next action: complete NS-509 regression/build evidence and close its acceptance record; NS-510 follows after closure.
+- Next action: define NS-510 acceptance boundaries before repository mutation.
 
 ## Repository State
 
@@ -34,7 +34,7 @@ Authority: current operational state only
 - Project authority is schema-versioned JSON; Markdown and Word are boundary formats, and indexes/caches are rebuildable.
 - NS-410 is command-verified. Its completed task and acceptance records remain historical evidence, not the active work item.
 - Project Recovery is the accepted baseline for the current UI/application stage, not proof of M5 completion.
-- M5.1 through M5.6C have command/function evidence. Durable Agent runs, Prompt authority, Tool Plans/Grants, broader tool coverage, Council, and final user visual acceptance remain unfinished.
+- M5.1 through M5.6D have command/function evidence. Prompt authority, Tool Plans/Grants, broader tool coverage, Council, and final user visual acceptance remain unfinished.
 - User visual acceptance is distinct from command/function verification. Diagnostic visual inspection cannot be reported as user acceptance.
 
 ## Confirmed Product Decision
@@ -44,7 +44,7 @@ Authority: current operational state only
 
 ## Known Risks
 
-- Current limited Workshop Codex tools are atomic and stale/target-bound; durable Tool Plans/Grants, broader tools, restartable Agent runs, and Proposal fallback remain unfinished.
+- Current limited Workshop Codex tools are atomic, stale/target-bound, and connected to durable Agent continuation; Tool Plans/Grants, broader tools, and Proposal fallback remain unfinished.
 - Embedding profile Settings UI and model lifecycle controls remain deferred; NS-508 exposes the persisted binding/API and manual planner degradation without pretending that Settings UI exists.
 - Some current non-Write surfaces still expose the legacy `act/chapter` interpretation; product-facing mapping closure belongs to the next scoped mainline UI/runtime task and must follow the canonical labels above.
 - `packages/storage/src/index.ts` remains oversized and should be split only when a scoped task touches the relevant domain.

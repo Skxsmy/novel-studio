@@ -1,6 +1,6 @@
 # NS-509 Acceptance Record
 
-Status: in_progress
+Status: passed
 Task: `docs/tasks/NS-509.md`
 Updated: 2026-07-13
 
@@ -48,6 +48,7 @@ The canonical author-facing hierarchy remains `Series → Volume → Chapter →
 
 - Branch: `codex/ns-410-json-authority`
 - Starting commit: `a8eae7b NS-508 feat(workshop): add detail schema planning`
-- Completion commit: pending
-- Task-related dirty files: pending
+- Implementation commit: `5128b20 NS-509 feat(workshop): add durable agent runner`
+- Closure record commit: pending
+- Task-related dirty files after closure: none
 - Unrelated dirty files are recorded in `STATUS.md` and must remain unstaged.
