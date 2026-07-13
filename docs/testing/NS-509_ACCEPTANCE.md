@@ -49,6 +49,6 @@ The canonical author-facing hierarchy remains `Series → Volume → Chapter →
 - Branch: `codex/ns-410-json-authority`
 - Starting commit: `a8eae7b NS-508 feat(workshop): add detail schema planning`
 - Implementation commit: `5128b20 NS-509 feat(workshop): add durable agent runner`
-- Closure record commit: pending
+- Closure record commit: `f312b6e NS-509 docs(workshop): close durable agent runner`
 - Task-related dirty files after closure: none
 - Unrelated dirty files are recorded in `STATUS.md` and must remain unstaged.
