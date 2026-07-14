@@ -110,132 +110,137 @@ Required repair:
 
 ### M5-WV-011: Branch UI only exposes branch-from-last-message
 
-Status: still open.
+Status: resolved by NS-510-A05.
 Severity: medium.
 
-The backend branch API supports an arbitrary source message, but the UI action always branches from the last message in the session.
+Workshop now exposes Branch on every eligible settled message and submits that exact `sourceMessageId`; the session-level last-message action remains available.
 
 Evidence:
 
-- `branchFromLastMessage()` uses `messages[messages.length - 1]`.
+- Storage, route, and AppShell regressions prove exact-source truncation and reject incomplete Agent protocol prefixes.
 
 Required repair:
 
-- Add per-message branch or a selected-message branch flow.
+- None for this finding.
 
 ### M5-WV-012: Legacy `continuity-check` Proposal creation remains reachable only as an old path
 
-Status: still open.
+Status: resolved by NS-510-A06.
 Severity: medium.
 
-The UI still contains `Create Proposal` for successful non-author `continuity-check` messages, but current sends produce General Chat or Agent messages. General Chat and Agent generic Proposal creation are intentionally blocked.
+The legacy Workshop message-to-Proposal route, client method, and message action have been removed. Existing linked Proposal cards remain readable.
 
 Evidence:
 
-- Message render condition checks `message.mode === "continuity-check"`.
-- Current send path maps fixed sessions to `general-chat` or `agent`.
+- Route regressions assert the deleted endpoint returns 404.
+- AppShell regressions assert neither General Chat nor Agent messages expose `Create Proposal`.
 
 Required repair:
 
-- Remove/hide this legacy path, or add a current supported workflow that creates such source messages.
+- None for this finding.
 
 ### M5-WV-013: Backend context kinds exceed current UI exposure
 
-Status: still open.
+Status: resolved by NS-510-A06.
 Severity: medium.
 
-Contracts and backend support `selection`, `scene-section`, `research-note`, `note`, and `proposal-source` context kinds, but the current UI mainly exposes full novel, full outline, act, chapter, scene, Codex entries, and file attachments.
+Workshop basket authority now supports exactly `full-novel`, `full-outline`, `act`, `chapter`, `scene`, and `codex-entry`. Selection remains a dedicated basket field and call attachments remain message-bound records rather than basket refs.
 
 Evidence:
 
-- `WorkshopContextItemKindSchema` includes those kinds.
-- `WorkshopWorkspace.tsx` context menu exposes only the current Story/Structure/Codex/Files paths.
+- Contract tests assert the exact enum.
+- Storage tests persist and validate all six supported kinds and reject missing targets.
 
 Required repair:
 
-- Decide which context kinds belong in the author-facing Workshop UI, then either expose them or quarantine them as backend-only/deferred.
+- None for this finding.
 
 ### M5-WV-014: Codex grouping labels are duplicated
 
-Status: still open.
+Status: resolved by NS-510-A06.
 Severity: medium.
 
-`Entries by Type` and `Entries by Category` both use category groups. `Entries by Detail` uses detail type groups. `Entries by Tag` copy exists but is unused.
+Codex context navigation now contains only all entries, entries grouped by reusable detail type, and entries grouped by Codex category.
 
 Evidence:
 
-- `entryTypes` and `entryCategories` both route through `categoryGroups`.
-- `uiText.workshop.contextMenu.entriesByTag` exists without a current menu path.
+- AppShell regression asserts `Entries by Type` and `Entries by Tag` are absent while Detail and Category paths remain usable.
 
 Required repair:
 
-- Normalize Codex grouping information architecture before further UI redesign.
+- None for this finding.
 
 ### M5-WV-015: Message deletion is not turn-aware
 
-Status: still open.
+Status: resolved by NS-510-A07.
 Severity: medium.
 
-The UI can delete individual unlinked `general-chat` or `agent` messages. Storage deletes one message and its bound attachments, but does not treat a conversational turn as a unit.
+Workshop deletion now treats one settled General Chat author/reply turn as the minimum unit and does not expose deletion for Agent history.
 
 Evidence:
 
-- `canDeleteMessage` is per-message.
-- `deleteWorkshopMessage(...)` deletes one message record and bound attachments.
+- Contract, storage, route, and AppShell regressions prove complete-turn deletion.
+- Storage atomically removes turn messages, attachments, branch records, and stale child-session source links while preserving later turns.
 
 Required repair:
 
-- Make deletion turn-aware, or explicitly constrain it to safe author-message history editing paths.
+- None for this finding.
 
 ### M5-WV-016: Workshop UI copy remains English-centered
 
-Status: still open.
+Status: resolved as an explicit implementation-stage locale boundary by NS-510-A08.
 Severity: medium.
 
-Workshop UI labels and status text are still mostly English. The product requires natural Chinese-first copy or an explicit bilingual/i18n layer.
+Workshop chrome is explicitly frozen at `en-US` under the UX rule that permits an English baseline until natural Chinese localization is ready. Static chrome is centralized; editable prompt, author, project, and model content is language-independent.
 
 Evidence:
 
-- `apps/web/src/app/uiText.ts` Workshop labels are English-centered.
+- `WORKSHOP_UI_LOCALE` defines the current boundary.
+- `uiText.test.ts` rejects undeclared non-ASCII static chrome outside the editable default prompt.
+- AppShell regressions assert storage/mode field names are not exposed.
 
 Required repair:
 
-- Centralize and rewrite Workshop copy as Chinese-first or define a real bilingual/i18n boundary.
+- Add a complete natural-Chinese resource through the same boundary in a later localization task; do not translate strings inline in components.
 
 ### M5-WV-017: Workshop modules remain too large
 
-Status: still open.
+Status: partially resolved by NS-510-A09; residual risk remains open.
 Severity: medium.
 
-Workshop code is still concentrated in large modules:
+NS-510-A09 established tested ownership boundaries and reduced the two primary runtime modules:
 
-- `WorkshopWorkspace.tsx`: 3039 lines.
-- `apps/server/src/routes/workshop.ts`: 1883 lines.
-- `apps/server/src/workshop/codexDraft.ts`: 783 lines.
-- `apps/server/test/workshop-routes.test.ts`: 2822 lines.
-- `packages/storage/src/index.ts`: 8518 lines.
+- `WorkshopWorkspace.tsx`: 2965 lines; pure conversation policy is in a 53-line module and presentation helpers are in a 211-line module.
+- `apps/server/src/routes/workshop.ts`: 1808 lines; record routes are in a 186-line module and reasoning parsing is in a 95-line module.
+- A source-boundary regression prevents record-route duplication and Provider, Agent, or Codex orchestration imports in the record module.
+
+The remaining concentration is still material:
+
+- `apps/server/src/workshop/codexDraft.ts`: 896 lines.
+- `apps/server/test/workshop-routes.test.ts`: 3916 lines.
+- `apps/web/src/app/AppShell.test.tsx`: 6039 lines.
+- `packages/storage/src/index.ts`: 9875 lines.
 
 Required repair:
 
-- Split frontend by session dock, message stream, composer, context selector, settings, Agent tool cards, and service hooks.
-- Split server routes by sessions, messages, calls, context, attachments, export, and tool adapters.
+- Continue frontend extraction by context selector, message stream, composer, settings, Agent tool cards, and service hooks in scoped follow-up tasks.
+- Continue server extraction by calls, context, and tool adapters; split broad route tests by route ownership and move storage implementations out of the package root.
 
 ### M5-WV-018: Legacy Workshop modes remain in public contracts
 
-Status: still open but runtime-blocked.
+Status: resolved by NS-510-A06.
 Severity: low.
 
-`continuity-check` and `codex-creation` remain in `WorkshopModeSchema`. Runtime routes/storage reject `codex-creation`, but the enum still exposes a misleading active mode.
+Workshop authority, API, storage, server, UI, and fixtures now expose exactly `general-chat` and `agent`. The removed modes have no compatibility path because the author confirmed the environment contains no retained data requiring migration.
 
 Evidence:
 
-- `packages/contracts/src/workshop.ts` includes both modes.
-- `rejectLegacyCodexCreationMode(...)` blocks `codex-creation` at route level.
-- Storage rejects `codex-creation`.
+- Contract tests assert the exact active enum and reject both removed values.
+- Route regressions assert calls using either removed value return 400.
 
 Required repair:
 
-- Move legacy acceptance into migration-only schemas or mark/remove deprecated modes from active contracts.
+- None for this finding.
 
 ### M5-WV-020: Workshop prompt customization UI is not implemented
 

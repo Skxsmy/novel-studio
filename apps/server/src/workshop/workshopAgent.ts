@@ -1,14 +1,13 @@
-import type { ProviderPrompt } from "@novel-studio/ai";
+import type { ProviderToolCall, ProviderToolDefinition } from "@novel-studio/ai";
 import { z } from "zod";
 import type { WorkshopCodexCreateDraft, WorkshopCodexUpdateDraft } from "./codexDraft.js";
-import { WORKSHOP_AGENT_TOOL_PROTOCOL_PROMPT } from "./workshopPrompts.js";
 
-const WorkshopCodexDraftDetailSchema = z.object({
+export const WorkshopCodexDraftDetailSchema = z.object({
   label: z.string().trim().min(1).max(120),
   value: z.string().trim().min(1).max(100000),
 }).strict();
 
-const WorkshopCodexCreateDraftSchema = z.object({
+export const WorkshopCodexCreateDraftSchema = z.object({
   aliases: z.array(z.string().trim().min(1).max(200)).default([]),
   categoryId: z.enum(["character", "location", "object", "uncategorized", "lore", "organization", "plot-thread"]),
   description: z.string().trim().min(1).max(200000),
@@ -17,7 +16,7 @@ const WorkshopCodexCreateDraftSchema = z.object({
   research: z.string().trim().min(1).max(200000),
 }).strict();
 
-const WorkshopCodexProgressionDraftSchema = z.discriminatedUnion("action", [
+export const WorkshopCodexProgressionDraftSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("create"),
     input: z.record(z.string(), z.unknown()),
@@ -34,7 +33,7 @@ const WorkshopCodexProgressionDraftSchema = z.discriminatedUnion("action", [
   }).strict(),
 ]);
 
-const WorkshopCodexUpdatePatchSchema = z.object({
+export const WorkshopCodexUpdatePatchSchema = z.object({
   aliases: z.array(z.string().trim().min(1).max(200)).optional(),
   description: z.string().trim().min(1).max(200000).optional(),
   details: z.array(WorkshopCodexDraftDetailSchema).optional(),
@@ -45,7 +44,7 @@ const WorkshopCodexUpdatePatchSchema = z.object({
   message: "Codex update patch must contain at least one change",
 });
 
-const WorkshopCodexUpdateDraftSchema = z.object({
+export const WorkshopCodexUpdateDraftSchema = z.object({
   target: z.object({
     entryId: z.string().uuid().optional(),
     name: z.string().trim().min(1).max(200).optional(),
@@ -55,25 +54,24 @@ const WorkshopCodexUpdateDraftSchema = z.object({
   patch: WorkshopCodexUpdatePatchSchema,
 }).strict();
 
-export const WorkshopAgentStepSchema = z.union([
+const WorkshopCodexCreateToolArgumentsSchema = z.object({
+  message: z.string().trim().min(1).max(4000),
+  draft: WorkshopCodexCreateDraftSchema,
+}).strict();
+
+const WorkshopCodexUpdateToolArgumentsSchema = z.object({
+  message: z.string().trim().min(1).max(4000),
+  draft: WorkshopCodexUpdateDraftSchema,
+}).strict();
+
+export const WorkshopAgentToolArgumentsSchema = z.union([
   z.object({
-    schemaVersion: z.literal(1),
-    type: z.literal("respond"),
-    message: z.string().trim().min(1).max(400000),
-  }).strict(),
-  z.object({
-    schemaVersion: z.literal(1),
-    type: z.literal("request_tool"),
     tool: z.literal("codex.create_entry"),
-    message: z.string().trim().min(1).max(4000),
-    draft: WorkshopCodexCreateDraftSchema,
+    arguments: WorkshopCodexCreateToolArgumentsSchema,
   }).strict(),
   z.object({
-    schemaVersion: z.literal(1),
-    type: z.literal("request_tool"),
     tool: z.literal("codex.update_entry"),
-    message: z.string().trim().min(1).max(4000),
-    draft: WorkshopCodexUpdateDraftSchema,
+    arguments: WorkshopCodexUpdateToolArgumentsSchema,
   }).strict(),
 ]);
 export type WorkshopAgentStep =
@@ -93,30 +91,52 @@ export type WorkshopAgentStep =
     draft: WorkshopCodexUpdateDraft;
   };
 
-export function parseWorkshopAgentStep(content: string): WorkshopAgentStep {
-  return WorkshopAgentStepSchema.parse(JSON.parse(content)) as WorkshopAgentStep;
+function jsonSchema(schema: z.ZodType): Record<string, unknown> {
+  return z.toJSONSchema(schema, { target: "draft-7" }) as Record<string, unknown>;
 }
 
-export function applyWorkshopAgentPrompt(prompt: ProviderPrompt): ProviderPrompt {
-  return {
-    ...prompt,
-    instructions: [prompt.instructions, WORKSHOP_AGENT_TOOL_PROTOCOL_PROMPT].filter(Boolean).join("\n\n"),
-    user: prompt.user,
-  };
+export function workshopAgentToolDefinitions(): ProviderToolDefinition[] {
+  return [
+    {
+      name: "codex.create_entry",
+      description: "For a latest author turn that directly asks to record a new fictional Codex entry, prepare that entry from the decisions in the conversation. The server presents the exact draft for author confirmation before any project write.",
+      parameters: jsonSchema(WorkshopCodexCreateToolArgumentsSchema),
+      strict: true,
+    },
+    {
+      name: "codex.update_entry",
+      description: "For a latest author turn that directly asks to change an existing Codex entry, prepare those changes. Use its entry ID when available, otherwise its current unique name. The server validates the target and presents the exact draft for author confirmation before any project write. Progression creation requires its effective Scene; progression update or deletion requires an existing progression ID.",
+      parameters: jsonSchema(WorkshopCodexUpdateToolArgumentsSchema),
+      strict: true,
+    },
+  ];
 }
 
-export function workshopAgentRepairPrompt(
-  prompt: ProviderPrompt,
-  invalidOutput: string,
-  validationMessage: string,
-): ProviderPrompt {
+export function parseWorkshopAgentToolCall(call: ProviderToolCall): WorkshopAgentStep {
+  let rawArguments: unknown;
+  try {
+    rawArguments = JSON.parse(call.arguments);
+  } catch (error) {
+    throw new Error(`Tool ${call.name} arguments are not valid JSON: ${error instanceof Error ? error.message : "parse failed"}`);
+  }
+  const parsed = WorkshopAgentToolArgumentsSchema.parse({
+    tool: call.name,
+    arguments: rawArguments,
+  });
+  if (parsed.tool === "codex.create_entry") {
+    return {
+      schemaVersion: 1,
+      type: "request_tool",
+      tool: parsed.tool,
+      message: parsed.arguments.message,
+      draft: parsed.arguments.draft,
+    };
+  }
   return {
-    ...prompt,
-    instructions: [
-      prompt.instructions,
-      "Return one valid JSON object matching the Workshop Agent step schema. Return JSON only.",
-      `Validation error: ${validationMessage}`,
-      `Invalid output: ${invalidOutput.slice(0, 12000)}`,
-    ].filter(Boolean).join("\n\n"),
+    schemaVersion: 1,
+    type: "request_tool",
+    tool: parsed.tool,
+    message: parsed.arguments.message,
+    draft: parsed.arguments.draft as WorkshopCodexUpdateDraft,
   };
 }

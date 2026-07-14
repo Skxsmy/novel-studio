@@ -13,6 +13,10 @@ import { CredentialStoreError } from "./credentials.js";
 import { classifyProviderError, ProviderAdapterError } from "./errors.js";
 import type {
   ProviderAdapter,
+  ProviderChatCapabilities,
+  ProviderChatMessage,
+  ProviderChatRequest,
+  ProviderChatResult,
   ProviderConnectionResult,
   ProviderDescriptor,
   ProviderEmbeddingRequest,
@@ -39,6 +43,7 @@ interface OpenAiCompatibleProviderOptions {
   models?: ProviderModelDescriptor[];
   instructionRole?: InstructionRole;
   maxOutputTokenField?: MaxOutputTokenField;
+  chatCapabilities?: Partial<ProviderChatCapabilities>;
 }
 
 interface OpenAiErrorBody {
@@ -64,12 +69,14 @@ type OpenAiModelListItem = NonNullable<OpenAiModelListBody["data"]>[number];
 
 interface OpenAiChatCompletionBody {
   choices?: Array<{
+    finish_reason?: unknown;
     message?: {
       content?: unknown;
       reasoning?: unknown;
       reasoning_content?: unknown;
       reasoning_details?: unknown;
       thinking?: unknown;
+      tool_calls?: unknown;
     };
   }>;
   usage?: {
@@ -85,6 +92,7 @@ interface OpenAiCompatibleMessageDelta {
   reasoning_content?: unknown;
   reasoning_details?: unknown;
   thinking?: unknown;
+  tool_calls?: unknown;
 }
 
 interface OpenAiCompatibleChoice {
@@ -100,6 +108,13 @@ const OPENAI_COMPATIBLE_CAPABILITIES = {
   tokenEstimate: true,
   modelList: true,
 } as const;
+
+const DEFAULT_CHAT_CAPABILITIES: ProviderChatCapabilities = {
+  nativeToolCalls: true,
+  reasoningReplay: false,
+  parallelToolCalls: false,
+  strictToolSchema: false,
+};
 
 const DEEPSEEK_MODELS: ProviderModelDescriptor[] = [
   {
@@ -250,6 +265,124 @@ function chatBody(
   return body;
 }
 
+interface ProviderToolNameMap {
+  canonicalToProvider: Map<string, string>;
+  providerToCanonical: Map<string, string>;
+}
+
+function providerToolNames(tools: ProviderChatRequest["tools"]): ProviderToolNameMap {
+  const canonicalToProvider = new Map<string, string>();
+  const providerToCanonical = new Map<string, string>();
+  for (const tool of tools ?? []) {
+    if (canonicalToProvider.has(tool.name)) {
+      throw new ProviderAdapterError("provider-error", `Duplicate tool ID: ${tool.name}`, {
+        retryable: false,
+      });
+    }
+    const normalized = tool.name.replace(/[^a-zA-Z0-9_-]/gu, "_") || "tool";
+    let providerName = normalized.slice(0, 64);
+    let discriminator = 2;
+    while (providerToCanonical.has(providerName)) {
+      const suffix = `_${discriminator}`;
+      providerName = `${normalized.slice(0, 64 - suffix.length)}${suffix}`;
+      discriminator += 1;
+    }
+    canonicalToProvider.set(tool.name, providerName);
+    providerToCanonical.set(providerName, tool.name);
+  }
+  return { canonicalToProvider, providerToCanonical };
+}
+
+function providerToolName(name: string, names: ProviderToolNameMap): string {
+  const providerName = names.canonicalToProvider.get(name);
+  if (!providerName) {
+    throw new ProviderAdapterError("provider-error", `Tool history references an unavailable tool: ${name}`, {
+      retryable: false,
+    });
+  }
+  return providerName;
+}
+
+function openAiHistoryMessage(
+  message: ProviderChatMessage,
+  capabilities: ProviderChatCapabilities,
+  toolNames: ProviderToolNameMap,
+): Record<string, unknown> {
+  if (message.role === "user") {
+    return { role: "user", content: message.content };
+  }
+  if (message.role === "tool") {
+    return {
+      role: "tool",
+      content: message.content,
+      tool_call_id: message.toolCallId,
+    };
+  }
+  const result: Record<string, unknown> = {
+    role: "assistant",
+    content: message.content,
+  };
+  if (capabilities.reasoningReplay && message.reasoningContent) {
+    result.reasoning_content = message.reasoningContent;
+  }
+  if (message.toolCalls?.length) {
+    result.tool_calls = message.toolCalls.map((call) => ({
+      id: call.id,
+      type: "function",
+      function: {
+        name: providerToolName(call.name, toolNames),
+        arguments: call.arguments,
+      },
+    }));
+  }
+  return result;
+}
+
+function parseToolCalls(
+  value: unknown,
+  toolNames: ProviderToolNameMap,
+): ProviderChatResult["toolCalls"] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new ProviderAdapterError("provider-error", "Provider returned an invalid tool-call list.", {
+      retryable: true,
+    });
+  }
+  return value.map((rawCall) => {
+    if (!rawCall || typeof rawCall !== "object") {
+      throw new ProviderAdapterError("provider-error", "Provider returned an invalid tool call.", {
+        retryable: true,
+      });
+    }
+    const call = rawCall as Record<string, unknown>;
+    const fn = call.function;
+    if (!fn || typeof fn !== "object") {
+      throw new ProviderAdapterError("provider-error", "Provider tool call is missing its function payload.", {
+        retryable: true,
+      });
+    }
+    const functionPayload = fn as Record<string, unknown>;
+    const id = typeof call.id === "string" ? call.id.trim() : "";
+    const name = typeof functionPayload.name === "string" ? functionPayload.name.trim() : "";
+    const rawArguments = functionPayload.arguments;
+    const argumentsText = typeof rawArguments === "string"
+      ? rawArguments
+      : rawArguments && typeof rawArguments === "object"
+        ? JSON.stringify(rawArguments)
+        : "";
+    if (!id || !name || !argumentsText) {
+      throw new ProviderAdapterError("provider-error", "Provider tool call is incomplete.", {
+        retryable: true,
+      });
+    }
+    return {
+      id,
+      name: toolNames.providerToCanonical.get(name) ?? name,
+      arguments: argumentsText,
+    };
+  });
+}
+
 function tokenUsageFromOpenAi(value: OpenAiChatCompletionBody["usage"]): TokenUsage | null {
   if (!value) return null;
   const inputTokens = typeof value.prompt_tokens === "number" ? value.prompt_tokens : 0;
@@ -294,6 +427,7 @@ function staticModelDescriptor(
 
 export class OpenAiCompatibleProvider implements ProviderAdapter {
   readonly provider: OpenAiCompatibleRoutedProvider;
+  readonly chatCapabilities: ProviderChatCapabilities;
   private readonly fetchImpl: FetchLike;
   private readonly title: string;
   private readonly defaultBaseUrl: string | null;
@@ -309,6 +443,10 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
     this.models = options.models ?? [];
     this.instructionRole = options.instructionRole ?? "system";
     this.maxOutputTokenField = options.maxOutputTokenField ?? "max_tokens";
+    this.chatCapabilities = {
+      ...DEFAULT_CHAT_CAPABILITIES,
+      ...options.chatCapabilities,
+    };
   }
 
   describeCapabilities(): ProviderDescriptor {
@@ -420,6 +558,90 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
     }
   }
 
+  async completeChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
+    this.assertProfileProvider(request.modelProfile);
+    this.assertContextFits(request);
+    if (request.tools?.length && !this.chatCapabilities.nativeToolCalls) {
+      throw new ProviderAdapterError(
+        "model-unavailable",
+        "The selected Provider adapter does not declare native tool-call support.",
+        { retryable: false },
+      );
+    }
+    const secret = await this.readOptionalSecret(request.modelProfile);
+    const body = chatBody(
+      request.modelProfile,
+      request.prompt,
+      request.contextBundle,
+      request.parameters,
+      false,
+      {
+        instructionRole: this.instructionRole,
+        maxOutputTokenField: this.maxOutputTokenField,
+      },
+    );
+    const toolNames = providerToolNames(request.tools);
+    const messages = body.messages as Array<Record<string, unknown>>;
+    messages.push(...(request.history ?? []).map((message) =>
+      openAiHistoryMessage(message, this.chatCapabilities, toolNames)
+    ));
+    if (request.tools?.length) {
+      body.tools = request.tools.map((tool) => ({
+        type: "function",
+        function: {
+          name: providerToolName(tool.name, toolNames),
+          description: tool.description,
+          parameters: tool.parameters,
+          ...(tool.strict !== undefined && this.chatCapabilities.strictToolSchema
+            ? { strict: tool.strict }
+            : {}),
+        },
+      }));
+      body.tool_choice = request.toolChoice ?? "auto";
+      if (!this.chatCapabilities.parallelToolCalls) body.parallel_tool_calls = false;
+    }
+    const init: RequestInit = {
+      method: "POST",
+      headers: this.headers(secret),
+      body: JSON.stringify(body),
+    };
+    if (request.abortSignal) init.signal = request.abortSignal;
+    const response = await this.fetchImpl(
+      endpoint(request.modelProfile.baseUrl, this.defaultBaseUrl, "/chat/completions"),
+      init,
+    );
+    await this.assertOk(response);
+    const responseBody = await response.json() as OpenAiChatCompletionBody;
+    const choice = responseBody.choices?.[0];
+    const message = choice?.message;
+    const rawResponseText = message ? JSON.stringify(message) : "";
+    if (!message) {
+      throw new ProviderAdapterError("provider-error", "Provider did not return an assistant message.", {
+        retryable: true,
+        providerStatus: response.status,
+        rawOutput: rawResponseText,
+      });
+    }
+    const text = textFromProviderField(message.content);
+    const reasoningContent = reasoningTextFromDelta(message);
+    const toolCalls = parseToolCalls(message.tool_calls, toolNames);
+    if (!text && !toolCalls.length) {
+      throw new ProviderAdapterError("provider-error", "Provider returned an empty assistant response.", {
+        retryable: true,
+        providerStatus: response.status,
+        rawOutput: rawResponseText,
+      });
+    }
+    return {
+      text,
+      reasoningContent,
+      toolCalls,
+      finishReason: typeof choice.finish_reason === "string" ? choice.finish_reason : null,
+      usage: tokenUsageFromOpenAi(responseBody.usage),
+      rawResponseText,
+    };
+  }
+
   async generateObject<T>(
     request: ProviderObjectRequest,
     schema: z.ZodType<T>,
@@ -456,6 +678,7 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
       throw new ProviderAdapterError("structured-output-failed", "Provider 返回的结构化内容不符合契约。", {
         providerStatus: response.status,
         cause: error,
+        rawOutput: content,
       });
     }
   }

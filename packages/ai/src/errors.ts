@@ -9,6 +9,7 @@ export class ProviderAdapterError extends Error {
   readonly code: ModelCallErrorCode;
   readonly retryable: boolean;
   readonly providerStatus: number | null;
+  readonly rawOutput: string;
 
   constructor(
     code: ModelCallErrorCode,
@@ -17,6 +18,7 @@ export class ProviderAdapterError extends Error {
       retryable?: boolean;
       providerStatus?: number | null;
       cause?: unknown;
+      rawOutput?: string;
     } = {},
   ) {
     super(message);
@@ -24,6 +26,7 @@ export class ProviderAdapterError extends Error {
     this.code = code;
     this.retryable = options.retryable ?? false;
     this.providerStatus = options.providerStatus ?? null;
+    this.rawOutput = options.rawOutput ?? "";
     if (options.cause !== undefined) {
       this.cause = options.cause;
     }

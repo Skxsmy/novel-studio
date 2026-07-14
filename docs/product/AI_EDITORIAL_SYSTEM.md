@@ -49,13 +49,13 @@ AI 系统的目的不是替作者连续生成整本小说，而是成为一间�
 
 Workshop 的 `general-chat` 和 `agent` 模式使用 Workshop 专属 prompt 配置，不复用全局 `AgentRole` 或 `PromptTemplate`：
 
-- General Chat 使用作者可见、可编辑的 system prompt 和当前用户请求。
-- Agent 使用 Workshop Agent prompt、写作方法和 server-owned Codex 工具协议。
+- General Chat 使用作者可见、可编辑且按 chat session 独立持久化的 system prompt 和当前用户请求。新 chat session 快照内置默认 prompt；切换会话恢复各自值，分支继承源会话值，调用与 resend 只读取目标 session 的已保存值。
+- Agent 使用 Workshop Agent prompt、写作方法和 server-owned Codex 工具注册表；普通回复走文本通道，只有真实工具调用走 Provider 工具协议。
 - 这两种模式的 prompt 配置必须集中在 Workshop 专属模块，并为后续 UI 自定义预留数据接口。
 
 Workshop Agent 是对话 agent，不是单次聊天发射器。普通讨论、写作、prompt 修改和小说推敲应自然回复；只有在作者表达 Codex/story-memory 创建或更新意图且目标内容清楚时，才生成 server-owned 工具请求。
 
-每个作者回合对应一个持久化 Agent run。run 记录有序的模型、结构修复、工具请求、等待确认、工具结果和续跑步骤；普通自然语言回复可以直接完成 run。工具结果必须作为同一 run 的后续输入，续跑产生的新工具请求仍需单独确认。结构化输出最多修复一次；不支持结构化输出的模型使用显式降级的严格 JSON 边界。进程重启后不得静默重放未完成步骤，只有标记为可重试的中断步骤才能由作者显式重试，作者也可以终止该 run。
+每个作者回合对应一个持久化 Agent run。run 记录有序的 Provider attempt、assistant text、工具请求、等待确认、工具结果、修复/重试和续跑步骤；普通自然语言回复可以直接完成 run，不经过 `respond` JSON schema。工具结果必须作为同一 run 的后续输入，续跑产生的新工具请求仍需单独确认。工具名或参数不合格时，server 将安全的校验结果作为 tool error 送回同一 run 并自动续跑；显式结构化最终输出的 schema repair 与 Provider transport retry 使用各自的有界预算。预算耗尽后，run 保留为可重试失败，作者可在不发送新消息的情况下追加新 attempt。进程重启后不得静默重放未完成写入；只有效果可证明安全或已标记为可重试的步骤才能恢复，作者也可以终止该 run。
 
 ## 3. 调用模式
 
@@ -66,10 +66,10 @@ Workshop Agent 是对话 agent，不是单次聊天发射器。普通讨论、�
 Workshop 的 General Chat 属于讨论型单角色调用。它必须满足：
 
 - 不默认绑定当前写作场景；上下文完全来自用户显式选择。
-- system prompt 完整暴露给用户编辑，允许为空，不在服务端追加不可见的默认角色 prompt。
+- system prompt 完整暴露给用户编辑，允许为空，不在服务端追加不可见的默认角色 prompt；它在发送前保存到当前 chat session，Provider 调用不得接受 request-local prompt 覆盖。
 - 输出不得自动进入 Proposal，也不得在前端暴露 Create Proposal 操作。
 - 可选流式输出时，模型 reasoning 与正式回答分离存储和显示；reasoning 使用不同字体/样式并可折叠。
-- 普通未关联 Proposal 的聊天消息可删除；已进入 Proposal 审计链的消息不得被静默删除。
+- 普通未关联 Proposal 的 General Chat 内容只能按完整、已结束的对话 turn 删除；不得单独删除作者问题或助手回复而留下孤立历史。Agent 协议消息、pending turn 和已进入 Proposal 审计链的消息不得删除。
 
 ### 3.2 编辑会审
 
@@ -219,8 +219,11 @@ Workshop 的 General Chat 属于讨论型单角色调用。它必须满足：
 - `validateConnection`
 - `listModels`
 - `streamText`
+- `completeChat`（normal assistant text、reasoning metadata、native tool calls、finish reason 和 usage 的统一结果）
 - `generateObject`
 - `embed`
+
+`streamText`、JSON object、JSON schema、native tool calls、strict tool schema、parallel tool calls、reasoning replay 和 usage 必须分别声明能力，不能合并为一个 `structuredOutput` 判断。Provider transport 负责保存续跑所需的 Provider metadata；Workshop 运行时只消费统一结果。没有 native tool call 能力的模型可以对话，但不得获得写工具或用文本模拟工具调用。
 - `estimateTokens`
 - `capabilities`
 

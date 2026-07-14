@@ -12,6 +12,8 @@ import { CredentialStoreError } from "./credentials.js";
 import { classifyProviderError, ProviderAdapterError } from "./errors.js";
 import type {
   ProviderAdapter,
+  ProviderChatRequest,
+  ProviderChatResult,
   ProviderConnectionResult,
   ProviderDescriptor,
   ProviderEmbeddingRequest,
@@ -224,6 +226,12 @@ function textFromMessageBody(body: AnthropicMessageBody): string {
 
 export class AnthropicProvider implements ProviderAdapter {
   readonly provider = "anthropic" as const;
+  readonly chatCapabilities = {
+    nativeToolCalls: false,
+    reasoningReplay: false,
+    parallelToolCalls: false,
+    strictToolSchema: false,
+  } as const;
   private readonly fetchImpl: FetchLike;
 
   constructor(private readonly options: AnthropicProviderOptions) {
@@ -351,6 +359,26 @@ export class AnthropicProvider implements ProviderAdapter {
       const text = this.deltaFromSse(buffer);
       if (text) yield text;
     }
+  }
+
+  async completeChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
+    if (request.tools?.length) {
+      throw new ProviderAdapterError(
+        "model-unavailable",
+        "Anthropic native tool calls are not implemented by this adapter.",
+        { retryable: false },
+      );
+    }
+    let text = "";
+    for await (const chunk of this.streamText(request)) text += chunk;
+    return {
+      text,
+      reasoningContent: "",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: null,
+      rawResponseText: JSON.stringify({ content: text }),
+    };
   }
 
   async generateObject<T>(

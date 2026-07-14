@@ -11,6 +11,8 @@ import {
 import { classifyProviderError, ProviderAdapterError } from "./errors.js";
 import type {
   ProviderAdapter,
+  ProviderChatRequest,
+  ProviderChatResult,
   ProviderConnectionResult,
   ProviderDescriptor,
   ProviderEmbeddingRequest,
@@ -78,6 +80,12 @@ function contextText(request: ProviderTextRequest): string {
 
 export class MockProvider implements ProviderAdapter {
   readonly provider = "mock" as const;
+  readonly chatCapabilities = {
+    nativeToolCalls: true,
+    reasoningReplay: false,
+    parallelToolCalls: false,
+    strictToolSchema: true,
+  } as const;
 
   describeCapabilities(): ProviderDescriptor {
     return {
@@ -150,6 +158,28 @@ export class MockProvider implements ProviderAdapter {
       }
       yield chunk;
     }
+  }
+
+  async completeChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
+    let output = "";
+    for await (const chunk of this.streamText(request)) output += chunk;
+    const reasoning = [...output.matchAll(/<think>([\s\S]*?)<\/think>/gu)]
+      .map((match) => match[1] ?? "")
+      .filter(Boolean)
+      .join("\n");
+    const text = output.replace(/<think>[\s\S]*?<\/think>/gu, "");
+    return {
+      text,
+      reasoningContent: reasoning,
+      toolCalls: [],
+      finishReason: "stop",
+      usage: TokenUsageSchema.parse({
+        inputTokens: this.estimateTokens(request.prompt).inputTokens,
+        outputTokens: countTokensApprox(output),
+        totalTokens: this.estimateTokens(request.prompt).inputTokens + countTokensApprox(output),
+      }),
+      rawResponseText: JSON.stringify({ content: text, reasoning_content: reasoning }),
+    };
   }
 
   async generateObject<T>(

@@ -507,11 +507,11 @@ export async function buildContextBundle(
     kind: "role-instruction",
     sourceType: hasSystemPromptOverride ? "user-input" : "system",
     sourceId: input.roleId,
-    title: hasSystemPromptOverride ? "Runtime prompt override" : "角色职责",
+    title: hasSystemPromptOverride ? "Resolved system prompt" : "角色职责",
     content: roleInstruction,
     inclusion: "required",
     inclusionReason: hasSystemPromptOverride
-      ? "The runtime supplied this prompt override for the current model call."
+      ? "The caller supplied the resolved system prompt for this model call."
       : "模型调用必须先说明角色职责和禁止行为。",
   }));
 

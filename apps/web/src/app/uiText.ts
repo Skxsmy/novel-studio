@@ -1,3 +1,5 @@
+export const WORKSHOP_UI_LOCALE = "en-US";
+
 export const uiText = {
   actions: {
     add: "Add",
@@ -228,7 +230,9 @@ export const uiText = {
     conversationKicker: "Chat and Agent sessions, review-gated writes",
     conversationEmptyTitle: "No messages yet",
     conversationEmptyBody: "Send a request after choosing context and a model profile.",
-    defaultGeneralSystemPrompt: "你是这部小说的写作搭档。根据作者选择的上下文，直接讨论、推敲、改写或起草内容。",
+    errors: {
+      requestFailed: "Request failed",
+    },
     inputPlaceholder: "Ask for a rewrite, continuity check, Codex draft, or planning pass...",
     send: "Send",
     contextTrigger: "Context",
@@ -256,8 +260,6 @@ export const uiText = {
       codexEntries: "Codex Entries",
       entriesByCategory: "Entries by Category",
       entriesByDetail: "Entries by Detail",
-      entriesByTag: "Entries by Tag",
-      entriesByType: "Entries by Type",
       filesBody: "Attach files to the next Workshop request.",
       filesScope: "Files",
       fullNovel: "Full Novel Text",
@@ -278,15 +280,16 @@ export const uiText = {
     },
     proposals: {
       cardsLabel: "Linked proposals",
-      create: "Create Proposal",
-      creating: "Creating...",
-      defaultReason: "Created from a Workshop message for Review.",
-      defaultTitle: "Workshop proposal",
-      evidenceNote: "Created from the linked Workshop message.",
       open: "Open Proposal",
       unavailable: "Unavailable",
       unavailableBody: "The linked Proposal cannot be loaded. Refresh Review or recover the Proposal file.",
       unavailableTitle: "Proposal unavailable",
+    },
+    targetKinds: {
+      codex: "Codex",
+      manuscript: "Manuscript",
+      planning: "Planning",
+      research: "Research",
     },
     codexDraft: {
       apply: "Confirm Tool Call",
@@ -359,8 +362,9 @@ export const uiText = {
       defaultRequest: "Review the current Workshop context.",
       cancelEditMessage: "Cancel",
       callSettings: "Call Settings",
-      deleteMessage: "Delete",
-      deletingMessage: "Deleting...",
+      deleteTurn: "Delete turn",
+      deletingTurn: "Deleting...",
+      deleteTurnConfirm: "Delete this complete question-and-reply turn?",
       deleteSession: "Delete permanently",
       deletingSession: "Deleting...",
       deleteSessionConfirm: "Delete this Workshop session permanently? Its messages and attachments will be removed.",
@@ -374,6 +378,7 @@ export const uiText = {
       contextSelectedCount: (count: number) => `${count} selected`,
       contextTabs: "Context sections",
       messageActions: "Message actions",
+      messageInput: "Workshop message",
       sessionActions: "Session actions",
       inContext: "Added",
       modelProfileMissing: "Create a model profile in Settings before sending.",
@@ -409,7 +414,6 @@ export const uiText = {
       actChipPlural: "acts",
       chapterChipPlural: "chapters",
       codexChipPlural: "codex",
-      contextChipPlural: "references",
       role: "Role",
       roleContinuity: "Continuity",
       roleGeneral: "General Chat",
@@ -419,7 +423,6 @@ export const uiText = {
       sceneChipPlural: "scenes",
       noContextChip: "No context selected",
       noContextSources: "No references available",
-      proposalChipPlural: "proposals",
       relevantCodexChip: "Relevant codex",
       selectedContext: "Selected context",
       sourceCurrentScene: "Current scene",

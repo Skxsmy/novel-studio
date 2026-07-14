@@ -114,9 +114,11 @@ async function saveServerWorkshopMessage(
   sessionId: string,
   input: {
     role: "assistant" | "system" | "tool" | "result";
-    mode?: "general-chat" | "continuity-check" | "agent";
+    mode?: "general-chat" | "agent";
     content: string;
     createdAt?: string;
+    proposalIds?: string[];
+    status?: "pending" | "succeeded" | "failed";
   },
 ) {
   return store.saveWorkshopMessage(seriesId, {
@@ -125,13 +127,13 @@ async function saveServerWorkshopMessage(
     seriesId,
     sessionId,
     role: input.role,
-    mode: input.mode ?? "continuity-check",
-    status: "succeeded",
+    mode: input.mode ?? "general-chat",
+    status: input.status ?? "succeeded",
     content: input.content,
     reasoningContent: "",
     contextBundleId: null,
     modelCallId: null,
-    proposalIds: [],
+    proposalIds: input.proposalIds ?? [],
     attachmentIds: [],
     errorCode: null,
     errorMessage: null,
@@ -144,6 +146,40 @@ afterEach(async () => {
 });
 
 describe("M5 Workshop storage", () => {
+  it("persists isolated General Chat prompts and rejects Agent prompt updates", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopPromptIsolation" });
+    const first = await store.createWorkshopSession(series.manifest.id, {
+      title: "First chat",
+      generalChatSystemPrompt: "First prompt.",
+    });
+    const second = await store.createWorkshopSession(series.manifest.id, {
+      title: "Second chat",
+      generalChatSystemPrompt: "Second prompt.",
+    });
+    const agent = await store.createWorkshopSession(series.manifest.id, {
+      kind: "agent",
+      title: "Agent",
+    });
+
+    expect(first).toMatchObject({ schemaVersion: 2, generalChatSystemPrompt: "First prompt." });
+    expect(second.generalChatSystemPrompt).toBe("Second prompt.");
+    expect(agent.generalChatSystemPrompt).toBeNull();
+
+    const updated = await store.updateWorkshopSession(series.manifest.id, first.id, {
+      generalChatSystemPrompt: "Updated first prompt.",
+    });
+    expect(updated.generalChatSystemPrompt).toBe("Updated first prompt.");
+    expect((await store.getWorkshopSession(series.manifest.id, second.id)).generalChatSystemPrompt)
+      .toBe("Second prompt.");
+    await expect(store.updateWorkshopSession(series.manifest.id, agent.id, {
+      generalChatSystemPrompt: "Invalid Agent prompt.",
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      message: "Agent sessions cannot own a General Chat system prompt",
+    });
+  });
+
   it("persists sessions and messages as reloadable JSON authority", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopStorage" });
@@ -576,6 +612,7 @@ describe("M5 Workshop storage", () => {
     const session = await store.createWorkshopSession(series.manifest.id, {
       title: "Original thread",
       sceneId: series.scenes[0]!.metadata.id,
+      generalChatSystemPrompt: "Branch-owned prompt.",
     });
     const attachment = await store.createWorkshopAttachment(series.manifest.id, session.id, workshopAttachment({
       seriesId: series.manifest.id,
@@ -610,6 +647,7 @@ describe("M5 Workshop storage", () => {
       sessionId: result.session.id,
     });
     expect(result.session.lastMessageAt).toBe(message.createdAt);
+    expect(result.session.generalChatSystemPrompt).toBe("Branch-owned prompt.");
     const branchedMessages = await store.listWorkshopMessages(series.manifest.id, result.session.id);
     expect(branchedMessages.map((item) => item.content)).toEqual([
       "Use this source attachment.",
@@ -678,33 +716,83 @@ describe("M5 Workshop storage", () => {
     expect(await store.listWorkshopMessages(series.manifest.id, branch.session.id)).toHaveLength(2);
   });
 
-  it("deletes General Chat messages without leaving stale session timestamps", async () => {
+  it("deletes complete General Chat turns without orphaning attachments, branches, or history", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopDeleteMessage" });
     const session = await store.createWorkshopSession(series.manifest.id, {
       title: "General chat thread",
       sceneId: series.scenes[0]!.metadata.id,
     });
-    const first = await store.createWorkshopMessage(series.manifest.id, session.id, {
+    const firstAuthor = await store.createWorkshopMessage(series.manifest.id, session.id, {
       role: "author",
       mode: "general-chat",
-      content: "Keep this question.",
+      content: "Delete this question with its answer.",
     });
-    const second = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const firstAssistant = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
       role: "assistant",
       mode: "general-chat",
       content: "Delete this answer.",
     });
+    const branch = await store.branchWorkshopSession(series.manifest.id, session.id, {
+      sourceMessageId: firstAssistant.id,
+      title: "Detached after source turn deletion",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const secondAuthor = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Keep this later question.",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const secondAssistant = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
+      role: "assistant",
+      mode: "general-chat",
+      content: "Keep this later answer.",
+    });
 
-    const deleted = await store.deleteWorkshopMessage(series.manifest.id, session.id, second.id);
-    expect(deleted.deletedId).toBe(second.id);
-    expect(deleted.session.lastMessageAt).toBe(first.createdAt);
+    const deleted = await store.deleteWorkshopMessage(series.manifest.id, session.id, firstAssistant.id);
+    expect(deleted.deletedMessageIds).toEqual([firstAuthor.id, firstAssistant.id]);
+    expect(deleted.deletedBranchIds).toEqual([branch.branch.id]);
+    expect(deleted.session.lastMessageAt).toBe(secondAssistant.createdAt);
     expect((await store.listWorkshopMessages(series.manifest.id, session.id)).map((message) => message.id))
-      .toEqual([first.id]);
+      .toEqual([secondAuthor.id, secondAssistant.id]);
+    expect(await store.listWorkshopBranches(series.manifest.id)).toEqual([]);
+    expect((await store.getWorkshopSession(series.manifest.id, branch.session.id)).branchOfMessageId).toBeNull();
 
-    const deletedFirst = await store.deleteWorkshopMessage(series.manifest.id, session.id, first.id);
-    expect(deletedFirst.session.lastMessageAt).toBeNull();
+    const deletedSecondTurn = await store.deleteWorkshopMessage(series.manifest.id, session.id, secondAuthor.id);
+    expect(deletedSecondTurn.deletedMessageIds).toEqual([secondAuthor.id, secondAssistant.id]);
+    expect(deletedSecondTurn.session.lastMessageAt).toBeNull();
     expect(await store.listWorkshopMessages(series.manifest.id, session.id)).toEqual([]);
+
+    const agentSession = await store.createWorkshopSession(series.manifest.id, {
+      kind: "agent",
+      title: "Protected Agent history",
+    });
+    const agentAuthor = await store.createWorkshopMessage(series.manifest.id, agentSession.id, {
+      role: "author",
+      mode: "agent",
+      content: "Keep this Agent turn.",
+    });
+    await expect(store.deleteWorkshopMessage(series.manifest.id, agentSession.id, agentAuthor.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    const protectedSession = await store.createWorkshopSession(series.manifest.id, {
+      title: "Proposal-linked turn",
+    });
+    const protectedAuthor = await store.createWorkshopMessage(series.manifest.id, protectedSession.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Keep this linked turn.",
+    });
+    await saveServerWorkshopMessage(store, series.manifest.id, protectedSession.id, {
+      role: "assistant",
+      mode: "general-chat",
+      content: "This answer is linked.",
+      proposalIds: ["88888888-8888-4888-8888-888888888888"],
+    });
+    await expect(store.deleteWorkshopMessage(series.manifest.id, protectedSession.id, protectedAuthor.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
   });
 
   it("resends a General Chat author message by replacing it and truncating later history", async () => {
@@ -948,170 +1036,50 @@ describe("M5 Workshop storage", () => {
   it("updates context basket refs and rejects missing scene targets", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopBasket" });
+    const act = series.acts[0]!;
+    const chapter = series.chapters[0]!;
     const scene = series.scenes[0]!;
+    const codexEntry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Captain Veyr",
+      aiContextPolicy: "manual",
+    });
     const session = await store.createWorkshopSession(series.manifest.id, {
       title: "Context thread",
       sceneId: scene.metadata.id,
     });
-    const item = {
-      id: "11111111-1111-4111-8111-111111111111",
-      kind: "scene" as const,
-      sourceId: scene.metadata.id,
-      label: scene.metadata.title,
-      pinned: false,
-      note: "",
-      createdAt: "2026-07-01T00:00:00.000Z",
-    };
+    const createdAt = "2026-07-01T00:00:00.000Z";
+    const items = [
+      { id: "11111111-1111-4111-8111-111111111111", kind: "full-novel" as const, sourceId: series.manifest.id, label: "Full novel", pinned: false, note: "", createdAt },
+      { id: "22222222-2222-4222-8222-222222222222", kind: "full-outline" as const, sourceId: series.manifest.id, label: "Full outline", pinned: false, note: "", createdAt },
+      { id: "33333333-3333-4333-8333-333333333333", kind: "act" as const, sourceId: act.id, label: act.title, pinned: false, note: "", createdAt },
+      { id: "44444444-4444-4444-8444-444444444444", kind: "chapter" as const, sourceId: chapter.id, label: chapter.title, pinned: false, note: "", createdAt },
+      { id: "55555555-5555-4555-8555-555555555555", kind: "scene" as const, sourceId: scene.metadata.id, label: scene.metadata.title, pinned: false, note: "", createdAt },
+      { id: "66666666-6666-4666-8666-666666666666", kind: "codex-entry" as const, sourceId: codexEntry.metadata.id, label: codexEntry.metadata.name, pinned: false, note: "", createdAt },
+    ];
 
     const basket = await store.updateWorkshopContextBasket(series.manifest.id, session.id, {
-      items: [item],
+      items,
     });
-    expect(basket.items[0]).toMatchObject({ pinned: false });
+    expect(basket.items.map((item) => item.kind)).toEqual([
+      "full-novel",
+      "full-outline",
+      "act",
+      "chapter",
+      "scene",
+      "codex-entry",
+    ]);
 
     const pinned = await store.updateWorkshopContextBasket(series.manifest.id, session.id, {
-      items: [{ ...item, pinned: true }],
+      items: items.map((item) => item.kind === "scene" ? { ...item, pinned: true } : item),
     });
-    expect(pinned.items[0]).toMatchObject({ pinned: true });
+    expect(pinned.items.find((item) => item.kind === "scene")).toMatchObject({ pinned: true });
 
     await expect(store.updateWorkshopContextBasket(series.manifest.id, session.id, {
-      items: [{ ...item, sourceId: "22222222-2222-4222-8222-222222222222" }],
+      items: items.map((item) => item.kind === "scene"
+        ? { ...item, sourceId: "77777777-7777-4777-8777-777777777777" }
+        : item),
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
-  });
-
-  it("creates linked Proposals from Workshop messages and reports unavailable sources", async () => {
-    const store = await repository();
-    const series = await store.createSeries({ title: "WorkshopProposal" });
-    const scene = series.scenes[0]!;
-    const session = await store.createWorkshopSession(series.manifest.id, {
-      title: "Proposal thread",
-      sceneId: scene.metadata.id,
-    });
-    const message = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
-      role: "assistant",
-      content: "Insert this continuity-safe replacement beat.",
-    });
-    const target = {
-      kind: "scene-content" as const,
-      targetId: scene.metadata.id,
-      label: scene.metadata.title,
-      baseRevision: scene.revision,
-      fieldPath: [],
-      blockId: null,
-      range: null,
-    };
-
-    const result = await store.createProposalFromWorkshopMessage(series.manifest.id, session.id, message.id, {
-      type: "text-insertion",
-      title: "Insert Workshop beat",
-      summary: "Workshop candidate",
-      target,
-      riskLevel: "medium",
-      confidence: null,
-      reason: "Review before applying.",
-      patches: [{
-        id: "11111111-1111-4111-8111-111111111111",
-        target,
-        action: "insert-text",
-        before: null,
-        after: "Insert this continuity-safe replacement beat.",
-        unifiedDiff: "+Insert this continuity-safe replacement beat.",
-      }],
-      evidence: [{
-        sourceType: "workshop-message",
-        sourceId: message.id,
-        revision: null,
-        quote: "",
-        note: "Workshop source message.",
-      }],
-    });
-
-    expect(result.proposal.proposal.source).toMatchObject({
-      kind: "workshop-message",
-      sourceId: message.id,
-      label: "Proposal thread",
-    });
-    expect(result.message.proposalIds).toEqual([result.proposal.proposal.id]);
-    const messages = await store.listWorkshopMessages(series.manifest.id, session.id);
-    expect(messages[0]?.proposalIds).toEqual([result.proposal.proposal.id]);
-    await expect(store.deleteWorkshopMessage(series.manifest.id, session.id, message.id))
-      .rejects.toMatchObject<Partial<StorageError>>({
-        code: "INVALID_DATA",
-        message: "Workshop messages linked to Proposals cannot be deleted",
-      });
-    await expect(store.deleteWorkshopSession(series.manifest.id, session.id))
-      .rejects.toMatchObject<Partial<StorageError>>({
-        code: "INVALID_DATA",
-        message: "Workshop sessions with Proposal-linked messages cannot be deleted",
-      });
-
-    await store.archiveWorkshopSession(series.manifest.id, session.id);
-    const archivedSource = await store.getProposal(series.manifest.id, result.proposal.proposal.id);
-    expect(archivedSource.sourceAvailability).toEqual({
-      available: false,
-      reason: "Source Workshop session is archived",
-    });
-
-    await rm(
-      workshopMessagePath(seriesRoot(store, "WorkshopProposal", series.manifest.id), message.id),
-      { force: true },
-    );
-    const missingSource = await store.getProposal(series.manifest.id, result.proposal.proposal.id);
-    expect(missingSource.sourceAvailability).toMatchObject({
-      available: false,
-      reason: "Workshop message does not exist",
-    });
-  });
-
-  it("rejects Proposal creation from General Chat Workshop messages", async () => {
-    const store = await repository();
-    const series = await store.createSeries({ title: "WorkshopGeneralChatProposal" });
-    const scene = series.scenes[0]!;
-    const session = await store.createWorkshopSession(series.manifest.id, {
-      title: "General chat thread",
-      sceneId: scene.metadata.id,
-    });
-    const message = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
-      role: "assistant",
-      mode: "general-chat",
-      content: "This is a discussion response, not a write candidate.",
-    });
-    const target = {
-      kind: "scene-content" as const,
-      targetId: scene.metadata.id,
-      label: scene.metadata.title,
-      baseRevision: scene.revision,
-      fieldPath: [],
-      blockId: null,
-      range: null,
-    };
-
-    await expect(store.createProposalFromWorkshopMessage(series.manifest.id, session.id, message.id, {
-      type: "text-insertion",
-      title: "Blocked General Chat proposal",
-      summary: "Should not be allowed",
-      target,
-      riskLevel: "medium",
-      confidence: null,
-      reason: "General Chat is not Review input.",
-      patches: [{
-        id: "11111111-1111-4111-8111-111111111111",
-        target,
-        action: "insert-text",
-        before: null,
-        after: message.content,
-        unifiedDiff: `+${message.content}`,
-      }],
-      evidence: [{
-        sourceType: "workshop-message",
-        sourceId: message.id,
-        revision: null,
-        quote: "",
-        note: "General Chat source.",
-      }],
-    })).rejects.toMatchObject<Partial<StorageError>>({
-      code: "INVALID_DATA",
-      message: "General Chat messages cannot create Proposals",
-    });
   });
 
   it("keeps Workshop Agent and chat messages isolated by session kind", async () => {
@@ -1151,56 +1119,4 @@ describe("M5 Workshop storage", () => {
     expect(message.mode).toBe("agent");
   });
 
-  it("rejects generic scene Proposals from Agent Workshop messages", async () => {
-    const store = await repository();
-    const series = await store.createSeries({ title: "WorkshopCodexCreationProposal" });
-    const scene = series.scenes[0]!;
-    const session = await store.createWorkshopSession(series.manifest.id, {
-      kind: "agent",
-      title: "Agent thread",
-      sceneId: scene.metadata.id,
-    });
-    const message = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
-      role: "assistant",
-      mode: "agent",
-      content: "Prepared an Agent-only Codex draft.",
-    });
-    const target = {
-      kind: "scene-content" as const,
-      targetId: scene.metadata.id,
-      label: scene.metadata.title,
-      baseRevision: scene.revision,
-      fieldPath: [],
-      blockId: null,
-      range: null,
-    };
-
-    await expect(store.createProposalFromWorkshopMessage(series.manifest.id, session.id, message.id, {
-      type: "text-insertion",
-      title: "Blocked Agent proposal",
-      summary: "Should not be routed to manuscript Review",
-      target,
-      riskLevel: "medium",
-      confidence: null,
-      reason: "Agent needs a tool adapter.",
-      patches: [{
-        id: "11111111-1111-4111-8111-111111111111",
-        target,
-        action: "insert-text",
-        before: null,
-        after: message.content,
-        unifiedDiff: `+${message.content}`,
-      }],
-      evidence: [{
-        sourceType: "workshop-message",
-        sourceId: message.id,
-        revision: null,
-        quote: "",
-        note: "Agent source.",
-      }],
-    })).rejects.toMatchObject<Partial<StorageError>>({
-      code: "INVALID_DATA",
-      message: "Agent messages require an approved tool adapter or dedicated Proposal path",
-    });
-  });
 });

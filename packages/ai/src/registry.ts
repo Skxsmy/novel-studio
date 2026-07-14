@@ -44,6 +44,12 @@ export function createDefaultProviderRegistry(options: ProviderRegistryOptions =
     provider: "deepseek",
     title: "DeepSeek",
     defaultBaseUrl: "https://api.deepseek.com",
+    chatCapabilities: {
+      nativeToolCalls: true,
+      reasoningReplay: true,
+      parallelToolCalls: false,
+      strictToolSchema: false,
+    },
     models: [
       {
         id: "deepseek-v4-flash",
@@ -78,6 +84,12 @@ export function createDefaultProviderRegistry(options: ProviderRegistryOptions =
     defaultBaseUrl: "https://api.openai.com/v1",
     instructionRole: "developer",
     maxOutputTokenField: "max_completion_tokens",
+    chatCapabilities: {
+      nativeToolCalls: true,
+      reasoningReplay: false,
+      parallelToolCalls: true,
+      strictToolSchema: true,
+    },
   }));
   registry.register(new OpenAiCompatibleProvider({
     ...openAiCompatibleOptions,
@@ -85,12 +97,24 @@ export function createDefaultProviderRegistry(options: ProviderRegistryOptions =
     title: "OpenRouter",
     defaultBaseUrl: "https://openrouter.ai/api/v1",
     maxOutputTokenField: "max_completion_tokens",
+    chatCapabilities: {
+      nativeToolCalls: true,
+      reasoningReplay: false,
+      parallelToolCalls: false,
+      strictToolSchema: false,
+    },
   }));
   registry.register(new OpenAiCompatibleProvider({
     ...openAiCompatibleOptions,
     provider: "ollama",
     title: "Ollama",
     defaultBaseUrl: "http://localhost:11434/v1",
+    chatCapabilities: {
+      nativeToolCalls: false,
+      reasoningReplay: false,
+      parallelToolCalls: false,
+      strictToolSchema: false,
+    },
   }));
   registry.register(new AnthropicProvider({
     credentialStore: openAiCompatibleOptions.credentialStore,

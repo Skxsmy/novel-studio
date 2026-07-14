@@ -38,6 +38,58 @@ export interface ProviderPrompt {
   user: string;
 }
 
+export interface ProviderChatCapabilities {
+  nativeToolCalls: boolean;
+  reasoningReplay: boolean;
+  parallelToolCalls: boolean;
+  strictToolSchema: boolean;
+}
+
+export interface ProviderToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  strict?: boolean;
+}
+
+export interface ProviderToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+export type ProviderChatMessage =
+  | {
+    role: "user";
+    content: string;
+  }
+  | {
+    role: "assistant";
+    content: string;
+    reasoningContent?: string;
+    toolCalls?: ProviderToolCall[];
+  }
+  | {
+    role: "tool";
+    content: string;
+    toolCallId: string;
+  };
+
+export interface ProviderChatRequest extends ProviderTextRequest {
+  history?: ProviderChatMessage[];
+  tools?: ProviderToolDefinition[];
+  toolChoice?: "none" | "auto" | "required";
+}
+
+export interface ProviderChatResult {
+  text: string;
+  reasoningContent: string;
+  toolCalls: ProviderToolCall[];
+  finishReason: string | null;
+  usage: TokenUsage | null;
+  rawResponseText: string;
+}
+
 export interface ProviderTextRequest {
   modelProfile: ModelProfile;
   prompt: ProviderPrompt;
@@ -58,6 +110,7 @@ export interface ProviderEmbeddingRequest {
 
 export interface ProviderAdapter {
   readonly provider: AiProvider;
+  readonly chatCapabilities: ProviderChatCapabilities;
 
   describeCapabilities(): ProviderDescriptor;
 
@@ -66,6 +119,8 @@ export interface ProviderAdapter {
   listModels(modelProfile: ModelProfile): Promise<ProviderModelDescriptor[]>;
 
   streamText(request: ProviderTextRequest): AsyncIterable<string>;
+
+  completeChat(request: ProviderChatRequest): Promise<ProviderChatResult>;
 
   generateObject<T>(
     request: ProviderObjectRequest,

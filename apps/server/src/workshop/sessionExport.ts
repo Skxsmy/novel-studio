@@ -3,13 +3,14 @@ import type {
   ContextBundle,
   ContextItem,
   ModelCallLog,
+  WorkshopAgentRunDocument,
+  WorkshopProviderHistoryMessage,
   WorkshopMessage,
   WorkshopMessageAttachment,
   WorkshopSession,
 } from "@novel-studio/contracts";
 import type { ProjectRepository } from "@novel-studio/storage";
 import { contextPrompt } from "../routes/modelCalls.js";
-import { applyWorkshopAgentPrompt } from "./workshopAgent.js";
 import { workshopProviderPrompt } from "./workshopPrompts.js";
 
 export interface WorkshopSessionExportOptions {
@@ -58,10 +59,10 @@ function messageTitle(index: number, message: WorkshopMessage): string {
 
 function promptForMessageMode(message: WorkshopMessage, contextBundle: ContextBundle): ProviderPrompt {
   if (message.mode === "agent") {
-    return applyWorkshopAgentPrompt(workshopProviderPrompt({
+    return workshopProviderPrompt({
       mode: "agent",
       userRequest: contextBundle.userRequest,
-    }));
+    });
   }
   if (message.mode !== "general-chat") {
     return contextPrompt(contextBundle);
@@ -361,6 +362,7 @@ async function appendMessage(
   appendAttachments(lines, attachmentsForMessage(message, attachmentsById));
 
   if (!options.includePromptAudit) return;
+  if (message.agentRunId) return;
   const [modelCall, bundle] = await Promise.all([
     optionalModelCall(repository, seriesId, message.modelCallId),
     optionalContextBundle(repository, seriesId, message.contextBundleId),
@@ -376,16 +378,128 @@ async function appendMessage(
   );
 }
 
+function historyForExport(
+  history: WorkshopProviderHistoryMessage[],
+  includeReasoning: boolean,
+): unknown[] {
+  return history.map((message) => {
+    if (message.role !== "assistant" || includeReasoning) return message;
+    const { reasoningContent: _reasoningContent, ...safe } = message;
+    return safe;
+  });
+}
+
+async function appendAgentRunAudit(
+  lines: string[],
+  input: {
+    currentSessionAttachmentIds: Set<string>;
+    options: WorkshopSessionExportOptions;
+    repository: ProjectRepository;
+    runs: WorkshopAgentRunDocument[];
+    seriesId: string;
+    sessionId: string;
+  },
+): Promise<void> {
+  if (!input.options.includePromptAudit || input.runs.length === 0) return;
+  lines.push("## Agent Run Audit");
+  lines.push("");
+  const runs = [...input.runs].sort((left, right) =>
+    left.run.createdAt.localeCompare(right.run.createdAt)
+  );
+  for (const document of runs) {
+    const run = document.run;
+    lines.push(`### Run ${run.id}`);
+    lines.push(bullet("Status", run.status));
+    lines.push(bullet("Model profile", run.modelProfileId));
+    lines.push(bullet("Model override", run.modelOverride));
+    lines.push(bullet("Created", run.createdAt));
+    lines.push(bullet("Completed", run.completedAt));
+    lines.push("");
+
+    const bundle = await optionalContextBundle(input.repository, input.seriesId, run.contextBundleId);
+    lines.push("Context Bundle Sent To Provider:");
+    lines.push(bullet("Context bundle ID", run.contextBundleId));
+    if (bundle.error) {
+      lines.push(bullet("Context bundle load error", bundle.error));
+    } else if (bundle.contextBundle) {
+      const exportedBundle = contextBundleForExport(
+        bundle.contextBundle,
+        input.sessionId,
+        input.currentSessionAttachmentIds,
+      );
+      const sentItems = exportedBundle.items.filter((item) =>
+        !WORKSHOP_PROMPT_CONTEXT_KINDS.has(item.kind)
+      );
+      if (sentItems.length === 0) {
+        lines.push("- none");
+      } else {
+        for (const item of sentItems) {
+          lines.push(`#### ${item.kind} | ${item.title}`);
+          lines.push(bullet("Source", `${item.source.type}:${item.source.id ?? "-"} ${item.source.label}`.trim()));
+          lines.push(bullet("Inclusion", item.inclusion));
+          lines.push(markdownText(item.content));
+        }
+      }
+    }
+    lines.push("");
+
+    for (const step of run.steps) {
+      lines.push(`#### Step ${step.index + 1} | ${step.kind} | attempt ${step.attempt}`);
+      lines.push(bullet("Status", step.status));
+      lines.push(bullet("Started", step.startedAt));
+      lines.push(bullet("Completed", step.completedAt));
+      lines.push(bullet("Input message IDs", step.inputMessageIds.join(", ")));
+      if (step.errorCode || step.errorMessage) {
+        lines.push(bullet("Error", `${step.errorCode ?? "-"}: ${step.errorMessage ?? "-"}`));
+      }
+      if (step.modelCallId) {
+        const modelCall = await optionalModelCall(input.repository, input.seriesId, step.modelCallId);
+        lines.push(bullet("Model call ID", step.modelCallId));
+        if (modelCall.error) {
+          lines.push(bullet("Model call load error", modelCall.error));
+        } else if (modelCall.log) {
+          lines.push(bullet("Provider", modelCall.log.provider));
+          lines.push(bullet("Model", modelCall.log.model));
+          lines.push(bullet("Model call status", modelCall.log.status));
+          lines.push(bullet("Estimated usage", JSON.stringify(modelCall.log.estimatedUsage)));
+          lines.push(bullet("Actual usage", modelCall.log.actualUsage ? JSON.stringify(modelCall.log.actualUsage) : null));
+        }
+      }
+      if (step.promptSnapshot) {
+        lines.push("Prompt Snapshot:");
+        lines.push("System:");
+        lines.push(markdownText(step.promptSnapshot.system));
+        lines.push("Instructions:");
+        lines.push(markdownText(step.promptSnapshot.instructions));
+        lines.push("User:");
+        lines.push(markdownText(step.promptSnapshot.user));
+        lines.push("Provider History Snapshot:");
+        if (step.historySnapshot.length === 0) {
+          lines.push("- none");
+        } else {
+          lines.push(markdownText(JSON.stringify(
+            historyForExport(step.historySnapshot, input.options.includeReasoning),
+            null,
+            2,
+          )));
+        }
+      }
+      lines.push("");
+    }
+  }
+}
+
 export async function exportWorkshopSessionMarkdown(
   repository: ProjectRepository,
   seriesId: string,
   sessionId: string,
   options: WorkshopSessionExportOptions,
 ): Promise<string> {
-  const [session, messages, attachments] = await Promise.all([
+  const [session, messages, attachments, agentRuns] = await Promise.all([
     repository.getWorkshopSession(seriesId, sessionId),
     repository.listWorkshopMessages(seriesId, sessionId),
     repository.listWorkshopAttachments(seriesId, sessionId),
+    repository.listWorkshopAgentRuns(seriesId, sessionId),
   ]);
   const sessionMessages = messages
     .filter((message) => message.seriesId === seriesId && message.sessionId === session.id)
@@ -408,6 +522,22 @@ export async function exportWorkshopSessionMarkdown(
       seriesId,
       sessionId: session.id,
     });
+  }
+  await appendAgentRunAudit(lines, {
+    currentSessionAttachmentIds,
+    options,
+    repository,
+    runs: agentRuns.runs,
+    seriesId,
+    sessionId: session.id,
+  });
+  if (options.includePromptAudit && agentRuns.diagnostics.length) {
+    lines.push("## Agent Run Diagnostics");
+    lines.push("");
+    for (const diagnostic of agentRuns.diagnostics) {
+      lines.push(`- ${diagnostic.fileName}: ${diagnostic.code} - ${diagnostic.message}`);
+    }
+    lines.push("");
   }
   return `${lines.join("\n").replace(/\n{4,}/gu, "\n\n\n").trimEnd()}\n`;
 }

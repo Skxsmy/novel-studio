@@ -7,7 +7,7 @@ import { EmbeddingRouter } from "@novel-studio/ai";
 import { EmbeddingModelProfileSchema } from "@novel-studio/contracts";
 import { ProjectRepository } from "@novel-studio/storage";
 import { buildApp } from "../src/app.js";
-import { applyWorkshopAgentPrompt } from "../src/workshop/workshopAgent.js";
+import { workshopProviderPrompt } from "../src/workshop/workshopPrompts.js";
 
 const roots: string[] = [];
 
@@ -408,9 +408,46 @@ function openAiStreamFetch(responseText: string | (() => string)): typeof fetch 
   return async (input, init) => {
     if (String(input) === "https://example.test/v1/chat/completions") {
       const text = typeof responseText === "function" ? responseText() : responseText;
-      const body = JSON.parse(String(init?.body ?? "{}")) as { response_format?: unknown };
+      const body = JSON.parse(String(init?.body ?? "{}")) as { response_format?: unknown; stream?: unknown };
       if (body.response_format) {
         return new Response(JSON.stringify({ choices: [{ message: { content: text } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (body.stream === false) {
+        let structured: Record<string, unknown> | null = null;
+        try {
+          const parsed = JSON.parse(text) as unknown;
+          if (parsed && typeof parsed === "object") structured = parsed as Record<string, unknown>;
+        } catch {
+          structured = null;
+        }
+        const isTool = structured?.type === "request_tool" && typeof structured.tool === "string";
+        const content = structured?.type === "respond" && typeof structured.message === "string"
+          ? structured.message
+          : isTool ? "" : text;
+        return new Response(JSON.stringify({
+          choices: [{
+            finish_reason: isTool ? "tool_calls" : "stop",
+            message: {
+              content,
+              ...(isTool ? {
+                tool_calls: [{
+                  id: randomUUID(),
+                  type: "function",
+                  function: {
+                    name: structured!.tool,
+                    arguments: JSON.stringify({
+                      message: structured!.message,
+                      draft: structured!.draft,
+                    }),
+                  },
+                }],
+              } : {}),
+            },
+          }],
+        }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -445,6 +482,41 @@ function agentToolStep(input: {
     message: input.message ?? "Prepared a Codex tool request.",
     draft: input.draft,
   });
+}
+
+function openAiNativeAgentResponse(responseText: string): Response {
+  const structured = JSON.parse(responseText) as Record<string, unknown>;
+  if (structured.type === "request_tool" && typeof structured.tool === "string") {
+    return new Response(JSON.stringify({
+      choices: [{
+        finish_reason: "tool_calls",
+        message: {
+          content: "",
+          tool_calls: [{
+            id: randomUUID(),
+            type: "function",
+            function: {
+              name: structured.tool,
+              arguments: JSON.stringify({
+                message: structured.message,
+                draft: structured.draft,
+              }),
+            },
+          }],
+        },
+      }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  return new Response(JSON.stringify({
+    choices: [{
+      finish_reason: "stop",
+      message: {
+        content: structured.type === "respond" && typeof structured.message === "string"
+          ? structured.message
+          : responseText,
+      },
+    }],
+  }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
 async function createAgentToolMessage(input: {
@@ -713,7 +785,7 @@ describe("M5 Workshop API routes", () => {
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/context-preview`,
       payload: {
-        mode: "continuity-check",
+        mode: "general-chat",
         userRequest: "Check continuity for this scene.",
         roleId: prompt.roleId,
         taskKind: "continuity-check",
@@ -743,7 +815,7 @@ describe("M5 Workshop API routes", () => {
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
       payload: {
-        mode: "continuity-check",
+        mode: "general-chat",
         userRequest: "Check continuity for this scene.",
         roleId: prompt.roleId,
         taskKind: "continuity-check",
@@ -819,13 +891,7 @@ describe("M5 Workshop API routes", () => {
         }],
       },
     });
-    expect(createdProposal.statusCode).toBe(201);
-    expect(createdProposal.json().proposal.proposal.source).toMatchObject({
-      kind: "workshop-message",
-      sourceId: assistantMessage.id,
-      label: "Continuity pass",
-    });
-    expect(createdProposal.json().message.proposalIds).toEqual([createdProposal.json().proposal.proposal.id]);
+    expect(createdProposal.statusCode).toBe(404);
 
     const sourceMessage = await app.inject({
       method: "GET",
@@ -834,27 +900,6 @@ describe("M5 Workshop API routes", () => {
     expect(sourceMessage.statusCode).toBe(200);
     expect(sourceMessage.json().session.id).toBe(session.id);
     expect(sourceMessage.json().message.id).toBe(assistantMessage.id);
-
-    const linkedMessages = await app.inject({
-      method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
-    });
-    expect(linkedMessages.json().find((message: { id: string }) => message.id === assistantMessage.id).proposalIds)
-      .toEqual([createdProposal.json().proposal.proposal.id]);
-
-    await app.inject({
-      method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/archive`,
-    });
-    const archivedSourceProposal = await app.inject({
-      method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/review/proposals/${createdProposal.json().proposal.proposal.id}`,
-    });
-    expect(archivedSourceProposal.statusCode).toBe(200);
-    expect(archivedSourceProposal.json().sourceAvailability).toMatchObject({
-      available: false,
-      reason: "Source Workshop session is archived",
-    });
 
     await app.close();
   });
@@ -958,7 +1003,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Answer using the attachments.",
-        systemPrompt: "Use the supplied context.",
         modelProfileId: profile.id,
         draftToken: "draft-attachments",
         attachmentIds,
@@ -1040,7 +1084,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "First question about file.",
-        systemPrompt: "Use the supplied context.",
         modelProfileId: profile.id,
         draftToken: "provider-draft",
         attachmentIds: [upload.json().id],
@@ -1055,7 +1098,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Follow-up question.",
-        systemPrompt: "Use the supplied context.",
         modelProfileId: profile.id,
       },
     });
@@ -1130,7 +1172,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Show reasoning.",
-        systemPrompt: "Use the supplied context.",
         modelProfileId: profile.id,
       },
     });
@@ -1234,7 +1275,6 @@ describe("M5 Workshop API routes", () => {
     const basePayload = {
       mode: "general-chat",
       userRequest: "Use attachment.",
-      systemPrompt: "Use the supplied context.",
       modelProfileId: profile.id,
     };
     const wrongDraft = await app.inject({
@@ -1307,7 +1347,7 @@ describe("M5 Workshop API routes", () => {
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
       payload: {
-        mode: "continuity-check",
+        mode: "general-chat",
         userRequest: "This request should be preserved.",
         roleId: prompt.roleId,
         taskKind: "continuity-check",
@@ -1350,13 +1390,16 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
-  it("uses custom General Chat system prompts and blocks Proposal creation from those replies", async () => {
+  it("uses custom General Chat system prompts without exposing a message Proposal route", async () => {
     const { app, series, profile } = await createSeriesWithMockProfile();
     const scene = series.scenes[0];
     const sessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
-      payload: { title: "General chat" },
+      payload: {
+        title: "General chat",
+        generalChatSystemPrompt: "Answer as a private context-aware story consultant.",
+      },
     });
     expect(sessionResponse.statusCode).toBe(201);
     const session = sessionResponse.json();
@@ -1364,7 +1407,10 @@ describe("M5 Workshop API routes", () => {
     const otherSessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
-      payload: { title: "Other export chat" },
+      payload: {
+        title: "Other export chat",
+        generalChatSystemPrompt: "This prompt belongs to the other session.",
+      },
     });
     expect(otherSessionResponse.statusCode).toBe(201);
     const otherSession = otherSessionResponse.json();
@@ -1374,7 +1420,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Other session private export text.",
-        systemPrompt: "This prompt belongs to the other session.",
         modelProfileId: profile.id,
       },
     });
@@ -1386,7 +1431,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Talk through options without creating a write candidate.",
-        systemPrompt: "Answer as a private context-aware story consultant.",
         modelProfileId: profile.id,
       },
     });
@@ -1405,11 +1449,31 @@ describe("M5 Workshop API routes", () => {
       expect.objectContaining({
         kind: "role-instruction",
         source: expect.objectContaining({ type: "user-input" }),
-        title: "Runtime prompt override",
+        title: "Resolved system prompt",
         content: "Answer as a private context-aware story consultant.",
       }),
     ]));
     expect(context.json().items.some((item: { kind: string }) => item.kind === "prompt-template")).toBe(false);
+
+    const rejectedOverride = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/context-preview`,
+      payload: {
+        mode: "general-chat",
+        userRequest: "Reject a one-call override.",
+        systemPrompt: "Request-local override.",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(rejectedOverride.statusCode).toBe(400);
+
+    const clearedSession = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}`,
+      payload: { generalChatSystemPrompt: "" },
+    });
+    expect(clearedSession.statusCode).toBe(200);
+    expect(clearedSession.json().generalChatSystemPrompt).toBe("");
 
     const emptyPromptPreview = await app.inject({
       method: "POST",
@@ -1417,7 +1481,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Use no system prompt.",
-        systemPrompt: "",
         modelProfileId: profile.id,
       },
     });
@@ -1426,7 +1489,7 @@ describe("M5 Workshop API routes", () => {
       expect.objectContaining({
         kind: "role-instruction",
         source: expect.objectContaining({ type: "user-input" }),
-        title: "Runtime prompt override",
+        title: "Resolved system prompt",
         content: "",
       }),
     ]));
@@ -1470,8 +1533,7 @@ describe("M5 Workshop API routes", () => {
         }],
       },
     });
-    expect(blockedProposal.statusCode).not.toBe(201);
-    expect(blockedProposal.json().message).toContain("General Chat messages cannot create Proposals");
+    expect(blockedProposal.statusCode).toBe(404);
 
     await app.close();
   });
@@ -1481,7 +1543,10 @@ describe("M5 Workshop API routes", () => {
     const sessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
-      payload: { title: "Resend chat" },
+      payload: {
+        title: "Resend chat",
+        generalChatSystemPrompt: "Answer as a private context-aware story consultant.",
+      },
     });
     expect(sessionResponse.statusCode).toBe(201);
     const session = sessionResponse.json();
@@ -1511,12 +1576,18 @@ describe("M5 Workshop API routes", () => {
     const later = laterCall.json().authorMessage;
     const laterAnswer = laterCall.json().assistantMessage;
 
+    const promptUpdate = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}`,
+      payload: { generalChatSystemPrompt: "Resend-owned prompt." },
+    });
+    expect(promptUpdate.statusCode).toBe(200);
+
     const resend = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${first.id}/resend`,
       payload: {
         content: "Updated request.",
-        systemPrompt: "Answer as a private context-aware story consultant.",
         modelProfileId: profile.id,
       },
     });
@@ -1538,6 +1609,12 @@ describe("M5 Workshop API routes", () => {
       later.id,
       laterAnswer.id,
     ]);
+    const resendAudit = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/export?includePromptAudit=true&includeReasoning=false`,
+    });
+    expect(resendAudit.statusCode).toBe(200);
+    expect(resendAudit.payload).toContain("Resend-owned prompt.");
 
     const messages = await app.inject({
       method: "GET",
@@ -1588,7 +1665,7 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
-  it("runs Agent sessions with a structured step protocol and blocks generic scene Proposals", async () => {
+  it("runs Agent sessions with native text/tool protocol without exposing a message Proposal route", async () => {
     const { app, series, profile } = await createSeriesWithMockProfile();
     const scene = series.scenes[0]!;
     const sessionResponse = await app.inject({
@@ -1600,20 +1677,12 @@ describe("M5 Workshop API routes", () => {
     const session = sessionResponse.json();
     expect(session.kind).toBe("agent");
 
-    const agentPrompt = applyWorkshopAgentPrompt({
-      system: "Base",
-      instructions: "Base instructions",
-      user: "User",
+    const agentPrompt = workshopProviderPrompt({
+      mode: "agent",
+      userRequest: "User",
     });
-    expect(agentPrompt.system).toBe("Base");
-    expect(agentPrompt.instructions).toContain("Conversation comes first");
-    expect(agentPrompt.instructions).toContain("Writing method");
-    expect(agentPrompt.instructions).toContain('"type":"request_tool"');
-    expect(agentPrompt.instructions).toContain('"tool":"codex.create_entry"');
-    expect(agentPrompt.instructions).toContain('"tool":"codex.update_entry"');
-    expect(agentPrompt.instructions).toContain("patch.progressions");
-    expect(agentPrompt.instructions).toContain("Base instructions");
-    expect(agentPrompt.instructions).not.toContain("Do not write Tool Call text");
+    expect(agentPrompt.instructions).not.toContain('"type":"request_tool"');
+    expect(agentPrompt.instructions).not.toContain("Tool Call:");
     expect(agentPrompt.instructions).not.toContain("Workshop surface: Dialogue Agent");
 
     const call = await app.inject({
@@ -1667,10 +1736,7 @@ describe("M5 Workshop API routes", () => {
         }],
       },
     });
-    expect(blockedProposal.statusCode).not.toBe(201);
-    expect(blockedProposal.json().message).toContain(
-      "Agent messages require an approved tool adapter or dedicated Proposal path",
-    );
+    expect(blockedProposal.statusCode).toBe(404);
 
     const legacyMode = await app.inject({
       method: "POST",
@@ -1682,7 +1748,16 @@ describe("M5 Workshop API routes", () => {
       },
     });
     expect(legacyMode.statusCode).toBe(400);
-    expect(legacyMode.json().message).toContain("Codex Creation is no longer a Workshop mode");
+    const removedContinuityMode = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "continuity-check",
+        userRequest: "Check this scene through a removed Workshop mode.",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(removedContinuityMode.statusCode).toBe(400);
 
     await app.close();
   });
@@ -1752,8 +1827,8 @@ describe("M5 Workshop API routes", () => {
 
     expect(chatBodies).toHaveLength(1);
     const messages = chatBodies[0]!.messages as Array<{ role: string; content: string }>;
-    expect(messages[0]!.content).toContain("Conversation comes first");
     expect(messages[0]!.content).toContain("Workshop Agent");
+    expect(messages[0]!.content).not.toContain('"type":"request_tool"');
     expect(messages[1]!.content).toBe("先和我讨论星坠晶，不要创建 Codex。");
     expect(messages[1]!.content).not.toContain("Context checker");
     expect(messages[1]!.content).not.toContain("You check story context.");
@@ -1802,10 +1877,7 @@ describe("M5 Workshop API routes", () => {
               research: "Source: current Workshop Agent conversation.",
             },
           });
-        return new Response(JSON.stringify({ choices: [{ message: { content: responseText } }] }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        return openAiNativeAgentResponse(responseText);
       }
       return new Response(JSON.stringify({ error: { message: "not found" } }), {
         status: 404,
@@ -1921,10 +1993,7 @@ describe("M5 Workshop API routes", () => {
           type: "respond",
           message: "可以。这个设定更适合先写成可选 Codex 草稿，再由你决定是否入库。",
         });
-        return new Response(JSON.stringify({ choices: [{ message: { content: responseText } }] }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        return openAiNativeAgentResponse(responseText);
       }
       return new Response(JSON.stringify({ object: "list", data: [] }), {
         status: 200,
@@ -1958,7 +2027,7 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
-  it("does not stream or execute simulated Agent tool-call text", async () => {
+  it("keeps simulated Agent tool-call text as non-executable assistant prose", async () => {
     const providerFetch: typeof fetch = async (input) => {
       if (String(input) === "https://example.test/v1/chat/completions") {
         const responseText = [
@@ -2013,15 +2082,14 @@ describe("M5 Workshop API routes", () => {
     expect(call.statusCode).toBe(200);
     const events = parseSseEvents(call.body);
     expect(events.filter((event) => event.type === "delta")).toHaveLength(0);
-    expect(JSON.stringify(events)).not.toContain("codex-create");
     const done = events.find((event) => event.type === "done") as {
       result: {
         assistantMessage: { content: string; status: string };
         toolMessages: Array<{ role: string; mode: string; content: string }>;
       };
     };
-    expect(done.result.assistantMessage.status).toBe("failed");
-    expect(done.result.assistantMessage.content).not.toContain("Tool Call");
+    expect(done.result.assistantMessage.status).toBe("succeeded");
+    expect(done.result.assistantMessage.content).toContain("Tool Call: codex-create");
     expect(done.result.toolMessages).toHaveLength(0);
 
     const messages = await app.inject({
@@ -2057,10 +2125,7 @@ describe("M5 Workshop API routes", () => {
             research: "Author decision recorded in this Agent session.",
           },
         });
-        return new Response(JSON.stringify({ choices: [{ message: { content: responseText } }] }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        return openAiNativeAgentResponse(responseText);
       }
       return new Response(JSON.stringify({ error: { message: "not found" } }), {
         status: 404,
@@ -2334,6 +2399,22 @@ describe("M5 Workshop API routes", () => {
       "assistant",
     ]);
     expect(detail.json().agentRuns.runs[0].run.status).toBe("completed");
+    expect(detail.json().agentRuns.runs[0].run.steps[3].historySnapshot).toMatchObject([
+      { role: "assistant", toolCalls: [{ name: "codex.create_entry" }] },
+      { role: "tool", content: "codex.create_entry created Codex entry: Caleb Rook" },
+    ]);
+
+    const audit = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/export?includePromptAudit=true`,
+    });
+    expect(audit.statusCode).toBe(200);
+    expect(audit.payload).toContain("## Agent Run Audit");
+    expect(audit.payload.match(/#### Step /gu)).toHaveLength(4);
+    expect(audit.payload.match(/- Model call ID:/gu)).toHaveLength(2);
+    expect(audit.payload).toContain("Provider History Snapshot:");
+    expect(audit.payload).toContain("codex.create_entry created Codex entry: Caleb Rook");
+    expect(audit.payload).not.toContain("Continue the conversation after the tool result");
     await app.close();
   });
 
@@ -2390,7 +2471,7 @@ describe("M5 Workshop API routes", () => {
         return new Response(JSON.stringify({ error: { message: "not found" } }), { status: 404 });
       }
       requestCount += 1;
-      if (requestCount === 1) {
+      if (requestCount <= 2) {
         return new Response(JSON.stringify({ error: { message: "temporary outage" } }), {
           status: 503,
           headers: { "content-type": "application/json" },
@@ -2426,12 +2507,13 @@ describe("M5 Workshop API routes", () => {
     });
     expect(retried.statusCode, retried.payload).toBe(200);
     expect(retried.json().agentRun.run.status).toBe("completed");
-    expect(retried.json().agentRun.run.steps.map((step: { status: string }) => step.status)).toEqual([
-      "failed",
-      "succeeded",
+    expect(retried.json().agentRun.run.steps.map((step: { kind: string; status: string }) => [step.kind, step.status])).toEqual([
+      ["model", "failed"],
+      ["retry", "failed"],
+      ["retry", "succeeded"],
     ]);
     expect(retried.json().assistantMessage.content).toContain("retry completed");
-    expect(requestCount).toBe(2);
+    expect(requestCount).toBe(3);
     await app.close();
   });
 
@@ -3697,7 +3779,10 @@ describe("M5 Workshop API routes", () => {
     const sessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
-      payload: { title: "Export chat" },
+      payload: {
+        title: "Export chat",
+        generalChatSystemPrompt: "Answer as a private context-aware story consultant.",
+      },
     });
     expect(sessionResponse.statusCode).toBe(201);
     const session = sessionResponse.json();
@@ -3705,7 +3790,10 @@ describe("M5 Workshop API routes", () => {
     const otherSessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
-      payload: { title: "Other export chat" },
+      payload: {
+        title: "Other export chat",
+        generalChatSystemPrompt: "This prompt belongs to the other session.",
+      },
     });
     expect(otherSessionResponse.statusCode).toBe(201);
     const otherSession = otherSessionResponse.json();
@@ -3715,7 +3803,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Other session private export text.",
-        systemPrompt: "This prompt belongs to the other session.",
         modelProfileId: profile.id,
       },
     });
@@ -3741,7 +3828,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Talk through the scene without writing.",
-        systemPrompt: "Answer as a private context-aware story consultant.",
         modelProfileId: profile.id,
         attachmentIds: [upload.json().id],
         draftToken: "export-draft",
@@ -3806,12 +3892,15 @@ describe("M5 Workshop API routes", () => {
     await app.close();
   });
 
-  it("streams General Chat replies with separated reasoning and supports deleting unlinked records", async () => {
+  it("streams General Chat replies with separated reasoning and deletes the complete unlinked turn", async () => {
     const { app, series, profile } = await createSeriesWithMockProfile("mock-reasoning-v1");
     const sessionResponse = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
-      payload: { title: "Streaming chat" },
+      payload: {
+        title: "Streaming chat",
+        generalChatSystemPrompt: "Stream-owned prompt.",
+      },
     });
     expect(sessionResponse.statusCode).toBe(201);
     const session = sessionResponse.json();
@@ -3822,7 +3911,6 @@ describe("M5 Workshop API routes", () => {
       payload: {
         mode: "general-chat",
         userRequest: "Talk through the scene without writing.",
-        systemPrompt: "Answer as a private context-aware story consultant.",
         modelProfileId: profile.id,
       },
     });
@@ -3837,8 +3925,17 @@ describe("M5 Workshop API routes", () => {
       "assistant-message",
       "done",
     ]));
+    const streamAudit = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/export?includePromptAudit=true&includeReasoning=false`,
+    });
+    expect(streamAudit.statusCode).toBe(200);
+    expect(streamAudit.payload).toContain("Stream-owned prompt.");
     const done = events.find((event) => event.type === "done") as {
       result: { assistantMessage: { id: string; content: string; reasoningContent: string } };
+    };
+    const authorEvent = events.find((event) => event.type === "author-message") as {
+      message: { id: string };
     };
     expect(done.result.assistantMessage.content).toContain("公开回复");
     expect(done.result.assistantMessage.content).not.toContain("<think>");
@@ -3849,12 +3946,15 @@ describe("M5 Workshop API routes", () => {
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${done.result.assistantMessage.id}`,
     });
     expect(deleteResponse.statusCode).toBe(200);
-    expect(deleteResponse.json().deletedId).toBe(done.result.assistantMessage.id);
+    expect(deleteResponse.json().deletedMessageIds).toEqual([
+      authorEvent.message.id,
+      done.result.assistantMessage.id,
+    ]);
     const messages = await app.inject({
       method: "GET",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
     });
-    expect(messages.json().map((message: { id: string }) => message.id)).not.toContain(done.result.assistantMessage.id);
+    expect(messages.json()).toEqual([]);
 
     await app.close();
   });

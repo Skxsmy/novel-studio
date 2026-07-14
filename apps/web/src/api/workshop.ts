@@ -3,7 +3,6 @@ import type {
   AbandonWorkshopAgentRunInput,
   ContextBundle,
   CreateWorkshopBranchInput,
-  CreateWorkshopMessageProposalInput,
   ExecuteWorkshopCodexCreateEntryToolInput,
   ExecuteWorkshopCodexUpdateEntryToolInput,
   CreateWorkshopMessageInput,
@@ -32,7 +31,6 @@ import type {
   WorkshopContextPreviewInput,
   WorkshopMessageAttachment,
   WorkshopMessage,
-  WorkshopMessageProposalResult,
   WorkshopMessageSource,
   WorkshopSession,
 } from "@novel-studio/contracts";
@@ -165,20 +163,6 @@ export function createWorkshopApi(client: ApiClient) {
         },
       );
     },
-    createMessageProposal(
-      seriesId: string,
-      sessionId: string,
-      messageId: string,
-      input: CreateWorkshopMessageProposalInput,
-    ) {
-      return client.requestJson<WorkshopMessageProposalResult>(
-        `/series/${seriesId}/workshop/sessions/${sessionId}/messages/${messageId}/proposals`,
-        {
-          body: input,
-          method: "POST",
-        },
-      );
-    },
     executeCodexCreateEntryTool(
       seriesId: string,
       sessionId: string,
@@ -271,7 +255,6 @@ export type {
   AbandonWorkshopAgentRunInput,
   ContextBundle,
   CreateWorkshopBranchInput,
-  CreateWorkshopMessageProposalInput,
   ExecuteWorkshopCodexCreateEntryToolInput,
   ExecuteWorkshopCodexUpdateEntryToolInput,
   CreateWorkshopMessageInput,
@@ -300,7 +283,6 @@ export type {
   WorkshopContextPreviewInput,
   WorkshopMessageAttachment,
   WorkshopMessage,
-  WorkshopMessageProposalResult,
   WorkshopMessageSource,
   WorkshopSession,
 };

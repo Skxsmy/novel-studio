@@ -17,9 +17,11 @@ This changelog records user-visible product changes. Task status, command logs, 
 ### Changed
 
 - Workshop Codex detail drafts now rank reusable same-category detail types, let authors map each unmatched label, and require an explicit final name and NSFW choice before creating a new reusable type.
-- Workshop Agent uses Provider-native structured output when available and visibly degrades to strict JSON on the selected model when it is not, without silent Provider fallback.
+- Workshop Agent uses ordinary Provider assistant text for conversation and Provider-native tool calls for Codex requests. Models without native tools remain available for conversation but receive no write tools; there is no strict-JSON dialogue fallback or silent Provider fallback.
+- Retryable Agent transport failures receive one bounded same-run retry, while invalid native tool arguments receive one model-visible correction attempt before the run becomes explicitly retryable.
 - Workshop Codex update migrates legacy name-keyed Details through the reusable detail planner, and atomically failed tool calls now return to the same Agent run instead of stopping the conversation.
 - Workshop Chat and Agent prompts are isolated from global non-Workshop role/template records.
+- Each Workshop General Chat session now owns its system-prompt snapshot; switching sessions restores the corresponding prompt, branches inherit it, and Agent sessions remain separate from General Chat prompt state.
 - Workshop uses explicit context selection, prior same-session history, and message attachment snapshots rather than an implicit current scene.
 - Review prioritizes the candidate difference and author decision instead of an engineering Proposal dashboard.
 - Model settings and credentials are library-global and do not expose a cloud/local policy switch.

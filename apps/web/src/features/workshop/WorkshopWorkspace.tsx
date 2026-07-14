@@ -21,6 +21,19 @@ import type {
 import { ApiError, api } from "../../api";
 import { uiText } from "../../app/uiText";
 import { categoryLabel } from "../codex/codexViewModel";
+import { isEligibleWorkshopBranchSource, workshopGeneralChatTurn } from "./workshopConversation";
+import {
+  attachmentStatusLabel,
+  codexEntryMentionedInText,
+  fileToBase64,
+  formatWorkshopDate,
+  proposalStatusClass,
+  proposalTargetKindLabel,
+  selectedScopeTexts,
+  titleFromChatStart,
+  workshopExportFileName,
+  type ComposerAttachment,
+} from "./workshopViewModel";
 import "./workshop-workspace.css";
 
 export interface WorkshopWorkspaceProps {
@@ -37,18 +50,12 @@ type ContextMenuView =
   | { kind: "chapters" }
   | { kind: "scenes" }
   | { kind: "codexEntries" }
-  | { kind: "entryTypes" }
-  | { kind: "entryTypeEntries"; categoryId: string; label: string }
   | { kind: "entryDetails" }
   | { kind: "entryDetailEntries"; detailTypeId: string; label: string }
   | { kind: "entryCategories" }
   | { kind: "entryCategoryEntries"; categoryId: string; label: string };
 
 type ContextRootTab = "story" | "scenes" | "codex" | "files";
-
-type ComposerAttachment = Omit<WorkshopMessageAttachment, "parseStatus"> & {
-  parseStatus: WorkshopMessageAttachment["parseStatus"] | "parsing";
-};
 
 interface CodexDraftResolutionState {
   availableDetailTypes: WorkshopCodexCreateEntryToolError["availableDetailTypes"];
@@ -66,7 +73,6 @@ type CodexDraftResolutionChoice =
 type CodexToolName = "codex.create_entry" | "codex.update_entry";
 
 const LINKED_CODEX_NOTE = "Linked from selected context.";
-const AUTO_SESSION_TITLE_MAX = 56;
 
 function randomId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
@@ -78,7 +84,7 @@ function apiErrorMessage(error: unknown): string {
     if (typeof payload === "object" && typeof payload.message === "string") return payload.message;
     if (typeof payload === "string") return payload;
   }
-  return error instanceof Error ? error.message : "Request failed";
+  return error instanceof Error ? error.message : uiText.workshop.errors.requestFailed;
 }
 
 function codexCreateEntryToolError(error: unknown): WorkshopCodexCreateEntryToolError | null {
@@ -114,212 +120,6 @@ function codexToolRequestName(content: string): CodexToolName | null {
   return null;
 }
 
-function formatDate(value: string | null): string {
-  if (!value) return "";
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "short",
-    day: "numeric",
-  }).format(new Date(value));
-}
-
-function workshopExportFileName(session: WorkshopSession): string {
-  const safeTitle = session.title
-    .trim()
-    .replace(/[<>:"/\\|?*\u0000-\u001F]/gu, "-")
-    .replace(/\s+/gu, "-")
-    .replace(/-+/gu, "-")
-    .replace(/[. -]+$/gu, "")
-    .slice(0, 64);
-  return `workshop-${safeTitle || "session"}-${session.id.slice(0, 8)}.md`;
-}
-
-function statusClass(status: ProposalDocument["proposal"]["status"]) {
-  if (status === "pending") return "pill blue";
-  if (status === "accepted" || status === "edited") return "pill green";
-  if (status === "stale") return "pill amber";
-  return "pill muted";
-}
-
-function targetKindLabel(kind: ProposalDocument["proposal"]["target"]["kind"]) {
-  if (kind.startsWith("scene")) return "Manuscript";
-  if (kind.startsWith("codex") || kind === "detail-type") return "Codex";
-  if (kind === "planning") return "Planning";
-  return "Research";
-}
-
-function pluralVariants(term: string): string[] {
-  if (!/^[A-Za-z][A-Za-z'-]*$/u.test(term)) return [];
-  if (/[^aeiou]y$/iu.test(term)) return [`${term.slice(0, -1)}ies`];
-  if (/(?:s|x|z|ch|sh)$/iu.test(term)) return [`${term}es`];
-  return [`${term}s`];
-}
-
-function regexRanges(content: string, term: string, caseSensitive: boolean) {
-  const escaped = term.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const regex = new RegExp(escaped, caseSensitive ? "gu" : "giu");
-  const ranges: Array<{ start: number; end: number }> = [];
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(content)) !== null) {
-    ranges.push({ start: match.index, end: match.index + match[0].length });
-    regex.lastIndex = match.index + Math.max(match[0].length, 1);
-  }
-  return ranges;
-}
-
-function rangeInside(range: { start: number; end: number }, blockers: Array<{ start: number; end: number }>) {
-  return blockers.some((blocker) => range.start >= blocker.start && range.end <= blocker.end);
-}
-
-function codexEntryMentionedInText(entry: CodexEntryDocument, content: string): boolean {
-  const rules = entry.metadata.mention;
-  const excludedTerms = rules.excludedTerms.map((term) => term.trim()).filter(Boolean);
-  const blockers = excludedTerms.flatMap((term) => regexRanges(content, term, rules.caseSensitive));
-  const excludedKeys = new Set(excludedTerms.map((term) =>
-    rules.caseSensitive ? term : term.toLocaleLowerCase("und"),
-  ));
-  const candidates = [
-    entry.metadata.name,
-    ...(rules.matchAliases ? entry.metadata.aliases : []),
-  ].flatMap((term) => [
-    term,
-    ...(rules.automaticPlural ? pluralVariants(term) : []),
-  ]);
-  for (const candidate of candidates) {
-    const term = candidate.trim();
-    if (!term) continue;
-    const normalized = rules.caseSensitive ? term : term.toLocaleLowerCase("und");
-    if (excludedKeys.has(normalized)) continue;
-    for (const range of regexRanges(content, term, rules.caseSensitive)) {
-      if (!rangeInside(range, blockers)) return true;
-    }
-  }
-  return false;
-}
-
-function sceneOutlineText(scene: SceneDocument): string {
-  return [
-    scene.metadata.title,
-    scene.metadata.summary,
-    scene.metadata.goal,
-    scene.metadata.conflict,
-    scene.metadata.outcome,
-    scene.metadata.beats.join("\n"),
-  ].filter(Boolean).join("\n");
-}
-
-function sceneScopeText(scene: SceneDocument): string {
-  return [
-    sceneOutlineText(scene),
-    scene.plainText || scene.content,
-  ].filter(Boolean).join("\n\n");
-}
-
-function byOrder<T extends { order: number }>(items: T[]): T[] {
-  return [...items].sort((left, right) => left.order - right.order);
-}
-
-function scenesForChapter(series: SeriesDetail, chapterId: string) {
-  return byOrder(series.scenes
-    .filter((scene) => scene.metadata.chapterId === chapterId)
-    .map((scene) => ({ ...scene, order: scene.metadata.order })));
-}
-
-function chaptersForAct(series: SeriesDetail, actId: string) {
-  return byOrder(series.chapters.filter((chapter) => chapter.actId === actId));
-}
-
-function scenesForAct(series: SeriesDetail, actId: string) {
-  return chaptersForAct(series, actId).flatMap((chapter) => scenesForChapter(series, chapter.id));
-}
-
-function scenesInSeriesOrder(series: SeriesDetail) {
-  const ordered: SceneDocument[] = [];
-  const seen = new Set<string>();
-  for (const book of byOrder(series.books)) {
-    for (const act of byOrder(series.acts.filter((item) => item.bookId === book.id))) {
-      for (const scene of scenesForAct(series, act.id)) {
-        ordered.push(scene);
-        seen.add(scene.metadata.id);
-      }
-    }
-  }
-  ordered.push(...byOrder(series.scenes
-    .filter((scene) => !seen.has(scene.metadata.id))
-    .map((scene) => ({ ...scene, order: scene.metadata.order }))));
-  return ordered;
-}
-
-function selectedScopeTexts(
-  series: SeriesDetail,
-  items: WorkshopContextItemRef[],
-): string[] {
-  const texts: string[] = [];
-  const selectedSceneIds = new Set<string>();
-  for (const item of items) {
-    if (item.kind === "full-novel") {
-      texts.push(scenesInSeriesOrder(series).map(sceneScopeText).join("\n\n"));
-    }
-    if (item.kind === "full-outline") {
-      texts.push(scenesInSeriesOrder(series).map(sceneOutlineText).join("\n\n"));
-    }
-    if (item.kind === "act" && item.sourceId) {
-      texts.push(scenesForAct(series, item.sourceId).map(sceneScopeText).join("\n\n"));
-    }
-    if (item.kind === "chapter" && item.sourceId) {
-      texts.push(scenesForChapter(series, item.sourceId).map(sceneScopeText).join("\n\n"));
-    }
-    if (item.kind === "scene" && item.sourceId) {
-      selectedSceneIds.add(item.sourceId);
-    }
-  }
-  for (const sceneId of selectedSceneIds) {
-    const scene = series.scenes.find((item) => item.metadata.id === sceneId);
-    if (scene) texts.push(sceneScopeText(scene));
-  }
-  return texts.filter((value) => value.trim().length > 0);
-}
-
-function titleFromChatStart(
-  requestText: string,
-  attachments: Array<{ fileName: string }>,
-  attachmentOnlyRequest: string,
-  defaultSessionTitle: string,
-): string {
-  const normalizedRequest = requestText.replace(/\s+/gu, " ").trim();
-  const attachmentNames = attachments
-    .map((attachment) => attachment.fileName.trim())
-    .filter(Boolean)
-    .join(", ");
-  const source = normalizedRequest && normalizedRequest !== attachmentOnlyRequest
-    ? normalizedRequest
-    : attachmentNames || normalizedRequest;
-  if (!source) return defaultSessionTitle;
-  return source.length > AUTO_SESSION_TITLE_MAX
-    ? `${source.slice(0, AUTO_SESSION_TITLE_MAX - 3).trimEnd()}...`
-    : source;
-}
-
-function attachmentStatusLabel(
-  status: ComposerAttachment["parseStatus"] | WorkshopMessageAttachment["parseStatus"],
-  text: typeof uiText.workshop,
-): string {
-  if (status === "parsing") return text.labels.attachmentParsing;
-  if (status === "parsed") return text.labels.attachmentReady;
-  if (status === "rejected") return text.labels.attachmentRejected;
-  return text.labels.attachmentFailed;
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    binary += String.fromCharCode(...bytes.slice(index, index + 0x8000));
-  }
-  return btoa(binary);
-}
-
 export function WorkshopWorkspace({
   onOpenProposal,
   selectedMessageId,
@@ -353,13 +153,13 @@ export function WorkshopWorkspace({
   const [selectedModelId, setSelectedModelId] = useState("");
   const [providerModels, setProviderModels] = useState<ProviderModelDescriptor[]>([]);
   const [providerModelsProfileId, setProviderModelsProfileId] = useState<string | null>(null);
-  const [generalSystemPrompt, setGeneralSystemPrompt] = useState<string>(text.defaultGeneralSystemPrompt);
+  const [generalSystemPrompt, setGeneralSystemPrompt] = useState("");
+  const [isSavingGeneralSystemPrompt, setIsSavingGeneralSystemPrompt] = useState(false);
   const [composer, setComposer] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isCalling, setIsCalling] = useState(false);
   const [isFetchingProviderModels, setIsFetchingProviderModels] = useState(false);
-  const [creatingProposalMessageId, setCreatingProposalMessageId] = useState<string | null>(null);
   const [applyingCodexDraftMessageId, setApplyingCodexDraftMessageId] = useState<string | null>(null);
   const [recoveringAgentRunId, setRecoveringAgentRunId] = useState<string | null>(null);
   const [codexDraftResolution, setCodexDraftResolution] = useState<CodexDraftResolutionState | null>(null);
@@ -537,16 +337,6 @@ export function WorkshopWorkspace({
     const chapterCount = contextItems.filter((item) => item.kind === "chapter").length;
     const sceneCount = contextItems.filter((item) => item.kind === "scene").length;
     const codexCount = contextItems.filter((item) => item.kind === "codex-entry").length;
-    const proposalCount = contextItems.filter((item) => item.kind === "proposal-source").length;
-    const otherCount = contextItems.filter((item) =>
-      item.kind !== "full-novel" &&
-      item.kind !== "full-outline" &&
-      item.kind !== "act" &&
-      item.kind !== "chapter" &&
-      item.kind !== "scene" &&
-      item.kind !== "codex-entry" &&
-      item.kind !== "proposal-source",
-    ).length;
     if (hasFullNovel) chips.push(text.labels.fullNovelChip);
     if (hasFullOutline) chips.push(text.labels.fullOutlineChip);
     if (actCount > 0) chips.push(`${actCount} ${text.labels.actChipPlural}`);
@@ -556,8 +346,6 @@ export function WorkshopWorkspace({
     if (codexCount > 0) {
       chips.push(codexCount === 1 ? text.labels.relevantCodexChip : `${codexCount} ${text.labels.codexChipPlural}`);
     }
-    if (proposalCount > 0) chips.push(`${proposalCount} ${text.labels.proposalChipPlural}`);
-    if (otherCount > 0) chips.push(`${otherCount} ${text.labels.contextChipPlural}`);
     return chips;
   }, [
     basket?.sceneId,
@@ -565,11 +353,9 @@ export function WorkshopWorkspace({
     text.labels.actChipPlural,
     text.labels.chapterChipPlural,
     text.labels.codexChipPlural,
-    text.labels.contextChipPlural,
     text.labels.currentSceneChip,
     text.labels.fullNovelChip,
     text.labels.fullOutlineChip,
-    text.labels.proposalChipPlural,
     text.labels.relevantCodexChip,
     text.labels.sceneChipPlural,
   ]);
@@ -685,6 +471,25 @@ export function WorkshopWorkspace({
     const updated = await api.workshop.updateSession(seriesId, sessionId, { title: trimmed });
     applySessionUpdate(updated);
     return updated;
+  }
+
+  async function persistGeneralSystemPrompt(
+    session: WorkshopSession,
+    prompt = generalSystemPrompt,
+  ): Promise<WorkshopSession> {
+    if (session.kind !== "chat") return session;
+    const nextPrompt = prompt.trim();
+    if (nextPrompt === session.generalChatSystemPrompt) return session;
+    setIsSavingGeneralSystemPrompt(true);
+    try {
+      const updated = await api.workshop.updateSession(seriesId, session.id, {
+        generalChatSystemPrompt: nextPrompt,
+      });
+      applySessionUpdate(updated);
+      return updated;
+    } finally {
+      setIsSavingGeneralSystemPrompt(false);
+    }
   }
 
   async function autoNameSessionFromStart(
@@ -916,6 +721,12 @@ export function WorkshopWorkspace({
   }, [activeSessionId]);
 
   useEffect(() => {
+    setGeneralSystemPrompt(
+      activeSession?.kind === "chat" ? activeSession.generalChatSystemPrompt : "",
+    );
+  }, [activeSession?.generalChatSystemPrompt, activeSession?.id, activeSession?.kind]);
+
+  useEffect(() => {
     if (selectedSessionId && selectedSessionId !== activeSessionId) {
       activateSession(selectedSessionId);
     }
@@ -1003,10 +814,12 @@ export function WorkshopWorkspace({
     }
   }
 
-  async function branchFromLastMessage() {
-    if (!activeSession || messages.length === 0) return;
-    const source = messages[messages.length - 1]!;
+  async function branchFromMessage(source: WorkshopMessage) {
+    if (!activeSession) return;
+    const sourceIndex = messages.findIndex((message) => message.id === source.id);
+    if (!isEligibleWorkshopBranchSource(messages, sourceIndex)) return;
     setIsSessionActionsOpen(false);
+    setOpenMessageMenuId(null);
     setError(null);
     try {
       const result = await api.workshop.branchSession(seriesId, activeSession.id, {
@@ -1178,7 +991,6 @@ export function WorkshopWorkspace({
     return {
       mode: isAgent ? "agent" as const : "general-chat" as const,
       userRequest,
-      systemPrompt: isAgent ? "" : generalSystemPrompt.trim(),
       modelProfileId: selectedModelProfile?.id ?? null,
       modelOverride:
         selectedModelProfile && selectedModelId && selectedModelId !== selectedModelProfile.model
@@ -1274,6 +1086,12 @@ export function WorkshopWorkspace({
     const parsedDraftAttachments = draftAttachments.filter((attachment) => attachment.parseStatus === "parsed");
     if (parsedDraftAttachments.length !== draftAttachments.length) return;
     if (!composer.trim() && parsedDraftAttachments.length === 0) return;
+    try {
+      await persistGeneralSystemPrompt(activeSession);
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+      return;
+    }
     const sentAttachmentIds = parsedDraftAttachments.map((attachment) => attachment.id);
     const sentDraftToken = sentAttachmentIds.length ? draftToken : null;
     const requestText = composer.trim() || text.labels.attachmentOnlyRequest;
@@ -1480,72 +1298,6 @@ export function WorkshopWorkspace({
     if ((event.nativeEvent as { isComposing?: boolean }).isComposing) return;
     event.preventDefault();
     if (canCall) void sendMessage();
-  }
-
-  function proposalInputFromMessage(message: WorkshopMessage) {
-    const targetScene = contextScene;
-    if (!targetScene) throw new Error(text.labels.noScene);
-    const candidateText = message.content.trim();
-    const target = {
-      kind: "scene-content" as const,
-      targetId: targetScene.metadata.id,
-      label: targetScene.metadata.title,
-      baseRevision: targetScene.revision,
-      fieldPath: [],
-      blockId: null,
-      range: null,
-    };
-    const title = candidateText.split(/\n/u).find((line) => line.trim())?.trim().slice(0, 120) ||
-      text.proposals.defaultTitle;
-    const summary = candidateText.length > 220 ? `${candidateText.slice(0, 217)}...` : candidateText;
-    return {
-      type: "text-insertion" as const,
-      title,
-      summary,
-      target,
-      riskLevel: "medium" as const,
-      confidence: null,
-      reason: text.proposals.defaultReason,
-      patches: [{
-        id: randomId(),
-        target,
-        action: "insert-text" as const,
-        before: null,
-        after: candidateText,
-        unifiedDiff: `+${candidateText.slice(0, 399999)}`,
-      }],
-      evidence: [{
-        sourceType: "workshop-message" as const,
-        sourceId: message.id,
-        revision: null,
-        quote: "",
-        note: text.proposals.evidenceNote,
-      }],
-    };
-  }
-
-  async function createProposalFromMessage(message: WorkshopMessage) {
-    if (!activeSession) return;
-    setCreatingProposalMessageId(message.id);
-    setError(null);
-    setStatusMessage(null);
-    try {
-      const result = await api.workshop.createMessageProposal(
-        seriesId,
-        activeSession.id,
-        message.id,
-        proposalInputFromMessage(message),
-      );
-      setMessages((current) => current.map((item) => item.id === result.message.id ? result.message : item));
-      setProposalDocuments((current) => [
-        result.proposal,
-        ...current.filter((item) => item.proposal.id !== result.proposal.proposal.id),
-      ]);
-    } catch (caught) {
-      setError(apiErrorMessage(caught));
-    } finally {
-      setCreatingProposalMessageId(null);
-    }
   }
 
   async function executeCodexToolFromMessage(
@@ -1798,9 +1550,9 @@ export function WorkshopWorkspace({
     setError(null);
     setStatusMessage(null);
     try {
+      await persistGeneralSystemPrompt(activeSession);
       const result = await api.workshop.resendMessage(seriesId, activeSession.id, message.id, {
         content: nextContent,
-        systemPrompt: generalSystemPrompt.trim(),
         modelProfileId: selectedModelProfile.id,
         modelOverride:
           selectedModelId && selectedModelId !== selectedModelProfile.model
@@ -1835,25 +1587,32 @@ export function WorkshopWorkspace({
   }
 
   async function deleteMessage(message: WorkshopMessage) {
-    if (!activeSession) return;
+    if (!activeSession || activeSession.kind !== "chat") return;
+    const messageIndex = messages.findIndex((candidate) => candidate.id === message.id);
+    if (!workshopGeneralChatTurn(messages, messageIndex)) return;
+    if (!globalThis.confirm(text.labels.deleteTurnConfirm)) return;
     setDeletingMessageId(message.id);
     setError(null);
     setStatusMessage(null);
     try {
       const result = await api.workshop.deleteMessage(seriesId, activeSession.id, message.id);
-      setMessages((current) => current.filter((item) => item.id !== result.deletedId));
+      const deletedMessageIds = new Set(result.deletedMessageIds);
+      setMessages((current) => current.filter((item) => !deletedMessageIds.has(item.id)));
       setCodexDraftResolution((current) =>
-        current?.messageId === result.deletedId ? null : current,
+        current && deletedMessageIds.has(current.messageId) ? null : current,
       );
       setAttachments((current) => current.filter((attachment) =>
         !result.deletedAttachmentIds.includes(attachment.id),
       ));
-      setSessions((current) => current.map((session) => (
-        session.id === result.session.id ? result.session : session
-      )));
+      setSessions((current) => current.map((session) => {
+        if (session.id === result.session.id) return result.session;
+        return session.branchOfMessageId && deletedMessageIds.has(session.branchOfMessageId)
+          ? { ...session, branchOfMessageId: null }
+          : session;
+      }));
       setReasoningOverrideIds((current) => {
         const next = new Set(current);
-        next.delete(result.deletedId);
+        for (const deletedMessageId of deletedMessageIds) next.delete(deletedMessageId);
         return next;
       });
     } catch (caught) {
@@ -2054,11 +1813,6 @@ export function WorkshopWorkspace({
             text.contextMenu.codexEntries,
             () => setContextMenuView({ kind: "codexEntries" }),
             { count: activeCodexEntries.length, disabled: activeCodexEntries.length === 0 },
-          )}
-          {renderMenuBranch(
-            text.contextMenu.entriesByType,
-            () => setContextMenuView({ kind: "entryTypes" }),
-            { count: categoryGroups.length, disabled: categoryGroups.length === 0 },
           )}
           {renderMenuBranch(
             text.contextMenu.entriesByDetail,
@@ -2266,28 +2020,6 @@ export function WorkshopWorkspace({
         </>
       );
     }
-    if (contextMenuView.kind === "entryTypes") {
-      return (
-        <>
-          {renderMenuBack(text.contextMenu.entriesByType)}
-          <div className="workshop-menu-list">
-            {categoryGroups.map((group) => renderMenuBranch(
-              group.label,
-              () => setContextMenuView({ kind: "entryTypeEntries", categoryId: group.categoryId, label: group.label }),
-              { count: group.count },
-            ))}
-          </div>
-        </>
-      );
-    }
-    if (contextMenuView.kind === "entryTypeEntries") {
-      return (
-        <>
-          {renderMenuBack(contextMenuView.label)}
-          {renderCodexEntryRows(entriesForCategory(contextMenuView.categoryId))}
-        </>
-      );
-    }
     if (contextMenuView.kind === "entryDetails") {
       return (
         <>
@@ -2423,8 +2155,17 @@ export function WorkshopWorkspace({
                 {activeSession?.status === "archived" ? text.restore : text.archive}
               </button>
               <button
-                disabled={!activeSession || messages.length === 0 || deletingSessionId !== null || isCalling}
-                onClick={branchFromLastMessage}
+                disabled={
+                  !activeSession ||
+                  messages.length === 0 ||
+                  !isEligibleWorkshopBranchSource(messages, messages.length - 1) ||
+                  deletingSessionId !== null ||
+                  isCalling
+                }
+                onClick={() => {
+                  const source = messages.at(-1);
+                  if (source) void branchFromMessage(source);
+                }}
                 role="menuitem"
                 type="button"
               >
@@ -2557,8 +2298,14 @@ export function WorkshopWorkspace({
               <textarea
                 aria-label={text.labels.generalSystemPrompt}
                 className="input workshop-settings-prompt"
-                disabled={activeSession?.kind !== "chat"}
+                disabled={activeSession?.kind !== "chat" || isSavingGeneralSystemPrompt}
                 onChange={(event) => setGeneralSystemPrompt(event.target.value)}
+                onBlur={() => {
+                  if (activeSession?.kind !== "chat") return;
+                  void persistGeneralSystemPrompt(activeSession).catch((caught) => {
+                    setError(apiErrorMessage(caught));
+                  });
+                }}
                 value={generalSystemPrompt}
               />
             </label>
@@ -2733,7 +2480,7 @@ export function WorkshopWorkspace({
                       {text.sessionKinds[session.kind]}
                       {" / "}
                       {session.branchOfMessageId ? text.labels.branchSession : text.labels.threadSession}
-                      {session.lastMessageAt ? ` / ${formatDate(session.lastMessageAt)}` : ""}
+                      {session.lastMessageAt ? ` / ${formatWorkshopDate(session.lastMessageAt)}` : ""}
                     </span>
                   </span>
                   <span className={sessionPillClass(session)}>
@@ -2754,7 +2501,7 @@ export function WorkshopWorkspace({
                       {text.sessionKinds[session.kind]}
                       {" / "}
                       {session.branchOfMessageId ? text.labels.branchSession : text.labels.threadSession}
-                      {session.lastMessageAt ? ` / ${formatDate(session.lastMessageAt)}` : ""}
+                      {session.lastMessageAt ? ` / ${formatWorkshopDate(session.lastMessageAt)}` : ""}
                     </span>
                   </span>
                   <span className={sessionPillClass(session)}>
@@ -2849,7 +2596,7 @@ export function WorkshopWorkspace({
                 <p>{text.conversationEmptyBody}</p>
               </div>
             ) : null}
-            {messages.map((message) => {
+            {messages.map((message, messageIndex) => {
               const reasoningContent = (message.reasoningContent ?? "").trim();
               const messageAttachments = (message.attachmentIds ?? [])
                 .map((attachmentId) => attachmentMap.get(attachmentId))
@@ -2859,11 +2606,9 @@ export function WorkshopWorkspace({
                 ? !hasReasoningOverride
                 : hasReasoningOverride;
               const canDeleteMessage = activeSession?.status === "active" &&
-                (message.mode === "general-chat" || message.mode === "agent") &&
-                message.role !== "tool" &&
-                message.role !== "result" &&
-                message.proposalIds.length === 0 &&
-                message.status !== "pending";
+                activeSession.kind === "chat" &&
+                workshopGeneralChatTurn(messages, messageIndex) !== null &&
+                !isCalling;
               const canEditMessage = activeSession?.status === "active" &&
                 activeSession.kind === "chat" &&
                 message.role === "author" &&
@@ -2871,7 +2616,12 @@ export function WorkshopWorkspace({
                 message.status === "succeeded" &&
                 message.proposalIds.length === 0 &&
                 !isCalling;
-              const hasMessageActions = Boolean(reasoningContent || canDeleteMessage || canEditMessage);
+              const canBranchMessage = isEligibleWorkshopBranchSource(messages, messageIndex) &&
+                deletingSessionId === null &&
+                !isCalling;
+              const hasMessageActions = Boolean(
+                reasoningContent || canBranchMessage || canDeleteMessage || canEditMessage,
+              );
               const isMessageMenuOpen = openMessageMenuId === message.id;
               const isEditingMessage = editingMessageId === message.id;
               const codexToolName = message.role === "tool" && message.mode === "agent"
@@ -2886,7 +2636,7 @@ export function WorkshopWorkspace({
                     <span className={message.status === "failed" ? "pill amber" : message.status === "pending" ? "pill blue" : "pill muted"}>
                       {message.status === "pending" ? text.statusLabels.pending : text.roles[message.role]}
                     </span>
-                    <span>{formatDate(message.createdAt)}</span>
+                    <span>{formatWorkshopDate(message.createdAt)}</span>
                     {hasMessageActions ? (
                       <div className="message-toolbar" data-workshop-floating-root>
                         <button
@@ -2950,6 +2700,16 @@ export function WorkshopWorkspace({
                                   : text.labels.resendMessage}
                               </button>
                             ) : null}
+                            {canBranchMessage ? (
+                              <button
+                                className="btn compact subtle"
+                                onClick={() => void branchFromMessage(message)}
+                                role="menuitem"
+                                type="button"
+                              >
+                                {text.branch}
+                              </button>
+                            ) : null}
                             {canDeleteMessage ? (
                               <button
                                 className="btn compact subtle"
@@ -2962,8 +2722,8 @@ export function WorkshopWorkspace({
                                 type="button"
                               >
                                 {deletingMessageId === message.id
-                                  ? text.labels.deletingMessage
-                                  : text.labels.deleteMessage}
+                                  ? text.labels.deletingTurn
+                                  : text.labels.deleteTurn}
                               </button>
                             ) : null}
                           </div>
@@ -3056,10 +2816,10 @@ export function WorkshopWorkspace({
                       return (
                         <div className="proposal-row workshop-proposal-card" key={document.proposal.id}>
                           <div className="proposal-row-pills">
-                            <span className={statusClass(document.proposal.status)}>
+                            <span className={proposalStatusClass(document.proposal.status)}>
                               {uiText.review.statusLabels[document.proposal.status]}
                             </span>
-                            <span className="pill blue">{targetKindLabel(document.proposal.target.kind)}</span>
+                            <span className="pill blue">{proposalTargetKindLabel(document.proposal.target.kind)}</span>
                             {!document.sourceAvailability.available || !document.targetAvailability.available ? (
                               <span className="pill amber">{text.proposals.unavailable}</span>
                             ) : null}
@@ -3078,25 +2838,6 @@ export function WorkshopWorkspace({
                         </div>
                       );
                     })}
-                  </div>
-                ) : null}
-                {activeSession?.status === "active" &&
-                message.role !== "author" &&
-                message.mode === "continuity-check" &&
-                message.status === "succeeded" &&
-                message.content.trim() &&
-                message.proposalIds.length === 0 ? (
-                  <div className="message-actions">
-                    <button
-                      className="btn compact"
-                      disabled={creatingProposalMessageId !== null}
-                      onClick={() => void createProposalFromMessage(message)}
-                      type="button"
-                    >
-                      {creatingProposalMessageId === message.id
-                        ? text.proposals.creating
-                        : text.proposals.create}
-                    </button>
                   </div>
                 ) : null}
                 {activeSession?.status === "active" &&
@@ -3172,7 +2913,7 @@ export function WorkshopWorkspace({
               ) : null}
             </div>
             <textarea
-              aria-label="Workshop message"
+              aria-label={text.labels.messageInput}
               className="input workshop-composer-input"
               disabled={!activeSession || activeSession.status !== "active"}
               onKeyDown={handleComposerKeyDown}

@@ -87,9 +87,9 @@ import {
   ProposalRevisionInputSchema,
   SupersedeProposalInputSchema,
   CreateWorkshopBranchInputSchema,
-  CreateWorkshopMessageProposalInputSchema,
   CreateWorkshopMessageInputSchema,
   CreateWorkshopSessionInputSchema,
+  DEFAULT_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT,
   UpdateWorkshopContextBasketInputSchema,
   UpdateWorkshopSessionInputSchema,
   WorkshopBranchSchema,
@@ -98,7 +98,6 @@ import {
   WorkshopContextBasketSchema,
   WorkshopContextItemRefSchema,
   WorkshopMessageAttachmentSchema,
-  WorkshopMessageProposalResultSchema,
   WorkshopMessageSourceSchema,
   WorkshopMessageSchema,
   WorkshopSessionSchema,
@@ -220,14 +219,12 @@ import {
   type ProposalBatchPreviewResult,
   type ProposalCandidateSnapshot,
   type ProposalDocument,
-  type ProposalGenerator,
   type ProposalInbox,
   type ProposalPatch,
   type ProposalRevisionInput,
   type ProposalSnapshot,
   type SupersedeProposalInput,
   type CreateWorkshopBranchInput,
-  type CreateWorkshopMessageProposalInput,
   type CreateWorkshopMessageInput,
   type CreateWorkshopSessionInput,
   type UpdateWorkshopContextBasketInput,
@@ -240,7 +237,6 @@ import {
   type WorkshopContextItemRef,
   type WorkshopMessageAttachment,
   type WorkshopMessage,
-  type WorkshopMessageProposalResult,
   type WorkshopMessageSource,
   type WorkshopSession,
   type WorkshopToolExecution,
@@ -4154,10 +4150,13 @@ export class ProjectRepository {
     }
     const now = new Date().toISOString();
     const session = WorkshopSessionSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: randomUUID(),
       seriesId,
       kind: input.kind,
+      generalChatSystemPrompt: input.kind === "chat"
+        ? input.generalChatSystemPrompt ?? DEFAULT_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT
+        : null,
       title: input.title,
       status: "active",
       branchOfMessageId: null,
@@ -4518,6 +4517,11 @@ export class ProjectRepository {
     const input = UpdateWorkshopSessionInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
     const current = await readWorkshopSessionFile(seriesRoot, sessionId);
+    if (input.generalChatSystemPrompt !== undefined && current.kind !== "chat") {
+      throw new StorageError("Agent sessions cannot own a General Chat system prompt", "INVALID_DATA", {
+        sessionId,
+      });
+    }
     const updated = WorkshopSessionSchema.parse({
       ...current,
       ...input,
@@ -4712,10 +4716,11 @@ export class ProjectRepository {
     }
     const now = new Date().toISOString();
     const nextSession = WorkshopSessionSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: randomUUID(),
       seriesId,
       kind: sourceSession.kind,
+      generalChatSystemPrompt: sourceSession.generalChatSystemPrompt,
       title: input.title ?? `${sourceSession.title} branch`,
       status: "active",
       branchOfMessageId: sourceMessage.id,
@@ -4933,11 +4938,6 @@ export class ProjectRepository {
         sessionId: session.id,
       });
     }
-    if (input.mode === "codex-creation") {
-      throw new StorageError("Codex Creation is no longer a Workshop message mode; use an Agent session", "INVALID_DATA", {
-        sessionId,
-      });
-    }
     if (session.kind === "agent" && input.mode !== "agent") {
       throw new StorageError("Agent Workshop sessions can only receive Agent messages", "INVALID_DATA", {
         sessionId,
@@ -5036,11 +5036,6 @@ export class ProjectRepository {
     if (session.status === "archived") {
       throw new StorageError("Archived Workshop session cannot receive messages", "INVALID_DATA", {
         sessionId: session.id,
-      });
-    }
-    if (parsed.mode === "codex-creation") {
-      throw new StorageError("Codex Creation is no longer a Workshop message mode; use an Agent session", "INVALID_DATA", {
-        sessionId: parsed.sessionId,
       });
     }
     if (session.kind === "agent" && parsed.mode !== "agent") {
@@ -5753,60 +5748,101 @@ export class ProjectRepository {
         });
       }
       if (session.status === "archived") {
-        throw new StorageError("Archived Workshop session cannot delete messages", "INVALID_DATA", {
+        throw new StorageError("Archived Workshop session cannot delete turns", "INVALID_DATA", {
           sessionId,
         });
       }
-      const message = await readWorkshopMessageFile(seriesRoot, messageId);
-      if (message.seriesId !== seriesId || message.sessionId !== sessionId) {
-        throw new StorageError("Workshop message does not belong to the requested session", "INVALID_DATA", {
+      if (session.kind !== "chat") {
+        throw new StorageError("Agent session history cannot delete individual turns", "INVALID_DATA", {
           sessionId,
-          messageId,
-        });
-      }
-      if (message.proposalIds.length > 0) {
-        throw new StorageError("Workshop messages linked to Proposals cannot be deleted", "INVALID_DATA", {
-          messageId,
-          proposalIds: message.proposalIds,
-        });
-      }
-      if (message.role === "tool") {
-        throw new StorageError("Agent tool request messages cannot be deleted directly", "INVALID_DATA", {
-          messageId,
         });
       }
       const sessionMessages = await listWorkshopMessageFiles(seriesRoot, sessionId);
-      const sourceToolMessage = sessionMessages.find((candidate) =>
-        candidate.toolExecution?.resultMessageId === message.id,
-      );
-      if (sourceToolMessage) {
-        throw new StorageError("Workshop tool result messages cannot be deleted directly", "INVALID_DATA", {
+      const messageIndex = sessionMessages.findIndex((message) => message.id === messageId);
+      if (messageIndex < 0) {
+        throw new StorageError("Workshop message does not exist in the requested session", "NOT_FOUND", {
+          sessionId,
           messageId,
-          sourceToolMessageId: sourceToolMessage.id,
+        });
+      }
+      let turnStart = messageIndex;
+      while (turnStart >= 0 && sessionMessages[turnStart]?.role !== "author") {
+        turnStart -= 1;
+      }
+      if (turnStart < 0) {
+        throw new StorageError("Workshop message is not part of an author-started General Chat turn", "INVALID_DATA", {
+          messageId,
+        });
+      }
+      let turnEnd = turnStart + 1;
+      while (turnEnd < sessionMessages.length && sessionMessages[turnEnd]?.role !== "author") {
+        turnEnd += 1;
+      }
+      const deletedMessages = sessionMessages.slice(turnStart, turnEnd);
+      const protectedMessages = deletedMessages.filter((message) =>
+        message.mode !== "general-chat" ||
+        (message.role !== "author" && message.role !== "assistant") ||
+        message.status === "pending" ||
+        message.proposalIds.length > 0,
+      );
+      if (protectedMessages.length > 0) {
+        throw new StorageError("Workshop turn contains protected or incomplete records", "INVALID_DATA", {
+          messageId,
+          protectedMessageIds: protectedMessages.map((message) => message.id),
         });
       }
 
-      const remainingMessages = sessionMessages.filter((item) => item.id !== message.id);
+      const deletedMessageIds = deletedMessages.map((message) => message.id);
+      const deletedMessageIdSet = new Set(deletedMessageIds);
+      const remainingMessages = sessionMessages.filter((message) => !deletedMessageIdSet.has(message.id));
       const attached = (await listWorkshopAttachmentFiles(seriesRoot, sessionId))
-        .filter((attachment) => attachment.messageId === message.id || message.attachmentIds.includes(attachment.id));
+        .filter((attachment) =>
+          (attachment.messageId !== null && deletedMessageIdSet.has(attachment.messageId)) ||
+          deletedMessages.some((message) => message.attachmentIds.includes(attachment.id)),
+        );
+      const branches = (await listWorkshopBranchFiles(seriesRoot)).filter((branch) =>
+        deletedMessageIdSet.has(branch.sourceMessageId),
+      );
       const lastMessage = remainingMessages.at(-1) ?? null;
       const now = new Date().toISOString();
+      const relatedSessions = (await listWorkshopSessionFiles(seriesRoot))
+        .filter((candidate) =>
+          candidate.branchOfMessageId !== null &&
+          deletedMessageIdSet.has(candidate.branchOfMessageId),
+        )
+        .map((candidate) => WorkshopSessionSchema.parse({
+          ...candidate,
+          branchOfMessageId: null,
+          updatedAt: now,
+        }));
       const nextSession = WorkshopSessionSchema.parse({
         ...session,
         lastMessageAt: lastMessage?.createdAt ?? null,
         updatedAt: now,
       });
       await applyFileTransaction(seriesRoot, [
-        { targetPath: workshopMessagePath(seriesRoot, message.id), delete: true },
+        ...deletedMessages.map((message) => ({
+          targetPath: workshopMessagePath(seriesRoot, message.id),
+          delete: true,
+        })),
         ...attached.map((attachment) => ({
           targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
           delete: true,
         })),
+        ...branches.map((branch) => ({
+          targetPath: workshopBranchPath(seriesRoot, branch.id),
+          delete: true,
+        })),
+        ...relatedSessions.map((candidate) => ({
+          targetPath: workshopSessionPath(seriesRoot, candidate.id),
+          content: serializeJsonAuthority(candidate),
+        })),
         { targetPath: workshopSessionPath(seriesRoot, session.id), content: serializeJsonAuthority(nextSession) },
       ]);
       return DeleteWorkshopMessageResultSchema.parse({
-        deletedId: message.id,
+        deletedMessageIds,
         deletedAttachmentIds: attached.map((attachment) => attachment.id),
+        deletedBranchIds: branches.map((branch) => branch.id),
         session: await readWorkshopSessionFile(seriesRoot, session.id),
       });
     });
@@ -5927,121 +5963,6 @@ export class ProjectRepository {
       deletedMessageIds,
       message: await readWorkshopMessageFile(seriesRoot, nextMessage.id),
       session: await readWorkshopSessionFile(seriesRoot, session.id),
-    });
-  }
-
-  async createProposalFromWorkshopMessage(
-    seriesId: string,
-    sessionId: string,
-    messageId: string,
-    rawInput: CreateWorkshopMessageProposalInput,
-  ): Promise<WorkshopMessageProposalResult> {
-    const input = CreateWorkshopMessageProposalInputSchema.parse(rawInput);
-    const seriesRoot = await this.findSeriesRoot(seriesId);
-    const { session, message } = await this.getWorkshopMessageSource(seriesId, messageId);
-    if (session.id !== sessionId || message.sessionId !== sessionId) {
-      throw new StorageError("Workshop message does not belong to the requested session", "INVALID_DATA", {
-        sessionId,
-        messageId,
-      });
-    }
-    if (session.status === "archived") {
-      throw new StorageError("Archived Workshop session cannot create Proposals", "INVALID_DATA", {
-        sessionId,
-      });
-    }
-    if (message.status !== "succeeded" || !message.content.trim()) {
-      throw new StorageError("Only successful Workshop messages can create Proposals", "INVALID_DATA", {
-        messageId,
-      });
-    }
-    if (message.mode === "general-chat") {
-      throw new StorageError("General Chat messages cannot create Proposals", "INVALID_DATA", {
-        messageId,
-      });
-    }
-    if (message.mode === "agent") {
-      throw new StorageError("Agent messages require an approved tool adapter or dedicated Proposal path", "INVALID_DATA", {
-        messageId,
-      });
-    }
-    if (message.mode === "codex-creation") {
-      throw new StorageError(
-        "Codex Creation messages require a Codex Proposal or approved Codex tool adapter",
-        "INVALID_DATA",
-        { messageId },
-      );
-    }
-
-    const generator = await this.proposalGeneratorForWorkshopMessage(seriesId, message);
-    const now = new Date().toISOString();
-    const proposalInput = CreateProposalInputSchema.parse({
-      ...input,
-      source: {
-        kind: "workshop-message",
-        sourceId: message.id,
-        label: session.title,
-        detail: message.content.slice(0, 4000),
-      },
-      contextBundleId: message.contextBundleId,
-      generator,
-    });
-    const proposal = ProposalSchema.parse({
-      schemaVersion: 2,
-      id: proposalInput.id ?? randomUUID(),
-      seriesId,
-      type: proposalInput.type,
-      title: proposalInput.title,
-      summary: proposalInput.summary,
-      status: "pending",
-      source: proposalInput.source,
-      target: proposalInput.target,
-      contextBundleId: proposalInput.contextBundleId,
-      generator: proposalInput.generator,
-      riskLevel: proposalInput.riskLevel,
-      confidence: proposalInput.confidence,
-      reason: proposalInput.reason,
-      staleReason: "",
-      supersededBy: null,
-      originalCandidate: null,
-      decision: null,
-      patches: proposalInput.patches,
-      evidence: proposalInput.evidence,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const sourceAvailability = await this.proposalSourceAvailability(seriesId, proposal);
-    if (!sourceAvailability.available) {
-      throw new StorageError("Proposal source is not available", "INVALID_DATA", {
-        proposalId: proposal.id,
-        reason: sourceAvailability.reason,
-      });
-    }
-    const targetAvailability = await this.proposalTargetAvailability(seriesId, seriesRoot, proposal);
-    if (!targetAvailability.available) {
-      throw new StorageError("Proposal target is not available", "INVALID_DATA", {
-        proposalId: proposal.id,
-        reason: targetAvailability.reason,
-      });
-    }
-    const proposalPath = proposalAuthorityPath(seriesRoot, proposal.id);
-    if (await pathExists(proposalPath)) {
-      throw new StorageError("Proposal already exists", "INVALID_DATA", { proposalId: proposal.id });
-    }
-    const nextIds = Array.from(new Set([...message.proposalIds, proposal.id]));
-    const nextMessage = WorkshopMessageSchema.parse({
-      ...message,
-      proposalIds: nextIds,
-    });
-    await applyFileTransaction(seriesRoot, [
-      { targetPath: proposalPath, content: serializeJsonAuthority(proposal) },
-      { targetPath: workshopMessagePath(seriesRoot, message.id), content: serializeJsonAuthority(nextMessage) },
-    ]);
-    const created = await readProposalAuthorityFile(seriesRoot, proposal.id);
-    const updatedMessage = await readWorkshopMessageFile(seriesRoot, message.id);
-    return WorkshopMessageProposalResultSchema.parse({
-      message: updatedMessage,
-      proposal: await this.proposalDocument(seriesId, seriesRoot, created.proposal, created.revision),
     });
   }
 
@@ -7710,7 +7631,7 @@ export class ProjectRepository {
       await this.getScene(seriesId, basket.sceneId);
     }
     for (const item of basket.items) {
-      await this.validateWorkshopContextItem(seriesId, basket, item);
+      await this.validateWorkshopContextItem(seriesId, item);
     }
   }
 
@@ -7844,17 +7765,10 @@ export class ProjectRepository {
 
   private async validateWorkshopContextItem(
     seriesId: string,
-    basket: WorkshopContextBasket,
     item: WorkshopContextItemRef,
   ): Promise<void> {
     const parsed = WorkshopContextItemRefSchema.parse(item);
-    if (parsed.kind === "note") return;
-    if (!parsed.sourceId) {
-      throw new StorageError("Workshop context item is missing a source", "INVALID_DATA", {
-        itemId: parsed.id,
-      });
-    }
-    if (parsed.kind === "scene" || parsed.kind === "selection") {
+    if (parsed.kind === "scene") {
       await this.getScene(seriesId, parsed.sourceId);
       return;
     }
@@ -7878,25 +7792,6 @@ export class ProjectRepository {
     }
     if (parsed.kind === "codex-entry") {
       await this.getCodexEntry(seriesId, parsed.sourceId);
-      return;
-    }
-    if (parsed.kind === "scene-section") {
-      const sceneIds = basket.sceneId
-        ? [basket.sceneId]
-        : (await this.getSeries(seriesId)).scenes.map((scene) => scene.metadata.id);
-      for (const sceneId of sceneIds) {
-        const sections = await this.listSceneSections(seriesId, sceneId);
-        if (sections.some((section) => section.metadata.id === parsed.sourceId)) return;
-      }
-      throw new StorageError("Workshop context section does not exist", "NOT_FOUND", {
-        sectionId: parsed.sourceId,
-      });
-    }
-    if (parsed.kind === "proposal-source") {
-      await this.getProposal(seriesId, parsed.sourceId);
-      return;
-    }
-    if (parsed.kind === "research-note") {
       return;
     }
   }
@@ -7956,36 +7851,6 @@ export class ProjectRepository {
     });
     const written = await writeProposalAuthorityFile(seriesRoot, updated);
     return this.proposalDocument(seriesId, seriesRoot, written.proposal, written.revision);
-  }
-
-  private async proposalGeneratorForWorkshopMessage(
-    seriesId: string,
-    message: WorkshopMessage,
-  ): Promise<ProposalGenerator> {
-    if (!message.modelCallId && !message.contextBundleId) {
-      return { kind: "manual", actor: "workshop" };
-    }
-    if (!message.modelCallId || !message.contextBundleId) {
-      throw new StorageError("Workshop message is missing AI generation metadata", "INVALID_DATA", {
-        messageId: message.id,
-      });
-    }
-    const log = await this.getModelCallLog(seriesId, message.modelCallId);
-    if (log.contextBundleId !== message.contextBundleId) {
-      throw new StorageError("Workshop message AI metadata does not match the model call log", "INVALID_DATA", {
-        messageId: message.id,
-        modelCallId: log.id,
-      });
-    }
-    return {
-      kind: "ai",
-      roleId: log.roleId,
-      provider: log.provider,
-      model: log.model,
-      promptTemplateId: log.promptTemplateId,
-      promptTemplateVersion: log.promptTemplateVersion,
-      modelCallLogId: log.id,
-    };
   }
 
   private async proposalSourceAvailability(

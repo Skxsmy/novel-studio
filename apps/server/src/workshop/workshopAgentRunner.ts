@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
+import type {
+  ProviderChatMessage,
+  ProviderChatResult,
+  ProviderPrompt,
+  ProviderRegistry,
+} from "@novel-studio/ai";
 import {
   ModelCallLogSchema,
   WorkshopAgentRunSchema,
@@ -19,14 +24,15 @@ import type { ProjectRepository } from "@novel-studio/storage";
 import { ensureCredentialBoundary, modelError } from "../ai/policy.js";
 import { requestHash, usage } from "../routes/modelCalls.js";
 import {
+  parseCodexCreateEntryToolRequest,
+  parseCodexUpdateEntryToolRequest,
   serializeCodexCreateEntryToolRequest,
   serializeCodexUpdateEntryToolRequest,
   type WorkshopCodexUpdateDraft,
 } from "./codexDraft.js";
 import {
-  WorkshopAgentStepSchema,
-  parseWorkshopAgentStep,
-  workshopAgentRepairPrompt,
+  parseWorkshopAgentToolCall,
+  workshopAgentToolDefinitions,
   type WorkshopAgentStep,
 } from "./workshopAgent.js";
 
@@ -105,6 +111,7 @@ interface ModelAttemptResult {
   rawOutput: string;
   step: WorkshopAgentStep | null;
   error: ModelCallError | null;
+  providerResult: ProviderChatResult | null;
 }
 
 async function executeModelAttempt(input: {
@@ -116,7 +123,7 @@ async function executeModelAttempt(input: {
   prompt: ProviderPrompt;
   parameters: ModelParameters;
   modelCallId: string;
-  degradedStructuredOutput: boolean;
+  history?: ProviderChatMessage[];
 }): Promise<ModelAttemptResult> {
   let adapter;
   let rawOutput = "";
@@ -131,7 +138,7 @@ async function executeModelAttempt(input: {
       startedAt: new Date().toISOString(),
     }), error, "");
     await input.repository.saveModelCallLog(input.seriesId, log);
-    return { log, rawOutput: "", step: null, error };
+    return { log, rawOutput: "", step: null, error, providerResult: null };
   }
 
   const estimate = estimatedUsage(
@@ -147,6 +154,7 @@ async function executeModelAttempt(input: {
     startedAt: new Date().toISOString(),
   });
   await input.repository.saveModelCallLog(input.seriesId, log);
+  let providerResult: ProviderChatResult | null = null;
   try {
     ensureCredentialBoundary(input.modelProfile);
     if (estimate.inputTokens > input.modelProfile.contextWindowTokens) {
@@ -154,37 +162,58 @@ async function executeModelAttempt(input: {
     }
     log = ModelCallLogSchema.parse({ ...log, status: "streaming" });
     await input.repository.saveModelCallLog(input.seriesId, log);
+    providerResult = await adapter.completeChat({
+      modelProfile: input.modelProfile,
+      prompt: input.prompt,
+      contextBundle: input.contextBundle,
+      parameters: input.parameters,
+      ...(input.history ? { history: input.history } : {}),
+      ...(adapter.chatCapabilities.nativeToolCalls
+        ? { tools: workshopAgentToolDefinitions(), toolChoice: "auto" as const }
+        : {}),
+    });
+    rawOutput = providerResult.rawResponseText;
+    if (providerResult.toolCalls.length > 1) {
+      throw modelError(
+        "structured-output-failed",
+        "Workshop currently accepts one tool request at a time; return the next single action only.",
+        true,
+      );
+    }
     let step: WorkshopAgentStep;
-    if (!input.degradedStructuredOutput) {
-      step = await adapter.generateObject({
-        modelProfile: input.modelProfile,
-        prompt: input.prompt,
-        contextBundle: input.contextBundle,
-        parameters: input.parameters,
-        outputSchemaName: "workshop_agent_step_v1",
-      }, WorkshopAgentStepSchema) as WorkshopAgentStep;
-      rawOutput = JSON.stringify(step);
-    } else {
-      for await (const chunk of adapter.streamText({
-        modelProfile: input.modelProfile,
-        prompt: input.prompt,
-        contextBundle: input.contextBundle,
-        parameters: input.parameters,
-      })) {
-        rawOutput += chunk;
+    if (providerResult.toolCalls.length === 1) {
+      try {
+        step = parseWorkshopAgentToolCall(providerResult.toolCalls[0]!);
+      } catch (error) {
+        throw modelError(
+          "structured-output-failed",
+          `The tool request did not match its contract: ${error instanceof Error ? error.message.slice(0, 2000) : "invalid arguments"}`,
+          true,
+        );
       }
-      step = parseWorkshopAgentStep(rawOutput);
+    } else if (providerResult.text.trim()) {
+      step = {
+        schemaVersion: 1,
+        type: "respond",
+        message: providerResult.text.trim(),
+      };
+    } else {
+      throw modelError("provider-error", "The Provider returned no assistant text or tool call.", true);
     }
     log = ModelCallLogSchema.parse({
       ...log,
       status: "succeeded",
       responseHash: hashText(rawOutput),
-      actualUsage: usage(estimate.inputTokens, rawOutput),
+      actualUsage: providerResult.usage ?? usage(estimate.inputTokens, rawOutput),
       completedAt: new Date().toISOString(),
     });
     await input.repository.saveModelCallLog(input.seriesId, log);
-    return { log, rawOutput, step, error: null };
+    return { log, rawOutput, step, error: null, providerResult };
   } catch (caught) {
+    if (!rawOutput && caught && typeof caught === "object" && "rawOutput" in caught) {
+      const candidate = (caught as { rawOutput?: unknown }).rawOutput;
+      if (typeof candidate === "string") rawOutput = candidate;
+    }
     const error = typeof caught === "object" && caught !== null && "code" in caught && "retryable" in caught
       ? caught as ModelCallError
       : caught instanceof SyntaxError || (caught instanceof Error && caught.name === "ZodError")
@@ -192,8 +221,173 @@ async function executeModelAttempt(input: {
         : adapter.classifyError(caught);
     const failed = failedLog(log, error, rawOutput);
     await input.repository.saveModelCallLog(input.seriesId, failed);
-    return { log: failed, rawOutput, step: null, error };
+    return {
+      log: failed,
+      rawOutput,
+      step: null,
+      error,
+      providerResult,
+    };
   }
+}
+
+function toolCorrectionHistory(
+  attempt: ModelAttemptResult,
+  validationMessage: string,
+): ProviderChatMessage[] | null {
+  if (!attempt.providerResult?.toolCalls.length) return null;
+  return [
+    {
+      role: "assistant",
+      content: attempt.providerResult.text,
+      reasoningContent: attempt.providerResult.reasoningContent,
+      toolCalls: attempt.providerResult.toolCalls,
+    },
+    ...attempt.providerResult.toolCalls.map((call) => ({
+      role: "tool" as const,
+      toolCallId: call.id,
+      content: `Tool request rejected by validation: ${validationMessage}`,
+    })),
+  ];
+}
+
+async function automaticTransportRetry(input: WorkshopAgentRunnerInput & {
+  run: WorkshopAgentRunDocument;
+  stepRecord: WorkshopAgentStepRecord;
+  attemptResult: ModelAttemptResult;
+  history?: ProviderChatMessage[];
+}): Promise<{
+  run: WorkshopAgentRunDocument;
+  stepRecord: WorkshopAgentStepRecord;
+  attemptResult: ModelAttemptResult;
+}> {
+  const error = input.attemptResult.error;
+  if (!error?.retryable || error.code === "structured-output-failed") {
+    return {
+      run: input.run,
+      stepRecord: input.stepRecord,
+      attemptResult: input.attemptResult,
+    };
+  }
+  const retryStartedAt = new Date().toISOString();
+  const retryCallId = randomUUID();
+  const retryStep = WorkshopAgentStepRecordSchema.parse({
+    schemaVersion: 1,
+    id: randomUUID(),
+    index: input.run.run.steps.length,
+    kind: "retry",
+    status: "running",
+    attempt: input.stepRecord.attempt + 1,
+    modelCallId: retryCallId,
+    promptSnapshot: promptSnapshot(input.prompt),
+    historySnapshot: input.history ?? [],
+    inputMessageIds: input.stepRecord.inputMessageIds,
+    degradedStructuredOutput: false,
+    startedAt: retryStartedAt,
+  });
+  const retryingRun = WorkshopAgentRunSchema.parse({
+    ...input.run.run,
+    status: "running",
+    activeStepId: retryStep.id,
+    steps: [
+      ...input.run.run.steps.map((step) => step.id === input.stepRecord.id ? {
+        ...step,
+        status: "failed" as const,
+        retryable: false,
+        errorCode: error.code,
+        errorMessage: error.message,
+        completedAt: retryStartedAt,
+      } : step),
+      retryStep,
+    ],
+    retryable: false,
+    updatedAt: retryStartedAt,
+    completedAt: null,
+  });
+  let run = await input.repository.updateWorkshopAgentRun(
+    input.seriesId,
+    input.sessionId,
+    input.run.run.id,
+    input.run.revision,
+    retryingRun,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const attemptResult = await executeModelAttempt({
+    repository: input.repository,
+    providerRegistry: input.providerRegistry,
+    seriesId: input.seriesId,
+    contextBundle: input.providerContextBundle,
+    modelProfile: input.modelProfile,
+    prompt: input.prompt,
+    parameters: input.parameters,
+    modelCallId: retryCallId,
+    ...(input.history ? { history: input.history } : {}),
+  });
+  return { run, stepRecord: retryStep, attemptResult };
+}
+
+function providerHistoryForRun(
+  run: WorkshopAgentRunDocument,
+  messages: WorkshopMessage[],
+): ProviderChatMessage[] {
+  const messageById = new Map(messages.map((message) => [message.id, message]));
+  const toolStepByMessageId = new Map(
+    run.run.steps
+      .filter((step) => step.kind === "tool-request" && step.messageId)
+      .map((step) => [step.messageId!, step]),
+  );
+  const history: ProviderChatMessage[] = [];
+
+  for (const step of run.run.steps) {
+    if (["model", "retry", "repair", "continuation"].includes(step.kind) && step.messageId) {
+      const message = messageById.get(step.messageId);
+      if (!message || message.role !== "assistant" || message.status !== "succeeded") continue;
+      const toolStep = run.run.steps.find((candidate) =>
+        candidate.kind === "tool-request" && candidate.inputMessageIds.includes(message.id)
+      );
+      if (!toolStep?.messageId) {
+        history.push({
+          role: "assistant",
+          content: message.content,
+          reasoningContent: message.reasoningContent,
+        });
+        continue;
+      }
+      const toolMessageRecord = messageById.get(toolStep.messageId);
+      if (!toolMessageRecord) continue;
+      const toolEnvelope = JSON.parse(toolMessageRecord.content) as { tool?: unknown };
+      const parsed = toolEnvelope.tool === "codex.update_entry"
+        ? parseCodexUpdateEntryToolRequest(toolMessageRecord.content)
+        : toolEnvelope.tool === "codex.create_entry"
+          ? parseCodexCreateEntryToolRequest(toolMessageRecord.content)
+          : null;
+      if (!parsed) continue;
+      history.push({
+        role: "assistant",
+        content: message.content,
+        reasoningContent: message.reasoningContent,
+        toolCalls: [{
+          id: toolStep.id,
+          name: parsed.tool,
+          arguments: JSON.stringify({ message: message.content, draft: parsed.draft }),
+        }],
+      });
+      continue;
+    }
+    if (step.kind === "tool-result" && step.messageId) {
+      const resultMessage = messageById.get(step.messageId);
+      const toolStep = step.inputMessageIds
+        .map((messageId) => toolStepByMessageId.get(messageId))
+        .find(Boolean);
+      if (!resultMessage || !toolStep) continue;
+      history.push({
+        role: "tool",
+        toolCallId: toolStep.id,
+        content: resultMessage.content,
+      });
+    }
+  }
+  return history;
 }
 
 function assistantMessage(input: {
@@ -204,6 +398,7 @@ function assistantMessage(input: {
   contextBundleId: string;
   modelCallId: string;
   content: string;
+  reasoningContent?: string;
   status?: "succeeded" | "failed";
   error?: ModelCallError | null;
   createdAt: string;
@@ -217,7 +412,7 @@ function assistantMessage(input: {
     mode: "agent",
     status: input.status ?? "succeeded",
     content: input.content,
-    reasoningContent: "",
+    reasoningContent: input.reasoningContent ?? "",
     contextBundleId: input.contextBundleId,
     modelCallId: input.modelCallId,
     agentRunId: input.runId,
@@ -349,6 +544,7 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
     contextBundleId: input.contextBundle.id,
     modelCallId: input.stepRecord.modelCallId!,
     content: step.message,
+    reasoningContent: input.attempt.providerResult?.reasoningContent ?? "",
     createdAt: now,
   });
   let requestContent: string | null = null;
@@ -454,7 +650,7 @@ export async function runWorkshopAgent(input: WorkshopAgentRunnerInput): Promise
   const runId = randomUUID();
   const stepId = randomUUID();
   const modelCallId = randomUUID();
-  const degraded = !input.modelProfile.capabilities.structuredOutput;
+  const degraded = false;
   const snapshot = promptSnapshot(input.prompt);
   const step = WorkshopAgentStepRecordSchema.parse({
     schemaVersion: 1,
@@ -465,6 +661,7 @@ export async function runWorkshopAgent(input: WorkshopAgentRunnerInput): Promise
     attempt: 1,
     modelCallId,
     promptSnapshot: snapshot,
+    historySnapshot: [],
     inputMessageIds: [input.authorMessage.id],
     degradedStructuredOutput: degraded,
     startedAt: now,
@@ -493,45 +690,60 @@ export async function runWorkshopAgent(input: WorkshopAgentRunnerInput): Promise
     ...input,
     contextBundle: input.providerContextBundle,
     modelCallId,
-    degradedStructuredOutput: degraded,
   });
+  let activeStep = step;
+  const transportRetry = await automaticTransportRetry({
+    ...input,
+    run,
+    stepRecord: activeStep,
+    attemptResult: attempt,
+  });
+  run = transportRetry.run;
+  activeStep = transportRetry.stepRecord;
+  attempt = transportRetry.attemptResult;
   if (attempt.step || attempt.error?.code !== "structured-output-failed") {
-    return finalizeAttempt({ ...input, run, stepRecord: step, attempt });
+    return finalizeAttempt({ ...input, run, stepRecord: activeStep, attempt });
+  }
+
+  const correctionHistory = toolCorrectionHistory(
+    attempt,
+    attempt.error?.message ?? "Invalid tool request",
+  );
+  if (!correctionHistory) {
+    return finalizeAttempt({ ...input, run, stepRecord: activeStep, attempt });
   }
 
   const failedAt = new Date().toISOString();
-  const repairPrompt = workshopAgentRepairPrompt(
-    input.prompt,
-    attempt.rawOutput,
-    attempt.error?.message ?? "Invalid Agent output",
-  );
   const repairCallId = randomUUID();
   const repairStep = WorkshopAgentStepRecordSchema.parse({
     schemaVersion: 1,
     id: randomUUID(),
-    index: 1,
+    index: run.run.steps.length,
     kind: "repair",
     status: "running",
-    attempt: 2,
+    attempt: activeStep.attempt + 1,
     modelCallId: repairCallId,
-    promptSnapshot: promptSnapshot(repairPrompt),
-    inputMessageIds: [input.authorMessage.id],
+    promptSnapshot: promptSnapshot(input.prompt),
+    historySnapshot: correctionHistory,
+    inputMessageIds: activeStep.inputMessageIds,
     degradedStructuredOutput: degraded,
     startedAt: failedAt,
   });
-  const firstFailed = {
-    ...step,
-    status: "failed" as const,
-    retryable: false,
-    errorCode: attempt.error?.code ?? "structured-output-failed",
-    errorMessage: attempt.error?.message ?? "Invalid Agent output",
-    completedAt: failedAt,
-  };
   const repairing = WorkshopAgentRunSchema.parse({
     ...run.run,
     status: "running",
     activeStepId: repairStep.id,
-    steps: [firstFailed, repairStep],
+    steps: [
+      ...run.run.steps.map((record) => record.id === activeStep.id ? {
+        ...record,
+        status: "failed" as const,
+        retryable: false,
+        errorCode: attempt.error?.code ?? "structured-output-failed",
+        errorMessage: attempt.error?.message ?? "Invalid Agent output",
+        completedAt: failedAt,
+      } : record),
+      repairStep,
+    ],
     updatedAt: failedAt,
   });
   run = await input.repository.updateWorkshopAgentRun(
@@ -544,9 +756,8 @@ export async function runWorkshopAgent(input: WorkshopAgentRunnerInput): Promise
   attempt = await executeModelAttempt({
     ...input,
     contextBundle: input.providerContextBundle,
-    prompt: repairPrompt,
     modelCallId: repairCallId,
-    degradedStructuredOutput: degraded,
+    history: correctionHistory,
   });
   return finalizeAttempt({ ...input, run, stepRecord: repairStep, attempt });
 }
@@ -580,15 +791,11 @@ export async function continueWorkshopAgentAfterToolResult(input: {
   const continuationPrompt: ProviderPrompt = {
     system: input.run.run.promptSnapshot.system,
     instructions: input.run.run.promptSnapshot.instructions,
-    user: [
-      `Original author request:\n${authorMessage.content}`,
-      "Agent run transcript:",
-      ...runMessages.map((message) => `${message.role}: ${message.content}`),
-      "Continue the conversation after the tool result. Return one structured Workshop Agent step.",
-    ].join("\n\n"),
+    user: input.run.run.promptSnapshot.user,
   };
+  const providerHistory = providerHistoryForRun(input.run, runMessages);
   const now = new Date().toISOString();
-  const degraded = !input.modelProfile.capabilities.structuredOutput;
+  const degraded = false;
   const modelCallId = randomUUID();
   const continuationStep = WorkshopAgentStepRecordSchema.parse({
     schemaVersion: 1,
@@ -599,6 +806,7 @@ export async function continueWorkshopAgentAfterToolResult(input: {
     attempt: Math.max(...input.run.run.steps.map((step) => step.attempt), 0) + 1,
     modelCallId,
     promptSnapshot: promptSnapshot(continuationPrompt),
+    historySnapshot: providerHistory,
     inputMessageIds: [input.resultMessage.id],
     degradedStructuredOutput: degraded,
     startedAt: now,
@@ -613,14 +821,14 @@ export async function continueWorkshopAgentAfterToolResult(input: {
     updatedAt: now,
     completedAt: null,
   });
-  const run = await input.repository.updateWorkshopAgentRun(
+  let run = await input.repository.updateWorkshopAgentRun(
     input.seriesId,
     input.sessionId,
     input.run.run.id,
     input.run.revision,
     running,
   );
-  const attempt = await executeModelAttempt({
+  let attempt = await executeModelAttempt({
     repository: input.repository,
     providerRegistry: input.providerRegistry,
     seriesId: input.seriesId,
@@ -629,7 +837,7 @@ export async function continueWorkshopAgentAfterToolResult(input: {
     prompt: continuationPrompt,
     parameters: input.run.run.parameters,
     modelCallId,
-    degradedStructuredOutput: degraded,
+    history: providerHistory,
   });
   const runnerInput: WorkshopAgentRunnerInput = {
     repository: input.repository,
@@ -644,15 +852,28 @@ export async function continueWorkshopAgentAfterToolResult(input: {
     prompt: continuationPrompt,
     prepareUpdateDraft: input.prepareUpdateDraft,
   };
+  let activeStep = continuationStep;
+  const transportRetry = await automaticTransportRetry({
+    ...runnerInput,
+    run,
+    stepRecord: activeStep,
+    attemptResult: attempt,
+    history: providerHistory,
+  });
+  run = transportRetry.run;
+  activeStep = transportRetry.stepRecord;
+  attempt = transportRetry.attemptResult;
   if (attempt.step || attempt.error?.code !== "structured-output-failed") {
-    return finalizeAttempt({ ...runnerInput, run, stepRecord: continuationStep, attempt });
+    return finalizeAttempt({ ...runnerInput, run, stepRecord: activeStep, attempt });
+  }
+  const correctionTail = toolCorrectionHistory(
+    attempt,
+    attempt.error?.message ?? "Invalid tool request",
+  );
+  if (!correctionTail) {
+    return finalizeAttempt({ ...runnerInput, run, stepRecord: activeStep, attempt });
   }
   const failedAt = new Date().toISOString();
-  const repairPrompt = workshopAgentRepairPrompt(
-    continuationPrompt,
-    attempt.rawOutput,
-    attempt.error?.message ?? "Invalid Agent output",
-  );
   const repairCallId = randomUUID();
   const repairStep = WorkshopAgentStepRecordSchema.parse({
     schemaVersion: 1,
@@ -660,10 +881,11 @@ export async function continueWorkshopAgentAfterToolResult(input: {
     index: run.run.steps.length,
     kind: "repair",
     status: "running",
-    attempt: continuationStep.attempt + 1,
+    attempt: activeStep.attempt + 1,
     modelCallId: repairCallId,
-    promptSnapshot: promptSnapshot(repairPrompt),
-    inputMessageIds: [input.resultMessage.id],
+    promptSnapshot: promptSnapshot(continuationPrompt),
+    historySnapshot: [...providerHistory, ...correctionTail],
+    inputMessageIds: activeStep.inputMessageIds,
     degradedStructuredOutput: degraded,
     startedAt: failedAt,
   });
@@ -671,7 +893,7 @@ export async function continueWorkshopAgentAfterToolResult(input: {
     ...run.run,
     activeStepId: repairStep.id,
     steps: [
-      ...run.run.steps.map((step) => step.id === continuationStep.id ? {
+      ...run.run.steps.map((step) => step.id === activeStep.id ? {
         ...step,
         status: "failed" as const,
         retryable: false,
@@ -696,14 +918,13 @@ export async function continueWorkshopAgentAfterToolResult(input: {
     seriesId: input.seriesId,
     contextBundle: input.providerContextBundle,
     modelProfile: input.modelProfile,
-    prompt: repairPrompt,
+    prompt: continuationPrompt,
     parameters: input.run.run.parameters,
     modelCallId: repairCallId,
-    degradedStructuredOutput: degraded,
+    history: [...providerHistory, ...correctionTail],
   });
   return finalizeAttempt({
     ...runnerInput,
-    prompt: repairPrompt,
     run: repairingRun,
     stepRecord: repairStep,
     attempt: repairedAttempt,
@@ -732,7 +953,7 @@ export async function retryWorkshopAgent(input: {
     return continueWorkshopAgentAfterToolResult({ ...input, resultMessage });
   }
   const retrySource = [...input.run.run.steps].reverse().find((step) =>
-    step.retryable && ["model", "repair", "continuation"].includes(step.kind) && step.promptSnapshot
+    step.retryable && ["model", "retry", "repair", "continuation"].includes(step.kind) && step.promptSnapshot
   );
   if (!retrySource?.promptSnapshot) {
     throw new Error("Workshop Agent run has no retryable model step.");
@@ -744,18 +965,20 @@ export async function retryWorkshopAgent(input: {
     instructions: retrySource.promptSnapshot.instructions,
     user: retrySource.promptSnapshot.user,
   };
+  const retryHistory = providerHistoryForRun(input.run, messages);
   const now = new Date().toISOString();
-  const degraded = !input.modelProfile.capabilities.structuredOutput;
+  const degraded = false;
   const modelCallId = randomUUID();
   const retryStep = WorkshopAgentStepRecordSchema.parse({
     schemaVersion: 1,
     id: randomUUID(),
     index: input.run.run.steps.length,
-    kind: "continuation",
+    kind: "retry",
     status: "running",
     attempt: Math.max(...input.run.run.steps.map((step) => step.attempt), 0) + 1,
     modelCallId,
     promptSnapshot: promptSnapshot(prompt),
+    historySnapshot: retryHistory,
     inputMessageIds: retrySource.inputMessageIds,
     degradedStructuredOutput: degraded,
     startedAt: now,
@@ -786,7 +1009,7 @@ export async function retryWorkshopAgent(input: {
     prompt,
     parameters: input.run.run.parameters,
     modelCallId,
-    degradedStructuredOutput: degraded,
+    history: retryHistory,
   });
   const runnerInput: WorkshopAgentRunnerInput = {
     repository: input.repository,
@@ -801,11 +1024,25 @@ export async function retryWorkshopAgent(input: {
     prompt,
     prepareUpdateDraft: input.prepareUpdateDraft,
   };
+  let activeStep = retryStep;
+  const transportRetry = await automaticTransportRetry({
+    ...runnerInput,
+    run,
+    stepRecord: activeStep,
+    attemptResult: attempt,
+    history: retryHistory,
+  });
+  run = transportRetry.run;
+  activeStep = transportRetry.stepRecord;
+  attempt = transportRetry.attemptResult;
   if (attempt.step || attempt.error?.code !== "structured-output-failed") {
-    return finalizeAttempt({ ...runnerInput, run, stepRecord: retryStep, attempt });
+    return finalizeAttempt({ ...runnerInput, run, stepRecord: activeStep, attempt });
+  }
+  const correctionTail = toolCorrectionHistory(attempt, attempt.error.message);
+  if (!correctionTail) {
+    return finalizeAttempt({ ...runnerInput, run, stepRecord: activeStep, attempt });
   }
   const failedAt = new Date().toISOString();
-  const repairPrompt = workshopAgentRepairPrompt(prompt, attempt.rawOutput, attempt.error.message);
   const repairCallId = randomUUID();
   const repairStep = WorkshopAgentStepRecordSchema.parse({
     schemaVersion: 1,
@@ -813,10 +1050,11 @@ export async function retryWorkshopAgent(input: {
     index: run.run.steps.length,
     kind: "repair",
     status: "running",
-    attempt: retryStep.attempt + 1,
+    attempt: activeStep.attempt + 1,
     modelCallId: repairCallId,
-    promptSnapshot: promptSnapshot(repairPrompt),
-    inputMessageIds: retryStep.inputMessageIds,
+    promptSnapshot: promptSnapshot(prompt),
+    historySnapshot: [...retryHistory, ...correctionTail],
+    inputMessageIds: activeStep.inputMessageIds,
     degradedStructuredOutput: degraded,
     startedAt: failedAt,
   });
@@ -824,7 +1062,7 @@ export async function retryWorkshopAgent(input: {
     ...run.run,
     activeStepId: repairStep.id,
     steps: [
-      ...run.run.steps.map((step) => step.id === retryStep.id ? {
+      ...run.run.steps.map((step) => step.id === activeStep.id ? {
         ...step,
         status: "failed" as const,
         retryable: false,
@@ -849,10 +1087,10 @@ export async function retryWorkshopAgent(input: {
     seriesId: input.seriesId,
     contextBundle: input.providerContextBundle,
     modelProfile: input.modelProfile,
-    prompt: repairPrompt,
+    prompt,
     parameters: input.run.run.parameters,
     modelCallId: repairCallId,
-    degradedStructuredOutput: degraded,
+    history: [...retryHistory, ...correctionTail],
   });
-  return finalizeAttempt({ ...runnerInput, prompt: repairPrompt, run, stepRecord: repairStep, attempt });
+  return finalizeAttempt({ ...runnerInput, run, stepRecord: repairStep, attempt });
 }

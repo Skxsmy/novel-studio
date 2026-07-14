@@ -222,6 +222,39 @@ describe("ProviderAdapter core and MockProvider", () => {
     });
   });
 
+  it("keeps invalid explicit structured output available only on the adapter error", async () => {
+    const invalidOutput = JSON.stringify({ safeToWrite: "not-a-boolean" });
+    const provider = new OpenAiCompatibleProvider({
+      credentialStore: fakeCredentialStore("generic-key"),
+      fetchImpl: async () => new Response(JSON.stringify({
+        choices: [{ message: { content: invalidOutput } }],
+      }), { status: 200, headers: { "content-type": "application/json" } }),
+      provider: "openai-compatible",
+      defaultBaseUrl: "https://example.test/v1",
+    });
+    const profile = modelProfile({
+      provider: "openai-compatible",
+      baseUrl: "https://example.test/v1",
+      model: "provider-model-a",
+      credentialRef: "novel-studio/model-profile/generic",
+    });
+
+    let caught: unknown;
+    try {
+      await provider.generateObject({
+        modelProfile: profile,
+        prompt: prompt(),
+        contextBundle: contextBundle(),
+        outputSchemaName: "safe_write_check",
+      }, z.object({ safeToWrite: z.boolean() }));
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ProviderAdapterError);
+    expect((caught as ProviderAdapterError).rawOutput).toBe(invalidOutput);
+    expect(provider.classifyError(caught)).not.toHaveProperty("rawOutput");
+  });
+
   it("estimates tokens and creates deterministic embeddings", async () => {
     const provider = new MockProvider();
     const profile = modelProfile();
@@ -448,6 +481,171 @@ describe("ProviderAdapter core and MockProvider", () => {
     await expect(provider.listModels(profile)).resolves.toEqual([
       expect.objectContaining({ id: "provider-model-a" }),
     ]);
+  });
+
+  it("normalizes native DeepSeek tool calls and replays reasoning with the matching tool result", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    let completion = 0;
+    const registry = createDefaultProviderRegistry({
+      credentialStore: fakeCredentialStore("deepseek-test-key"),
+      fetchImpl: async (_input, init) => {
+        const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
+        requests.push(body);
+        completion += 1;
+        if (completion === 1) {
+          return new Response(JSON.stringify({
+            choices: [{
+              finish_reason: "tool_calls",
+              message: {
+                content: "",
+                reasoning_content: "The author requested a Codex entry.",
+                tool_calls: [{
+                  id: "call_create_1",
+                  type: "function",
+                  function: {
+                    name: "codex_create_entry",
+                    arguments: JSON.stringify({ name: "Mara" }),
+                  },
+                }],
+              },
+            }],
+            usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        return new Response(JSON.stringify({
+          choices: [{
+            finish_reason: "stop",
+            message: { content: "Mara is now in the Codex." },
+          }],
+          usage: { prompt_tokens: 30, completion_tokens: 8, total_tokens: 38 },
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      },
+    });
+    const provider = registry.get("deepseek");
+    const profile = modelProfile({
+      provider: "deepseek",
+      baseUrl: null,
+      model: "deepseek-v4-flash",
+      credentialRef: "novel-studio/model-profile/deepseek",
+      contextWindowTokens: 1_000_000,
+    });
+    const tools = [{
+      name: "codex.create_entry",
+      description: "Create one Codex entry after author confirmation.",
+      parameters: {
+        type: "object",
+        properties: { name: { type: "string" } },
+        required: ["name"],
+        additionalProperties: false,
+      },
+    }];
+
+    const first = await provider.completeChat({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      tools,
+      toolChoice: "auto",
+    });
+    expect(first).toMatchObject({
+      text: "",
+      reasoningContent: "The author requested a Codex entry.",
+      finishReason: "tool_calls",
+      usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+      toolCalls: [{
+        id: "call_create_1",
+        name: "codex.create_entry",
+        arguments: JSON.stringify({ name: "Mara" }),
+      }],
+    });
+    expect(requests[0]).toMatchObject({
+      stream: false,
+      tool_choice: "auto",
+      parallel_tool_calls: false,
+      tools: [{ type: "function", function: { name: "codex_create_entry" } }],
+    });
+
+    const second = await provider.completeChat({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      tools,
+      history: [
+        {
+          role: "assistant",
+          content: "",
+          reasoningContent: first.reasoningContent,
+          toolCalls: first.toolCalls,
+        },
+        {
+          role: "tool",
+          toolCallId: first.toolCalls[0]!.id,
+          content: "codex.create_entry created Codex entry: Mara",
+        },
+      ],
+    });
+    expect(second).toMatchObject({ text: "Mara is now in the Codex.", toolCalls: [] });
+    expect(requests[1]).toMatchObject({
+      messages: [
+        { role: "system" },
+        { role: "user" },
+        {
+          role: "assistant",
+          reasoning_content: "The author requested a Codex entry.",
+          tool_calls: [{ id: "call_create_1", function: { name: "codex_create_entry" } }],
+        },
+        { role: "tool", tool_call_id: "call_create_1" },
+      ],
+    });
+  });
+
+  it("keeps colliding canonical tool IDs distinct across Provider-safe names", async () => {
+    let requestBody: Record<string, unknown> = {};
+    const provider = new OpenAiCompatibleProvider({
+      credentialStore: fakeCredentialStore("generic-key"),
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(JSON.stringify({
+          choices: [{
+            finish_reason: "tool_calls",
+            message: {
+              content: "",
+              tool_calls: [{
+                id: "call_collision_1",
+                type: "function",
+                function: { name: "codex_create_2", arguments: "{}" },
+              }],
+            },
+          }],
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      },
+    });
+    const profile = modelProfile({
+      provider: "openai-compatible",
+      baseUrl: "https://example.test/v1",
+      model: "provider-tools",
+      credentialRef: "novel-studio/model-profile/generic",
+    });
+    const result = await provider.completeChat({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      tools: [
+        { name: "codex.create", description: "First", parameters: { type: "object" } },
+        { name: "codex_create", description: "Second", parameters: { type: "object" } },
+      ],
+    });
+    expect(requestBody).toMatchObject({
+      tools: [
+        { function: { name: "codex_create" } },
+        { function: { name: "codex_create_2" } },
+      ],
+    });
+    expect(result.toolCalls).toEqual([{
+      id: "call_collision_1",
+      name: "codex_create",
+      arguments: "{}",
+    }]);
   });
 
   it("uses official OpenAI Chat Completions fields and model list shape", async () => {

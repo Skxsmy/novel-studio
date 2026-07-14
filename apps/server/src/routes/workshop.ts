@@ -2,9 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   CreateWorkshopBranchInputSchema,
-  CreateWorkshopMessageProposalInputSchema,
-  CreateWorkshopMessageInputSchema,
-  CreateWorkshopSessionInputSchema,
   AbandonWorkshopAgentRunInputSchema,
   ContextBundleSchema,
   ExecuteWorkshopCodexCreateEntryToolInputSchema,
@@ -12,23 +9,16 @@ import {
   WorkshopCodexCreateEntryToolErrorSchema,
   WorkshopCodexCreateEntryToolResultSchema,
   WorkshopCodexUpdateEntryToolResultSchema,
-  DeleteWorkshopAttachmentResultSchema,
-  DeleteWorkshopSessionResultSchema,
-  ExportWorkshopSessionQuerySchema,
-  ListWorkshopAttachmentsQuerySchema,
   ModelCallLogSchema,
   ResendWorkshopMessageInputSchema,
   ResendWorkshopMessageResultSchema,
   RetryWorkshopAgentRunInputSchema,
   RunWorkshopCallInputSchema,
   UpdateWorkshopContextBasketInputSchema,
-  UpdateWorkshopSessionInputSchema,
-  UploadWorkshopAttachmentInputSchema,
   WorkshopCallResultSchema,
   WorkshopCallStreamEventSchema,
   WorkshopAgentRunActionResultSchema,
   WorkshopContextPreviewInputSchema,
-  WorkshopMessageAttachmentSchema,
   WorkshopMessageSchema,
   CreateCodexProgressionInputSchema,
   UpdateCodexProgressionInputSchema,
@@ -47,13 +37,15 @@ import {
   type WorkshopCodexDraftDetailMapping,
   type WorkshopCodexDraftMissingDetailType,
   type WorkshopMessage,
+  type WorkshopSession,
 } from "@novel-studio/contracts";
 import type { EmbeddingRouter, ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
-import type {
-  ProjectRepository,
-  WorkshopCodexDetailTypeCreationCommand,
-  WorkshopCodexProgressionBinding,
-  WorkshopCodexProgressionCommand,
+import {
+  StorageError,
+  type ProjectRepository,
+  type WorkshopCodexDetailTypeCreationCommand,
+  type WorkshopCodexProgressionBinding,
+  type WorkshopCodexProgressionCommand,
 } from "@novel-studio/storage";
 import {
   ensureCredentialBoundary,
@@ -62,7 +54,7 @@ import {
 import { PromptRenderError } from "../prompts/render.js";
 import { buildContextBundle } from "./context.js";
 import { contextPrompt, requestHash, usage } from "./modelCalls.js";
-import { parseWorkshopAttachmentUpload } from "./workshopAttachments.js";
+import { registerWorkshopRecordRoutes } from "./workshopRecordRoutes.js";
 import {
   codexCreateEntryInputFromWorkshopDraft,
   codexUpdateEntryInputFromWorkshopDraft,
@@ -74,10 +66,9 @@ import {
   type WorkshopCodexUpdateDraft,
   WorkshopCodexDetailTypeCreationRequiredError,
 } from "../workshop/codexDraft.js";
-import { exportWorkshopSessionMarkdown } from "../workshop/sessionExport.js";
 import { planWorkshopDetailSchema } from "../workshop/detailSchemaPlanner.js";
-import { applyWorkshopAgentPrompt } from "../workshop/workshopAgent.js";
-import { continueWorkshopAgentAfterToolResult, retryWorkshopAgent, runWorkshopAgent } from "../workshop/workshopAgentRunner.js";
+import { WorkshopAgentCoordinator } from "../workshop/workshopAgentCoordinator.js";
+import { createReasoningParser, splitReasoningContent } from "../workshop/workshopReasoning.js";
 import {
   workshopPromptDefinition,
   workshopProviderPrompt as workshopModeProviderPrompt,
@@ -156,114 +147,6 @@ function workshopToolConflict(message: WorkshopMessage, requestHash: string): { 
   };
 }
 
-const OPEN_REASONING_TAGS = ["<think>", "<thinking>"];
-const CLOSE_REASONING_TAGS = ["</think>", "</thinking>"];
-
-interface ParsedReasoningContent {
-  content: string;
-  reasoningContent: string;
-}
-
-interface ReasoningDelta {
-  type: "delta" | "reasoning-delta";
-  text: string;
-}
-
-function findFirstTag(buffer: string, tags: string[]): { index: number; tag: string } | null {
-  const lower = buffer.toLocaleLowerCase("und");
-  let found: { index: number; tag: string } | null = null;
-  for (const tag of tags) {
-    const index = lower.indexOf(tag);
-    if (index === -1) continue;
-    if (!found || index < found.index) {
-      found = { index, tag };
-    }
-  }
-  return found;
-}
-
-function suffixPrefixLength(buffer: string, tags: string[]): number {
-  const lower = buffer.toLocaleLowerCase("und");
-  const maxLength = Math.min(
-    lower.length,
-    Math.max(...tags.map((tag) => tag.length)) - 1,
-  );
-  for (let length = maxLength; length > 0; length -= 1) {
-    const suffix = lower.slice(-length);
-    if (tags.some((tag) => tag.startsWith(suffix))) return length;
-  }
-  return 0;
-}
-
-function createReasoningParser() {
-  let buffer = "";
-  let inReasoning = false;
-
-  function drain(): ReasoningDelta[] {
-    const events: ReasoningDelta[] = [];
-    while (buffer.length > 0) {
-      if (!inReasoning) {
-        const tag = findFirstTag(buffer, OPEN_REASONING_TAGS);
-        if (tag) {
-          if (tag.index > 0) {
-            events.push({ type: "delta", text: buffer.slice(0, tag.index) });
-          }
-          buffer = buffer.slice(tag.index + tag.tag.length);
-          inReasoning = true;
-          continue;
-        }
-        const holdLength = suffixPrefixLength(buffer, OPEN_REASONING_TAGS);
-        const visible = buffer.slice(0, buffer.length - holdLength);
-        if (visible) events.push({ type: "delta", text: visible });
-        buffer = buffer.slice(buffer.length - holdLength);
-        break;
-      }
-
-      const tag = findFirstTag(buffer, CLOSE_REASONING_TAGS);
-      if (tag) {
-        if (tag.index > 0) {
-          events.push({ type: "reasoning-delta", text: buffer.slice(0, tag.index) });
-        }
-        buffer = buffer.slice(tag.index + tag.tag.length);
-        inReasoning = false;
-        continue;
-      }
-      const holdLength = suffixPrefixLength(buffer, CLOSE_REASONING_TAGS);
-      const reasoning = buffer.slice(0, buffer.length - holdLength);
-      if (reasoning) events.push({ type: "reasoning-delta", text: reasoning });
-      buffer = buffer.slice(buffer.length - holdLength);
-      break;
-    }
-    return events;
-  }
-
-  return {
-    push(chunk: string): ReasoningDelta[] {
-      buffer += chunk;
-      return drain();
-    },
-    finish(): ReasoningDelta[] {
-      const leftover = buffer;
-      buffer = "";
-      return leftover ? [{ type: inReasoning ? "reasoning-delta" : "delta", text: leftover }] : [];
-    },
-  };
-}
-
-function splitReasoningContent(raw: string): ParsedReasoningContent {
-  const parser = createReasoningParser();
-  let content = "";
-  let reasoningContent = "";
-  for (const event of [...parser.push(raw), ...parser.finish()]) {
-    if (event.type === "reasoning-delta") {
-      reasoningContent += event.text;
-    } else {
-      content += event.text;
-    }
-  }
-  return { content, reasoningContent };
-}
-
 function writeWorkshopEvent(reply: FastifyReply, rawEvent: WorkshopCallStreamEvent): void {
   const event = WorkshopCallStreamEventSchema.parse(rawEvent);
   reply.raw.write(`event: ${event.type}\n`);
@@ -279,7 +162,6 @@ function manualContextIds(basket: WorkshopContextBasket): string[] {
     if (item.kind === "chapter") return [`chapter:${item.sourceId}`];
     if (item.kind === "scene") return [`scene:${item.sourceId}`];
     if (item.kind === "codex-entry") return [`codex:${item.sourceId}`];
-    if (item.kind === "scene-section") return [`section:${item.sourceId}`];
     return [];
   });
 }
@@ -288,13 +170,17 @@ async function workshopContextPayload(
   repository: ProjectRepository,
   seriesId: string,
   basket: WorkshopContextBasket,
+  session: WorkshopSession,
   input: ReturnType<typeof WorkshopContextPreviewInputSchema.parse>,
   options: { excludeWorkshopMessageId?: string | null } = {},
 ): Promise<Record<string, unknown>> {
+  assertWorkshopSessionMode(session, input.mode);
   const workshopPrompt = workshopPromptDefinition(input.mode);
-  const promptInstruction = workshopPrompt
-    ? [workshopPrompt.system, workshopPrompt.instructions].filter(Boolean).join("\n\n")
-    : null;
+  const promptInstruction = input.mode === "general-chat"
+    ? session.generalChatSystemPrompt
+    : workshopPrompt
+      ? [workshopPrompt.system, workshopPrompt.instructions].filter(Boolean).join("\n\n")
+      : null;
   return {
     sceneId: basket.sceneId ?? null,
     blockId: basket.blockId,
@@ -305,7 +191,7 @@ async function workshopContextPayload(
     taskKind: workshopPrompt?.taskKind ?? input.taskKind,
     promptTemplateId: workshopPrompt?.promptTemplateId ?? input.promptTemplateId,
     promptTemplateVersion: workshopPrompt?.promptTemplateVersion ?? input.promptTemplateVersion,
-    systemPromptOverride: input.mode === "general-chat" ? input.systemPrompt : promptInstruction,
+    systemPromptOverride: promptInstruction,
     modelProfileId: input.modelProfileId,
     tokenBudget: input.tokenBudget,
     attachmentIds: input.attachmentIds,
@@ -314,6 +200,20 @@ async function workshopContextPayload(
     excludeWorkshopMessageId: options.excludeWorkshopMessageId ?? null,
     includePendingWorkshopCodexDraft: input.mode === "agent",
   };
+}
+
+function assertWorkshopSessionMode(
+  session: WorkshopSession,
+  mode: ReturnType<typeof WorkshopContextPreviewInputSchema.parse>["mode"],
+): void {
+  const expectedMode = session.kind === "agent" ? "agent" : "general-chat";
+  if (mode !== expectedMode) {
+    throw new StorageError("Workshop call mode must match the session kind", "INVALID_DATA", {
+      sessionId: session.id,
+      sessionKind: session.kind,
+      mode,
+    });
+  }
 }
 
 function combinedInputUsage(
@@ -356,19 +256,21 @@ function shouldFilterPromptContext(mode: ReturnType<typeof RunWorkshopCallInputS
 
 async function workshopProviderPrompt(
   contextBundle: ContextBundle,
-  input: ReturnType<typeof RunWorkshopCallInputSchema.parse>,
+  mode: ReturnType<typeof RunWorkshopCallInputSchema.parse>["mode"],
+  session: WorkshopSession,
 ): Promise<ProviderPrompt> {
-  if (input.mode === "agent") {
-    return applyWorkshopAgentPrompt(workshopModeProviderPrompt({
+  assertWorkshopSessionMode(session, mode);
+  if (mode === "agent") {
+    return workshopModeProviderPrompt({
       mode: "agent",
       userRequest: contextBundle.userRequest,
-    }));
+    });
   }
-  if (input.mode === "general-chat") {
+  if (mode === "general-chat") {
     return workshopModeProviderPrompt({
       mode: "general-chat",
       userRequest: contextBundle.userRequest,
-      generalChatSystemPrompt: input.systemPrompt,
+      generalChatSystemPrompt: session.generalChatSystemPrompt ?? "",
     });
   }
   return contextPrompt(contextBundle);
@@ -955,6 +857,8 @@ export function registerWorkshopRoutes(
   options: { providerRegistry: ProviderRegistry; embeddingRouter: EmbeddingRouter },
 ): void {
   const { embeddingRouter, providerRegistry } = options;
+  const agentCoordinator = new WorkshopAgentCoordinator();
+  registerWorkshopRecordRoutes(app, repository);
 
   async function continueToolResult(input: {
     seriesId: string;
@@ -969,7 +873,7 @@ export function registerWorkshopRoutes(
       );
       const baseProfile = await repository.getModelProfile(input.result.agentRun.run.modelProfileId);
       const modelProfile = effectiveModelProfile(baseProfile, input.result.agentRun.run.modelOverride);
-      const continuation = await continueWorkshopAgentAfterToolResult({
+      const continuation = await agentCoordinator.continueAfterToolResult({
         repository,
         providerRegistry,
         seriesId: input.seriesId,
@@ -990,58 +894,14 @@ export function registerWorkshopRoutes(
         agentRun: continuation.run,
       };
     } catch {
-      return { continuationMessages: [], agentRun: input.result.agentRun };
+      const latestRun = await repository.getWorkshopAgentRun(
+        input.seriesId,
+        input.sessionId,
+        input.result.agentRun.run.id,
+      ).catch(() => input.result.agentRun!);
+      return { continuationMessages: [], agentRun: latestRun };
     }
   }
-
-  app.get<{ Params: { seriesId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions",
-    async (request) => repository.listWorkshopSessions(request.params.seriesId),
-  );
-
-  app.post<{ Params: { seriesId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions",
-    async (request, reply) => {
-      const input = CreateWorkshopSessionInputSchema.parse(request.body ?? {});
-      return reply.status(201).send(await repository.createWorkshopSession(request.params.seriesId, input));
-    },
-  );
-
-  app.get<{ Params: { seriesId: string; sessionId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId",
-    async (request) => {
-      const session = await repository.getWorkshopSession(request.params.seriesId, request.params.sessionId);
-      const agentRuns = session.kind === "agent"
-        ? await repository.reconcileWorkshopAgentRuns(request.params.seriesId, request.params.sessionId)
-        : { runs: [], diagnostics: [] };
-      const [basket, messages, attachments] = await Promise.all([
-        repository.getWorkshopContextBasket(request.params.seriesId, request.params.sessionId),
-        repository.listWorkshopMessages(request.params.seriesId, request.params.sessionId),
-        repository.listWorkshopAttachments(request.params.seriesId, request.params.sessionId),
-      ]);
-      return { session, basket, messages, attachments, agentRuns };
-    },
-  );
-
-  app.get<{ Params: { seriesId: string; sessionId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/export",
-    async (request, reply) => {
-      const query = ExportWorkshopSessionQuerySchema.parse(request.query ?? {});
-      const markdown = await exportWorkshopSessionMarkdown(
-        repository,
-        request.params.seriesId,
-        request.params.sessionId,
-        {
-          includePromptAudit: query.includePromptAudit,
-          includeReasoning: query.includeReasoning,
-        },
-      );
-      return reply
-        .header("content-type", "text/markdown; charset=utf-8")
-        .header("content-disposition", `attachment; filename="workshop-${request.params.sessionId}.md"`)
-        .send(`\uFEFF${markdown}`);
-    },
-  );
 
   app.post<{ Params: { seriesId: string; sessionId: string; runId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/agent-runs/:runId/retry",
@@ -1068,7 +928,7 @@ export function registerWorkshopRoutes(
       const contextBundle = await repository.getContextBundle(request.params.seriesId, run.run.contextBundleId);
       const baseProfile = await repository.getModelProfile(run.run.modelProfileId);
       const modelProfile = effectiveModelProfile(baseProfile, run.run.modelOverride);
-      const result = await retryWorkshopAgent({
+      const result = await agentCoordinator.retry({
         repository,
         providerRegistry,
         seriesId: request.params.seriesId,
@@ -1107,122 +967,6 @@ export function registerWorkshopRoutes(
     },
   );
 
-  app.put<{ Params: { seriesId: string; sessionId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId",
-    async (request) => {
-      const input = UpdateWorkshopSessionInputSchema.parse(request.body);
-      return repository.updateWorkshopSession(request.params.seriesId, request.params.sessionId, input);
-    },
-  );
-
-  app.delete<{ Params: { seriesId: string; sessionId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId",
-    async (request) => DeleteWorkshopSessionResultSchema.parse(
-      await repository.deleteWorkshopSession(request.params.seriesId, request.params.sessionId),
-    ),
-  );
-
-  app.post<{ Params: { seriesId: string; sessionId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/archive",
-    async (request) =>
-      repository.archiveWorkshopSession(request.params.seriesId, request.params.sessionId),
-  );
-
-  app.post<{ Params: { seriesId: string; sessionId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/restore",
-    async (request) =>
-      repository.restoreWorkshopSession(request.params.seriesId, request.params.sessionId),
-  );
-
-  app.get<{ Params: { seriesId: string; sessionId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages",
-    async (request) =>
-      repository.listWorkshopMessages(request.params.seriesId, request.params.sessionId),
-  );
-
-  app.get<{ Params: { seriesId: string; sessionId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/attachments",
-    async (request) => {
-      const query = ListWorkshopAttachmentsQuerySchema.parse(request.query ?? {});
-      return repository.listWorkshopAttachments(
-        request.params.seriesId,
-        request.params.sessionId,
-        query.draftToken ? { draftToken: query.draftToken } : {},
-      );
-    },
-  );
-
-  app.post<{ Params: { seriesId: string; sessionId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/attachments",
-    async (request, reply) => {
-      const input = UploadWorkshopAttachmentInputSchema.parse(request.body);
-      const parseResult = await parseWorkshopAttachmentUpload(input);
-      const now = new Date().toISOString();
-      const attachment = WorkshopMessageAttachmentSchema.parse({
-        schemaVersion: 1,
-        id: randomUUID(),
-        seriesId: request.params.seriesId,
-        sessionId: request.params.sessionId,
-        messageId: null,
-        draftToken: input.draftToken,
-        fileName: input.fileName,
-        mediaType: input.mediaType,
-        sizeBytes: input.sizeBytes,
-        ...parseResult,
-        createdAt: now,
-        updatedAt: now,
-      });
-      return reply.status(201).send(
-        await repository.createWorkshopAttachment(
-          request.params.seriesId,
-          request.params.sessionId,
-          attachment,
-        ),
-      );
-    },
-  );
-
-  app.delete<{ Params: { seriesId: string; sessionId: string; attachmentId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/attachments/:attachmentId",
-    async (request) => DeleteWorkshopAttachmentResultSchema.parse(
-      await repository.deleteWorkshopAttachment(
-        request.params.seriesId,
-        request.params.sessionId,
-        request.params.attachmentId,
-      ),
-    ),
-  );
-
-  app.get<{ Params: { seriesId: string; messageId: string } }>(
-    "/api/v1/series/:seriesId/workshop/messages/:messageId/source",
-    async (request) =>
-      repository.getWorkshopMessageSource(request.params.seriesId, request.params.messageId),
-  );
-
-  app.post<{ Params: { seriesId: string; sessionId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages",
-    async (request, reply) => {
-      const input = CreateWorkshopMessageInputSchema.parse(request.body);
-      return reply.status(201).send(
-        await repository.createWorkshopMessage(
-          request.params.seriesId,
-          request.params.sessionId,
-          input,
-        ),
-      );
-    },
-  );
-
-  app.delete<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId",
-    async (request) =>
-      repository.deleteWorkshopMessage(
-        request.params.seriesId,
-        request.params.sessionId,
-        request.params.messageId,
-      ),
-  );
-
   app.post<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/resend",
     async (request, reply) => {
@@ -1244,7 +988,6 @@ export function registerWorkshopRoutes(
         taskKind: input.taskKind,
         promptTemplateId: input.promptTemplateId,
         promptTemplateVersion: input.promptTemplateVersion,
-        systemPrompt: input.systemPrompt,
         modelProfileId: input.modelProfileId,
         modelOverride: input.modelOverride,
         tokenBudget: input.tokenBudget,
@@ -1262,7 +1005,7 @@ export function registerWorkshopRoutes(
           repository,
           providerRegistry,
           request.params.seriesId,
-          await workshopContextPayload(repository, request.params.seriesId, basket, callInput, {
+          await workshopContextPayload(repository, request.params.seriesId, basket, replacement.session, callInput, {
             excludeWorkshopMessageId: replacement.message.id,
           }),
         );
@@ -1274,7 +1017,7 @@ export function registerWorkshopRoutes(
         await repository.getModelProfile(callInput.modelProfileId),
         callInput.modelOverride,
       );
-      const prompt = await workshopProviderPrompt(contextBundle, callInput);
+      const prompt = await workshopProviderPrompt(contextBundle, callInput.mode, replacement.session);
       const providerContextBundle = workshopProviderContextBundle(contextBundle, callInput.mode);
       const { log, responseText } = await executeWorkshopCall({
         repository,
@@ -1310,21 +1053,6 @@ export function registerWorkshopRoutes(
         deletedBranchIds: replacement.deletedBranchIds,
         deletedMessageIds: replacement.deletedMessageIds,
       });
-    },
-  );
-
-  app.post<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
-    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/proposals",
-    async (request, reply) => {
-      const input = CreateWorkshopMessageProposalInputSchema.parse(request.body);
-      return reply.status(201).send(
-        await repository.createProposalFromWorkshopMessage(
-          request.params.seriesId,
-          request.params.sessionId,
-          request.params.messageId,
-          input,
-        ),
-      );
     },
   );
 
@@ -1737,15 +1465,6 @@ export function registerWorkshopRoutes(
     },
   );
 
-  function rejectLegacyCodexCreationMode(input: { mode: string }, reply: FastifyReply): boolean {
-    if (input.mode !== "codex-creation") return false;
-    void reply.status(400).send({
-      code: "INVALID_DATA",
-      message: "Codex Creation is no longer a Workshop mode. Use an Agent session and codex.create_entry tool requests.",
-    });
-    return true;
-  }
-
   async function saveWorkshopAssistantTurn(input: {
     seriesId: string;
     sessionId: string;
@@ -1796,8 +1515,11 @@ export function registerWorkshopRoutes(
     async (request, reply) => {
       try {
         const input = WorkshopContextPreviewInputSchema.parse(request.body);
-        if (rejectLegacyCodexCreationMode(input, reply)) return reply;
         const basket = await repository.getWorkshopContextBasket(
+          request.params.seriesId,
+          request.params.sessionId,
+        );
+        const session = await repository.getWorkshopSession(
           request.params.seriesId,
           request.params.sessionId,
         );
@@ -1805,7 +1527,7 @@ export function registerWorkshopRoutes(
           repository,
           providerRegistry,
           request.params.seriesId,
-          await workshopContextPayload(repository, request.params.seriesId, basket, input),
+          await workshopContextPayload(repository, request.params.seriesId, basket, session, input),
         );
       } catch (error) {
         if (sendContextError(reply, error)) return reply;
@@ -1818,7 +1540,11 @@ export function registerWorkshopRoutes(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/calls/stream",
     async (request, reply) => {
       const input = RunWorkshopCallInputSchema.parse(request.body);
-      if (rejectLegacyCodexCreationMode(input, reply)) return reply;
+      const session = await repository.getWorkshopSession(
+        request.params.seriesId,
+        request.params.sessionId,
+      );
+      assertWorkshopSessionMode(session, input.mode);
       const authorMessage = await repository.createWorkshopMessage(
         request.params.seriesId,
         request.params.sessionId,
@@ -1840,7 +1566,7 @@ export function registerWorkshopRoutes(
           repository,
           providerRegistry,
           request.params.seriesId,
-          await workshopContextPayload(repository, request.params.seriesId, basket, input, {
+          await workshopContextPayload(repository, request.params.seriesId, basket, session, input, {
             excludeWorkshopMessageId: authorMessage.id,
           }),
         );
@@ -1852,7 +1578,7 @@ export function registerWorkshopRoutes(
         await repository.getModelProfile(input.modelProfileId),
         input.modelOverride,
       );
-      const prompt = await workshopProviderPrompt(contextBundle, input);
+      const prompt = await workshopProviderPrompt(contextBundle, input.mode, session);
       const providerContextBundle = workshopProviderContextBundle(contextBundle, input.mode);
 
       reply.hijack();
@@ -1872,7 +1598,7 @@ export function registerWorkshopRoutes(
       writeWorkshopEvent(reply, { type: "author-message", message: authorMessage });
 
       if (input.mode === "agent") {
-        const agent = await runWorkshopAgent({
+        const agent = await agentCoordinator.start({
           repository,
           providerRegistry,
           seriesId: request.params.seriesId,
@@ -2010,7 +1736,11 @@ export function registerWorkshopRoutes(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/calls",
     async (request, reply) => {
       const input = RunWorkshopCallInputSchema.parse(request.body);
-      if (rejectLegacyCodexCreationMode(input, reply)) return reply;
+      const session = await repository.getWorkshopSession(
+        request.params.seriesId,
+        request.params.sessionId,
+      );
+      assertWorkshopSessionMode(session, input.mode);
       const authorMessage = await repository.createWorkshopMessage(
         request.params.seriesId,
         request.params.sessionId,
@@ -2032,7 +1762,7 @@ export function registerWorkshopRoutes(
           repository,
           providerRegistry,
           request.params.seriesId,
-          await workshopContextPayload(repository, request.params.seriesId, basket, input, {
+          await workshopContextPayload(repository, request.params.seriesId, basket, session, input, {
             excludeWorkshopMessageId: authorMessage.id,
           }),
         );
@@ -2044,10 +1774,10 @@ export function registerWorkshopRoutes(
         await repository.getModelProfile(input.modelProfileId),
         input.modelOverride,
       );
-      const prompt = await workshopProviderPrompt(contextBundle, input);
+      const prompt = await workshopProviderPrompt(contextBundle, input.mode, session);
       const providerContextBundle = workshopProviderContextBundle(contextBundle, input.mode);
       if (input.mode === "agent") {
-        const agent = await runWorkshopAgent({
+        const agent = await agentCoordinator.start({
           repository,
           providerRegistry,
           seriesId: request.params.seriesId,

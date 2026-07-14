@@ -8,7 +8,11 @@ import { EditorView } from "@codemirror/view";
 import type { Editor, JSONContent } from "@tiptap/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import type { SceneBlock, SceneBlockDocument } from "@novel-studio/contracts";
+import {
+  DEFAULT_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT,
+  type SceneBlock,
+  type SceneBlockDocument,
+} from "@novel-studio/contracts";
 import { sceneBlockDocumentToNovelEditorDocument } from "../features/write/editor";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
@@ -837,17 +841,22 @@ function proposalDocumentWithStatus(
 
 function workshopSession(overrides: Partial<{
   branchOfMessageId: string | null;
+  generalChatSystemPrompt: string;
   id: string;
   kind: "chat" | "agent";
   lastMessageAt: string | null;
   status: "active" | "archived";
   title: string;
 }> = {}) {
+  const kind = overrides.kind ?? "chat";
   return {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     id: overrides.id ?? workshopSessionId,
     seriesId,
-    kind: overrides.kind ?? "chat",
+    kind,
+    generalChatSystemPrompt: kind === "chat"
+      ? overrides.generalChatSystemPrompt ?? DEFAULT_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT
+      : null,
     title: overrides.title ?? "New chat",
     status: overrides.status ?? "active",
     branchOfMessageId: overrides.branchOfMessageId ?? null,
@@ -1081,6 +1090,7 @@ function mockFetch(options: {
     if (url === `/api/v1/series/${seriesId}/workshop/sessions` && method === "POST") {
       const body = JSON.parse(String(init?.body));
       const created = workshopSession({
+        generalChatSystemPrompt: body.generalChatSystemPrompt,
         kind: body.kind ?? "chat",
         title: body.title ?? "New chat",
       });
@@ -1446,7 +1456,7 @@ function mockFetch(options: {
           seriesId,
           sessionId: requestedSessionId,
           role: body.role ?? "author",
-          mode: body.mode ?? "continuity-check",
+          mode: body.mode ?? "general-chat",
           status: "succeeded",
           content: body.content,
           reasoningContent: "",
@@ -1460,50 +1470,6 @@ function mockFetch(options: {
         };
         workshopMessages = [...workshopMessages, message];
         return jsonResponse(message, 201);
-      }
-      if (segment === "messages" && action && subaction === "proposals" && method === "POST") {
-        const requestedMessageId = action;
-        const body = JSON.parse(String(init?.body));
-        const sourceMessage = workshopMessages.find((message) => message.id === requestedMessageId);
-        if (!sourceMessage) return jsonResponse({ message: "Workshop message does not exist" }, 404);
-        const created = proposalDocument("pending", {
-          contextBundleId: sourceMessage.contextBundleId as string | null,
-          evidence: body.evidence,
-          generator: sourceMessage.modelCallId
-            ? {
-              kind: "ai",
-              roleId: contextRoleId,
-              provider: "mock",
-              model: "mock-continuity-v1",
-              promptTemplateId,
-              promptTemplateVersion: 1,
-              modelCallLogId: sourceMessage.modelCallId,
-            }
-            : { kind: "manual", actor: "workshop" },
-          id: workshopProposalId,
-          patches: body.patches,
-          reason: body.reason,
-          source: {
-            kind: "workshop-message",
-            sourceId: sourceMessage.id,
-            label: session.title,
-            detail: sourceMessage.content,
-          },
-          summary: body.summary,
-          target: body.target,
-          title: body.title,
-          type: body.type,
-        });
-        proposals = [created, ...proposals.filter((document) => document.proposal.id !== created.proposal.id)];
-        const sourceMessageId = String(sourceMessage.id);
-        const updatedMessage = {
-          ...sourceMessage,
-          proposalIds: Array.from(new Set([...(sourceMessage.proposalIds as string[]), created.proposal.id])),
-        } as Record<string, unknown> & { id: string; proposalIds: string[] };
-        workshopMessages = workshopMessages.map((message) =>
-          message.id === sourceMessageId ? updatedMessage : message,
-        );
-        return jsonResponse({ message: updatedMessage, proposal: created }, 201);
       }
       if (segment === "messages" && action && subaction === "resend" && method === "POST") {
         const requestedMessageId = action;
@@ -1586,15 +1552,24 @@ function mockFetch(options: {
       }
       if (segment === "messages" && action && !subaction && method === "DELETE") {
         const requestedMessageId = action;
-        const sourceMessage = workshopMessages.find((message) => message.id === requestedMessageId);
-        if (!sourceMessage) return jsonResponse({ message: "Workshop message does not exist" }, 404);
+        const sessionMessages = workshopMessages.filter((message) => message.sessionId === requestedSessionId);
+        const sourceIndex = sessionMessages.findIndex((message) => message.id === requestedMessageId);
+        if (sourceIndex < 0) return jsonResponse({ message: "Workshop message does not exist" }, 404);
+        let turnStart = sourceIndex;
+        while (turnStart >= 0 && sessionMessages[turnStart]?.role !== "author") turnStart -= 1;
+        if (turnStart < 0) return jsonResponse({ message: "Workshop turn is invalid" }, 400);
+        let turnEnd = turnStart + 1;
+        while (turnEnd < sessionMessages.length && sessionMessages[turnEnd]?.role !== "author") turnEnd += 1;
+        const deletedMessages = sessionMessages.slice(turnStart, turnEnd);
+        const deletedMessageIds = deletedMessages.map((message) => String(message.id));
+        const deletedMessageIdSet = new Set(deletedMessageIds);
         const deletedAttachmentIds = workshopAttachments
-          .filter((attachment) => attachment.messageId === requestedMessageId)
+          .filter((attachment) => attachment.messageId && deletedMessageIdSet.has(String(attachment.messageId)))
           .map((attachment) => String(attachment.id));
         workshopAttachments = workshopAttachments.filter((attachment) =>
-          attachment.messageId !== requestedMessageId,
+          !attachment.messageId || !deletedMessageIdSet.has(String(attachment.messageId)),
         );
-        workshopMessages = workshopMessages.filter((message) => message.id !== requestedMessageId);
+        workshopMessages = workshopMessages.filter((message) => !deletedMessageIdSet.has(String(message.id)));
         const lastMessage = workshopMessages
           .filter((message) => message.sessionId === requestedSessionId)
           .at(-1) as { createdAt?: string } | undefined;
@@ -1603,8 +1578,18 @@ function mockFetch(options: {
           lastMessageAt: lastMessage?.createdAt ?? null,
           updatedAt: "2026-07-01T00:14:00.000Z",
         };
-        workshopSessions = workshopSessions.map((item) => item.id === requestedSessionId ? updatedSession : item);
-        return jsonResponse({ deletedId: requestedMessageId, deletedAttachmentIds, session: updatedSession });
+        workshopSessions = workshopSessions.map((item) => {
+          if (item.id === requestedSessionId) return updatedSession;
+          return item.branchOfMessageId && deletedMessageIdSet.has(String(item.branchOfMessageId))
+            ? { ...item, branchOfMessageId: null }
+            : item;
+        });
+        return jsonResponse({
+          deletedMessageIds,
+          deletedAttachmentIds,
+          deletedBranchIds: [],
+          session: updatedSession,
+        });
       }
       if (segment === "branch" && method === "POST") {
         const body = JSON.parse(String(init?.body));
@@ -1614,6 +1599,9 @@ function mockFetch(options: {
         const clonedSourceMessages = sourceIndex >= 0 ? sourceMessages.slice(0, sourceIndex + 1) : [];
         const branchSession = workshopSession({
           branchOfMessageId: sourceMessageId,
+          ...(typeof session.generalChatSystemPrompt === "string"
+            ? { generalChatSystemPrompt: session.generalChatSystemPrompt }
+            : {}),
           id: "95959595-9595-4595-9595-959595959595",
           kind: session.kind as "chat" | "agent",
           lastMessageAt: (clonedSourceMessages.at(-1)?.createdAt as string | undefined) ?? null,
@@ -1767,7 +1755,7 @@ function mockFetch(options: {
           seriesId,
           sessionId: requestedSessionId,
           role: "author",
-          mode: body.mode ?? "continuity-check",
+          mode: body.mode ?? "general-chat",
           status: "succeeded",
           content: body.userRequest,
           reasoningContent: "",
@@ -1785,7 +1773,7 @@ function mockFetch(options: {
           seriesId,
           sessionId: requestedSessionId,
           role: "assistant",
-          mode: body.mode ?? "continuity-check",
+          mode: body.mode ?? "general-chat",
           status: "succeeded",
           content: "Workshop model response.",
           reasoningContent: "",
@@ -4801,7 +4789,61 @@ describe("App shell", () => {
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
     expect(screen.queryByText(workshopModelCallId)).toBeNull();
     expect(screen.queryByText(workshopContextBundleId)).toBeNull();
+    expect(screen.queryByText("general-chat")).toBeNull();
+    expect(screen.queryByText("branchOfMessageId")).toBeNull();
+    expect(screen.queryByText("sourceId")).toBeNull();
     expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
+  });
+
+  it("persists and restores an independent General Chat prompt for each session", async () => {
+    const secondSessionId = "78787878-7878-4878-8878-787878787878";
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [
+        workshopSession({
+          id: workshopSessionId,
+          title: "First prompt chat",
+          generalChatSystemPrompt: "First session prompt.",
+        }),
+        workshopSession({
+          id: secondSessionId,
+          title: "Second prompt chat",
+          generalChatSystemPrompt: "Second session prompt.",
+        }),
+      ],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Call Settings" }));
+    const promptInput = await screen.findByLabelText("General Chat system prompt") as HTMLTextAreaElement;
+    expect(promptInput.value).toBe("First session prompt.");
+    fireEvent.change(promptInput, { target: { value: "Updated first session prompt." } });
+    fireEvent.blur(promptInput);
+    await waitFor(() => {
+      const update = fetchMock.mock.calls.find(([url, init]) =>
+        String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}` &&
+        (init as RequestInit | undefined)?.method === "PUT" &&
+        JSON.parse(String((init as RequestInit).body)).generalChatSystemPrompt === "Updated first session prompt."
+      );
+      expect(update).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Second prompt chat/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Call Settings" }));
+    expect((await screen.findByLabelText("General Chat system prompt") as HTMLTextAreaElement).value)
+      .toBe("Second session prompt.");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /First prompt chat/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Call Settings" }));
+    expect((await screen.findByLabelText("General Chat system prompt") as HTMLTextAreaElement).value)
+      .toBe("Updated first session prompt.");
   });
 
   it("runs Workshop Agent sessions without scene Proposal actions", async () => {
@@ -4838,8 +4880,8 @@ describe("App shell", () => {
     const body = JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body));
     expect(body).toMatchObject({
       mode: "agent",
-      systemPrompt: "",
     });
+    expect(body).not.toHaveProperty("systemPrompt");
     expect(body.roleId).toBeUndefined();
     expect(body.taskKind).toBeUndefined();
     expect(body.promptTemplateId).toBeUndefined();
@@ -4847,6 +4889,78 @@ describe("App shell", () => {
     expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Resend" })).toBeNull();
+  });
+
+  it("deletes complete General Chat turns and never offers turn deletion in Agent sessions", async () => {
+    const agentSessionId = "12121212-1212-4212-8212-121212121212";
+    const firstAuthorId = "13131313-1313-4313-8313-131313131313";
+    const firstAssistantId = "14141414-1414-4414-8414-141414141414";
+    const secondAuthorId = "15151515-1515-4515-8515-151515151515";
+    const secondAssistantId = "16161616-1616-4616-8616-161616161616";
+    const message = (input: {
+      content: string;
+      createdAt: string;
+      id: string;
+      mode: "general-chat" | "agent";
+      role: "author" | "assistant";
+      sessionId: string;
+    }) => ({
+      schemaVersion: 1,
+      ...input,
+      seriesId,
+      status: "succeeded",
+      reasoningContent: "",
+      contextBundleId: null,
+      modelCallId: null,
+      proposalIds: [],
+      attachmentIds: [],
+      errorCode: null,
+      errorMessage: null,
+    });
+    const confirmDelete = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirmDelete);
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [
+        workshopSession({ id: workshopSessionId, kind: "chat", title: "Turn deletion" }),
+        workshopSession({ id: agentSessionId, kind: "agent", title: "Protected Agent" }),
+      ],
+      initialWorkshopMessages: [
+        message({ id: firstAuthorId, sessionId: workshopSessionId, role: "author", mode: "general-chat", content: "Delete this question.", createdAt: "2026-07-01T00:01:00.000Z" }),
+        message({ id: firstAssistantId, sessionId: workshopSessionId, role: "assistant", mode: "general-chat", content: "Delete this answer.", createdAt: "2026-07-01T00:02:00.000Z" }),
+        message({ id: secondAuthorId, sessionId: workshopSessionId, role: "author", mode: "general-chat", content: "Keep this later question.", createdAt: "2026-07-01T00:03:00.000Z" }),
+        message({ id: secondAssistantId, sessionId: workshopSessionId, role: "assistant", mode: "general-chat", content: "Keep this later answer.", createdAt: "2026-07-01T00:04:00.000Z" }),
+        message({ id: "17171717-1717-4717-8717-171717171717", sessionId: agentSessionId, role: "author", mode: "agent", content: "Keep this Agent turn.", createdAt: "2026-07-01T00:05:00.000Z" }),
+        message({ id: "18181818-1818-4818-8818-181818181818", sessionId: agentSessionId, role: "assistant", mode: "agent", content: "Agent reply.", createdAt: "2026-07-01T00:06:00.000Z" }),
+      ],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Workshop" }));
+    const firstAnswer = await screen.findByText("Delete this answer.");
+    const firstAnswerArticle = firstAnswer.closest("article") as HTMLElement;
+    fireEvent.click(within(firstAnswerArticle).getByRole("button", { name: "Message actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete turn" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Delete this question.")).toBeNull();
+      expect(screen.queryByText("Delete this answer.")).toBeNull();
+    });
+    expect(screen.getByText("Keep this later question.")).toBeTruthy();
+    expect(screen.getByText("Keep this later answer.")).toBeTruthy();
+    expect(confirmDelete).toHaveBeenCalledWith("Delete this complete question-and-reply turn?");
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/${firstAssistantId}`,
+      expect.objectContaining({ method: "DELETE" }),
+    );
+
+    const sessionsPanel = screen.getByText("Conversation branches").closest(".panel") as HTMLElement;
+    fireEvent.click(within(sessionsPanel).getByText("Protected Agent"));
+    const agentReply = await screen.findByText("Agent reply.");
+    const agentReplyArticle = agentReply.closest("article") as HTMLElement;
+    fireEvent.click(within(agentReplyArticle).getByRole("button", { name: "Message actions" }));
+    expect(screen.queryByRole("menuitem", { name: "Delete turn" })).toBeNull();
   });
 
   it("renders durable Agent run state and recovers an interrupted run explicitly", async () => {
@@ -4991,7 +5105,8 @@ describe("App shell", () => {
     const toolArticle = screen.getByText("codex.create_entry").closest("article") as HTMLElement;
     const resultArticle = screen.getByText("codex.create_entry created Codex entry: Alice").closest("article") as HTMLElement;
     expect(within(toolArticle).queryByRole("button", { name: "Message actions" })).toBeNull();
-    expect(within(resultArticle).queryByRole("button", { name: "Message actions" })).toBeNull();
+    fireEvent.click(within(resultArticle).getByRole("button", { name: "Message actions" }));
+    expect(await screen.findByRole("menuitem", { name: "Branch" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create Proposal" })).toBeNull();
   });
 
@@ -5152,6 +5267,111 @@ describe("App shell", () => {
     expect(await within(sessionsPanel).findByText("Source thread branch")).toBeTruthy();
     expect(await screen.findByText("Original branch question.")).toBeTruthy();
     expect(await screen.findByText("Original branch answer.")).toBeTruthy();
+  });
+
+  it("branches Workshop history from the exact eligible message selected by the author", async () => {
+    const firstAuthorId = "81818181-8181-4181-8181-818181818181";
+    const firstAnswerId = "82828282-8282-4282-8282-828282828282";
+    const laterAuthorId = "83838383-8383-4383-8383-838383838383";
+    const laterAnswerId = "84848484-8484-4484-8484-848484848484";
+    const fetchMock = mockFetch({
+      initialModelProfiles: [modelProfile()],
+      initialWorkshopSessions: [workshopSession({ id: workshopSessionId, title: "Exact source thread" })],
+      initialWorkshopMessages: [{
+        schemaVersion: 1,
+        id: firstAuthorId,
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "author",
+        mode: "general-chat",
+        status: "succeeded",
+        content: "Keep this opening question.",
+        reasoningContent: "",
+        contextBundleId: null,
+        modelCallId: null,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:10:00.000Z",
+      }, {
+        schemaVersion: 1,
+        id: firstAnswerId,
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "assistant",
+        mode: "general-chat",
+        status: "succeeded",
+        content: "Branch from this earlier answer.",
+        reasoningContent: "",
+        contextBundleId: workshopContextBundleId,
+        modelCallId: workshopModelCallId,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:10:01.000Z",
+      }, {
+        schemaVersion: 1,
+        id: laterAuthorId,
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "author",
+        mode: "general-chat",
+        status: "succeeded",
+        content: "Do not copy this later question.",
+        reasoningContent: "",
+        contextBundleId: null,
+        modelCallId: null,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:11:00.000Z",
+      }, {
+        schemaVersion: 1,
+        id: laterAnswerId,
+        seriesId,
+        sessionId: workshopSessionId,
+        role: "assistant",
+        mode: "general-chat",
+        status: "succeeded",
+        content: "Do not copy this later answer.",
+        reasoningContent: "",
+        contextBundleId: workshopContextBundleId,
+        modelCallId: workshopModelCallId,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: "2026-07-01T00:11:01.000Z",
+      }],
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open Glass Harbor/i }));
+    expect(await screen.findByRole("heading", { name: "Write" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workshop" }));
+    expect(await screen.findByRole("heading", { name: "Workshop" })).toBeTruthy();
+
+    const sourceArticle = (await screen.findByText("Branch from this earlier answer.")).closest("article") as HTMLElement;
+    fireEvent.click(within(sourceArticle).getByRole("button", { name: "Message actions" }));
+    fireEvent.click(await within(sourceArticle).findByRole("menuitem", { name: "Branch" }));
+
+    await waitFor(() => {
+      const branchCall = fetchMock.mock.calls.find(([url, init]) =>
+        String(url) === `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/branch` &&
+        (init as RequestInit | undefined)?.method === "POST",
+      );
+      expect(branchCall).toBeTruthy();
+      expect(JSON.parse(String((branchCall?.[1] as RequestInit | undefined)?.body))).toMatchObject({
+        sourceMessageId: firstAnswerId,
+      });
+    });
+    expect(await screen.findByText("Keep this opening question.")).toBeTruthy();
+    expect(await screen.findByText("Branch from this earlier answer.")).toBeTruthy();
+    expect(screen.queryByText("Do not copy this later question.")).toBeNull();
+    expect(screen.queryByText("Do not copy this later answer.")).toBeNull();
   });
 
   it("exports Workshop sessions with the selected reasoning option", async () => {
@@ -5440,6 +5660,7 @@ describe("App shell", () => {
     expect(resendBody.roleId).toBeUndefined();
     expect(resendBody.taskKind).toBeUndefined();
     expect(resendBody.promptTemplateId).toBeUndefined();
+    expect(resendBody).not.toHaveProperty("systemPrompt");
     expect(await screen.findByText("Updated request.")).toBeTruthy();
     expect(await screen.findByText("Workshop model response.")).toBeTruthy();
     await waitFor(() => {
@@ -5452,6 +5673,7 @@ describe("App shell", () => {
   });
 
   it("shows the author message immediately and keeps General Chat out of Proposal creation", async () => {
+    vi.stubGlobal("confirm", vi.fn(() => true));
     const fetchMock = mockFetch({
       initialModelProfiles: [modelProfile()],
       initialWorkshopSessions: [workshopSession({ id: workshopSessionId, title: "General chat thread" })],
@@ -5522,12 +5744,12 @@ describe("App shell", () => {
     expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body))).toMatchObject({
       mode: "general-chat",
       attachmentIds: [workshopAttachmentId],
-      systemPrompt: "Answer as a context-aware story consultant.",
       userRequest: "Talk through the current scene options.",
     });
     expect(JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body)))
       .not.toHaveProperty("base64Content");
     const requestBody = JSON.parse(String((callRequest?.[1] as RequestInit | undefined)?.body));
+    expect(requestBody).not.toHaveProperty("systemPrompt");
     expect(requestBody.roleId).toBeUndefined();
     expect(requestBody.taskKind).toBeUndefined();
     expect(requestBody.promptTemplateId).toBeUndefined();
@@ -5550,7 +5772,7 @@ describe("App shell", () => {
     fireEvent.click(hideReasoning);
     expect(screen.queryByText("Checked the selected context before answering.")).toBeNull();
     fireEvent.click(within(assistantArticle).getByRole("button", { name: "Message actions" }));
-    fireEvent.click(await within(assistantArticle).findByRole("menuitem", { name: "Delete" }));
+    fireEvent.click(await within(assistantArticle).findByRole("menuitem", { name: "Delete turn" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/98989898-9898-4898-9898-989898989898`,
@@ -5558,15 +5780,7 @@ describe("App shell", () => {
       );
     });
     expect(screen.queryByText("Workshop model response.")).toBeNull();
-    const authorArticle = screen.getByText("Talk through the current scene options.").closest("article") as HTMLElement;
-    fireEvent.click(within(authorArticle).getByRole("button", { name: "Message actions" }));
-    fireEvent.click(await within(authorArticle).findByRole("menuitem", { name: "Delete" }));
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/workshop/sessions/${workshopSessionId}/messages/97979797-9797-4797-9797-979797979797`,
-        expect.objectContaining({ method: "DELETE" }),
-      );
-    });
+    expect(screen.queryByText("Talk through the current scene options.")).toBeNull();
     expect(screen.queryByText("draft.md")).toBeNull();
   });
 
@@ -5789,6 +6003,8 @@ describe("App shell", () => {
     fireEvent.click(await screen.findByRole("tab", { name: /^Codex/u }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /^Codex Entries/u }));
     expect(contextBasketPutCalls()).toHaveLength(5);
+    expect(screen.queryByRole("menuitem", { name: /^Entries by Type/u })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /^Entries by Tag/u })).toBeNull();
     expect(await screen.findByRole("menuitem", { name: /Mara Quill/u })).toBeTruthy();
     expect(screen.getAllByText("Added").length).toBeGreaterThan(0);
 

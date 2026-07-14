@@ -2,22 +2,43 @@ import { describe, expect, it } from "vitest";
 import {
   CreateWorkshopMessageInputSchema,
   CreateWorkshopSessionInputSchema,
+  DeleteWorkshopMessageResultSchema,
   DeleteWorkshopSessionResultSchema,
   ExportWorkshopSessionQuerySchema,
   ResendWorkshopMessageInputSchema,
   ResendWorkshopMessageResultSchema,
   RunWorkshopCallInputSchema,
+  UpdateWorkshopSessionInputSchema,
   WorkshopCallStreamEventSchema,
   WorkshopAgentRunSchema,
   WorkshopContextBasketSchema,
+  WorkshopContextItemKindSchema,
   WorkshopMessageAttachmentSchema,
   WorkshopMessageSchema,
+  WorkshopModeSchema,
   WorkshopSessionSchema,
+  workshopSessionV1RollbackSnapshot,
 } from "../src/workshop.js";
+import { DEFAULT_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT } from "../src/workshopPrompts.js";
 
 const now = "2026-07-01T00:00:00.000Z";
 
 describe("M5 Workshop contracts", () => {
+  it("exposes only current Workshop modes and selectable context refs", () => {
+    expect(WorkshopModeSchema.options).toEqual(["general-chat", "agent"]);
+    expect(WorkshopContextItemKindSchema.options).toEqual([
+      "full-novel",
+      "full-outline",
+      "act",
+      "chapter",
+      "scene",
+      "codex-entry",
+    ]);
+    expect(WorkshopModeSchema.safeParse("continuity-check").success).toBe(false);
+    expect(WorkshopModeSchema.safeParse("codex-creation").success).toBe(false);
+    expect(WorkshopContextItemKindSchema.safeParse("proposal-source").success).toBe(false);
+  });
+
   it("uses a neutral default title for new Workshop chats", () => {
     expect(CreateWorkshopSessionInputSchema.parse({}).title).toBe("New chat");
   });
@@ -32,6 +53,8 @@ describe("M5 Workshop contracts", () => {
       updatedAt: now,
     });
     expect(session.status).toBe("active");
+    expect(session.schemaVersion).toBe(2);
+    expect(session.generalChatSystemPrompt).toBe(DEFAULT_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT);
 
     const message = WorkshopMessageSchema.parse({
       schemaVersion: 1,
@@ -47,6 +70,7 @@ describe("M5 Workshop contracts", () => {
     expect(message.proposalIds).toEqual([]);
     expect(message.attachmentIds).toEqual([]);
     expect(message.reasoningContent).toBe("");
+    expect(message.mode).toBe("general-chat");
     expect(message.toolExecution).toBeUndefined();
 
     const claimedToolMessage = WorkshopMessageSchema.parse({
@@ -105,6 +129,33 @@ describe("M5 Workshop contracts", () => {
     }).toolExecution?.resultMessageId).toBe("55555555-5555-4555-8555-555555555555");
   });
 
+  it("migrates and rolls back session prompt authority without discarding the prompt", () => {
+    const migratedAgent = WorkshopSessionSchema.parse({
+      schemaVersion: 1,
+      id: "55555555-5555-4555-8555-555555555555",
+      seriesId: "22222222-2222-4222-8222-222222222222",
+      kind: "agent",
+      title: "Legacy Agent",
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(migratedAgent).toMatchObject({ schemaVersion: 2, generalChatSystemPrompt: null });
+
+    const chat = WorkshopSessionSchema.parse({
+      schemaVersion: 2,
+      id: "66666666-6666-4666-8666-666666666666",
+      seriesId: "22222222-2222-4222-8222-222222222222",
+      kind: "chat",
+      generalChatSystemPrompt: "A session-specific prompt.",
+      title: "Prompted chat",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const rollback = workshopSessionV1RollbackSnapshot(chat);
+    expect(rollback.session).toMatchObject({ schemaVersion: 1, id: chat.id, kind: "chat" });
+    expect(rollback.generalChatSystemPromptBackup).toBe("A session-specific prompt.");
+  });
+
   it("validates Workshop message attachments in draft and message-bound states", () => {
     const draft = WorkshopMessageAttachmentSchema.parse({
       schemaVersion: 1,
@@ -159,7 +210,7 @@ describe("M5 Workshop contracts", () => {
       promptTemplateVersion: 1,
       promptSnapshot: {
         system: "Write with the author.",
-        instructions: "Return a structured step.",
+        instructions: "Work naturally with the author.",
         user: "Add Mara to the Codex.",
         hash: "b".repeat(64),
       },
@@ -174,7 +225,7 @@ describe("M5 Workshop contracts", () => {
           modelCallId: "99999999-9999-4999-8999-999999999999",
           promptSnapshot: {
             system: "Write with the author.",
-            instructions: "Return a structured step.",
+            instructions: "Work naturally with the author.",
             user: "Add Mara to the Codex.",
             hash: "b".repeat(64),
           },
@@ -198,6 +249,7 @@ describe("M5 Workshop contracts", () => {
     expect(run.status).toBe("waiting-confirmation");
     expect(run.steps).toHaveLength(2);
     expect(run.degradedStructuredOutput).toBe(false);
+    expect(run.steps[0]!.historySnapshot).toEqual([]);
   });
 
   it("preserves long Workshop Agent prompt snapshots beyond the message limit", () => {
@@ -301,7 +353,35 @@ describe("M5 Workshop contracts", () => {
     expect(result.deletedBranchIds).toHaveLength(1);
   });
 
-  it("rejects duplicate basket item IDs and source-less non-note refs", () => {
+  it("validates complete General Chat turn delete results", () => {
+    const result = DeleteWorkshopMessageResultSchema.parse({
+      deletedMessageIds: [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+      ],
+      deletedAttachmentIds: ["33333333-3333-4333-8333-333333333333"],
+      deletedBranchIds: ["44444444-4444-4444-8444-444444444444"],
+      session: {
+        schemaVersion: 1,
+        id: "55555555-5555-4555-8555-555555555555",
+        seriesId: "66666666-6666-4666-8666-666666666666",
+        kind: "chat",
+        title: "General chat",
+        sceneId: null,
+        branchOfMessageId: null,
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+        lastMessageAt: null,
+      },
+    });
+    expect(result.deletedMessageIds).toHaveLength(2);
+    expect(result.deletedAttachmentIds).toHaveLength(1);
+    expect(result.deletedBranchIds).toHaveLength(1);
+  });
+
+  it("rejects duplicate basket item IDs and source-less selectable refs", () => {
     const base = {
       schemaVersion: 1,
       id: "44444444-4444-4444-8444-444444444444",
@@ -318,19 +398,31 @@ describe("M5 Workshop contracts", () => {
         },
         {
           id: "66666666-6666-4666-8666-666666666666",
-          kind: "scene-section",
-          sourceId: null,
-          label: "Private note",
+          kind: "scene",
+          sourceId: "88888888-8888-4888-8888-888888888888",
+          label: "Opening scene",
           createdAt: now,
         },
       ],
       createdAt: now,
       updatedAt: now,
     };
-    const result = WorkshopContextBasketSchema.safeParse(base);
-    expect(result.success).toBe(false);
-    expect(JSON.stringify(result.error.issues)).toContain("duplicate");
-    expect(JSON.stringify(result.error.issues)).toContain("sourceId");
+    const duplicateResult = WorkshopContextBasketSchema.safeParse(base);
+    expect(duplicateResult.success).toBe(false);
+    expect(JSON.stringify(duplicateResult.error.issues)).toContain("duplicate");
+
+    const sourceLessResult = WorkshopContextBasketSchema.safeParse({
+      ...base,
+      items: [{
+        ...base.items[0],
+        id: "99999999-9999-4999-8999-999999999999",
+        kind: "scene",
+        sourceId: null,
+        label: "Opening scene",
+      }],
+    });
+    expect(sourceLessResult.success).toBe(false);
+    expect(JSON.stringify(sourceLessResult.error.issues)).toContain("sourceId");
   });
 
   it("requires a concrete model profile for a single-role call", () => {
@@ -371,6 +463,12 @@ describe("M5 Workshop contracts", () => {
     });
     expect(parsed.mode).toBe("agent");
     expect(parsed.taskKind).toBe("analysis");
+    expect(CreateWorkshopSessionInputSchema.safeParse({
+      kind: "agent",
+      generalChatSystemPrompt: "Do not accept this.",
+    }).success).toBe(false);
+    expect(UpdateWorkshopSessionInputSchema.parse({ generalChatSystemPrompt: "Saved prompt." }))
+      .toEqual({ generalChatSystemPrompt: "Saved prompt." });
   });
 
   it("validates General Chat resend inputs and replacement results", () => {
@@ -380,6 +478,17 @@ describe("M5 Workshop contracts", () => {
     });
     expect(input.taskKind).toBe("analysis");
     expect(input.content).toBe("Updated request.");
+    expect(ResendWorkshopMessageInputSchema.safeParse({
+      content: "Updated request.",
+      systemPrompt: "Request-local override.",
+      modelProfileId: "11111111-2222-4333-8444-555555555555",
+    }).success).toBe(false);
+    expect(RunWorkshopCallInputSchema.safeParse({
+      mode: "general-chat",
+      userRequest: "Discuss this.",
+      systemPrompt: "Request-local override.",
+      modelProfileId: "11111111-2222-4333-8444-555555555555",
+    }).success).toBe(false);
 
     const result = ResendWorkshopMessageResultSchema.parse({
       authorMessage: {

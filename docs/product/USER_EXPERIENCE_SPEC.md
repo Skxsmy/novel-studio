@@ -95,6 +95,7 @@ Novel Studio 的视觉方向是“安静写作空间 + 克制的战术工作台�
 - 双语切换应通过文案资源层实现，不把中英文写死在组件内部。
 - 主界面不解释 API、数据结构、权限实现、hash、Token、Prompt version、调用 ID 或内部任务名。
 - `Series / Volume / Chapter / Act / Scene` 在所有语言模式中保持英文并使用同一顺序。
+- M5 Workshop 当前冻结的界面 chrome locale 是 `en-US`，符合“自然中文尚未完成时先冻结英文 UI”的边界。所有 Workshop 按钮、状态、空状态、错误兜底、日期格式和对象标签必须来自同一 Workshop 文案资源；组件不得内联第二套可见文案。默认 system prompt、作者消息、附件文件名、项目内容和模型回复是可编辑或动态内容，不受 chrome locale 限制。该边界不等于中文本地化已经完成；未来中文切换必须在同一资源接口增加完整 locale，而不能在组件中混写中英文。
 
 ### 2.6 设计验收规则
 
@@ -201,7 +202,11 @@ AI 改写候选必须直接进入正文编辑器并保持整段选中。编辑�
 - 左列为对话和分支，中间为消息；不得保留常驻右侧 Context Basket 面板。
 - 新会话列表项先显示中性的临时标题；首次发送后应按首条消息或附件文件名自动命名。作者双击会话标题即可编辑名称，保存后不再被自动命名覆盖。
 - Branch 必须让作者继续看到分支点之前的聊天历史和附件名/附件上下文；新开的分支不能呈现为空白对话。
-- 上下文选择应靠近输入区，以类似菜单的高折叠控件出现，支持 Series 正文、Series 大纲、Volume、Chapter、Act、多个 Scene、Codex 条目、按类型、按详情类型和按类别选择条目。
+- Branch must also be available from the actions menu of each eligible settled message so the author can choose the exact divergence point. Pending messages and tool requests whose result would be excluded must not present an enabled branch action; a completed tool result is a valid divergence point when the copied protocol prefix is complete.
+- 上下文选择应靠近输入区，以类似菜单的高折叠控件出现，支持 Series 正文、Series 大纲、Volume、Chapter、Act、多个 Scene、Codex 条目、按详情类型和按类别选择条目。
+- Codex context grouping uses only `Codex Entries`, `Entries by Detail`, and `Entries by Category`; duplicate `Entries by Type` and unimplemented `Entries by Tag` controls are absent.
+- Workshop messages never expose the removed legacy `Create Proposal` command. New Proposal creation comes only from a current, explicitly supported Proposal or approved tool workflow; existing linked Proposal cards remain readable.
+- General Chat uses a `Delete turn` action on eligible author and assistant messages. The action removes the complete author/reply turn after confirmation; Agent messages and protected or incomplete turns do not expose it. After success, every removed message and message-bound attachment disappears together rather than leaving an orphan question or answer.
 - 上下文菜单中的可选项必须真实可选，不得因为当前项目已有对应数据而禁用；只有当前项目确实没有该类数据时才显示不可用状态。
 - 用户再次点击已选中的上下文项时必须取消选择；不应强迫用户到另一个“已选上下文”列表中删除。
 - 已选上下文在菜单中的状态、输入区附近的轻量摘要和后端实际请求必须一致；用户看到什么，后台就发送什么，后台会发送什么，用户也必须看得到。
