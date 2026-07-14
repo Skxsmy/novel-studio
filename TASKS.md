@@ -18,7 +18,7 @@ No support task is active.
 | NS-507 | complete | M5.6B atomic Codex adapters, stale baselines, and Progression target/scene binding | `docs/tasks/NS-507.md`; `docs/testing/NS-507_ACCEPTANCE.md` |
 | NS-508 / M5.6C | complete | Detail schema planner, persisted embedding binding, and author mapping/create confirmation | `docs/tasks/NS-508.md`; `docs/testing/NS-508_ACCEPTANCE.md` |
 | NS-509 | complete | M5.6D durable Agent runner, structured-output repair, continuation, and interrupted-run recovery | `docs/tasks/NS-509.md`; `docs/testing/NS-509_ACCEPTANCE.md` |
-| NS-510 | in_progress | M5.6E Workshop capability, lifecycle, context, export, and module-boundary cleanup | `docs/tasks/NS-510.md`; `docs/testing/NS-510_ACCEPTANCE.md` |
+| NS-510 | complete | M5.6E Workshop capability, lifecycle, context, export, and module-boundary cleanup | `docs/tasks/NS-510.md`; `docs/testing/NS-510_ACCEPTANCE.md` |
 | NS-511-NS-512 / M5.6F-M5.6G | todo | Versioned Prompt customization and Tool Plan/Grant layer | `docs/tasks/M5.md` |
 | NS-513 / M5.7 | todo | Council, conflict/failure states, responsive/copy review, and user visual acceptance | `docs/tasks/M5.md` |
 

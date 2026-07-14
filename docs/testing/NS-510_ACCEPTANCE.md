@@ -1,6 +1,6 @@
 # NS-510 Acceptance Record
 
-Status: in_progress
+Status: complete
 Task: `docs/tasks/NS-510.md`
 Updated: 2026-07-14
 
@@ -91,4 +91,6 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 
 - Branch: `codex/ns-410-json-authority`
 - Starting commit: `5929532 NS-509 docs(workshop): record closure evidence`.
+- Implementation commit: `8e7dc76 NS-510 feat(workshop): harden agent runtime and session boundaries`.
+- The final task commit contains this closure record and the explicitly requested `docs/design/ui-redesign/novel-studio-full-ui-redesign-reference.html`.
 - Unrelated dirty files listed in `STATUS.md` remain outside NS-510.
