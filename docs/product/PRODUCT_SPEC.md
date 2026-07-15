@@ -187,6 +187,7 @@ Library 位于 Series 之上，Manuscript 与 Sections 属于 Scene。所有五�
 - 所有实体使用稳定 UUID；名称和位置不是身份。
 - 改名、重排或跨 Act 移动 Scene 不得破坏 Codex、Evidence、Proposal 和时间线引用。
 - Series 共享 Codex；Volume 可增加本卷资料或从指定 Scene 起覆盖状态。
+- Write 的 Manuscript 结构树只为 `Volume / Chapter / Act / Scene` 提供标题右键菜单，菜单包含重命名和删除；删除必须先显示命名对象及级联影响的确认界面。Series 的创建、重命名和删除由其它项目入口负责，不得放入 Write 结构树菜单。
 
 ## 6. 规划系统
 
@@ -248,6 +249,10 @@ Library 位于 Series 之上，Manuscript 与 Sections 属于 Scene。所有五�
 - 专注模式只保留正文、标题和必要保存状态。
 - 面板宽度、开关状态和最近工作区按设备记忆。
 - 自动保存必须明确显示保存中、已保存、失败和冲突状态。
+- Write 状态栏的自动保存反馈使用同一紧凑位置切换 `Saving / Saved / Retrying / Failed`，不得横向平铺多个状态。普通保存失败后自动重试三次，重试期间显示黄色 `Retrying`；三次重试均失败后显示红色 `Failed`，不提供手动重试，也不继续后台循环。只有下一次正文或标题变更形成新的自动保存节点时，才开始新的保存与重试循环。版本冲突不按普通失败重试，必须保持独立且持续可见的冲突状态。
+- 自动保存状态切换使用克制动画并服从减少动态效果设置；动画不能改变状态栏占位尺寸或干扰正文布局。
+- 正文中的 Codex 提及可打开轻量预览；预览只显示截至当前 Scene、当前 block 位置有效的 Canon Description 摘要，不泄露后文 Progression。既有预览交互和信息范围保留，视觉样式与当前 Write 视觉系统协调。
+- Write 参考设计中的 `Draft / Revise` 在没有真实模式语义前保持不可操作，默认固定为 `Draft`。其它尚无真实接口或安全流程的参考控件保留已批准的视觉位置，但必须语义和交互上禁用。
 
 ### FR-WRITE-02 JSON block document 与格式
 
@@ -308,6 +313,8 @@ Sections 使用独立文件和权限元数据，不混入正文后再靠隐藏�
 - 变化 block 必须引用统一 JSON Progression 记录；删除正文 block 时同步删除该记录，若历史引用阻止硬删，界面必须说明阻止原因。
 - Progression block 可折叠、展开、编辑和删除；专注模式中默认以不打断写作的折叠状态存在。
 - 右侧管理面板可按当前场景 block 顺序列出变化，点击后定位到正文 block，并与正文 block 编辑保持同步。
+- 新建 Story Change 的入口位于 Write 右侧侧栏的 `Scene` 页面内，并放在 `Story changes` 标题右侧；不得改为正文块之间的新增按钮。
+- Story Change 保留既有的排序、键盘移动、折叠/展开、编辑、尺寸调整和正文定位能力，并按新 Write 视觉语言重新设计；删除前必须二次确认。
 - 这些 block 不得污染普通 Markdown 导出正文；导出时可作为可选注释或附录处理。
 
 ## 8. Codex 与故事状态

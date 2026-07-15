@@ -219,8 +219,21 @@ export function checkMainlineMapping(root) {
       errors.push(`STATUS.md: ${label} mainline mapping ${match[0]} does not belong to M${milestone}`);
     }
   }
-  if (Number(next[1]) !== Number(last[1]) + 1) {
-    errors.push(`STATUS.md: next mainline NS-${next[1]} must immediately follow NS-${last[1]}`);
+  const lastNumber = Number(last[1]);
+  const nextNumber = Number(next[1]);
+  const deferred = status.match(
+    /Deferred earlier mainline tasks:\s*`NS-(\d{3})-NS-(\d{3})`[^\r\n]*explicit user direction/u,
+  );
+  const hasExactUserDirectedGap = Boolean(
+    deferred
+    && nextNumber > lastNumber + 1
+    && Number(deferred[1]) === lastNumber + 1
+    && Number(deferred[2]) === nextNumber - 1,
+  );
+  if (nextNumber !== lastNumber + 1 && !hasExactUserDirectedGap) {
+    errors.push(
+      `STATUS.md: next mainline NS-${next[1]} must immediately follow NS-${last[1]} or declare the exact deferred range by explicit user direction`,
+    );
   }
   if (activeTaskId?.startsWith("NS-")) {
     const activeMainline = status.match(/Active task:\s*`(NS-\d{3})\s*\/\s*M(\d+)(?:\.[^`]*)?`/u);

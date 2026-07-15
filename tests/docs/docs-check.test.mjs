@@ -90,6 +90,16 @@ test("keeps support work separate from the sequential M-to-NS mainline", () => {
       "",
     ].join("\n"));
     assert.ok(checkMainlineMapping(root).some((error) => error.includes("NS is mainline-only")));
+
+    write(root, "STATUS.md", [
+      "- Active milestone: `M5 Workshop`.",
+      "- Last reached mainline task: `NS-506 / M5.6A Execution Containment`.",
+      "- Next mainline task: `NS-509 / M5.6D Durable Runner`.",
+      "- Deferred earlier mainline tasks: `NS-507-NS-508` remain unfinished by explicit user direction.",
+      "- Active task: `NS-509 / M5.6D Durable Runner`.",
+      "",
+    ].join("\n"));
+    assert.deepEqual(checkMainlineMapping(root), []);
   });
 });
 

@@ -1,17 +1,19 @@
 # Current Status
 
-Updated: 2026-07-14
+Updated: 2026-07-15
 Authority: current operational state only
 
 ## Project Mainline
 
 - Active milestone: `M5 Workshop, Proposal, And Review`.
-- Active task: none.
+- Active task: `NS-514 / M5.8 Reference UI Rebuild` (`in_progress`).
+- Task record: `docs/tasks/NS-514.md`.
+- Acceptance record: `docs/testing/NS-514_ACCEPTANCE.md`.
 - Last reached mainline task: `NS-510 / M5.6E Workshop Capability And Boundary Cleanup` at `8e7dc76`.
-- Next mainline task: `NS-511 / M5.6F Versioned Workshop Prompt Customization`.
-- Following mainline task: `NS-512 / M5.6G Durable Tool Plan And Grant Layer`.
+- Next mainline task: `NS-514 / M5.8 Reference UI Rebuild`.
+- Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; no task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
-- Mainline state: NS-510 is complete at `8e7dc76`; A01-A10 are implemented and command-verified. User visual acceptance remains a separate NS-513 gate.
+- Mainline state: NS-514 follows the existing reference-rebuild plan exactly. P0 through P5 are complete, including explicit author visual acceptance of P4 and the tested control/capability audit. The approved Write-only P6 implementation passes its automated evidence. The author rejected the first connected Story Change visual treatment; a dedicated Write-only replacement now passes focused structure/lifecycle tests and build, but its author visual review remains open. Every non-Write audit row remains pending. The task is a reference reproduction with explicitly approved in-place Write capability restoration/redesign, not a general old/new UI merge.
 
 ## Active Support Work
 
@@ -19,7 +21,7 @@ Authority: current operational state only
 - Last completed support task: `GOV-001 Documentation Governance And Delivery Skeleton`.
 - Task record: `docs/tasks/GOV-001.md`.
 - Acceptance record: `docs/testing/GOV-001_ACCEPTANCE.md`.
-- Next action: define the NS-511 task and acceptance map before implementing versioned Workshop Prompt customization.
+- Next action: present the replacement Story Change UI inside the completed Write-only P6 slice for author audit/visual review; do not start Settings, Codex, Workshop, or other pending mappings without a new author decision.
 
 ## Repository State
 

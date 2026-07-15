@@ -170,6 +170,26 @@
   min-width: 0;
 }
 
+.codex-progression-identity,
+.codex-progression-identity-copy,
+.codex-progression-field {
+  min-width: 0;
+}
+
+.codex-progression-identity {
+  display: flex;
+  align-items: center;
+}
+
+.codex-progression-field {
+  display: grid;
+}
+
+.codex-progression-field-label,
+.codex-progression-identity-copy {
+  display: none;
+}
+
 .codex-progression-control-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 172px), 1fr));

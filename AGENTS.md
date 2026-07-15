@@ -125,3 +125,11 @@ Before completion:
 - Preserve `docs/design/**/backups/` unless the user explicitly names a backup for deletion.
 - Before deleting a non-backup document, confirm it is not referenced by the active task, acceptance record, or documentation index.
 - Use normalized status values defined by the documentation checker. Superseded ADRs must identify their replacement.
+
+## File Mutation Discipline
+
+- Never modify an existing path by deleting it and then adding the same path again. Use an in-place `apply_patch` update.
+- A file may be deleted only when the user explicitly authorizes deletion of that file and required reference checks have passed.
+- Before an authorized deletion, resolve and verify the absolute target path and inspect its size. For a file of 128 KiB or larger, use native PowerShell `Remove-Item -LiteralPath` rather than `apply_patch`; do not make the deletion part of a replacement workflow.
+- If a generated or machine-checkable block is too large for a safe in-place patch, stop and redesign the artifact or generator. Do not temporarily remove the existing file.
+- Treat a delete-and-readd sequence as a process defect even when final bytes are restored; record the defect and remediation in the active acceptance record.

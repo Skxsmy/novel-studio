@@ -31,10 +31,14 @@ export interface NovelEditorProps {
   onToggleProgressionCollapse: (blockId: string) => void;
   onUpdateProgressionDraft: (blockId: string, patch: Partial<ProgressionDraft>) => void;
   progressionNodeViews: Record<string, ProgressionNodeViewModel>;
+  resolveCodexPreviewDescription?: (entryId: string, blockId: string | null) => Promise<string>;
+  storyChangePresentation?: "standard" | "write-story-change";
 }
 
 interface ActiveCodexPreview {
+  description: string;
   entry: CodexEntryDocument;
+  isLoading: boolean;
   key: string;
   style: CSSProperties;
 }
@@ -240,6 +244,8 @@ export function NovelEditor({
   onToggleProgressionCollapse,
   onUpdateProgressionDraft,
   progressionNodeViews,
+  resolveCodexPreviewDescription,
+  storyChangePresentation = "standard",
 }: NovelEditorProps) {
   const [activeBlockId, setActiveBlockId] = useState<string | null>(() => document.blocks[0]?.id ?? null);
   const [activeCodexPreview, setActiveCodexPreview] = useState<ActiveCodexPreview | null>(null);
@@ -248,6 +254,7 @@ export function NovelEditor({
   const isApplyingExternalDocument = useRef(false);
   const progressionNodeStoreRef = useRef(createProgressionNodeStore(progressionNodeViews));
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const previewRequestRef = useRef(0);
   const onActiveBlockChangeRef = useRef(onActiveBlockChange);
   const onChangeRef = useRef(onChange);
   const onDeleteProgressionBlockRef = useRef(onDeleteProgressionBlock);
@@ -292,10 +299,11 @@ export function NovelEditor({
     onSelect: (blockId) => onSelectStoryChangeRef.current(blockId),
     onToggleCollapse: (blockId) => onToggleProgressionCollapseRef.current(blockId),
     onUpdateDraft: (blockId, patch) => onUpdateProgressionDraftRef.current(blockId, patch),
+    presentation: storyChangePresentation,
     subscribe: (listener) => progressionNodeStoreRef.current.subscribe(listener),
   }, {
     getEntries: () => codexEntriesRef.current,
-  }), []);
+  }), [storyChangePresentation]);
 
   function syncSelection(editor: Editor) {
     const nextBlockId = selectedBlockIdFromEditor(editor);
@@ -474,7 +482,33 @@ export function NovelEditor({
     const shell = shellRef.current;
     if (!entry || !key || !shell) return;
     const style = codexPreviewStyle(codexMark, shell, shell.querySelector<HTMLElement>(".pm-codex-preview-popover"));
-    setActiveCodexPreview((current) => current?.key === key ? null : { entry, key, style });
+    if (activeCodexPreview?.key === key) {
+      previewRequestRef.current += 1;
+      setActiveCodexPreview(null);
+      return;
+    }
+    const blockId = codexMark.closest<HTMLElement>("[data-block-id]")?.dataset.blockId ?? activeBlockId;
+    const requestId = previewRequestRef.current + 1;
+    previewRequestRef.current = requestId;
+    setActiveCodexPreview({
+      description: resolveCodexPreviewDescription ? "" : entry.description,
+      entry,
+      isLoading: Boolean(resolveCodexPreviewDescription),
+      key,
+      style,
+    });
+    if (!resolveCodexPreviewDescription) return;
+    void resolveCodexPreviewDescription(entry.metadata.id, blockId).then((description) => {
+      if (previewRequestRef.current !== requestId) return;
+      setActiveCodexPreview((current) => current?.key === key
+        ? { ...current, description, isLoading: false }
+        : current);
+    }).catch(() => {
+      if (previewRequestRef.current !== requestId) return;
+      setActiveCodexPreview((current) => current?.key === key
+        ? { ...current, description: "", isLoading: false }
+        : current);
+    });
   }
 
   function handleEditorClick(event: MouseEvent<HTMLDivElement>) {
@@ -545,7 +579,11 @@ export function NovelEditor({
               <strong>{activeCodexPreview.entry.metadata.name}</strong>
             </div>
           </div>
-          <p>{activeCodexPreview.entry.description || emptyCodexPreviewText}</p>
+          <p aria-busy={activeCodexPreview.isLoading}>
+            {activeCodexPreview.isLoading
+              ? uiText.writeEditor.loadingCodex
+              : activeCodexPreview.description || emptyCodexPreviewText}
+          </p>
         </aside>
       ) : null}
     </div>
