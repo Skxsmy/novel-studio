@@ -200,6 +200,7 @@ git diff --check
 | 2026-07-16 | `e62315a`, Detail Type Library correction worktree | full Contracts, Storage, Server, and Web tests with Storage rerun without four-workspace contention | Passed: Contracts 32/32, Storage 107/107, Server 85/85, and Web 117/117 |
 | 2026-07-16 | `e62315a`, Detail Type Library correction worktree | `npm.cmd run build` | Passed the complete Contracts, artificial-intelligence, Storage, Server, and Web production build; Vite built 190 modules and emitted only the existing chunk-size advisory |
 | 2026-07-16 | `e62315a`, Detail Type Library correction worktree | `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs`; `npm.cmd run docs:check`; `git diff --check` | Passed 11/11 documentation and audit tests; documentation passed for 111 Markdown files; diff check emitted only existing line-ending warnings |
+| 2026-07-16 | branch `codex/ns-410-json-authority` | `git commit -m "NS-514 feat(codex): connect approved reference workspace"`; post-commit `git status --short` review | Created implementation commit `c4dd028` with exactly 40 NS-514 files and no deletions. The unrelated HANDOFF, NS-507, design-directory, and `.hermes/plans/` changes remain outside the commit |
 
 ## P0 Recovery Evidence
 
@@ -221,11 +222,12 @@ git diff --check
 
 - Branch: `codex/ns-410-json-authority`.
 - Starting commit: `27d0c10 NS-510 docs(workshop): record closure evidence`.
-- Implementation baseline: `e62315a NS-514 feat(ui): rebuild reference shell and connect Write`.
-- The Codex P6 source, tests, product records, ADR-0015, status, changelog, and
-  acceptance evidence form one task-scoped change set ready for the
-  implementation commit. The resulting branch, commit, and worktree state are
-  recorded from actual Git output in the post-commit evidence update.
+- Write implementation baseline: `e62315a NS-514 feat(ui): rebuild reference shell and connect Write`.
+- Codex implementation commit: `c4dd028 NS-514 feat(codex): connect approved reference workspace`.
+- The Codex P6 source, tests, product records, ADR-0015, ADR-0016, status,
+  changelog, and automated acceptance evidence are committed. NS-514 remains in
+  progress because Settings and Workshop integration plus the explicit A16
+  author visual gate remain open.
 - Unrelated preserved files: existing `HANDOFF.md` and
   `docs/testing/NS-507_ACCEPTANCE.md` edits; existing
   `docs/design/ui-redesign/` deletions and `README.md` edit; untracked
