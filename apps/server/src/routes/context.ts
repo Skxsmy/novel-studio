@@ -883,7 +883,7 @@ export async function buildContextBundle(
         ...effective.worldFacts.map((document) => `World fact: ${document.progression.summary}`),
         ...effective.relationStates.flatMap((state) =>
           state.progressions.map((document) =>
-            `Relation change (${state.relation.relation.type}): ${document.progression.summary}`,
+            `Relation change (${state.relation.relation.description}): ${document.progression.summary}`,
           ),
         ),
       ];

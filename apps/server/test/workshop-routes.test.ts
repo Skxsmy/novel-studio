@@ -3554,7 +3554,7 @@ describe("M5 Workshop API routes", () => {
       payload: {
         sourceEntryId: entries[1].metadata.id,
         targetEntryId: entries[2].metadata.id,
-        type: "knows",
+        description: "The first entry knows the second entry.",
         directed: true,
       },
     });

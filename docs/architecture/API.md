@@ -98,6 +98,7 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 - `GET /series/:seriesId/codex/scenes/:sceneId/mentions`
 - `GET|POST /series/:seriesId/codex/relations`
 - `PUT /series/:seriesId/codex/relations/:relationId`
+- `DELETE /series/:seriesId/codex/relations/:relationId`
 - `POST /series/:seriesId/codex/relations/:relationId/archive`
 - `POST /series/:seriesId/codex/relations/:relationId/restore`
 - `GET /series/:seriesId/codex/context?sceneId=&pinnedIds=`
@@ -112,7 +113,24 @@ Section 更新、归档和恢复要求自身的 `baseRevision`，与正文 revis
 - `POST /series/:seriesId/codex/knowledge/:knowledgeId/restore`
 - `GET /series/:seriesId/codex/effective?sceneId=&entryId=&viewerEntryId=`
 
-条目更新分别检查条目 `baseRevision` 和 Research `baseResearchRevision`；只修改其中一类时只要求对应 revision。内置类别不能更新或归档。Codex 条目请求和响应不再包含 `tags`；详情正文通过 `details` 对象保存，键名来自同类别的可复用详情类型。`detailAiContext` 通过同一键名保存条目级详情发送开关，`false` 的详情不得进入 M4 ContextBundle。详情类型创建会拒绝同类别重名；更新要求 `baseRevision`，当前只允许切换 NSFW 标记；删除要求 `baseRevision`，且当同类别任何条目仍使用该详情类型名称时返回 `422 INVALID_DATA`。自动提及与上下文预览是派生查询，不写回正文、Scene 关联或 Canon。`never` 条目即使出现在 `pinnedIds` 中也必须排除。
+Detail Type create and update use schema version 2. Create accepts `categoryId`,
+`name`, optional `description`, and optional `nsfw`. Update requires
+`baseRevision` and at least one of `name`, `description`, or `nsfw`;
+`description` is trimmed, may be empty, and is limited to 4000 characters.
+Rename rejects a duplicate normalized name in the same Category and atomically
+converts legacy Entry `details` and `detailAiContext` keys from the old display
+name to the stable Detail Type identifier. Conflicting legacy and stable values
+reject the whole request. List responses always project a version 2 document.
+A validated version 1 authority file is projected with an empty description
+without a read-time write. The explicit storage migration and exact rollback
+are governed by ADR-0016.
+
+Relation `DELETE` is the connected author-facing lifecycle under ADR-0015 and
+uses `baseRevision` plus reference blockers. The archive and restore routes are
+temporary compatibility endpoints and are not exposed by the connected Codex
+client.
+
+条目更新分别检查条目 `baseRevision` 和 Research `baseResearchRevision`；只修改其中一类时只要求对应 revision。内置类别不能更新或归档。Codex 条目请求和响应不再包含 `tags`；详情正文通过 `details` 对象保存，键名来自同类别的可复用详情类型。`detailAiContext` 通过同一键名保存条目级详情发送开关，`false` 的详情不得进入 M4 ContextBundle。详情类型创建和重命名会拒绝同类别重名；重命名、description 和 NSFW 更新都要求 `baseRevision`。删除要求 `baseRevision`，且当同类别任何条目仍使用该详情类型稳定 ID 或兼容名称时返回 `422 INVALID_DATA`。自动提及与上下文预览是派生查询，不写回正文、Scene 关联或 Canon。`never` 条目即使出现在 `pinnedIds` 中也必须排除。
 
 Progression 是统一 JSON 权威系统，存放于 `codex/progressions/`。它可以 target Canon Description、Detail、世界事实或关系状态；旧 `codex/progressions/*.yaml` 格式退役，不作为运行时兼容目标。创建和更新必须校验 entry、relation、detail type、scene、block、source 和 evidence 引用。`DELETE` 仅在没有历史引用阻止时硬删。按 entry 的 effective API 可带 `sceneId` 与 `blockId`，返回 projected entry、fieldStates 和 hidden future count，不返回未来记录正文、摘要或 ID。
 

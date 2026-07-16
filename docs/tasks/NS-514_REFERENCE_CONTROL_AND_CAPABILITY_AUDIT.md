@@ -18,6 +18,11 @@ Generated: 2026-07-15
   `connect in place` mappings may enter P6, and only if the reference DOM and
   visual state remain unchanged. A missing capability requires a later binding
   revision; it must not be silently inserted into this replica.
+- This document and its machine-checkable block preserve the P5 pre-connection
+  snapshot. The later approved A24 implementation replaces the old
+  `api.codex.archiveRelation` capability with
+  `api.codex.deleteRelation`; the audit test permits exactly that recorded
+  lifecycle replacement and rejects every other unrecorded capability drift.
 
 ## Summary
 

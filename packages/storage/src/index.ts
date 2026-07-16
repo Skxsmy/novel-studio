@@ -25,6 +25,7 @@ import {
   DeleteCodexDocumentInputSchema,
   DeleteCodexEntryResultSchema,
   DeleteCodexDetailTypeResultSchema,
+  DeleteCodexRelationResultSchema,
   DeleteCodexProgressionResultSchema,
   DeleteWorkshopAttachmentResultSchema,
   DeleteWorkshopMessageResultSchema,
@@ -35,7 +36,10 @@ import {
   DeleteSceneProgressionBlockInputSchema,
   DeleteSceneProgressionBlockResultSchema,
   CodexEntryDocumentSchema,
+  CodexDetailTypeAuthoritySchema,
   CodexDetailTypeDocumentSchema,
+  CodexDetailTypeMigrationBackupSchema,
+  CodexDetailTypeMigrationResultSchema,
   CodexDetailTypeSchema,
   CodexEntryMetadataSchema,
   CodexEffectiveEntrySchema,
@@ -46,8 +50,13 @@ import {
   CodexProgressionDocumentSchema,
   CodexProgressionSchema,
   CodexProgressionSceneBlockSchema,
+  CodexRelationAuthoritySchema,
   CodexRelationDocumentSchema,
+  CodexRelationMigrationBackupSchema,
+  CodexRelationMigrationResultSchema,
   CodexRelationSchema,
+  RollbackCodexRelationMigrationResultSchema,
+  RollbackCodexDetailTypeMigrationResultSchema,
   CodexResearchDocumentSchema,
   CodexResearchMetadataSchema,
   CodexSearchResultSchema,
@@ -58,6 +67,8 @@ import {
   CreateCodexKnowledgeInputSchema,
   CreateCodexProgressionInputSchema,
   CreateCodexRelationInputSchema,
+  migrateCodexDetailTypeV1ToV2,
+  migrateCodexRelationV1ToV2,
   CreateSceneProgressionBlockInputSchema,
   CreateSceneProgressionBlockResultSchema,
   CreateActInputSchema,
@@ -148,6 +159,8 @@ import {
   type CodexCustomCategory,
   type CodexDetailType,
   type CodexDetailTypeDocument,
+  type CodexDetailTypeMigrationBackup,
+  type CodexDetailTypeMigrationResult,
   type CodexEffectiveEntry,
   type CodexEntryDocument,
   type CodexEntryMetadata,
@@ -158,8 +171,11 @@ import {
   type CodexMention,
   type CodexProgression,
   type CodexProgressionDocument,
+  type CodexRelationAuthority,
   type CodexRelation,
   type CodexRelationDocument,
+  type CodexRelationMigrationBackup,
+  type CodexRelationMigrationResult,
   type CodexResearchDocument,
   type CodexResearchMetadata,
   type CodexSearchResult,
@@ -178,6 +194,8 @@ import {
   type DeleteCodexDocumentInput,
   type DeleteCodexEntryResult,
   type DeleteCodexDetailTypeResult,
+  type DeleteCodexRelationBlocker,
+  type DeleteCodexRelationResult,
   type DeleteCodexProgressionResult,
   type DeleteWorkshopAttachmentResult,
   type DeleteWorkshopMessageResult,
@@ -193,6 +211,8 @@ import {
   type CreateSeriesInput,
   type CreateTimelineEventInput,
   type DeleteTimelineEventInput,
+  type RollbackCodexRelationMigrationResult,
+  type RollbackCodexDetailTypeMigrationResult,
   type HierarchyIssue,
   type HierarchyValidationResult,
   type MoveSceneInput,
@@ -1323,6 +1343,15 @@ function codexDetailTypePath(seriesRoot: string, detailTypeId: string): string {
   return path.join(seriesRoot, CODEX_DIR, CODEX_DETAIL_TYPES_DIR, `${detailTypeId}.json`);
 }
 
+function codexDetailTypeMigrationBackupPath(seriesRoot: string, migrationId: string): string {
+  return path.join(
+    seriesRoot,
+    ".studio",
+    "snapshots",
+    `codex-detail-types-v1-${migrationId}.json`,
+  );
+}
+
 function builtInCodexDirectory(categoryId: CodexCategoryId): string | null {
   return BUILT_IN_CODEX_CATEGORIES.find((category) => category.id === categoryId)?.directory ?? null;
 }
@@ -1344,6 +1373,15 @@ function codexResearchPath(seriesRoot: string, entryId: string): string {
 
 function codexRelationPath(seriesRoot: string, relationId: string): string {
   return path.join(seriesRoot, CODEX_DIR, CODEX_RELATIONS_DIR, `${relationId}.json`);
+}
+
+function codexRelationMigrationBackupPath(seriesRoot: string, migrationId: string): string {
+  return path.join(
+    seriesRoot,
+    ".studio",
+    "snapshots",
+    `codex-relations-v1-${migrationId}.json`,
+  );
 }
 
 function codexProgressionPath(seriesRoot: string, progressionId: string): string {
@@ -2854,10 +2892,11 @@ export class ProjectRepository {
       );
       const now = new Date().toISOString();
       const detailType = CodexDetailTypeSchema.parse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         id: randomUUID(),
         categoryId: input.categoryId,
         name: input.name,
+        description: input.description,
         nsfw: input.nsfw,
         createdAt: now,
         updatedAt: now,
@@ -2885,14 +2924,81 @@ export class ProjectRepository {
           currentRevision: current.revision,
         });
       }
+      if (input.name !== undefined) {
+        this.assertCodexDetailTypeNameAvailable(
+          (await this.listCodexDetailTypes(seriesId, {
+            categoryId: current.detailType.categoryId,
+          })).filter((document) => document.detailType.id !== detailTypeId),
+          input.name,
+          current.detailType.categoryId,
+        );
+      }
       const now = new Date().toISOString();
       const detailType = CodexDetailTypeSchema.parse({
         ...current.detailType,
-        nsfw: input.nsfw,
+        name: input.name ?? current.detailType.name,
+        description: input.description ?? current.detailType.description,
+        nsfw: input.nsfw ?? current.detailType.nsfw,
         updatedAt: now,
       });
       const raw = serializeJsonAuthority(detailType);
-      await commit([{ targetPath: codexDetailTypePath(seriesRoot, detailTypeId), content: raw }]);
+      const mutations: FileMutation[] = [
+        { targetPath: codexDetailTypePath(seriesRoot, detailTypeId), content: raw },
+      ];
+      let convertedLegacyEntryKeys = false;
+      if (
+        input.name !== undefined &&
+        input.name !== current.detailType.name &&
+        current.detailType.name !== detailTypeId
+      ) {
+        const entries = (await this.listCodexEntriesFromRoot(seriesRoot)).filter(
+          (entry) => entry.metadata.categoryId === current.detailType.categoryId,
+        );
+        for (const entry of entries) {
+          const details = { ...entry.metadata.details };
+          const detailAiContext = { ...entry.metadata.detailAiContext };
+          let entryChanged = false;
+          for (const [field, values] of [
+            ["details", details],
+            ["detailAiContext", detailAiContext],
+          ] as const) {
+            if (!Object.prototype.hasOwnProperty.call(values, current.detailType.name)) continue;
+            if (
+              Object.prototype.hasOwnProperty.call(values, detailTypeId) &&
+              values[detailTypeId] !== values[current.detailType.name]
+            ) {
+              throw new StorageError(
+                "Codex Detail Type rename found conflicting legacy and stable Entry values",
+                "INVALID_DATA",
+                {
+                  detailTypeId,
+                  entryId: entry.metadata.id,
+                  field,
+                  legacyName: current.detailType.name,
+                },
+              );
+            }
+            values[detailTypeId] = values[current.detailType.name]!;
+            delete values[current.detailType.name];
+            entryChanged = true;
+          }
+          if (!entryChanged) continue;
+          const stored = await this.findCodexEntry(seriesRoot, entry.metadata.id);
+          const metadata = CodexEntryMetadataSchema.parse({
+            ...stored.document.metadata,
+            details,
+            detailAiContext,
+            updatedAt: now,
+          });
+          mutations.push({
+            targetPath: stored.filePath,
+            content: serializeCodexEntry(metadata, stored.document.description),
+          });
+          convertedLegacyEntryKeys = true;
+        }
+      }
+      await commit(mutations);
+      if (convertedLegacyEntryKeys) await this.rebuildCodexIndex(seriesRoot);
       return CodexDetailTypeDocumentSchema.parse({
         detailType,
         revision: jsonAuthorityRevision(raw),
@@ -2932,6 +3038,161 @@ export class ProjectRepository {
       }
       await commit([{ targetPath: codexDetailTypePath(seriesRoot, detailTypeId), delete: true }]);
       return DeleteCodexDetailTypeResultSchema.parse({ deletedId: detailTypeId });
+    });
+  }
+
+  async migrateCodexDetailTypesToV2(
+    seriesId: string,
+  ): Promise<CodexDetailTypeMigrationResult> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const directory = path.join(seriesRoot, CODEX_DIR, CODEX_DETAIL_TYPES_DIR);
+    const files = await readdir(directory, { withFileTypes: true }).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    });
+    const knownCategoryIds = new Set(
+      (await this.listCodexCategories(seriesId, true)).map((document) => document.category.id),
+    );
+    const migrationId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const documents: CodexDetailTypeMigrationBackup["documents"] = [];
+    const mutations: FileMutation[] = [];
+    const seenIds = new Set<string>();
+
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith(".json")) continue;
+      const filePath = assertInside(seriesRoot, path.join(directory, file.name));
+      const raw = await readFile(filePath, "utf8");
+      const authority = parseJsonAuthorityText(
+        raw,
+        (value) => CodexDetailTypeAuthoritySchema.parse(value),
+        "Codex Detail Type JSON authority file",
+      );
+      if (authority.id !== path.basename(file.name, ".json")) {
+        throw new StorageError("Codex Detail Type file name does not match ID", "INVALID_DATA", {
+          detailTypeId: authority.id,
+          fileName: file.name,
+        });
+      }
+      if (seenIds.has(authority.id)) {
+        throw new StorageError("Multiple Codex Detail Type files use the same ID", "INVALID_DATA", {
+          detailTypeId: authority.id,
+        });
+      }
+      seenIds.add(authority.id);
+      if (!knownCategoryIds.has(authority.categoryId)) {
+        throw new StorageError("Codex Detail Type references an unknown Category", "INVALID_DATA", {
+          categoryId: authority.categoryId,
+          detailTypeId: authority.id,
+        });
+      }
+      if (authority.schemaVersion !== 1) continue;
+
+      const migratedRaw = serializeJsonAuthority(migrateCodexDetailTypeV1ToV2(authority));
+      documents.push({
+        detailTypeId: authority.id,
+        relativePath: path.posix.join(CODEX_DIR, CODEX_DETAIL_TYPES_DIR, `${authority.id}.json`),
+        raw,
+        revision: jsonAuthorityRevision(raw),
+        migratedRevision: jsonAuthorityRevision(migratedRaw),
+      });
+      mutations.push({ targetPath: filePath, content: migratedRaw });
+    }
+
+    const backup = CodexDetailTypeMigrationBackupSchema.parse({
+      schemaVersion: 1,
+      migrationId,
+      seriesId,
+      createdAt,
+      documents,
+    });
+    mutations.unshift({
+      targetPath: codexDetailTypeMigrationBackupPath(seriesRoot, migrationId),
+      content: serializeJsonAuthority(backup),
+    });
+    await applyFileTransaction(seriesRoot, mutations);
+    return CodexDetailTypeMigrationResultSchema.parse({
+      migrationId,
+      migratedDetailTypeIds: documents.map((document) => document.detailTypeId),
+    });
+  }
+
+  async rollbackCodexDetailTypeMigration(
+    seriesId: string,
+    migrationId: string,
+  ): Promise<RollbackCodexDetailTypeMigrationResult> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const backupPath = assertInside(
+      seriesRoot,
+      codexDetailTypeMigrationBackupPath(seriesRoot, migrationId),
+    );
+    let rawBackup: string;
+    try {
+      rawBackup = await readFile(backupPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("Codex Detail Type migration backup does not exist", "NOT_FOUND", {
+          migrationId,
+        });
+      }
+      throw error;
+    }
+    const backup = parseJsonAuthorityText(
+      rawBackup,
+      (value) => CodexDetailTypeMigrationBackupSchema.parse(value),
+      "Codex Detail Type migration backup",
+    );
+    if (backup.migrationId !== migrationId || backup.seriesId !== seriesId) {
+      throw new StorageError("Codex Detail Type migration backup identity does not match", "INVALID_DATA", {
+        migrationId,
+      });
+    }
+
+    const mutations: FileMutation[] = [];
+    for (const document of backup.documents) {
+      const expectedRelativePath = path.posix.join(
+        CODEX_DIR,
+        CODEX_DETAIL_TYPES_DIR,
+        `${document.detailTypeId}.json`,
+      );
+      if (document.relativePath !== expectedRelativePath) {
+        throw new StorageError("Codex Detail Type migration backup path is invalid", "INVALID_DATA", {
+          detailTypeId: document.detailTypeId,
+          migrationId,
+        });
+      }
+      const firstVersion = parseJsonAuthorityText(
+        document.raw,
+        (value) => CodexDetailTypeAuthoritySchema.parse(value),
+        "Codex Detail Type migration rollback document",
+      );
+      if (firstVersion.schemaVersion !== 1 || firstVersion.id !== document.detailTypeId) {
+        throw new StorageError("Codex Detail Type migration rollback document is invalid", "INVALID_DATA", {
+          detailTypeId: document.detailTypeId,
+          migrationId,
+        });
+      }
+      if (jsonAuthorityRevision(document.raw) !== document.revision) {
+        throw new StorageError("Codex Detail Type migration rollback checksum does not match", "INVALID_DATA", {
+          detailTypeId: document.detailTypeId,
+          migrationId,
+        });
+      }
+      const targetPath = codexDetailTypePath(seriesRoot, document.detailTypeId);
+      const currentRaw = await readFile(targetPath, "utf8");
+      if (jsonAuthorityRevision(currentRaw) !== document.migratedRevision) {
+        throw new StorageError("Codex Detail Type changed after migration", "CONFLICT", {
+          currentRevision: jsonAuthorityRevision(currentRaw),
+          detailTypeId: document.detailTypeId,
+          migrationId,
+        });
+      }
+      mutations.push({ targetPath, content: document.raw });
+    }
+    await applyFileTransaction(seriesRoot, mutations);
+    return RollbackCodexDetailTypeMigrationResultSchema.parse({
+      migrationId,
+      restoredDetailTypeIds: backup.documents.map((document) => document.detailTypeId),
     });
   }
 
@@ -3348,11 +3609,11 @@ export class ProjectRepository {
       if (!file.isFile() || !file.name.endsWith(".json")) continue;
       const filePath = assertInside(seriesRoot, path.join(directory, file.name));
       const raw = await readFile(filePath, "utf8");
-      let relation: CodexRelation;
+      let authority: CodexRelationAuthority;
       try {
-        relation = parseJsonAuthorityText(
+        authority = parseJsonAuthorityText(
           raw,
-          (value) => CodexRelationSchema.parse(value),
+          (value) => CodexRelationAuthoritySchema.parse(value),
           "Codex relation JSON authority file",
         );
       } catch (error) {
@@ -3361,6 +3622,9 @@ export class ProjectRepository {
           cause: error instanceof Error ? error.message : String(error),
         });
       }
+      const relation = authority.schemaVersion === 1
+        ? migrateCodexRelationV1ToV2(authority)
+        : authority;
       if (relation.id !== path.basename(file.name, ".json")) {
         throw new StorageError("Codex 关系文件名与 ID 不一致", "INVALID_DATA", {
           relationId: relation.id,
@@ -3404,13 +3668,12 @@ export class ProjectRepository {
     );
     const now = new Date().toISOString();
     const relation = CodexRelationSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: randomUUID(),
       sourceEntryId: input.sourceEntryId,
       targetEntryId: input.targetEntryId,
-      type: input.type,
       directed: input.directed ?? true,
-      description: input.description ?? "",
+      description: input.description,
       evidence: input.evidence ?? "",
       validFromSceneId: input.validFromSceneId ?? null,
       validToSceneId: input.validToSceneId ?? null,
@@ -3482,6 +3745,181 @@ export class ProjectRepository {
     rawInput: ArchiveCodexDocumentInput,
   ): Promise<CodexRelationDocument> {
     return this.setCodexRelationArchived(seriesId, relationId, rawInput, false);
+  }
+
+  async deleteCodexRelation(
+    seriesId: string,
+    relationId: string,
+    rawInput: DeleteCodexDocumentInput,
+  ): Promise<DeleteCodexRelationResult> {
+    const input = DeleteCodexDocumentInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return runSeriesFileTransaction(seriesRoot, async (commit) => {
+      const current = await this.readCodexRelation(seriesRoot, relationId);
+      if (current.revision !== input.baseRevision) {
+        throw new StorageError("Codex relation was modified by another operation", "CONFLICT", {
+          currentRevision: current.revision,
+        });
+      }
+      const blockers = await this.codexRelationDeleteBlockers(seriesId, relationId);
+      if (blockers.length > 0) {
+        throw new StorageError("Codex relation has blocking references", "INVALID_DATA", {
+          relationId,
+          blockers,
+        });
+      }
+      await commit([{ targetPath: codexRelationPath(seriesRoot, relationId), delete: true }]);
+      return DeleteCodexRelationResultSchema.parse({ deletedId: relationId, blockers: [] });
+    });
+  }
+
+  async migrateCodexRelationsToV2(
+    seriesId: string,
+  ): Promise<CodexRelationMigrationResult> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const directory = path.join(seriesRoot, CODEX_DIR, CODEX_RELATIONS_DIR);
+    const files = await readdir(directory, { withFileTypes: true }).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    });
+    const knownEntryIds = new Set(
+      (await this.listCodexEntriesFromRoot(seriesRoot)).map((entry) => entry.metadata.id),
+    );
+    const knownSceneIds = new Set(
+      (await this.getSeries(seriesId)).scenes.map((scene) => scene.metadata.id),
+    );
+    const migrationId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const documents: CodexRelationMigrationBackup["documents"] = [];
+    const mutations: FileMutation[] = [];
+
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith(".json")) continue;
+      const filePath = assertInside(seriesRoot, path.join(directory, file.name));
+      const raw = await readFile(filePath, "utf8");
+      const authority = parseJsonAuthorityText(
+        raw,
+        (value) => CodexRelationAuthoritySchema.parse(value),
+        "Codex relation JSON authority file",
+      );
+      if (authority.id !== path.basename(file.name, ".json")) {
+        throw new StorageError("Codex relation file name does not match ID", "INVALID_DATA", {
+          relationId: authority.id,
+          fileName: file.name,
+        });
+      }
+      const projected = authority.schemaVersion === 1
+        ? migrateCodexRelationV1ToV2(authority)
+        : authority;
+      this.assertCodexRelationReferences(projected, knownEntryIds, knownSceneIds);
+      if (authority.schemaVersion !== 1) continue;
+
+      const migratedRaw = serializeJsonAuthority(projected);
+      documents.push({
+        relationId: authority.id,
+        relativePath: path.posix.join(CODEX_DIR, CODEX_RELATIONS_DIR, `${authority.id}.json`),
+        raw,
+        revision: jsonAuthorityRevision(raw),
+        migratedRevision: jsonAuthorityRevision(migratedRaw),
+      });
+      mutations.push({ targetPath: filePath, content: migratedRaw });
+    }
+
+    const backup = CodexRelationMigrationBackupSchema.parse({
+      schemaVersion: 1,
+      migrationId,
+      seriesId,
+      createdAt,
+      documents,
+    });
+    mutations.unshift({
+      targetPath: codexRelationMigrationBackupPath(seriesRoot, migrationId),
+      content: serializeJsonAuthority(backup),
+    });
+    await applyFileTransaction(seriesRoot, mutations);
+    return CodexRelationMigrationResultSchema.parse({
+      migrationId,
+      migratedRelationIds: documents.map((document) => document.relationId),
+    });
+  }
+
+  async rollbackCodexRelationMigration(
+    seriesId: string,
+    migrationId: string,
+  ): Promise<RollbackCodexRelationMigrationResult> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const backupPath = assertInside(
+      seriesRoot,
+      codexRelationMigrationBackupPath(seriesRoot, migrationId),
+    );
+    let rawBackup: string;
+    try {
+      rawBackup = await readFile(backupPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("Codex relation migration backup does not exist", "NOT_FOUND", {
+          migrationId,
+        });
+      }
+      throw error;
+    }
+    const backup = parseJsonAuthorityText(
+      rawBackup,
+      (value) => CodexRelationMigrationBackupSchema.parse(value),
+      "Codex relation migration backup",
+    );
+    if (backup.migrationId !== migrationId || backup.seriesId !== seriesId) {
+      throw new StorageError("Codex relation migration backup identity does not match", "INVALID_DATA", {
+        migrationId,
+      });
+    }
+
+    const mutations: FileMutation[] = [];
+    for (const document of backup.documents) {
+      const expectedRelativePath = path.posix.join(
+        CODEX_DIR,
+        CODEX_RELATIONS_DIR,
+        `${document.relationId}.json`,
+      );
+      if (document.relativePath !== expectedRelativePath) {
+        throw new StorageError("Codex relation migration backup path is invalid", "INVALID_DATA", {
+          migrationId,
+          relationId: document.relationId,
+        });
+      }
+      const firstVersion = parseJsonAuthorityText(
+        document.raw,
+        (value) => CodexRelationAuthoritySchema.parse(value),
+        "Codex relation migration rollback document",
+      );
+      if (firstVersion.schemaVersion !== 1 || firstVersion.id !== document.relationId) {
+        throw new StorageError("Codex relation migration rollback document is invalid", "INVALID_DATA", {
+          migrationId,
+          relationId: document.relationId,
+        });
+      }
+      if (jsonAuthorityRevision(document.raw) !== document.revision) {
+        throw new StorageError("Codex relation migration rollback checksum does not match", "INVALID_DATA", {
+          migrationId,
+          relationId: document.relationId,
+        });
+      }
+      const targetPath = codexRelationPath(seriesRoot, document.relationId);
+      const currentRaw = await readFile(targetPath, "utf8");
+      if (jsonAuthorityRevision(currentRaw) !== document.migratedRevision) {
+        throw new StorageError("Codex relation changed after migration", "CONFLICT", {
+          migrationId,
+          relationId: document.relationId,
+          currentRevision: jsonAuthorityRevision(currentRaw),
+        });
+      }
+      mutations.push({ targetPath, content: document.raw });
+    }
+    await applyFileTransaction(seriesRoot, mutations);
+    return RollbackCodexRelationMigrationResultSchema.parse({
+      migrationId,
+      restoredRelationIds: backup.documents.map((document) => document.relationId),
+    });
   }
 
   async listCodexProgressions(
@@ -5271,10 +5709,11 @@ export class ProjectRepository {
           entryInput.categoryId,
         );
         const detailType = CodexDetailTypeSchema.parse({
-          schemaVersion: 1,
+          schemaVersion: 2,
           id: creation.id,
           categoryId: entryInput.categoryId,
           name: creation.name,
+          description: "",
           nsfw: creation.nsfw ?? false,
           createdAt: now,
           updatedAt: now,
@@ -5512,10 +5951,11 @@ export class ProjectRepository {
           current.document.metadata.categoryId,
         );
         const detailType = CodexDetailTypeSchema.parse({
-          schemaVersion: 1,
+          schemaVersion: 2,
           id: creation.id,
           categoryId: current.document.metadata.categoryId,
           name: creation.name,
+          description: "",
           nsfw: creation.nsfw ?? false,
           createdAt: now,
           updatedAt: now,
@@ -8271,11 +8711,14 @@ export class ProjectRepository {
       }
       throw error;
     }
-    const detailType = parseJsonAuthorityText(
+    const authority = parseJsonAuthorityText(
       raw,
-      (value) => CodexDetailTypeSchema.parse(value),
+      (value) => CodexDetailTypeAuthoritySchema.parse(value),
       "Codex detail type JSON authority file",
     );
+    const detailType = authority.schemaVersion === 1
+      ? migrateCodexDetailTypeV1ToV2(authority)
+      : authority;
     if (detailType.id !== detailTypeId) {
       throw new StorageError("Codex detail type file name and ID differ", "INVALID_DATA", {
         detailTypeId,
@@ -8615,11 +9058,14 @@ export class ProjectRepository {
       }
       throw error;
     }
-    const relation = parseJsonAuthorityText(
+    const authority = parseJsonAuthorityText(
       raw,
-      (value) => CodexRelationSchema.parse(value),
+      (value) => CodexRelationAuthoritySchema.parse(value),
       "Codex relation JSON authority file",
     );
+    const relation = authority.schemaVersion === 1
+      ? migrateCodexRelationV1ToV2(authority)
+      : authority;
     if (relation.id !== relationId) {
       throw new StorageError("Codex 关系文件名与 ID 不一致", "INVALID_DATA", {
         relationId,
@@ -9470,6 +9916,70 @@ export class ProjectRepository {
       await this.readCodexProgression(seriesRoot, knowledge.truthProgressionId);
     }
     await this.assertEvidenceReferences(seriesId, seriesRoot, knowledge.evidence);
+  }
+
+  private async codexRelationDeleteBlockers(
+    seriesId: string,
+    relationId: string,
+  ): Promise<DeleteCodexRelationBlocker[]> {
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const blockers = new Map<string, DeleteCodexRelationBlocker>();
+    const add = (blocker: DeleteCodexRelationBlocker) => {
+      blockers.set(`${blocker.kind}:${blocker.id}`, blocker);
+    };
+
+    for (const document of await this.listCodexProgressionsFromRoot(seriesRoot)) {
+      if (
+        document.progression.relationId === relationId ||
+        document.progression.evidence.some(
+          (evidence) => evidence.sourceType === "relation" && evidence.sourceId === relationId,
+        )
+      ) {
+        add({
+          kind: "progression",
+          id: document.progression.id,
+          reason: "A Codex progression references this relation",
+        });
+      }
+    }
+
+    for (const document of await this.listCodexKnowledgeFromRoot(seriesRoot)) {
+      if (
+        document.knowledge.relationId === relationId ||
+        document.knowledge.evidence.some(
+          (evidence) => evidence.sourceType === "relation" && evidence.sourceId === relationId,
+        )
+      ) {
+        add({
+          kind: "character-knowledge",
+          id: document.knowledge.id,
+          reason: "A character-knowledge record references this relation",
+        });
+      }
+    }
+
+    const proposals = await this.listProposals(seriesId);
+    for (const document of proposals.items) {
+      const proposal = document.proposal;
+      const targetsRelation =
+        (proposal.target.kind === "codex-relation" && proposal.target.targetId === relationId) ||
+        proposal.patches.some(
+          (patch) => patch.target.kind === "codex-relation" && patch.target.targetId === relationId,
+        );
+      const citesRelation = proposal.evidence.some(
+        (evidence) =>
+          evidence.sourceType === "codex-relation" && evidence.sourceId === relationId,
+      );
+      if (targetsRelation || citesRelation) {
+        add({
+          kind: "proposal",
+          id: proposal.id,
+          reason: "A Proposal or its audit evidence references this relation",
+        });
+      }
+    }
+
+    return [...blockers.values()];
   }
 
   private async progressionDeleteBlockers(

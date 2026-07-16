@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReferenceReplica } from "./ReferenceReplica";
 import { getReferenceRuntimeText } from "./reference-source";
-import { omitWriteReferenceRuntime } from "./useReferenceRuntime";
+import { omitCodexReferenceRuntime, omitWriteReferenceRuntime } from "./useReferenceRuntime";
 
 function signature(element: Element) {
   return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${[...element.classList].map((name) => `.${name}`).join("")}${element.hasAttribute("hidden") ? "[hidden]" : ""}`;
@@ -25,6 +25,17 @@ describe("NS-514 P3/P4 reference replica", () => {
     const runtime = omitWriteReferenceRuntime(getReferenceRuntimeText());
     expect(runtime).not.toContain('const root = document.getElementById("write-workspace");');
     expect(runtime).not.toContain('document.getElementById("wr6-save-status")');
+    expect(runtime).toContain('const trigger = document.getElementById("project-library-button");');
+  });
+
+  it("omits fixture Codex data and behavior while preserving navigation and other workspaces", () => {
+    const runtime = omitCodexReferenceRuntime(getReferenceRuntimeText());
+    expect(runtime).not.toContain("const entries = {");
+    expect(runtime).not.toContain('const search = document.getElementById("entry-search");');
+    expect(runtime).not.toContain("const categoryLabels = {");
+    expect(runtime).toContain('const workspaceButtons = [...document.querySelectorAll(".workspace-button[data-workspace]")];');
+    expect(runtime).toContain('const root = document.getElementById("write-workspace");');
+    expect(runtime).toContain('const root = document.getElementById("workshop-workspace");');
     expect(runtime).toContain('const trigger = document.getElementById("project-library-button");');
   });
 

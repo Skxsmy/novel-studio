@@ -858,6 +858,7 @@ describe("ProjectRepository", () => {
     const series = await store.createSeries({ title });
     const age = await store.createCodexDetailType(series.manifest.id, {
       categoryId: "character",
+      description: "Age or age range when it matters to the story.",
       name: "年龄",
       nsfw: true,
     });
@@ -866,13 +867,19 @@ describe("ProjectRepository", () => {
       name: "样貌",
     });
     expect(age.detailType.nsfw).toBe(true);
+    expect(age.detailType).toMatchObject({
+      schemaVersion: 2,
+      description: "Age or age range when it matters to the story.",
+    });
     expect(appearance.detailType.nsfw).toBe(false);
 
     const updatedAge = await store.updateCodexDetailType(series.manifest.id, age.detailType.id, {
       baseRevision: age.revision,
+      description: "The age used for continuity checks.",
       nsfw: false,
     });
     expect(updatedAge.detailType.nsfw).toBe(false);
+    expect(updatedAge.detailType.description).toBe("The age used for continuity checks.");
     expect(updatedAge.revision).not.toBe(age.revision);
     await expect(store.updateCodexDetailType(series.manifest.id, age.detailType.id, {
       baseRevision: age.revision,
@@ -910,6 +917,151 @@ describe("ProjectRepository", () => {
       path.join(seriesRoot(store, title, series.manifest.id), "codex", "detail-types", `${appearance.detailType.id}.json`),
       "utf8",
     )).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("renames a Detail Type and atomically converts legacy Entry keys", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "DetailTypeRename" });
+    const appearance = await store.createCodexDetailType(series.manifest.id, {
+      categoryId: "character",
+      name: "Appearance",
+    });
+    const voice = await store.createCodexDetailType(series.manifest.id, {
+      categoryId: "character",
+      name: "Voice",
+    });
+    const legacyEntry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Mara Venn",
+      details: { Appearance: "Silver coat" },
+      detailAiContext: { Appearance: false },
+    });
+
+    const renamed = await store.updateCodexDetailType(series.manifest.id, appearance.detailType.id, {
+      baseRevision: appearance.revision,
+      name: "Physical appearance",
+    });
+
+    expect(renamed.detailType.name).toBe("Physical appearance");
+    const convertedEntry = await store.getCodexEntry(series.manifest.id, legacyEntry.metadata.id);
+    expect(convertedEntry.metadata.details).toEqual({
+      [appearance.detailType.id]: "Silver coat",
+    });
+    expect(convertedEntry.metadata.detailAiContext).toEqual({
+      [appearance.detailType.id]: false,
+    });
+    expect(convertedEntry.revision).not.toBe(legacyEntry.revision);
+
+    await expect(store.updateCodexDetailType(series.manifest.id, voice.detailType.id, {
+      baseRevision: voice.revision,
+      name: "physical appearance",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    const conflictedEntry = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Ivo Rell",
+      details: {
+        Voice: "Quiet legacy value",
+        [voice.detailType.id]: "Different stable value",
+      },
+      detailAiContext: { Voice: true, [voice.detailType.id]: false },
+    });
+    await expect(store.updateCodexDetailType(series.manifest.id, voice.detailType.id, {
+      baseRevision: voice.revision,
+      name: "Speech pattern",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    expect((await store.listCodexDetailTypes(series.manifest.id))
+      .find((document) => document.detailType.id === voice.detailType.id)?.detailType.name)
+      .toBe("Voice");
+    expect((await store.getCodexEntry(series.manifest.id, conflictedEntry.metadata.id)).metadata.details)
+      .toEqual(conflictedEntry.metadata.details);
+  });
+
+  it("migrates v1 Codex Detail Types with empty descriptions and restores exact rollback backups", async () => {
+    const store = await repository();
+    const title = "DetailTypeMigration";
+    const series = await store.createSeries({ title });
+    const created = await store.createCodexDetailType(series.manifest.id, {
+      categoryId: "character",
+      description: "Visible physical traits.",
+      name: "Appearance",
+    });
+    const detailTypePath = path.join(
+      seriesRoot(store, title, series.manifest.id),
+      "codex",
+      "detail-types",
+      `${created.detailType.id}.json`,
+    );
+    const { description: _description, ...withoutDescription } = created.detailType;
+    const firstVersionRaw = `${JSON.stringify({ ...withoutDescription, schemaVersion: 1 }, null, 4)}\n`;
+    await writeFile(detailTypePath, firstVersionRaw, "utf8");
+
+    const compatibilityRead = await store.listCodexDetailTypes(series.manifest.id);
+    expect(compatibilityRead[0]?.detailType).toMatchObject({
+      schemaVersion: 2,
+      description: "",
+    });
+    expect(await readFile(detailTypePath, "utf8")).toBe(firstVersionRaw);
+
+    const migration = await store.migrateCodexDetailTypesToV2(series.manifest.id);
+    expect(migration.migratedDetailTypeIds).toEqual([created.detailType.id]);
+    expect(JSON.parse(await readFile(detailTypePath, "utf8"))).toMatchObject({
+      schemaVersion: 2,
+      description: "",
+    });
+
+    const rollback = await store.rollbackCodexDetailTypeMigration(
+      series.manifest.id,
+      migration.migrationId,
+    );
+    expect(rollback.restoredDetailTypeIds).toEqual([created.detailType.id]);
+    expect(await readFile(detailTypePath, "utf8")).toBe(firstVersionRaw);
+  });
+
+  it("rejects damaged or duplicate Detail Type migration input without partial replacement", async () => {
+    const store = await repository();
+    const title = "DamagedDetailTypeMigration";
+    const series = await store.createSeries({ title });
+    const created = await store.createCodexDetailType(series.manifest.id, {
+      categoryId: "character",
+      name: "Appearance",
+    });
+    const directory = path.join(seriesRoot(store, title, series.manifest.id), "codex", "detail-types");
+    const detailTypePath = path.join(directory, `${created.detailType.id}.json`);
+    const duplicatePath = path.join(directory, "00000000-0000-4000-8000-000000000099.json");
+    const { description: _description, ...withoutDescription } = created.detailType;
+    const firstVersionRaw = `${JSON.stringify({ ...withoutDescription, schemaVersion: 1 }, null, 4)}\n`;
+    await writeFile(detailTypePath, firstVersionRaw, "utf8");
+    await writeFile(duplicatePath, firstVersionRaw, "utf8");
+
+    await expect(store.migrateCodexDetailTypesToV2(series.manifest.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    expect(await readFile(detailTypePath, "utf8")).toBe(firstVersionRaw);
+
+    await writeFile(duplicatePath, "{ damaged", "utf8");
+    await expect(store.migrateCodexDetailTypesToV2(series.manifest.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    expect(await readFile(detailTypePath, "utf8")).toBe(firstVersionRaw);
+  });
+
+  it("refuses exact Detail Type rollback after the migrated file changes", async () => {
+    const store = await repository();
+    const title = "ConflictedDetailTypeRollback";
+    const series = await store.createSeries({ title });
+    const created = await store.createCodexDetailType(series.manifest.id, {
+      categoryId: "character",
+      name: "Appearance",
+    });
+    const detailTypePath = path.join(seriesRoot(store, title, series.manifest.id), "codex", "detail-types", `${created.detailType.id}.json`);
+    const { description: _description, ...withoutDescription } = created.detailType;
+    await writeFile(detailTypePath, `${JSON.stringify({ ...withoutDescription, schemaVersion: 1 }, null, 4)}\n`, "utf8");
+    const migration = await store.migrateCodexDetailTypesToV2(series.manifest.id);
+    const changedRaw = `${JSON.stringify({ ...JSON.parse(await readFile(detailTypePath, "utf8")), description: "Changed later." }, null, 2)}\n`;
+    await writeFile(detailTypePath, changedRaw, "utf8");
+
+    await expect(store.rollbackCodexDetailTypeMigration(series.manifest.id, migration.migrationId))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    expect(await readFile(detailTypePath, "utf8")).toBe(changedRaw);
   });
 
   it("blocks deleting Codex detail types used by id-keyed entry details", async () => {
@@ -1142,7 +1294,7 @@ describe("ProjectRepository", () => {
     const directed = await store.createCodexRelation(series.manifest.id, {
       sourceEntryId: lin.metadata.id,
       targetEntryId: zhou.metadata.id,
-      type: "信任",
+      description: "林岚单方面信任周野。",
       directed: true,
     });
     const updatedDirected = await store.updateCodexRelation(
@@ -1162,7 +1314,7 @@ describe("ProjectRepository", () => {
     const undirected = await store.createCodexRelation(series.manifest.id, {
       sourceEntryId: lin.metadata.id,
       targetEntryId: manual.metadata.id,
-      type: "共同持有",
+      description: "林岚与旧钥匙共同关联。",
       directed: false,
     });
     const fromZhou = await store.listCodexRelations(series.manifest.id, {
@@ -1208,9 +1360,254 @@ describe("ProjectRepository", () => {
       store.createCodexRelation(series.manifest.id, {
         sourceEntryId: lin.metadata.id,
         targetEntryId: "00000000-0000-4000-8000-000000000999",
-        type: "不存在",
+        description: "目标条目不存在。",
       }),
     ).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+  });
+
+  it("migrates relation v1 files with an exact rollback artifact", async () => {
+    const store = await repository();
+    const title = "RelationMigration";
+    const series = await store.createSeries({ title });
+    const source = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Source",
+    });
+    const target = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Target",
+    });
+    const relation = await store.createCodexRelation(series.manifest.id, {
+      sourceEntryId: source.metadata.id,
+      targetEntryId: target.metadata.id,
+      description: "Source trusts Target.",
+    });
+    const relationPath = path.join(
+      seriesRoot(store, title, series.manifest.id),
+      "codex",
+      "relations",
+      `${relation.relation.id}.json`,
+    );
+    const firstVersionRaw = `${JSON.stringify({
+      ...relation.relation,
+      schemaVersion: 1,
+      type: "trust",
+    }, null, 4)}\n`;
+    await writeFile(relationPath, firstVersionRaw, "utf8");
+
+    const migration = await store.migrateCodexRelationsToV2(series.manifest.id);
+    const migratedRaw = await readFile(relationPath, "utf8");
+
+    expect(migration.migratedRelationIds).toEqual([relation.relation.id]);
+    expect(JSON.parse(migratedRaw)).toMatchObject({ schemaVersion: 2 });
+    expect(JSON.parse(migratedRaw)).not.toHaveProperty("type");
+
+    const rollback = await store.rollbackCodexRelationMigration(
+      series.manifest.id,
+      migration.migrationId,
+    );
+
+    expect(rollback.restoredRelationIds).toEqual([relation.relation.id]);
+    expect(await readFile(relationPath, "utf8")).toBe(firstVersionRaw);
+  });
+
+  it("rejects a damaged relation migration without partially rewriting valid v1 files", async () => {
+    const store = await repository();
+    const title = "DamagedRelationMigration";
+    const series = await store.createSeries({ title });
+    const source = await store.createCodexEntry(series.manifest.id, { categoryId: "character", name: "Source" });
+    const target = await store.createCodexEntry(series.manifest.id, { categoryId: "character", name: "Target" });
+    const relation = await store.createCodexRelation(series.manifest.id, {
+      sourceEntryId: source.metadata.id,
+      targetEntryId: target.metadata.id,
+      description: "Source trusts Target.",
+    });
+    const directory = path.join(seriesRoot(store, title, series.manifest.id), "codex", "relations");
+    const relationPath = path.join(directory, `${relation.relation.id}.json`);
+    const firstVersionRaw = `${JSON.stringify({ ...relation.relation, schemaVersion: 1, type: "trust" }, null, 4)}\n`;
+    await writeFile(relationPath, firstVersionRaw, "utf8");
+    await writeFile(path.join(directory, "cccccccc-cccc-4ccc-8ccc-cccccccccccc.json"), "{ damaged", "utf8");
+
+    await expect(store.migrateCodexRelationsToV2(series.manifest.id)).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    expect(await readFile(relationPath, "utf8")).toBe(firstVersionRaw);
+  });
+
+  it("rejects duplicate relation identities stored under different authority file names", async () => {
+    const store = await repository();
+    const title = "DuplicateRelationMigration";
+    const series = await store.createSeries({ title });
+    const source = await store.createCodexEntry(series.manifest.id, { categoryId: "character", name: "Source" });
+    const target = await store.createCodexEntry(series.manifest.id, { categoryId: "character", name: "Target" });
+    const relation = await store.createCodexRelation(series.manifest.id, {
+      sourceEntryId: source.metadata.id,
+      targetEntryId: target.metadata.id,
+      description: "Source trusts Target.",
+    });
+    const directory = path.join(seriesRoot(store, title, series.manifest.id), "codex", "relations");
+    const relationPath = path.join(directory, `${relation.relation.id}.json`);
+    const firstVersionRaw = `${JSON.stringify({ ...relation.relation, schemaVersion: 1, type: "trust" }, null, 4)}\n`;
+    await writeFile(relationPath, firstVersionRaw, "utf8");
+    await writeFile(path.join(directory, "dddddddd-dddd-4ddd-8ddd-dddddddddddd.json"), firstVersionRaw, "utf8");
+
+    await expect(store.migrateCodexRelationsToV2(series.manifest.id)).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    expect(await readFile(relationPath, "utf8")).toBe(firstVersionRaw);
+  });
+
+  it("refuses exact relation rollback after the migrated authority file changes", async () => {
+    const store = await repository();
+    const title = "ConflictedRelationRollback";
+    const series = await store.createSeries({ title });
+    const source = await store.createCodexEntry(series.manifest.id, { categoryId: "character", name: "Source" });
+    const target = await store.createCodexEntry(series.manifest.id, { categoryId: "character", name: "Target" });
+    const relation = await store.createCodexRelation(series.manifest.id, {
+      sourceEntryId: source.metadata.id,
+      targetEntryId: target.metadata.id,
+      description: "Source trusts Target.",
+    });
+    const relationPath = path.join(seriesRoot(store, title, series.manifest.id), "codex", "relations", `${relation.relation.id}.json`);
+    await writeFile(relationPath, `${JSON.stringify({ ...relation.relation, schemaVersion: 1, type: "trust" }, null, 4)}\n`, "utf8");
+    const migration = await store.migrateCodexRelationsToV2(series.manifest.id);
+    const changed = { ...JSON.parse(await readFile(relationPath, "utf8")), description: "Changed after migration." };
+    const changedRaw = `${JSON.stringify(changed, null, 2)}\n`;
+    await writeFile(relationPath, changedRaw, "utf8");
+
+    await expect(store.rollbackCodexRelationMigration(series.manifest.id, migration.migrationId)).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    expect(await readFile(relationPath, "utf8")).toBe(changedRaw);
+  });
+
+  it("permanently deletes an unreferenced relation and reports progression blockers", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "RelationDelete" });
+    const source = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Source",
+    });
+    const target = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Target",
+    });
+    const relation = await store.createCodexRelation(series.manifest.id, {
+      sourceEntryId: source.metadata.id,
+      targetEntryId: target.metadata.id,
+      description: "Source trusts Target.",
+    });
+    const progression = await store.createCodexProgression(series.manifest.id, {
+      kind: "relationship",
+      entryId: null,
+      relationId: relation.relation.id,
+      fieldKey: "trust",
+      operation: "replace",
+      body: "The trust is broken.",
+      summary: "The trust is broken.",
+      effectiveFromSceneId: series.scenes[0]!.metadata.id,
+      source: { kind: "codex-page", sceneId: null, blockId: null },
+      evidence: [{
+        sourceType: "relation",
+        sourceId: relation.relation.id,
+        quote: relation.relation.description,
+        note: "The relation is the source of this progression.",
+      }],
+    });
+
+    await expect(store.deleteCodexRelation(series.manifest.id, relation.relation.id, {
+      baseRevision: relation.revision,
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      details: {
+        blockers: [expect.objectContaining({
+          kind: "progression",
+          id: progression.progression.id,
+        })],
+      },
+    });
+
+    await store.deleteCodexProgression(series.manifest.id, progression.progression.id, {
+      baseRevision: progression.revision,
+    });
+    await expect(store.deleteCodexRelation(series.manifest.id, relation.relation.id, {
+      baseRevision: "0".repeat(64),
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    expect(await store.deleteCodexRelation(series.manifest.id, relation.relation.id, {
+      baseRevision: relation.revision,
+    })).toEqual({ deletedId: relation.relation.id, blockers: [] });
+    expect(await store.listCodexRelations(series.manifest.id, { includeArchived: true }))
+      .toHaveLength(0);
+  });
+
+  it("blocks relation deletion for character-knowledge and Proposal references", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "RelationAuthorityBlockers" });
+    const source = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Source",
+    });
+    const target = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "character",
+      name: "Target",
+    });
+    const relation = await store.createCodexRelation(series.manifest.id, {
+      sourceEntryId: source.metadata.id,
+      targetEntryId: target.metadata.id,
+      description: "Source trusts Target.",
+    });
+    const knowledge = await store.createCodexKnowledge(series.manifest.id, {
+      characterEntryId: source.metadata.id,
+      subjectEntryId: target.metadata.id,
+      relationId: relation.relation.id,
+      stance: "knows",
+      summary: "Source knows the relationship exists.",
+      truthProgressionId: null,
+      effectiveFromSceneId: series.scenes[0]!.metadata.id,
+      evidence: [{
+        sourceType: "relation",
+        sourceId: relation.relation.id,
+        quote: relation.relation.description,
+        note: "The relationship is the evidence for this knowledge record.",
+      }],
+    });
+    const proposalTarget = {
+      kind: "codex-relation" as const,
+      targetId: relation.relation.id,
+      label: relation.relation.description,
+      baseRevision: relation.revision,
+      fieldPath: [],
+      blockId: null,
+      range: null,
+    };
+    const proposal = await store.createProposal(series.manifest.id, {
+      type: "relation-update",
+      title: "Archive the relationship",
+      summary: "Candidate relationship change.",
+      source: { kind: "manual", sourceId: null, label: "Author request", detail: "" },
+      target: proposalTarget,
+      contextBundleId: null,
+      generator: { kind: "manual", actor: "user" },
+      riskLevel: "high",
+      confidence: null,
+      reason: "The candidate must retain its target authority.",
+      patches: [{
+        id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        target: proposalTarget,
+        action: "archive-document",
+        before: null,
+        after: null,
+        unifiedDiff: "",
+      }],
+      evidence: [],
+    });
+
+    await expect(store.deleteCodexRelation(series.manifest.id, relation.relation.id, {
+      baseRevision: relation.revision,
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      details: {
+        blockers: expect.arrayContaining([
+          expect.objectContaining({ kind: "character-knowledge", id: knowledge.knowledge.id }),
+          expect.objectContaining({ kind: "proposal", id: proposal.proposal.id }),
+        ]),
+      },
+    });
   });
 
   it("rejects Codex files whose file name, JSON metadata ID or category directory disagree", async () => {
@@ -1437,7 +1834,7 @@ describe("ProjectRepository", () => {
     const relation = await store.createCodexRelation(series.manifest.id, {
       sourceEntryId: lin.metadata.id,
       targetEntryId: zhou.metadata.id,
-      type: "trust",
+      description: "Lin trusts Zhou.",
       directed: true,
     });
     const worldEmbedded = await store.createSceneProgressionBlock(series.manifest.id, scene.metadata.id, {
@@ -1606,7 +2003,6 @@ describe("ProjectRepository", () => {
     const relation = await store.createCodexRelation(series.manifest.id, {
       sourceEntryId: lin.metadata.id,
       targetEntryId: zhou.metadata.id,
-      type: "信任",
       directed: true,
       description: "林岚起初选择信任周野。",
     });

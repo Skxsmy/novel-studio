@@ -9,12 +9,18 @@ export function ReferenceInFrameOverlays() {
   );
 }
 
-export function ReferenceGlobalOverlays({ includeWriteStructure = true }: { includeWriteStructure?: boolean } = {}) {
+export function ReferenceGlobalOverlays({
+  includeCodex = true,
+  includeWriteStructure = true,
+}: {
+  includeCodex?: boolean;
+  includeWriteStructure?: boolean;
+} = {}) {
   return (
     <>
-      <ReferenceSurface selector="#schema-backdrop" />
-      <ReferenceSurface selector="#create-backdrop" />
-      <ReferenceSurface selector="#category-backdrop" />
+      {includeCodex ? <ReferenceSurface selector="#schema-backdrop" /> : null}
+      {includeCodex ? <ReferenceSurface selector="#create-backdrop" /> : null}
+      {includeCodex ? <ReferenceSurface selector="#category-backdrop" /> : null}
       {includeWriteStructure ? <ReferenceSurface selector="#wr6-structure-backdrop" /> : null}
     </>
   );

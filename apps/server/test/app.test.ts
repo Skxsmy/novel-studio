@@ -831,6 +831,7 @@ describe("local API", () => {
       payload: { baseRevision: sensitiveResponse.json().revision, content: "越权" },
     });
     expect(crossSeries.statusCode).toBe(404);
+
     await app.close();
   });
 
@@ -941,7 +942,7 @@ describe("local API", () => {
       payload: {
         sourceEntryId: lin.metadata.id,
         targetEntryId: zhou.metadata.id,
-        type: "信任",
+        description: "林岚信任周野。",
         directed: true,
       },
     });
@@ -985,6 +986,96 @@ describe("local API", () => {
       url: `/api/v1/series/${otherCreated.json().manifest.id}/codex/entries/${lin.metadata.id}`,
     });
     expect(crossSeries.statusCode).toBe(404);
+
+    const staleRelationDelete = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}/codex/relations/${relationResponse.json().relation.id}`,
+      payload: { baseRevision: "0".repeat(64) },
+    });
+    expect(staleRelationDelete.statusCode).toBe(409);
+    const relationDelete = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}/codex/relations/${relationResponse.json().relation.id}`,
+      payload: { baseRevision: relationResponse.json().revision },
+    });
+    expect(relationDelete.statusCode).toBe(200);
+    expect(relationDelete.json()).toEqual({
+      deletedId: relationResponse.json().relation.id,
+      blockers: [],
+    });
+    await app.close();
+  });
+
+  it("persists Detail Type Rename descriptions and NSFW state through create update and list", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-api-"));
+    roots.push(root);
+    const app = await buildApp({ libraryRoot: root });
+    const createdSeries = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Detail Type descriptions" },
+    });
+    const series = createdSeries.json();
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types`,
+      payload: {
+        categoryId: "character",
+        description: "Visible physical traits used for prose consistency.",
+        name: "Appearance",
+        nsfw: false,
+      },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().detailType).toMatchObject({
+      schemaVersion: 2,
+      description: "Visible physical traits used for prose consistency.",
+    });
+
+    const updated = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types/${created.json().detailType.id}`,
+      payload: {
+        baseRevision: created.json().revision,
+        name: "Physical appearance",
+        description: "Visible traits that should remain stable across Scenes.",
+        nsfw: true,
+      },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().detailType).toMatchObject({
+      name: "Physical appearance",
+      description: "Visible traits that should remain stable across Scenes.",
+      nsfw: true,
+    });
+
+    const stale = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types/${created.json().detailType.id}`,
+      payload: {
+        baseRevision: created.json().revision,
+        description: "Stale edit",
+      },
+    });
+    expect(stale.statusCode).toBe(409);
+
+    const invalid = await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types/${created.json().detailType.id}`,
+      payload: {
+        baseRevision: updated.json().revision,
+        description: "x".repeat(4001),
+      },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/detail-types?categoryId=character`,
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toEqual([updated.json()]);
     await app.close();
   });
 
@@ -1032,7 +1123,7 @@ describe("local API", () => {
       payload: {
         sourceEntryId: lin.json().metadata.id,
         targetEntryId: zhou.json().metadata.id,
-        type: "信任",
+        description: "林岚信任周野。",
       },
     });
     const progression = await app.inject({
@@ -1057,6 +1148,18 @@ describe("local API", () => {
       },
     });
     expect(progression.statusCode).toBe(201);
+    const blockedRelationDelete = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/series/${series.manifest.id}/codex/relations/${relation.json().relation.id}`,
+      payload: { baseRevision: relation.json().revision },
+    });
+    expect(blockedRelationDelete.statusCode).toBe(422);
+    expect(blockedRelationDelete.json().details.blockers).toEqual([
+      expect.objectContaining({
+        kind: "progression",
+        id: progression.json().progression.id,
+      }),
+    ]);
     const knowledge = await app.inject({
       method: "POST",
       url: `/api/v1/series/${series.manifest.id}/codex/knowledge`,

@@ -2,7 +2,7 @@
 
 Status: in_progress
 Task: `docs/tasks/NS-514.md`
-Updated: 2026-07-15
+Updated: 2026-07-16
 
 Binding reference:
 `docs/design/ui-redesign/novel-studio-full-ui-redesign-reference.html`
@@ -28,8 +28,8 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-514-A10 | passed | explicit user manual | `P4 author reference-replica visual review` | Passed by the author's 2026-07-15 direction to start P5 after the audit phase and gate were restated |
 | NS-514-A11 | passed | automated/source | `tests/docs/ns-514-reference-audit.test.mjs` — `accounts for every manifest control exactly once` | Passed; all 368 binding controls appear once with node, state/interaction, frontend/API candidate, proposed disposition, structural fit, and pending author decision |
 | NS-514-A12 | passed | automated/manual | `tests/docs/ns-514-reference-audit.test.mjs` — `accounts for every inventoried runtime capability exactly once` plus pre-NS-514 source review | Passed; 80 unique reachable `api.*` methods and 21 frontend-local capabilities appear once; 33 absent and 14 partial gaps are explicit; six handlerless old buttons and one disabled command placeholder are excluded with reasons |
-| NS-514-A13 | in_progress | automated test | focused approved-mapping tests plus production-fixture exclusion regression | Write passed real-data and fixture-runtime exclusion tests; other surfaces remain pending and unapproved |
-| NS-514-A14 | in_progress | automated test | affected existing safety tests plus exact new mapping regressions | Write retained revision conflicts, destructive confirmation, and the existing Story Change authority path; other surfaces remain pending |
+| NS-514-A13 | in_progress | automated test | focused approved-mapping tests plus production-fixture exclusion regression | Write and Codex passed real-data, real-result, and fixture-runtime exclusion tests; Settings and Workshop remain pending and unapproved |
+| NS-514-A14 | in_progress | automated test | affected existing safety tests plus exact new mapping regressions | Write and Codex retain revision conflicts, destructive confirmation, atomic authority writes, effective-story boundaries, and server-owned delete blockers; other surfaces remain pending |
 | NS-514-A15 | planned | automated/source | focused/full commands, docs/link checks, diff and repository-state ledger | Pending P7 |
 | NS-514-A16 | manual_pending | explicit user manual | `P7 final author visual acceptance` | Awaiting completed approved integration; diagnostics cannot pass this gate |
 | NS-514-A17 | passed | automated test | `ReferenceWriteWorkspace.test.tsx` — `connects real Write data and the complete NovelEditor without fixture manuscript claims` | Passed with real hierarchy/Scene content/counts, effective block-aware Canon Description preview, and no binding fixture manuscript claim |
@@ -37,6 +37,13 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-514-A19 | passed | automated test | `ReferenceWriteWorkspace.test.tsx` — `manages Story changes from the Scene page without adding an editor insertion control` and `renders Story Change as a labeled Write surface while preserving its legacy actions`; existing `AppShell.test.tsx` — `creates edits collapses and deletes write progression blocks` | Passed: Add remains in the Scene page heading and calls the real block API; the replacement uses a labeled Write-only Story Change surface and sidebar index; edit/collapse/resize/reorder/focus/confirmed delete continue through the retained NovelEditor node path. The first visual treatment was author-rejected, and A16 remains pending for the replacement |
 | NS-514-A20 | passed | automated test | `ReferenceWriteWorkspace.test.tsx` — `renames and confirms deletion from hierarchy title context menus without exposing Series lifecycle actions` | Passed for title-only mouse and keyboard menus, inline rename, cascade confirmation, real deletion callback, and no Series menu |
 | NS-514-A21 | passed | automated test | connected Write disabled-state assertions plus `ReferenceReplica.test.tsx` fixture-runtime exclusion | Passed: Draft is fixed, deferred controls remain visible/selection-responsive but disabled, and the binding's fake Write runtime is omitted |
+| NS-514-A22 | passed | automated test | `ReferenceCodexWorkspace.test.tsx` — `loads real Codex entries and manages category and entry lifecycle from keyboard-reachable context menus` | Passed: real categories/entries and counts load; removed lenses/filters/Reload are absent; keyboard menus execute Category rename/delete and Entry archive/restore/confirmed delete through real API calls |
+| NS-514-A23 | passed | automated test | `ReferenceCodexWorkspace.test.tsx` — `adds and deletes structural Detail rows and deletes an unused Detail Type from context menus`; full Storage and Server regressions | Passed: appended row saves before showing the normal policy control, saved Detail deletion persists through `updateEntry`, Detail Type deletion uses confirmation, and the existing in-use blocker remains covered |
+| NS-514-A24 | passed | contract/storage/server/Web | three Relation v2 contract cases; six focused migration/rollback/delete-blocker Storage cases; Server hard-delete route; `ReferenceCodexWorkspace.test.tsx` — `creates and deletes a description-only relation without archive controls` | Passed: v2 has no `type`, creation requires description, migration drops `type`, rollback restores exact v1 bytes and rejects later changes, damaged/duplicate authority causes no partial rewrite, Progression/Character Knowledge/Proposal references block Delete, stale revision conflicts, and the UI never calls Archive |
+| NS-514-A25 | passed | storage/server/Web | full effective-entry Storage/Server regressions; `ReferenceCodexWorkspace.test.tsx` — `switches Baseline and Current Scene using the Write-selected Scene without future leakage` | Passed: the shared Write-selected Scene drives read-only Canon/Details, Research stays Baseline, future-count text and the blue hint are absent, and effective projection regressions pass |
+| NS-514-A26 | passed | automated test | `ReferenceCodexWorkspace.test.tsx` — `opens real Progression and Mention targets in Write` | Passed: both controls resolve the actual Scene and block through the shared project-session callback; unresolved targets remain disabled in implementation |
+| NS-514-A27 | passed | automated test | `ReferenceCodexWorkspace.test.tsx` — `keeps Mention sources stable while Canon popovers follow Baseline and Current Scene`; existing Write/NovelEditor mention-preview regressions | Passed: Manuscript and Codex mention sources stay independent of Canon mode, while highlighted Canon mentions preview the referenced Baseline or Current Scene effective Canon Description as selected |
+| NS-514-A28 | passed | contract/storage/server/Web | `packages/contracts/test/codex.test.ts` — `accepts Detail Type v2 descriptions and projects v1 without inventing text`; `packages/storage/test/repository.test.ts` — `renames a Detail Type and atomically converts legacy Entry keys` plus the three migration/rollback cases; `apps/server/test/app.test.ts` — `persists Detail Type Rename descriptions and NSFW state through create update and list`; `apps/web/src/features/codex/ReferenceCodexWorkspace.test.tsx` — `reproduces the three-column Detail Type Library and persists descriptions` | Passed: the author-rejected two-column inline form is absent; the binding Category, Detail Type list, and selected editor columns are restored; description and NSFW use real version 2 writes; Rename and Delete are keyboard-reachable row context actions; Rename rejects same-Category duplicates and atomically converts non-conflicting legacy Entry keys without overwriting conflicts. A16 remains the separate visual acceptance gate |
 
 Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 `blocked`, `not_applicable`.
@@ -51,7 +58,7 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 | P3 isolated workspaces | passed | A07-A08 passed |
 | P4 assembled replica | passed | A09 automated evidence and explicit author gate A10 passed |
 | P5 control/capability audit | passed | A11-A12 passed; all 469 decision rows remain `pending_author` |
-| P6 approved integration | in_progress | A13-A14 and Write-specific A17-A21; only the author-approved Write dispositions are in progress |
+| P6 approved integration | in_progress | Write A17-A21 and Codex A22-A28 pass automated evidence. Settings and Workshop remain pending; A16 author visual review remains open |
 | P7 final verification | planned | A15 plus explicit user gate A16 |
 
 ## Required Commands
@@ -87,6 +94,12 @@ git diff --check
 | Diagnostic evidence is mistaken for acceptance | Builds, DOM checks, or visual diagnostics pass | A10/A16 remain `manual_pending` until explicit author decisions are recorded | Enforced in matrix |
 | Autosave burns requests after a persistent failure | Ordinary save fails repeatedly | One initial attempt and three retries occur; Failed remains stable until a later edit starts a new cycle | A18 passed |
 | Right-click lifecycle removes the wrong scope | Series or a hierarchy row outside the title target is invoked | Only Volume through Scene title targets expose the menu; every delete names and confirms its cascade | A20 passed |
+| Relation migration silently retains or invents `type` meaning | v1 Relation has a `type` and an empty or different description | v2 drops `type` without merging or synthesizing prose; rollback restores the byte-equivalent validated v1 authority | A24 passed |
+| Relation Delete is archive in disguise or breaks references | Relation has a live Progression, Character Knowledge, Proposal, or evidence reference | Server rejects hard delete and leaves authority unchanged; the UI uses permanent Delete and never calls Archive | A24 passed |
+| Current Scene leaks future state or becomes editable | Write selects an earlier Scene/block and later Progressions exist | Canon and Details use the selected Scene projection, Research stays Baseline, and all effective fields are read-only | A25 passed |
+| Detail Type description is displayed but not durable | Author edits Description, closes the library, and opens it again | The version 2 authority write returns through the real API and the reopened selected editor shows the saved description | A28 passed |
+| Detail Type Rename strands legacy name-keyed Entry values | An Entry stores Detail and context-policy values under the old display name | Rename converts both keys to the stable Detail Type identifier in the same authority transaction | A28 passed |
+| Detail Type Rename overwrites an ambiguous Entry value | An Entry contains different values under the old display name and the stable identifier | The server rejects Rename and changes neither the Detail Type nor any Entry file | A28 passed |
 
 ## Write P6 Acceptance Mapping
 
@@ -97,6 +110,19 @@ git diff --check
 | Story Change add/edit/reorder/resize/delete confirmation | Existing editor/node behavior tests plus Scene-page management and labeled Write-presentation cases |
 | Volume through Scene context rename/delete; no Series lifecycle menu | New hierarchy context-menu interaction case |
 | Unsupported controls disabled; Draft fixed | New disabled-state inventory case |
+| Visual result | A16 remains an explicit author gate; automated evidence cannot pass it |
+
+## Codex P6 Acceptance Mapping
+
+| Approved behavior | Exact proof before implementation completion |
+| --- | --- |
+| Real categories/entries, Archived Entries, no Story Lenses/In Scene/Changed/Watch/Reload, Category and Entry context lifecycle | A22 Web integration test with mouse and keyboard menus, confirmed Delete, real rename/archive/restore results, and no fixture counts or removed controls |
+| Appended Structural Detail row, saved Detail deletion, and Detail Type context deletion | A23 Web row-state and context-menu tests plus existing/affected revision, validation, in-use, and delete server regressions |
+| Description-only Relation v2 and guarded permanent Delete | A24 contract, migration/rollback, damaged-input, duplicate-ID, reference-blocker, route, and Web lifecycle tests governed by ADR-0015 |
+| Baseline and read-only Current Scene | A25 effective-entry storage/server regressions plus Web shared-Scene, read-only, Research-baseline, no-blue-hint, and future-leakage assertions |
+| Real Open in Write/Open Scene navigation | A26 Web navigation test for valid Scene/block targets and honest disabled state when a target is absent |
+| Manuscript/Codex mention sources and Canon-page inline Entry preview | A27 verifies two independent behaviors: the separate Mentions page keeps its Manuscript/Codex source and real content when the Canon mode changes; the popover opened from a highlighted Entry inside the Canon page shows referenced Baseline Canon in Baseline mode and referenced effective Canon at the Write-selected Scene in Current Scene mode |
+| Three-column Detail Type Library, description authority, and row lifecycle | A28 verifies the binding three-column structure, original list/editor placement, real Description and NSFW writes, context-menu-only Rename/Delete, revision protection, same-Category uniqueness, atomic legacy Entry key conversion, conflicting-key rejection, migration, and exact rollback under ADR-0016 |
 | Visual result | A16 remains an explicit author gate; automated evidence cannot pass it |
 
 ## Run Ledger
@@ -149,6 +175,31 @@ git diff --check
 | 2026-07-15 | `27d0c10`, Story Change redo worktree | `npm.cmd run build -w @novel-studio/web` | Passed; TypeScript and Vite built 189 modules and emitted only the existing chunk-size advisory |
 | 2026-07-15 | `27d0c10`, Story Change redo worktree | `npm.cmd run docs:check`; `git diff --check` | Passed for 109 Markdown files; diff check emitted only existing LF-to-CRLF working-copy warnings |
 | 2026-07-15 | `27d0c10`, NS-514 pre-commit worktree | `npm.cmd run test -w @novel-studio/web` | Passed; all 16 Web test files and 109 tests after the Story Change replacement regression was added |
+| 2026-07-15 | `e62315a`, Codex decision-recording worktree | Author decisions for Entry/Detail/Relation/Current Scene/filter/navigation dispositions, including no preservation or merge of legacy Relation `type` | Product/UX decisions, ADR-0015, and planned A22-A27 proofs recorded; no Codex implementation authorized or performed |
+| 2026-07-15 | `e62315a`, Codex decision-recording worktree | `npm.cmd run docs:check` | Passed for 110 Markdown files |
+| 2026-07-15 | `e62315a`, Codex decision-recording worktree | `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs` | Passed 11/11; P5 binding/audit snapshots remain intact and active-task documentation is consistent |
+| 2026-07-15 | `e62315a`, Codex decision-recording worktree | `git diff --check`; `git branch --show-current`; `git rev-parse --short HEAD`; `git status --short` | Diff check passed with existing LF-to-CRLF warnings only; branch is `codex/ns-410-json-authority`, tip is `e62315a`, only the nine Codex decision documents are task-related dirty files, and all previously unrelated dirty files remain present |
+| 2026-07-15 | `e62315a`, Codex decision correction | Author correction that In Scene/Changed are removed, Category and saved Detail lifecycle use context menus, and Entry Reload is not retained | A22-A23 and the product/UX/comparison records corrected; Mention behavior is recorded by the following decision, and no runtime implementation was performed |
+| 2026-07-15 | `e62315a`, Codex mention clarification | Author confirms separate Manuscript/Codex mention sources and manuscript-style preview for Codex Entries mentioned in Canon Description | Product/UX/comparison and planned A27 proof updated; no runtime implementation was performed |
+| 2026-07-15 | `e62315a`, Mention/view-boundary clarification | The Baseline/Current Scene switch changes Canon and Details page content, not the separate Mentions page or its selected source | Product/UX/A27 wording separates the Mentions page from the popover inside the Canon page; no runtime implementation was performed |
+| 2026-07-15 | `e62315a`, Canon popover final decision | Author confirms that the popover opened from a highlighted Entry inside the Codex Canon page must follow the Canon mode | Baseline mode uses the referenced Entry's Baseline Canon summary; Current Scene mode uses its effective Canon summary at the Scene currently open in Write; the separate Mentions page remains unaffected |
+| 2026-07-15 | `e62315a`, corrected Codex decision record | `npm.cmd run docs:check`; `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs`; `git diff --check` | Documentation passed for 110 files, all 11 documentation/audit contract tests passed, and diff check passed with existing line-ending warnings only |
+| 2026-07-16 | `e62315a`, Codex P6 implementation worktree | `npm.cmd run test -w @novel-studio/web -- --run src/features/codex/ReferenceCodexWorkspace.test.tsx --reporter=dot` | Passed 7/7 after strengthening Category rename/delete, Entry archive/restore/confirmed delete, saved Detail persistence, Relation lifecycle, Current Scene, navigation, and Mention preview assertions |
+| 2026-07-16 | `e62315a`, Codex P6 implementation worktree | `npm.cmd run test -w @novel-studio/web -- --run src/app/ReferenceReplica.test.tsx --reporter=dot` | Passed 4/4; connected Codex removes fixture data and fixture handlers while preserving workspace navigation and the other reference runtimes |
+| 2026-07-16 | `e62315a`, Codex P6 implementation worktree | full Contracts, Storage, Server, and Web tests | Contracts passed 31/31, Server passed 84/84, and Web passed 116/116. Storage passed 102/102 before the final Character Knowledge/Proposal blocker case; the final full Storage result is recorded below |
+| 2026-07-16 | `e62315a`, Codex P6 implementation worktree | Contracts, Storage, Server, and Web typechecks | Passed for all four workspaces |
+| 2026-07-16 | `e62315a`, Codex P6 implementation worktree | `npm.cmd run build` | Passed the complete Contracts, AI, Storage, Server, and Web production build; Vite built 190 modules and emitted only the existing chunk-size advisory |
+| 2026-07-16 | `e62315a`, Codex P6 implementation worktree | in-app browser diagnostic setup for `http://127.0.0.1:5173/` | Local Web became ready, but the browser runtime reported no available browser backend. No visual result or acceptance is claimed; A16 remains open |
+| 2026-07-16 | `e62315a`, final Codex P6 validation worktree | `npm.cmd run test -w @novel-studio/web -- --run --reporter=dot --silent=passed-only` | Passed all 16 Web test files and 116 tests |
+| 2026-07-16 | `e62315a`, final Codex P6 validation worktree | `npm.cmd run test -w @novel-studio/storage -- --run --reporter=dot` | Passed all 7 Storage test files and 103 tests, including the final Character Knowledge and Proposal reference-blocker case |
+| 2026-07-16 | `e62315a`, final Codex P6 validation worktree | `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs` | Passed 11/11. The P5 audit remains an implementation-before snapshot, while the test proves that its only current capability drift is the approved replacement of Relation Archive by permanent Delete |
+| 2026-07-16 | `e62315a`, final Codex P6 validation worktree | `npm.cmd run docs:check`; `git diff --check` | Documentation passed for 110 Markdown files; diff check passed with existing line-ending warnings only |
+| 2026-07-16 | `e62315a`, Detail Type Library correction worktree | Contracts, Storage, Server, and Web typechecks | Passed for all four workspaces after rebuilding the changed Contracts declarations consumed by Storage |
+| 2026-07-16 | `e62315a`, Detail Type Library correction worktree | focused contract, Storage Rename, Server update, and Web three-column/context-menu tests | Passed: Contracts 4/4, Storage 1/1 with 68 unrelated cases skipped, Server 1/1 with 12 unrelated cases skipped, and Web 1/1 with 7 unrelated cases skipped |
+| 2026-07-16 | `e62315a`, Detail Type Library correction worktree | first parallel full-suite attempt | Contracts, Server, and Web jobs were running, while one unrelated Storage hierarchy smoke test exceeded its fixed five-second limit under four-workspace contention; the other 106 Storage tests passed. No assertion or timeout was changed |
+| 2026-07-16 | `e62315a`, Detail Type Library correction worktree | full Contracts, Storage, Server, and Web tests with Storage rerun without four-workspace contention | Passed: Contracts 32/32, Storage 107/107, Server 85/85, and Web 117/117 |
+| 2026-07-16 | `e62315a`, Detail Type Library correction worktree | `npm.cmd run build` | Passed the complete Contracts, artificial-intelligence, Storage, Server, and Web production build; Vite built 190 modules and emitted only the existing chunk-size advisory |
+| 2026-07-16 | `e62315a`, Detail Type Library correction worktree | `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs`; `npm.cmd run docs:check`; `git diff --check` | Passed 11/11 documentation and audit tests; documentation passed for 111 Markdown files; diff check emitted only existing line-ending warnings |
 
 ## P0 Recovery Evidence
 
@@ -170,11 +221,11 @@ git diff --check
 
 - Branch: `codex/ns-410-json-authority`.
 - Starting commit: `27d0c10 NS-510 docs(workshop): record closure evidence`.
-- Task-related dirty files: NS-514 plan/task/manifest/audit/acceptance,
-  reference extraction/audit/checker tests, the reference-only Web replica and
-  focused tests, the connected Write hierarchy/sidebar/Story Change layer,
-  autosave and effective-preview integration, the Chrome structural diagnostic,
-  and the active task/index/status updates.
+- Implementation baseline: `e62315a NS-514 feat(ui): rebuild reference shell and connect Write`.
+- The Codex P6 source, tests, product records, ADR-0015, status, changelog, and
+  acceptance evidence form one task-scoped change set ready for the
+  implementation commit. The resulting branch, commit, and worktree state are
+  recorded from actual Git output in the post-commit evidence update.
 - Unrelated preserved files: existing `HANDOFF.md` and
   `docs/testing/NS-507_ACCEPTANCE.md` edits; existing
   `docs/design/ui-redesign/` deletions and `README.md` edit; untracked

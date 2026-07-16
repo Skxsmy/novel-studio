@@ -1,6 +1,6 @@
 # Current Status
 
-Updated: 2026-07-15
+Updated: 2026-07-16
 Authority: current operational state only
 
 ## Project Mainline
@@ -13,7 +13,7 @@ Authority: current operational state only
 - Next mainline task: `NS-514 / M5.8 Reference UI Rebuild`.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; no task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
-- Mainline state: NS-514 follows the existing reference-rebuild plan exactly. P0 through P5 are complete, including explicit author visual acceptance of P4 and the tested control/capability audit. The approved Write-only P6 implementation passes its automated evidence. The author rejected the first connected Story Change visual treatment; a dedicated Write-only replacement now passes focused structure/lifecycle tests and build, but its author visual review remains open. Every non-Write audit row remains pending. The task is a reference reproduction with explicitly approved in-place Write capability restoration/redesign, not a general old/new UI merge.
+- Mainline state: NS-514 follows the existing reference-rebuild plan exactly. P0 through P5 are complete, including explicit author visual acceptance of P4 and the tested control/capability audit. The approved Write P6 implementation passes its automated evidence; its replacement Story Change presentation still awaits author visual review. The author explicitly started the approved Codex P6 slice on 2026-07-16. Codex A22-A28 pass their connected evidence, including the corrected three-column Detail Type Library, real version 2 description persistence, and keyboard-reachable row context Rename/Delete with atomic legacy-key conversion. Final author visual acceptance remains open, and Settings and Workshop audit rows remain pending. The task is a reference reproduction with explicitly approved surface-specific restoration/redesign, not a general old/new UI merge.
 
 ## Active Support Work
 
@@ -21,7 +21,7 @@ Authority: current operational state only
 - Last completed support task: `GOV-001 Documentation Governance And Delivery Skeleton`.
 - Task record: `docs/tasks/GOV-001.md`.
 - Acceptance record: `docs/testing/GOV-001_ACCEPTANCE.md`.
-- Next action: present the replacement Story Change UI inside the completed Write-only P6 slice for author audit/visual review; do not start Settings, Codex, Workshop, or other pending mappings without a new author decision.
+- Next action: commit the tested Codex P6 slice and present its implementation/evidence summary for author audit. Keep A16 open for the connected Write and Codex visual review; do not start Settings, Workshop, or other pending mappings.
 
 ## Repository State
 
@@ -35,6 +35,7 @@ Authority: current operational state only
 ## Current Product And Implementation Boundary
 
 - Project authority is schema-versioned JSON; Markdown and Word are boundary formats, and indexes/caches are rebuildable.
+- ADR-0015 governs the implemented Relation v1-to-v2 migration: v2 removes `type` without preserving or merging it, writes an exact v1 rollback artifact, rejects damaged or duplicate authority, and permits permanent Delete only when Progression, Character Knowledge, and Proposal references are absent.
 - NS-410 is command-verified. Its completed task and acceptance records remain historical evidence, not the active work item.
 - Project Recovery is the accepted baseline for the current UI/application stage, not proof of M5 completion.
 - M5.1 through M5.6E have command/function evidence. Versioned Prompt customization, Tool Plans/Grants, broader tool coverage, Council, and final user visual acceptance remain unfinished.

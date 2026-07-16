@@ -4,6 +4,8 @@ Status: Accepted
 
 Format update: ADR-0012 replaces the old Markdown/YAML format assumption with JSON authority. The separation of Canon, Research, relations, mentions, and rebuildable indexes remains accepted.
 
+Relation model update: ADR-0015 removes the required Relation `type` in schema v2 and replaces the author-facing Relation archive lifecycle with guarded permanent delete. Separate Relation authority and explicit source/target direction remain accepted.
+
 ## 背景
 
 Codex 同时包含作者确认的 Canon、仅供参考的 Research、结构化元数据、关系和从正文机械计算出的提及。把这些内容放进同一数据库会破坏文件权威；把 Canon 与 Research 混进同一 Markdown 正文又会让后续上下文装配器难以证明发送边界。同名人物、短名称和方向性关系还要求系统在证据不足时明确保守。

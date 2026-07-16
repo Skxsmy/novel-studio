@@ -23,6 +23,18 @@ function stableCapability(capability) {
   return stable;
 }
 
+function stableCapabilityWithoutOrdinal(capability) {
+  const { id, ...stable } = stableCapability(capability);
+  return stable;
+}
+
+function capabilityMap(capabilities) {
+  return new Map(capabilities.map((capability) => [
+    `${capability.kind}:${capability.key}`,
+    capability,
+  ]));
+}
+
 function stableExcludedControl(control) {
   const { line, ...stable } = control;
   return stable;
@@ -65,24 +77,41 @@ test("accounts for every manifest control exactly once", () => {
 });
 
 test("accounts for every inventoried runtime capability exactly once", () => {
-  const { actual, expected } = loadAudit();
-  assert.deepEqual(
-    actual.oldCapabilities.map(stableCapability),
-    expected.oldCapabilities.map(stableCapability),
+  const { actual } = loadAudit();
+  const currentCapabilities = buildOldCapabilityInventory();
+  const snapshotByKey = capabilityMap(actual.oldCapabilities);
+  const currentByKey = capabilityMap(currentCapabilities);
+  const removedKeys = [...snapshotByKey.keys()].filter((key) => !currentByKey.has(key)).sort();
+  const addedKeys = [...currentByKey.keys()].filter((key) => !snapshotByKey.has(key)).sort();
+
+  assert.deepEqual(removedKeys, ["api-backed:codex.archiveRelation"]);
+  assert.deepEqual(addedKeys, ["api-backed:codex.deleteRelation"]);
+  assert.equal(
+    snapshotByKey.get("api-backed:codex.archiveRelation")?.apiEndpoint,
+    "POST /series/:seriesId/codex/relations/:relationId/archive",
   );
-  assert.deepEqual(
-    actual.oldCapabilities.map(stableCapability),
-    buildOldCapabilityInventory().map(stableCapability),
+  assert.equal(
+    currentByKey.get("api-backed:codex.deleteRelation")?.apiEndpoint,
+    "DELETE /series/:seriesId/codex/relations/:relationId",
   );
+  for (const [key, snapshotCapability] of snapshotByKey) {
+    const currentCapability = currentByKey.get(key);
+    if (!currentCapability) continue;
+    assert.deepEqual(
+      stableCapabilityWithoutOrdinal(snapshotCapability),
+      stableCapabilityWithoutOrdinal(currentCapability),
+      `${key} drifted outside the approved Relation lifecycle replacement`,
+    );
+  }
   assert.equal(new Set(actual.oldCapabilities.map((item) => item.id)).size, actual.oldCapabilities.length);
   assert.equal(new Set(actual.oldCapabilities.map((item) => `${item.kind}:${item.key}`)).size, actual.oldCapabilities.length);
 
   const scannedApiTokens = [...new Set(scanRuntimeApiCalls().map((call) => `api.${call.token}`))].sort();
-  const auditedApiTokens = actual.oldCapabilities
+  const currentApiTokens = currentCapabilities
     .filter((item) => item.kind === "api-backed")
     .map((item) => item.apiToken)
     .sort();
-  assert.deepEqual(auditedApiTokens, scannedApiTokens);
+  assert.deepEqual(currentApiTokens, scannedApiTokens);
 
   const allowedCoverage = new Set(["represented", "partial", "absent"]);
   for (const capability of actual.oldCapabilities) {

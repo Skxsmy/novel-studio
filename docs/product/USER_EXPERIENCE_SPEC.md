@@ -194,11 +194,33 @@ AI 改写候选必须直接进入正文编辑器并保持整段选中。编辑�
 
 - 左侧类别和过滤，中间条目列表，右侧条目详情。
 - 条目详情分 Canon、Research、Details、Relations、Progressions、Mentions。
+- 删除 Current Scene、Changed at position 和 Needs attention 三个 Story Lens；原区域改为使用真实归档数据的 Archived Entries 类别。过滤区删除 `In Scene`、`Changed` 和 `Watch`；`All` 只表示当前类别和搜索条件下的默认完整列表，不需要额外语义谓词。
+- Category 标题的右键菜单提供 Rename 和 Delete，并支持键盘入口；删除前显示类别名称、条目影响和服务端阻断。Codex 条目界面不恢复旧 UI 的独立 Reload 控件。
+- 未归档 Entry 的右键菜单提供 Archive 和 Delete；Archived Entries 中的 Entry 右键菜单提供 Restore 和 Delete。右键菜单同时支持 `Shift+F10` 或 Menu 键，永久删除必须显示对象名称、影响和服务端阻断结果。
 - Details 使用按类别集中管理的详情类型；新增、删除和复用类型必须在同一处可见，不能让每个条目发明一套孤立字段。
 - Details 类型管理必须使用足够大的弹窗或等价独立管理层，不得挤在条目详情内形成狭小行内表单。管理层必须能切换类别、为自定义类别创建详情类型，并标记类型是否 NSFW。
+- Detail Type Library must retain the approved new-UI three-column structure:
+  the left column selects a Category, the middle column lists that Category's
+  Detail Types and provides the existing create control, and the right column
+  edits the selected Detail Type. It must not be replaced by a two-column
+  category list plus inline name-and-Add form. The right column persists the
+  selected Detail Type description as real authority data. Controls whose data
+  fields are not implemented remain visibly present but disabled. Rename and
+  Delete are entered only from the Detail Type row context menu. Rename opens a
+  focused name editor and saves through the real revision-protected backend;
+  Delete uses the existing confirmation and server-owned in-use blocker. The
+  selected Detail Type editor does not add duplicate Rename or Delete actions.
 - 条目内每个 detail 行必须提供一个小型开关，控制该 detail 是否随当前条目进入 AI 上下文；该开关是内容选择，不应展示调用 ID、哈希或其他审计字段。
-- 当前场景时间点固定显示，查看 Progression 时可拖动叙事位置。
-- “此刻有效”与“完整历史”必须有清晰切换，避免误把未来状态当当前状态。
+- Add Detail 在现有 Structural Details 末尾追加一行；Detail Type 单元格使用选择框，Value 单元格使用文本编辑区，第三列在创建阶段显示 Save。保存成功后该行恢复为普通 detail 行和 Send to AI 开关；验证、过期 revision 和保存错误必须就近显示。
+- 已保存 detail 行的右键菜单提供 Delete，并支持键盘入口和删除确认；删除使用真实 Entry revision 写入，失败时原行保持不变。
+- Detail Type 的重命名和删除操作都位于类型行的右键菜单，并支持键盘入口。重命名打开单独的名称编辑界面并使用真实 revision 写入；删除要求确认，类型仍被 Detail 使用时必须显示真实阻断，不能从界面中假删除。
+- Add Relation 打开简洁的创建页面，只包含 From、To 和必填的 Simple Description；不提供 `type` 输入。关系行右键菜单只提供 Delete，不提供 Archive，删除前必须确认并显示真实引用阻断。
+- `Baseline / Effective Scene` 改为 `Baseline / Current Scene`。Baseline 可编辑；Current Scene 跟随 Write 当前打开的 Scene，并只读显示该位置有效的 Canon Description 和 Details。Research 保持 Baseline，不参与切换；Current Scene 下不得显示 Canon Description 蓝色说明框。
+- Mentions 页面在现有 `Manuscript mentions` 旁增加 `Codex mentions`，分别显示正文 Scene 和其他 Codex 内容对当前条目的真实提及及数量，不混成一个来源不明的列表。
+- Canon Description 文本框中的 Codex 提及复用正文提及的可交互标记与预览框。在 Codex 的 Canon 页面处于 `Baseline` 模式时，弹窗显示被提及条目的 Baseline Canon Description 摘要；处于 `Current Scene` 模式时，弹窗显示被提及条目在 Write 当前 Scene 下的 effective Canon Description 摘要。弹窗不显示内部 ID 或审计字段。
+- 没有可用 Write Scene 时，Current Scene 必须禁用或显示诚实的无场景状态，不能回退到伪造数据；切换工作区后仍使用共享项目会话中的当前 Write Scene。
+- 当前场景时间点固定显示，查看 Progression 时可拖动叙事位置；任何有效状态查询都不得泄露未来 Scene 或 block 的变化。
+- Progression 和 Mention 的 Open in Write / Open Scene 只有在存在真实目标时才启用，并导航到对应 Scene 或 block；没有目标时保留原视觉位置但语义上禁用。
 
 ## 9. Workshop
 

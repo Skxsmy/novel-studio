@@ -335,10 +335,32 @@ Sections 使用独立文件和权限元数据，不混入正文后再靠隐藏�
 - 每个条目的每个详情值都必须有独立开关，决定该详情是否随该条目发送给 AI；条目级 AI 上下文策略和资料权限仍然优先约束整体可见性。
 - 提及规则和排除词。
 - Relations、Progressions 和 Evidence。
+- 条目的正常生命周期入口位于条目右键菜单：未归档条目提供 Archive 和 Delete，归档条目提供 Restore 和 Delete；永久删除必须二次确认并遵守引用阻断。
+- Archived Entries 是真实条目类别，必须可发现、恢复和永久删除归档条目，不能以 Story Lens 或静态计数替代。
+- 新增结构化 Detail 时，在现有详情列表末尾追加一行：先选择 Detail Type、填写 Value 并保存；保存后该行恢复为普通详情行并显示独立的 Send to AI 开关。
+- Category 的 Rename/Delete 和已保存 Detail 的 Delete 都使用对应标题或行的右键菜单，并支持键盘上下文菜单入口；永久删除必须确认并遵守真实引用阻断。
+- Codex 条目列表不提供独立 Reload 操作；保存冲突仍禁止覆盖，请求失败仍就近显示错误，但不增加旧 UI Reload 控件。
+- Canon Description 中对其他 Codex 条目的提及必须具有与正文提及一致的可交互标记和摘要预览。在 Codex 的 Canon 页面处于 `Baseline` 模式时，弹窗显示被提及条目的 Baseline Canon Description 摘要；处于 `Current Scene` 模式时，弹窗显示被提及条目在 Write 当前 Scene 下的 effective Canon Description 摘要。
+
+Reusable Detail Type authority stores a stable identifier, category, display
+name, author-written description, NSFW state, timestamps, and revision. The
+description explains what the reusable field means; it is not an Entry Detail
+value and is never synthesized from the display name. Existing version 1
+Detail Type files project an empty description until an explicit version 2
+migration or author save writes the new field.
+
+Detail Type Rename and Delete are available only from the keyboard-reachable
+context menu on the corresponding Detail Type row. Rename uses the current
+Detail Type revision, rejects a duplicate display name in the same Category,
+and atomically moves any legacy Entry Detail and per-Detail context-policy keys
+from the old display name to the stable Detail Type identifier. If both keys
+exist with different values, Rename fails without changing any authority file.
+Delete retains confirmation and the server-owned in-use blocker.
 
 ### FR-CODEX-03 提及
 
 - 正文提及通过名称和别名索引，可设置大小写、自动复数和排除词。
+- Mentions 必须区分 `Manuscript mentions` 与 `Codex mentions`：前者来自正文 Scene，后者来自其他 Codex 内容对当前条目的提及。
 - 自动提及只说明文本出现过，不代表条目参与了场景或某事实已经成立。
 - 作者可手工添加场景关联。
 
@@ -355,9 +377,11 @@ Sections 使用独立文件和权限元数据，不混入正文后再靠隐藏�
 
 ### FR-CODEX-05 Relations
 
-- 关系可有方向、类型、描述、证据和有效区间。
+- 关系权威由来源条目、目标条目、方向、描述、证据和有效区间组成；作者界面不要求或展示关系 `type`。
+- 新建关系必须明确选择 From、To 并填写简短描述；From → To 表示默认方向，复杂关系由自然语言描述表达。
 - “甲信任乙”和“乙信任甲”不能默认视为同一关系。
 - 关系变化通过 Progression 表达，不覆盖历史。
+- 作者界面的关系生命周期只提供永久删除，不提供归档；删除必须二次确认，并在 Progression、知识、证据或其它权威引用仍存在时由服务端阻断。
 
 ### FR-CODEX-06 Progression
 
@@ -368,7 +392,7 @@ Sections 使用独立文件和权限元数据，不混入正文后再靠隐藏�
 - 对 Canon Description 和 Detail 的 target，空 `replace` 表示清空并在悬浮预览、Context Builder 和 AI 上下文中隐藏该字段。
 - 同一 Scene 内，来自 Write block 的 Progression 必须按 block 顺序生效；查询某个 block 位置时，只能看到当前位置之前或当前位置自身已经生效的变化。
 - 后文 Progression 不能向早期场景、早期 block、悬浮预览或 AI 上下文泄露正文、摘要或内部 ID；最多返回隐藏数量。
-- Codex 主页面编辑的是整部小说的初始/基准状态。按 Scene 查看时必须明确区分“初始设定”和“此刻有效”。
+- Codex 主页面以 `Baseline` 和 `Current Scene` 明确区分初始设定与当前叙事位置的有效状态。Baseline 可编辑；Current Scene 跟随 Write 当前打开的 Scene，并以只读方式投影 Canon Description 和 Details。Research 始终显示 Baseline，不随该切换改变。
 
 ### FR-CODEX-07 世界真相与角色知识
 

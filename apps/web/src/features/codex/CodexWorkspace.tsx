@@ -68,7 +68,6 @@ interface RelationDraft {
   direction: CodexRelationDirection;
   evidence: string;
   targetEntryId: string;
-  type: string;
 }
 
 interface HighlightSnippet {
@@ -160,7 +159,6 @@ function relationDraftFor(entryId: string | null, entries: CodexEntryDocument[])
     direction: "outgoing",
     evidence: "",
     targetEntryId: targetEntry?.metadata.id ?? "",
-    type: "related",
   };
 }
 
@@ -1161,7 +1159,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
   }
 
   async function createRelation() {
-    if (!selectedEntry || !relationDraft.targetEntryId || !relationDraft.type.trim() || isCreatingRelation) return;
+    if (!selectedEntry || !relationDraft.targetEntryId || !relationDraft.description.trim() || isCreatingRelation) return;
     setIsCreatingRelation(true);
     setConnectionError(null);
     const selectedId = selectedEntry.metadata.id;
@@ -1171,7 +1169,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
       evidence: relationDraft.evidence,
       sourceEntryId: relationDraft.direction === "incoming" ? relationDraft.targetEntryId : selectedId,
       targetEntryId: relationDraft.direction === "incoming" ? selectedId : relationDraft.targetEntryId,
-      type: relationDraft.type.trim(),
       validFromSceneId: null,
       validToSceneId: null,
     };
@@ -1191,7 +1188,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
     setIsCreatingRelation(true);
     setConnectionError(null);
     try {
-      await api.codex.archiveRelation(series.manifest.id, document.relation.id, {
+      await api.codex.deleteRelation(series.manifest.id, document.relation.id, {
         baseRevision: document.revision,
       });
       setEntryRelations((current) => current.filter((candidate) => candidate.relation.id !== document.relation.id));
@@ -1911,15 +1908,6 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                     </select>
                   </label>
                   <label className="field">
-                    <span>{codexText.relations.relationType}</span>
-                    <input
-                      className="input"
-                      disabled={fieldsDisabled || isCreatingRelation}
-                      onChange={(event) => setRelationDraft((current) => ({ ...current, type: event.target.value }))}
-                      value={relationDraft.type}
-                    />
-                  </label>
-                  <label className="field">
                     <span>{codexText.relations.direction}</span>
                     <select
                       className="select"
@@ -1958,7 +1946,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                   <div className="relation-editor-actions">
                     <button
                       className="btn primary"
-                      disabled={fieldsDisabled || isCreatingRelation || !relationDraft.targetEntryId || !relationDraft.type.trim()}
+                      disabled={fieldsDisabled || isCreatingRelation || !relationDraft.targetEntryId || !relationDraft.description.trim()}
                       onClick={() => void createRelation()}
                       type="button"
                     >
@@ -1982,7 +1970,7 @@ export function CodexWorkspace({ onOpenScene, series }: CodexWorkspaceProps) {
                         <article className="relation-card" key={relation.id}>
                           <div className="relation-card-head">
                             <div>
-                              <div className="row-title">{relation.type}</div>
+                              <div className="row-title">Relation</div>
                               <div className="row-meta">{selectedEntry.metadata.name} {direction} {counterpartName}</div>
                             </div>
                             <span className="pill">{relation.directed ? direction : codexText.relations.undirected}</span>

@@ -73,6 +73,33 @@
 - `NS-410-A16` 搜索、提及、字数统计和上下文使用 plain text projection。
 - `NS-410-A17` 现有场景读写 API 兼容：读返回 projected `content`，旧 `content` 写入转换为 JSON block authority。
 
+## NS-514 Codex Reference Integration
+
+执行规格：`docs/tasks/NS-514.md`。验收记录：`docs/testing/NS-514_ACCEPTANCE.md`。关系模型决策：`docs/adr/0015-codex-relation-description-and-permanent-delete.md`。
+
+覆盖：
+
+- `FR-CODEX-02` 的 Entry、Detail 与 Detail Type 生命周期。
+- `FR-CODEX-05` 的 description-only Relation v2、显式迁移/回滚和受引用保护的永久删除。
+- `FR-CODEX-06` 的 `Baseline / Current Scene` 只读有效状态投影。
+- Progression 与 Mention 返回 Write 的真实 Scene/block 导航。
+
+验收 ID：
+
+- `NS-514-A22` 真实条目、Archived Entries、Story Lens/In Scene/Changed/Watch/Reload 移除以及 Category/Entry 右键生命周期。
+- `NS-514-A23` 末尾新增 Detail 行、已保存 Detail 右键删除和 Detail Type 右键删除。
+- `NS-514-A24` Relation v2 契约、v1 迁移/精确回滚、硬删除引用阻断和无 Archive UI。
+- `NS-514-A25` Baseline 可编辑、Current Scene 跟随 Write 且 Canon/Details 只读、Research 保持 Baseline。
+- `NS-514-A26` Open in Write/Open Scene 只对真实目标启用。
+- `NS-514-A27` Manuscript/Codex mention 来源分离，以及 Canon Description 内联 Codex 提及摘要预览。
+- `NS-514-A28` Detail Type Library restores the approved three-column new-UI
+  structure, persists the selected Detail Type description through version 2
+  authority, and provides real revision-protected Rename plus guarded Delete
+  from the Detail Type row context menu. Rename atomically converts legacy
+  name-keyed Entry Detail data to the stable identifier.
+
+这些是已批准但尚未实现的 P6 验收映射；在对应实际证据通过前，不得把本节报告为完成功能。
+
 ## M5 编辑团队与 Proposal
 
 执行规格：`docs/tasks/M5.md`。验收记录：`docs/testing/M5_ACCEPTANCE.md`。设计配套：`docs/design/ui-redesign/M5_WORKSHOP_REVIEW_FIGMA_PLAN.md`。

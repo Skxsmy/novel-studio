@@ -279,6 +279,18 @@ export function registerCodexRoutes(
     },
   );
 
+  app.delete<{ Params: { seriesId: string; relationId: string } }>(
+    "/api/v1/series/:seriesId/codex/relations/:relationId",
+    async (request) => {
+      const input = DeleteCodexDocumentInputSchema.parse(request.body);
+      return repository.deleteCodexRelation(
+        request.params.seriesId,
+        request.params.relationId,
+        input,
+      );
+    },
+  );
+
   app.post<{ Params: { seriesId: string; relationId: string } }>(
     "/api/v1/series/:seriesId/codex/relations/:relationId/archive",
     async (request) => {

@@ -132,6 +132,16 @@ SQLite 保存可重建的场景定位、正文搜索、Codex 搜索、名称候�
 
 可复用详情类型位于 `codex/detail-types/<detailTypeId>.json`，按 `categoryId` 归属到一个内置或自定义类别。详情类型文件保存稳定 ID、名称、类别、NSFW 标记和 revision，用于 UI 集中管理、重名校验和删除保护。条目 `metadata.details` 必须以稳定 `detailTypeId` 为键保存正文值；条目 `metadata.detailAiContext` 以同一 ID 为键保存布尔开关，`false` 表示该条目发送给 AI 时排除此详情，缺失或 `true` 表示沿用默认包含。删除详情类型前必须确认同类别条目没有使用该详情类型 ID。
 
+Detail Type schema version 2 adds an author-written `description` to the stable
+identifier, Category, display name, NSFW state, and timestamps. Version 1 files
+remain compatibility-readable as an empty description and are changed only by
+the explicit migration or a revision-protected author write. The migration
+backup preserves exact version 1 text and checksums for conflict-safe rollback.
+Renaming a Detail Type preserves its identifier. The same authority transaction
+converts any legacy Entry keys equal to the old display name into that stable
+identifier in both `metadata.details` and `metadata.detailAiContext`; conflicting
+legacy and stable values reject the transaction without partial writes.
+
 关系位于 `codex/relations/<relationId>.json`。有向关系只表达 `sourceEntryId → targetEntryId`；无向关系从两端查询同一文件，不复制第二条边。提及索引只表示名称或别名在场景正文中出现，不改变 Scene 显式关联或任何 Canon。
 
 ## Codex Progression

@@ -96,6 +96,11 @@ The internal names are a compatibility boundary, not alternate product terminolo
 - Scene authority is `SceneBlockDocument`; the active Write surface uses a Tiptap/ProseMirror runtime and converts at the storage boundary.
 - Existing scene APIs may expose projected `content` for compatibility, but compatibility does not make Markdown authoritative.
 - Codex Canon/Detail pure-text surfaces may use CodeMirror without saving editor-private state.
+- Reusable Detail Type version 2 authority stores the selected type's
+  author-written description. Version 1 compatibility reads are non-mutating;
+  explicit migration and exact rollback follow ADR-0016. Detail Type Rename is
+  one multi-file authority transaction when legacy name-keyed Entry data must
+  be converted to the stable Detail Type identifier.
 - Unified JSON Progression projects Canon Description, reusable details, world facts, and relation state by narrative scene and same-scene block position.
 - Character knowledge remains a separate authority and cannot overwrite world truth.
 - Future scene/progression content, summaries, evidence, and IDs must not leak into earlier projections or AI context.

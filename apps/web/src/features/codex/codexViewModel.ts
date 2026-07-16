@@ -196,7 +196,6 @@ export const codexText = {
     direction: "Direction",
     empty: "No linked relations",
     evidence: "Evidence",
-    relationType: "Relation type",
     subtitle: "Add connections to other entries to build a network of information.",
     target: "Target entry",
     title: "RELATIONS/CONNECTIONS",

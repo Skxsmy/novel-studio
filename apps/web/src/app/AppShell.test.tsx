@@ -609,15 +609,16 @@ function codexEntryDocument(
   };
 }
 
-function codexDetailTypeDocument(name = "Gate rule", categoryId = "character", id = detailTypeId, nsfw = false) {
+function codexDetailTypeDocument(name = "Gate rule", categoryId = "character", id = detailTypeId, nsfw = false, description = "") {
   return {
     detailType: {
       categoryId,
       createdAt: "2026-06-23T00:00:00.000Z",
+      description,
       id,
       name,
       nsfw,
-      schemaVersion: 1,
+      schemaVersion: 2,
       updatedAt: "2026-06-23T00:00:00.000Z",
     },
     revision,
@@ -629,7 +630,6 @@ function codexRelationDocument(
   targetEntryId = relatedCodexEntryId,
   description = "Locks access to the quay.",
   id = relationId,
-  type = "guards",
   directed = true,
   evidence = "Bell timing scene.",
 ) {
@@ -641,10 +641,9 @@ function codexRelationDocument(
       directed,
       evidence,
       id,
-      schemaVersion: 1,
+      schemaVersion: 2,
       sourceEntryId,
       targetEntryId,
-      type,
       updatedAt: "2026-06-23T00:00:00.000Z",
       validFromSceneId: null as string | null,
       validToSceneId: null as string | null,
@@ -1987,7 +1986,7 @@ function mockFetch(options: {
     if (url === `/api/v1/series/${seriesId}/codex/detail-types` && method === "POST") {
       const body = JSON.parse(String(init?.body));
       const id = codexDetailTypes.length === 0 ? detailTypeId : secondDetailTypeId;
-      const detailType = codexDetailTypeDocument(body.name, body.categoryId, id, body.nsfw ?? false);
+      const detailType = codexDetailTypeDocument(body.name, body.categoryId, id, body.nsfw ?? false, body.description ?? "");
       codexDetailTypes = [...codexDetailTypes, detailType];
       return jsonResponse(detailType, 201);
     }
@@ -2002,7 +2001,8 @@ function mockFetch(options: {
         ...current,
         detailType: {
           ...current.detailType,
-          nsfw: body.nsfw,
+          description: body.description ?? current.detailType.description,
+          nsfw: body.nsfw ?? current.detailType.nsfw,
           updatedAt: "2026-06-24T00:00:00.000Z",
         },
         revision: updatedRevision,
@@ -2070,7 +2070,6 @@ function mockFetch(options: {
         body.targetEntryId,
         body.description,
         createdRelationId,
-        body.type,
         body.directed,
         body.evidence,
       );
@@ -2078,24 +2077,14 @@ function mockFetch(options: {
       return jsonResponse(relation, 201);
     }
 
-    const archiveRelationMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/codex/relations/([^/]+)/archive$`));
-    if (archiveRelationMatch && method === "POST") {
-      const archivedRelationId = archiveRelationMatch[1];
-      const current = codexRelations.find((document) => document.relation.id === archivedRelationId);
-      if (!current) return jsonResponse({ message: "Relation not found" }, 404);
-      const archived = {
-        ...current,
-        relation: {
-          ...current.relation,
-          archivedAt: "2026-06-24T00:00:00.000Z",
-          updatedAt: "2026-06-24T00:00:00.000Z",
-        },
-        revision: updatedRevision,
-      };
-      codexRelations = codexRelations.map((document) => (
-        document.relation.id === archivedRelationId ? archived : document
-      ));
-      return jsonResponse(archived);
+    const deleteRelationMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/codex/relations/([^/]+)$`));
+    if (deleteRelationMatch && method === "DELETE") {
+      const deletedId = deleteRelationMatch[1]!;
+      if (!codexRelations.some((document) => document.relation.id === deletedId)) {
+        return jsonResponse({ message: "Relation not found" }, 404);
+      }
+      codexRelations = codexRelations.filter((document) => document.relation.id !== deletedId);
+      return jsonResponse({ blockers: [], deletedId });
     }
 
     const entryMentionMatch = url.match(new RegExp(`^/api/v1/series/${seriesId}/codex/entries/([^/]+)/mentions$`));
@@ -3307,13 +3296,12 @@ describe("App shell", () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        `/api/v1/series/${seriesId}/codex/relations/${relationId}/archive`,
-        expect.objectContaining({ method: "POST" }),
+        `/api/v1/series/${seriesId}/codex/relations/${relationId}`,
+        expect.objectContaining({ method: "DELETE" }),
       );
     });
     expect(screen.queryByText("Locks access to the quay.")).toBeNull();
 
-    fireEvent.change(screen.getByLabelText("Relation type"), { target: { value: "signals" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Signals the bell route." } });
     fireEvent.change(screen.getByLabelText("Evidence"), { target: { value: "Found in the repair notes." } });
     fireEvent.click(screen.getByRole("button", { name: "Add Relation" }));
@@ -3330,8 +3318,8 @@ describe("App shell", () => {
         evidence: "Found in the repair notes.",
         sourceEntryId: codexEntryId,
         targetEntryId: relatedCodexEntryId,
-        type: "signals",
       }));
+      expect(body).not.toHaveProperty("type");
     });
     expect(await screen.findByText("Signals the bell route.")).toBeTruthy();
 

@@ -59,10 +59,11 @@ function profile(overrides: Partial<EmbeddingModelProfile> = {}): EmbeddingModel
 function detailType(name: string, categoryId = "character"): CodexDetailTypeDocument {
   return {
     detailType: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: randomUUID(),
       categoryId,
       name,
+      description: "",
       nsfw: false,
       createdAt: NOW,
       updatedAt: NOW,

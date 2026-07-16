@@ -6,6 +6,8 @@ This changelog records user-visible product changes. Task status, command logs, 
 
 ### Added
 
+- Connected Codex workspace with real categories and Entries, Archived Entries, keyboard-reachable lifecycle menus, appended Detail editing, the original three-column Detail Type Library with persisted descriptions and row-context Rename/Delete, description-only Relation creation, Current Scene projection, real Write navigation, and separate Manuscript/Codex mentions with Canon previews.
+- Relation authority v2 migration with exact v1 rollback artifacts and guarded permanent deletion.
 - Persistent Workshop Chat and Agent sessions with message attachments, branch history, session export, reasoning display, stop controls, and session lifecycle actions.
 - Durable Workshop Agent runs now support ordinary conversation, structured Codex requests, bounded output repair, confirmed-tool continuation, separately confirmed follow-up tools, and explicit retry or abandon after eligible interruptions.
 - Proposal-backed Review inbox and focused before/after decision workspace.
@@ -16,6 +18,8 @@ This changelog records user-visible product changes. Task status, command logs, 
 
 ### Changed
 
+- Codex Relation creation no longer exposes or writes a `type`; permanent Relation deletion is blocked by live Progression, Character Knowledge, and Proposal references.
+- Detail Type Rename preserves the stable identifier and atomically converts legacy name-keyed Entry Detail data; conflicting legacy and stable values reject the rename without partial writes.
 - Workshop Codex detail drafts now rank reusable same-category detail types, let authors map each unmatched label, and require an explicit final name and NSFW choice before creating a new reusable type.
 - Workshop Agent uses ordinary Provider assistant text for conversation and Provider-native tool calls for Codex requests. Models without native tools remain available for conversation but receive no write tools; there is no strict-JSON dialogue fallback or silent Provider fallback.
 - Retryable Agent transport failures receive one bounded same-run retry, while invalid native tool arguments receive one model-visible correction attempt before the run becomes explicitly retryable.

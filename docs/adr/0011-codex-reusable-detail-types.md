@@ -4,6 +4,14 @@ Status: Accepted
 
 Format update: ADR-0012 replaces the YAML/frontmatter format assumption with JSON authority. The reusable-detail-type decision remains accepted, using stable detail type IDs where the old name-keyed format conflicts.
 
+Description update: ADR-0016 advances reusable Detail Type JSON authority to
+schema version 2 by adding an author-written description. ADR-0011 continues to
+govern stable identifiers, category reuse, NSFW state, and guarded deletion.
+
+Rename update: ADR-0016 also supersedes ADR-0011's original deferral of Rename.
+Rename now preserves the stable Detail Type identifier and atomically converts
+legacy name-keyed Entry data, with conflict rejection instead of overwriting.
+
 ## 背景
 
 Codex Details 需要表达作者按作品定义的结构化信息，例如人物年龄、样貌、阵营，或地点布局、禁忌、线索。早期实现把详情作为条目内的自由标签/键值直接编辑，导致不同条目难以复用同一类型，也无法集中添加、删除或约束名称。`tags` 对 Codex 条目没有有效产品语义，继续保留会混淆规划标签和设定详情。

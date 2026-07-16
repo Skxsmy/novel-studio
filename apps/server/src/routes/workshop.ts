@@ -777,10 +777,11 @@ function planWorkshopDetailTypeCreations(input: {
     })),
     documents: commands.map((command) => ({
       detailType: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         id: command.id,
         categoryId: input.categoryId,
         name: command.name,
+        description: "",
         nsfw: command.nsfw ?? false,
         createdAt: now,
         updatedAt: now,

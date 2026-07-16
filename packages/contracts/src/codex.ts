@@ -63,7 +63,7 @@ export const UpdateCodexCategoryInputSchema = z
   });
 export type UpdateCodexCategoryInput = z.infer<typeof UpdateCodexCategoryInputSchema>;
 
-export const CodexDetailTypeSchema = z.object({
+export const CodexDetailTypeV1Schema = z.object({
   schemaVersion: z.literal(1),
   id: z.string().uuid(),
   categoryId: CodexCategoryIdSchema,
@@ -72,7 +72,33 @@ export const CodexDetailTypeSchema = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
+export type CodexDetailTypeV1 = z.infer<typeof CodexDetailTypeV1Schema>;
+
+export const CodexDetailTypeSchema = z.object({
+  schemaVersion: z.literal(2),
+  id: z.string().uuid(),
+  categoryId: CodexCategoryIdSchema,
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(4000).default(""),
+  nsfw: z.boolean().default(false),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
 export type CodexDetailType = z.infer<typeof CodexDetailTypeSchema>;
+
+export const CodexDetailTypeAuthoritySchema = z.union([
+  CodexDetailTypeSchema,
+  CodexDetailTypeV1Schema,
+]);
+export type CodexDetailTypeAuthority = z.infer<typeof CodexDetailTypeAuthoritySchema>;
+
+export function migrateCodexDetailTypeV1ToV2(detailType: CodexDetailTypeV1): CodexDetailType {
+  return CodexDetailTypeSchema.parse({
+    ...detailType,
+    schemaVersion: 2,
+    description: "",
+  });
+}
 
 export const CodexDetailTypeDocumentSchema = z.object({
   detailType: CodexDetailTypeSchema,
@@ -83,15 +109,51 @@ export type CodexDetailTypeDocument = z.infer<typeof CodexDetailTypeDocumentSche
 export const CreateCodexDetailTypeInputSchema = z.object({
   categoryId: CodexCategoryIdSchema,
   name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(4000).default(""),
   nsfw: z.boolean().default(false),
 });
 export type CreateCodexDetailTypeInput = z.input<typeof CreateCodexDetailTypeInputSchema>;
 
-export const UpdateCodexDetailTypeInputSchema = z.object({
-  baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
-  nsfw: z.boolean(),
-});
+export const UpdateCodexDetailTypeInputSchema = z
+  .object({
+    baseRevision: z.string().regex(/^[a-f0-9]{64}$/),
+    name: z.string().trim().min(1).max(120).optional(),
+    description: z.string().trim().max(4000).optional(),
+    nsfw: z.boolean().optional(),
+  })
+  .superRefine((input, context) => {
+    if (input.name === undefined && input.description === undefined && input.nsfw === undefined) {
+      context.addIssue({ code: "custom", message: "At least one Detail Type field is required" });
+    }
+  });
 export type UpdateCodexDetailTypeInput = z.infer<typeof UpdateCodexDetailTypeInputSchema>;
+
+export const CodexDetailTypeMigrationBackupSchema = z.object({
+  schemaVersion: z.literal(1),
+  migrationId: z.string().uuid(),
+  seriesId: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  documents: z.array(z.object({
+    detailTypeId: z.string().uuid(),
+    relativePath: z.string().min(1).max(1000),
+    raw: z.string(),
+    revision: z.string().regex(/^[a-f0-9]{64}$/),
+    migratedRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  })),
+});
+export type CodexDetailTypeMigrationBackup = z.infer<typeof CodexDetailTypeMigrationBackupSchema>;
+
+export const CodexDetailTypeMigrationResultSchema = z.object({
+  migrationId: z.string().uuid(),
+  migratedDetailTypeIds: z.array(z.string().uuid()),
+});
+export type CodexDetailTypeMigrationResult = z.infer<typeof CodexDetailTypeMigrationResultSchema>;
+
+export const RollbackCodexDetailTypeMigrationResultSchema = z.object({
+  migrationId: z.string().uuid(),
+  restoredDetailTypeIds: z.array(z.string().uuid()),
+});
+export type RollbackCodexDetailTypeMigrationResult = z.infer<typeof RollbackCodexDetailTypeMigrationResultSchema>;
 
 export const DeleteCodexDetailTypeResultSchema = z.object({
   deletedId: z.string().uuid(),
@@ -311,7 +373,7 @@ export const DeleteCodexEntryResultSchema = z.object({
 });
 export type DeleteCodexEntryResult = z.infer<typeof DeleteCodexEntryResultSchema>;
 
-export const CodexRelationSchema = z.object({
+export const CodexRelationV1Schema = z.object({
   schemaVersion: z.literal(1),
   id: z.string().uuid(),
   sourceEntryId: z.string().uuid(),
@@ -326,7 +388,73 @@ export const CodexRelationSchema = z.object({
   updatedAt: z.string().datetime(),
   archivedAt: z.string().datetime().nullable().default(null),
 });
+export type CodexRelationV1 = z.infer<typeof CodexRelationV1Schema>;
+
+export const CodexRelationSchema = z.object({
+  schemaVersion: z.literal(2),
+  id: z.string().uuid(),
+  sourceEntryId: z.string().uuid(),
+  targetEntryId: z.string().uuid(),
+  directed: z.boolean().default(true),
+  description: z.string().max(16000).default(""),
+  evidence: z.string().max(16000).default(""),
+  validFromSceneId: z.string().uuid().nullable().default(null),
+  validToSceneId: z.string().uuid().nullable().default(null),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  archivedAt: z.string().datetime().nullable().default(null),
+});
 export type CodexRelation = z.infer<typeof CodexRelationSchema>;
+
+export const CodexRelationAuthoritySchema = z.union([
+  CodexRelationSchema,
+  CodexRelationV1Schema,
+]);
+export type CodexRelationAuthority = z.infer<typeof CodexRelationAuthoritySchema>;
+
+export function migrateCodexRelationV1ToV2(relation: CodexRelationV1): CodexRelation {
+  return CodexRelationSchema.parse({
+    schemaVersion: 2,
+    id: relation.id,
+    sourceEntryId: relation.sourceEntryId,
+    targetEntryId: relation.targetEntryId,
+    directed: relation.directed,
+    description: relation.description,
+    evidence: relation.evidence,
+    validFromSceneId: relation.validFromSceneId,
+    validToSceneId: relation.validToSceneId,
+    createdAt: relation.createdAt,
+    updatedAt: relation.updatedAt,
+    archivedAt: relation.archivedAt,
+  });
+}
+
+export const CodexRelationMigrationBackupSchema = z.object({
+  schemaVersion: z.literal(1),
+  migrationId: z.string().uuid(),
+  seriesId: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  documents: z.array(z.object({
+    relationId: z.string().uuid(),
+    relativePath: z.string().min(1).max(1000),
+    raw: z.string(),
+    revision: z.string().regex(/^[a-f0-9]{64}$/),
+    migratedRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  })),
+});
+export type CodexRelationMigrationBackup = z.infer<typeof CodexRelationMigrationBackupSchema>;
+
+export const CodexRelationMigrationResultSchema = z.object({
+  migrationId: z.string().uuid(),
+  migratedRelationIds: z.array(z.string().uuid()),
+});
+export type CodexRelationMigrationResult = z.infer<typeof CodexRelationMigrationResultSchema>;
+
+export const RollbackCodexRelationMigrationResultSchema = z.object({
+  migrationId: z.string().uuid(),
+  restoredRelationIds: z.array(z.string().uuid()),
+});
+export type RollbackCodexRelationMigrationResult = z.infer<typeof RollbackCodexRelationMigrationResultSchema>;
 
 export const CodexRelationDocumentSchema = z.object({
   relation: CodexRelationSchema,
@@ -646,7 +774,6 @@ export type CodexEffectiveState = z.infer<typeof CodexEffectiveStateSchema>;
 export const CreateCodexRelationInputSchema = CodexRelationSchema.pick({
   sourceEntryId: true,
   targetEntryId: true,
-  type: true,
   directed: true,
   description: true,
   evidence: true,
@@ -654,10 +781,11 @@ export const CreateCodexRelationInputSchema = CodexRelationSchema.pick({
   validToSceneId: true,
 }).partial({
   directed: true,
-  description: true,
   evidence: true,
   validFromSceneId: true,
   validToSceneId: true,
+}).extend({
+  description: z.string().trim().min(1).max(16000),
 });
 export type CreateCodexRelationInput = z.input<typeof CreateCodexRelationInputSchema>;
 
@@ -670,6 +798,19 @@ export const UpdateCodexRelationInputSchema = CreateCodexRelationInputSchema.par
     }
   });
 export type UpdateCodexRelationInput = z.infer<typeof UpdateCodexRelationInputSchema>;
+
+export const DeleteCodexRelationBlockerSchema = z.object({
+  kind: z.enum(["progression", "character-knowledge", "proposal"]),
+  id: z.string().uuid(),
+  reason: z.string().min(1).max(4000),
+});
+export type DeleteCodexRelationBlocker = z.infer<typeof DeleteCodexRelationBlockerSchema>;
+
+export const DeleteCodexRelationResultSchema = z.object({
+  deletedId: z.string().uuid(),
+  blockers: z.array(DeleteCodexRelationBlockerSchema).default([]),
+});
+export type DeleteCodexRelationResult = z.infer<typeof DeleteCodexRelationResultSchema>;
 
 export const CodexMentionSchema = z.object({
   sceneId: z.string().uuid(),

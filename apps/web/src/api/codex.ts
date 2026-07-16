@@ -19,6 +19,7 @@ import type {
   DeleteCodexDocumentInput,
   DeleteCodexDetailTypeResult,
   DeleteCodexEntryResult,
+  DeleteCodexRelationResult,
   DeleteCodexProgressionResult,
   SceneCodexMentions,
   UpdateCodexCategoryInput,
@@ -147,10 +148,10 @@ export function createCodexApi(client: ApiClient) {
         method: "POST",
       });
     },
-    archiveRelation(seriesId: string, relationId: string, input: ArchiveCodexDocumentInput) {
-      return client.requestJson<CodexRelationDocument>(`/series/${seriesId}/codex/relations/${relationId}/archive`, {
+    deleteRelation(seriesId: string, relationId: string, input: DeleteCodexDocumentInput) {
+      return client.requestJson<DeleteCodexRelationResult>(`/series/${seriesId}/codex/relations/${relationId}`, {
         body: input,
-        method: "POST",
+        method: "DELETE",
       });
     },
     listProgressions(

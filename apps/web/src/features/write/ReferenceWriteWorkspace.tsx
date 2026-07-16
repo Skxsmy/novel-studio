@@ -36,7 +36,13 @@ export function ReferenceConnectedWriteWorkspace() {
   return <ConnectedWriteWorkspace />;
 }
 
-export function ReferenceWriteWorkspace({ session }: { session: ProjectSessionState }) {
+export function ReferenceWriteWorkspace({
+  requestedBlockId = null,
+  session,
+}: {
+  requestedBlockId?: string | null;
+  session: ProjectSessionState;
+}) {
   const [isOutlineOpen, setIsOutlineOpen] = useState(() => window.innerWidth > 1180);
   const [isInspectorOpen, setIsInspectorOpen] = useState(() => window.innerWidth > 1500);
   const [isFocusMode, setIsFocusMode] = useState(false);
@@ -131,6 +137,11 @@ export function ReferenceWriteWorkspace({ session }: { session: ProjectSessionSt
   useEffect(() => {
     setSelectionToolbar(null);
   }, [draft?.sceneId]);
+
+  useEffect(() => {
+    if (!requestedBlockId || draft?.sceneId !== scene?.metadata.id) return;
+    storyChanges.setFocusBlockId(requestedBlockId);
+  }, [draft?.sceneId, requestedBlockId, scene?.metadata.id, storyChanges.setFocusBlockId]);
 
   return (
     <section aria-label="Write workspace" className={rootClassName} data-workspace-view="Write" hidden id="write-workspace">
