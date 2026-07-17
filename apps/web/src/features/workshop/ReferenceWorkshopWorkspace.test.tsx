@@ -310,6 +310,34 @@ describe("NS-514 P3 Workshop reference workspace", () => {
 });
 
 describe("NS-514 A29-A34 connected Workshop workspace", () => {
+  it("keeps the New conversation entry point available when the Series has no Workshop sessions", async () => {
+    const createdChat = workshopSession({
+      id: "17171717-1717-4717-8717-171717171717",
+      title: "First Workshop conversation",
+    });
+    const createSession = vi.spyOn(api.workshop, "createSession").mockResolvedValue(createdChat);
+    const { container } = setupConnected({
+      sessions: [],
+      sessionLoader: async () => workshopDetail(createdChat),
+    });
+
+    const newConversation = within(container).getByRole("button", { name: "New conversation" }) as HTMLButtonElement;
+    await waitFor(() => expect(newConversation.disabled).toBe(false));
+    expect(container.querySelector("aside.wr5-sessions")).toBeTruthy();
+    expect(container.querySelector("main.wr5-conversation")?.textContent).toContain(
+      "Create or select a Workshop session before sending.",
+    );
+
+    fireEvent.click(newConversation);
+    fireEvent.click(within(container).getByRole("menuitem", { name: "General Chat" }));
+    await waitFor(() => expect(createSession).toHaveBeenCalledWith(seriesId, {
+      kind: "chat",
+      sceneId: null,
+      title: "New chat",
+    }));
+    await waitFor(() => expect(container.textContent).toContain("First Workshop conversation"));
+  });
+
   it("creates General Chat and Agent conversations through the single New conversation menu with the exact API kind", async () => {
     const createdChat = workshopSession({ id: "18181818-1818-4818-8818-181818181818", title: "New chat" });
     const createdAgent = workshopSession({

@@ -1944,10 +1944,63 @@ function ConnectedReferenceWorkshopWorkspace({
     }
   }
 
+  function renderSessionSidebar(selectedSessionId: string | null) {
+    const sessionCreationDisabled = creatingSession || loading || !seriesId;
+    return (
+      <aside aria-label={text.labels.workshopConversations} className="wr5-sessions">
+        <header className="wr5-sessions-head">
+          <h1>{text.title}</h1>
+          <div className="wr5-new-wrap" data-wr5-floating>
+            <button
+              aria-busy={creatingSession}
+              aria-expanded={newMenuOpen}
+              aria-label={text.labels.newConversation}
+              className="wr5-icon-button"
+              disabled={sessionCreationDisabled}
+              onClick={() => setNewMenuOpen((current) => !current)}
+              type="button"
+            ><Icon><path d="M12 5v14M5 12h14" /></Icon></button>
+            {newMenuOpen ? <div className="wr5-new-menu" role="menu">
+              <button className="wr5-menu-item" disabled={creatingSession} onClick={() => void createSession("chat")} role="menuitem" type="button"><strong>{text.labels.createChatConversation}</strong></button>
+              <button className="wr5-menu-item" disabled={creatingSession} onClick={() => void createSession("agent")} role="menuitem" type="button"><strong>{text.labels.createAgentConversation}</strong></button>
+            </div> : null}
+          </div>
+        </header>
+        <div className="wr5-session-tools"><label className="wr5-session-search"><Icon><circle cx="10.5" cy="10.5" r="6" /><path d="m15 15 4.5 4.5" /></Icon><input aria-label={text.labels.sessionSearch} onChange={(event) => setSessionSearch(event.currentTarget.value)} placeholder={text.labels.sessionSearch} value={sessionSearch} /></label><div aria-label={text.labels.conversationFilters} className="wr5-session-filters">{(["all", "chat", "agent", "archived"] as const).map((filter) => <button className={`wr5-session-filter${sessionFilter === filter ? " is-active" : ""}`} key={filter} onClick={() => setSessionFilter(filter)} type="button">{filter === "all" ? text.labels.allSessions : filter === "chat" ? text.labels.chatSessions : filter === "agent" ? text.labels.agentSessions : text.labels.archivedSessions}</button>)}</div></div>
+        <div className="wr5-session-list">{filteredSessions.length ? filteredSessions.map((item) => (
+          <div className="wr5-session-row" key={item.id}>
+            {editingSessionId === item.id ? <form className="wr5-session-rename" onSubmit={(event) => { event.preventDefault(); void commitSessionRename(); }}><input aria-label={text.labels.sessionRenameLabel} autoFocus onBlur={() => void commitSessionRename()} onChange={(event) => setEditingSessionTitle(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelSessionRenameRef.current = true; setEditingSessionId(null); setPendingSessionFocusId(item.id); } }} value={editingSessionTitle} /></form> : <button
+              aria-current={item.id === selectedSessionId ? "true" : undefined}
+              className={`wr5-session${item.id === selectedSessionId ? " is-active" : ""}`}
+              onClick={() => { if (longPressOpenedRef.current) { longPressOpenedRef.current = false; return; } activateSession(item.id); }}
+              onContextMenu={(event) => { event.preventDefault(); openSessionContextMenu(item, event.clientX, event.clientY); }}
+              onKeyDown={(event) => handleSessionKeyDown(event, item)}
+              onPointerCancel={cancelLongPress}
+              onPointerDown={(event) => startLongPress(event, item)}
+              onPointerMove={cancelLongPress}
+              onPointerUp={cancelLongPress}
+              ref={(element) => { sessionRowsRef.current[item.id] = element; }}
+              type="button"
+            ><span className="wr5-session-mark">{sessionMark(item)}</span><span className="wr5-session-copy"><strong>{item.title}</strong><span>{sessionSecondary(item)}</span></span><time>{formatWorkshopDate(item.lastMessageAt ?? item.updatedAt)}</time></button>}
+          </div>
+        )) : <p className="wr5-session-empty">{text.labels.sessionSearchEmpty}</p>}</div>
+      </aside>
+    );
+  }
+
+  function renderEmptyConversation(message: string) {
+    return <>
+      {renderSessionSidebar(null)}
+      <main className="wr5-conversation">
+        <div className="wr5-thread-scroll"><div className="wr5-empty-state"><p>{message}</p></div></div>
+      </main>
+    </>;
+  }
+
   function renderPlaceholder() {
-    if (loading) return <div className="wr5-empty-state"><p>{text.labels.loadingWorkshop}</p></div>;
-    if (!activeSession) return <div className="wr5-empty-state"><p>{text.labels.noSession}</p></div>;
-    if (!series) return <div className="wr5-empty-state"><p>{text.labels.noContextSources}</p></div>;
+    if (loading) return renderEmptyConversation(text.labels.loadingWorkshop);
+    if (!activeSession) return renderEmptyConversation(text.labels.noSession);
+    if (!series) return renderEmptyConversation(text.labels.noContextSources);
     const currentSession = activeSession;
     const currentSeries = series;
 
@@ -2241,44 +2294,7 @@ function ConnectedReferenceWorkshopWorkspace({
 
     const latestAgentRun = agentRuns.at(-1) ?? null;
     return <>
-      <aside aria-label={text.labels.workshopConversations} className="wr5-sessions">
-        <header className="wr5-sessions-head">
-          <h1>{text.title}</h1>
-          <div className="wr5-new-wrap" data-wr5-floating>
-            <button
-              aria-busy={creatingSession}
-              aria-expanded={newMenuOpen}
-              aria-label={text.labels.newConversation}
-              className="wr5-icon-button"
-              disabled={creatingSession}
-              onClick={() => setNewMenuOpen((current) => !current)}
-              type="button"
-            ><Icon><path d="M12 5v14M5 12h14" /></Icon></button>
-            {newMenuOpen ? <div className="wr5-new-menu" role="menu">
-              <button className="wr5-menu-item" disabled={creatingSession} onClick={() => void createSession("chat")} role="menuitem" type="button"><strong>{text.labels.createChatConversation}</strong></button>
-              <button className="wr5-menu-item" disabled={creatingSession} onClick={() => void createSession("agent")} role="menuitem" type="button"><strong>{text.labels.createAgentConversation}</strong></button>
-            </div> : null}
-          </div>
-        </header>
-        <div className="wr5-session-tools"><label className="wr5-session-search"><Icon><circle cx="10.5" cy="10.5" r="6" /><path d="m15 15 4.5 4.5" /></Icon><input aria-label={text.labels.sessionSearch} onChange={(event) => setSessionSearch(event.currentTarget.value)} placeholder={text.labels.sessionSearch} value={sessionSearch} /></label><div aria-label={text.labels.conversationFilters} className="wr5-session-filters">{(["all", "chat", "agent", "archived"] as const).map((filter) => <button className={`wr5-session-filter${sessionFilter === filter ? " is-active" : ""}`} key={filter} onClick={() => setSessionFilter(filter)} type="button">{filter === "all" ? text.labels.allSessions : filter === "chat" ? text.labels.chatSessions : filter === "agent" ? text.labels.agentSessions : text.labels.archivedSessions}</button>)}</div></div>
-        <div className="wr5-session-list">{filteredSessions.length ? filteredSessions.map((item) => (
-          <div className="wr5-session-row" key={item.id}>
-            {editingSessionId === item.id ? <form className="wr5-session-rename" onSubmit={(event) => { event.preventDefault(); void commitSessionRename(); }}><input aria-label={text.labels.sessionRenameLabel} autoFocus onBlur={() => void commitSessionRename()} onChange={(event) => setEditingSessionTitle(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelSessionRenameRef.current = true; setEditingSessionId(null); setPendingSessionFocusId(item.id); } }} value={editingSessionTitle} /></form> : <button
-              aria-current={item.id === currentSession.id ? "true" : undefined}
-              className={`wr5-session${item.id === currentSession.id ? " is-active" : ""}`}
-              onClick={() => { if (longPressOpenedRef.current) { longPressOpenedRef.current = false; return; } activateSession(item.id); }}
-              onContextMenu={(event) => { event.preventDefault(); openSessionContextMenu(item, event.clientX, event.clientY); }}
-              onKeyDown={(event) => handleSessionKeyDown(event, item)}
-              onPointerCancel={cancelLongPress}
-              onPointerDown={(event) => startLongPress(event, item)}
-              onPointerMove={cancelLongPress}
-              onPointerUp={cancelLongPress}
-              ref={(element) => { sessionRowsRef.current[item.id] = element; }}
-              type="button"
-            ><span className="wr5-session-mark">{sessionMark(item)}</span><span className="wr5-session-copy"><strong>{item.title}</strong><span>{sessionSecondary(item)}</span></span><time>{formatWorkshopDate(item.lastMessageAt ?? item.updatedAt)}</time></button>}
-          </div>
-        )) : <p className="wr5-session-empty">{text.labels.sessionSearchEmpty}</p>}</div>
-      </aside>
+      {renderSessionSidebar(currentSession.id)}
       <main className="wr5-conversation">
         <header className="wr5-conversation-head"><div className="wr5-conversation-title"><div className="wr5-conversation-title-row"><h2>{currentSession.title}</h2><span className={`wr5-badge ${currentSession.kind === "agent" ? "amber" : "blue"}`}>{text.sessionKinds[currentSession.kind]}</span></div><div className="wr5-conversation-meta"><span className="status-dot" /><span>{archived ? text.statusLabels.archived : text.labels.conversationSaved}</span></div></div><div className="wr5-head-actions"><button className="wr5-button" disabled={!latestBranchSource || archived || sendState !== "idle" || backgroundSessionBusy} onClick={() => latestBranchSource && void branchFromMessage(latestBranchSource)} type="button">{text.branch}</button></div></header>
         <div className="wr5-thread-scroll"><section className="wr5-thread">{loadingSession ? <div className="wr5-empty-state"><p>{text.labels.loadingSession}</p></div> : messages.length ? messages.map(renderMessage) : <article className="wr5-empty-state"><p>{text.labels.noMessages}</p></article>}{latestAgentRun && ["failed", "interrupted"].includes(latestAgentRun.run.status) ? <div className="wr5-run-state"><h3>{text.agentRun.status[latestAgentRun.run.status]}</h3>{!archived ? <div className="wr5-run-actions"><button className="wr5-button primary" disabled={busyMessageId === latestAgentRun.run.id || sendState !== "idle" || backgroundSessionBusy} onClick={() => void retryAgentRun(latestAgentRun)} type="button">{text.agentRun.retry}</button><button className="wr5-button danger" disabled={busyMessageId === latestAgentRun.run.id || sendState !== "idle" || backgroundSessionBusy} onClick={() => void abandonAgentRun(latestAgentRun)} type="button">{text.agentRun.abandon}</button></div> : null}</div> : null}</section></div>
