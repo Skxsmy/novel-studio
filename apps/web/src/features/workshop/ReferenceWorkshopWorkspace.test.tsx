@@ -384,6 +384,7 @@ describe("NS-514 A29-A34 connected Workshop workspace", () => {
     expect(workspace.classList.contains("is-mobile-sessions")).toBe(true);
     expect(connectedWorkshopCss).toContain(".wr5.is-mobile-sessions .wr5-session-tools");
     expect(connectedWorkshopCss).toContain(".wr5.is-mobile-sessions .wr5-session-copy");
+    expect(connectedWorkshopCss).toContain("grid-template-columns: minmax(0, 1fr)");
     fireEvent.click(within(container).getByRole("button", { name: /Weather-door dialogue/u }));
     expect(workspace.classList.contains("is-mobile-sessions")).toBe(false);
   });

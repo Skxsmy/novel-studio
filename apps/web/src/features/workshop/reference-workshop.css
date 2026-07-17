@@ -108,6 +108,10 @@
   min-width: 0;
 }
 
+.wr5-conversation {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .wr5-empty-mobile-head {
   display: none;
 }
