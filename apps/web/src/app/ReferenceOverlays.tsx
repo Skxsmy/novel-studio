@@ -1,10 +1,10 @@
 import { ReferenceSurface } from "../ui/ReferenceSurface";
 
-export function ReferenceInFrameOverlays() {
+export function ReferenceInFrameOverlays({ includeWorkshop = true }: { includeWorkshop?: boolean } = {}) {
   return (
     <>
-      <ReferenceSurface selector="#wr5-review-backdrop" />
-      <ReferenceSurface selector="#wr5-toast" />
+      {includeWorkshop ? <ReferenceSurface selector="#wr5-review-backdrop" /> : null}
+      {includeWorkshop ? <ReferenceSurface selector="#wr5-toast" /> : null}
     </>
   );
 }

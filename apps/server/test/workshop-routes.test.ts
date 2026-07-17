@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EmbeddingRouter } from "@novel-studio/ai";
 import { EmbeddingModelProfileSchema } from "@novel-studio/contracts";
 import { ProjectRepository } from "@novel-studio/storage";
@@ -452,16 +452,7 @@ function openAiStreamFetch(responseText: string | (() => string)): typeof fetch 
           headers: { "content-type": "application/json" },
         });
       }
-      return new Response([
-        `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}`,
-        "",
-        "data: [DONE]",
-        "",
-        "",
-      ].join("\n"), {
-        status: 200,
-        headers: { "content-type": "text/event-stream" },
-      });
+      return openAiNativeAgentResponse(text);
     }
     return new Response(JSON.stringify({ error: { message: "not found" } }), {
       status: 404,
@@ -485,14 +476,20 @@ function agentToolStep(input: {
 }
 
 function openAiNativeAgentResponse(responseText: string): Response {
-  const structured = JSON.parse(responseText) as Record<string, unknown>;
-  if (structured.type === "request_tool" && typeof structured.tool === "string") {
-    return new Response(JSON.stringify({
+  let structured: Record<string, unknown> | null = null;
+  try {
+    const parsed = JSON.parse(responseText) as unknown;
+    if (parsed && typeof parsed === "object") structured = parsed as Record<string, unknown>;
+  } catch {
+    structured = null;
+  }
+  const events: string[] = [];
+  if (structured?.type === "request_tool" && typeof structured.tool === "string") {
+    events.push(`data: ${JSON.stringify({
       choices: [{
-        finish_reason: "tool_calls",
-        message: {
-          content: "",
+        delta: {
           tool_calls: [{
+            index: 0,
             id: randomUUID(),
             type: "function",
             function: {
@@ -505,18 +502,90 @@ function openAiNativeAgentResponse(responseText: string): Response {
           }],
         },
       }],
-    }), { status: 200, headers: { "content-type": "application/json" } });
+    })}`);
+    events.push(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "tool_calls" }] })}`);
+  } else {
+    const content = structured?.type === "respond" && typeof structured.message === "string"
+      ? structured.message
+      : responseText;
+    events.push(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`);
+    events.push(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}`);
   }
-  return new Response(JSON.stringify({
-    choices: [{
-      finish_reason: "stop",
-      message: {
-        content: structured.type === "respond" && typeof structured.message === "string"
-          ? structured.message
-          : responseText,
+  events.push("data: [DONE]");
+  return new Response(`${events.join("\n\n")}\n\n`, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+function cancellableOpenAiStreamFetch(options: { agentTool?: boolean } = {}) {
+  let requestCount = 0;
+  const waiters = new Map<number, () => void>();
+  const waitForRequest = (index: number): Promise<void> => requestCount >= index
+    ? Promise.resolve()
+    : new Promise((resolve) => waiters.set(index, resolve));
+  const providerFetch: typeof fetch = async (input, init) => {
+    if (String(input) !== "https://example.test/v1/chat/completions") {
+      return new Response(JSON.stringify({ error: { message: "not found" } }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    requestCount += 1;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const payloads: string[] = [
+          `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "Partial reasoning. " } }] })}`,
+        ];
+        if (options.agentTool) {
+          payloads.push(`data: ${JSON.stringify({
+            choices: [{ delta: { tool_calls: [{
+              index: 0,
+              id: randomUUID(),
+              type: "function",
+              function: {
+                name: "codex.create_entry",
+                arguments: JSON.stringify({
+                  message: "This tool request must not survive Stop.",
+                  draft: {
+                    categoryId: "object",
+                    name: "Cancelled Tool Draft",
+                    description: "Must never become a durable tool message.",
+                    aliases: [],
+                    details: [],
+                    research: "",
+                  },
+                }),
+              },
+            }] } }],
+          })}`);
+        } else {
+          payloads.push(`data: ${JSON.stringify({ choices: [{ delta: { content: "Partial answer. " } }] })}`);
+        }
+        controller.enqueue(encoder.encode(`${payloads.join("\n\n")}\n\n`));
+        waiters.get(requestCount)?.();
+        waiters.delete(requestCount);
+        const close = () => {
+          try {
+            controller.close();
+          } catch {
+            // The stream may already have been closed by the consumer.
+          }
+        };
+        init?.signal?.addEventListener("abort", close, { once: true });
       },
-    }],
-  }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  };
+  return {
+    providerFetch,
+    waitForRequest,
+    requestCount: () => requestCount,
+  };
 }
 
 async function createAgentToolMessage(input: {
@@ -746,22 +815,30 @@ describe("M5 Workshop API routes", () => {
           createdAt: "2026-07-01T00:00:00.000Z",
         }, {
           id: "11111111-1111-4111-8111-111111111113",
-          kind: "act",
-          sourceId: scene.metadata.actId,
-          label: "Selected act",
+          kind: "volume",
+          sourceId: scene.metadata.bookId,
+          label: "Selected Volume",
           pinned: true,
           note: "",
           createdAt: "2026-07-01T00:00:00.000Z",
         }, {
           id: "11111111-1111-4111-8111-111111111114",
           kind: "chapter",
-          sourceId: scene.metadata.chapterId,
-          label: "Selected chapter",
+          sourceId: scene.metadata.actId,
+          label: "Selected Chapter",
           pinned: true,
           note: "",
           createdAt: "2026-07-01T00:00:00.000Z",
         }, {
           id: "11111111-1111-4111-8111-111111111115",
+          kind: "act",
+          sourceId: scene.metadata.chapterId,
+          label: "Selected Act",
+          pinned: true,
+          note: "",
+          createdAt: "2026-07-01T00:00:00.000Z",
+        }, {
+          id: "11111111-1111-4111-8111-111111111116",
           kind: "scene",
           sourceId: selectedScene.metadata.id,
           label: selectedScene.metadata.title,
@@ -772,7 +849,7 @@ describe("M5 Workshop API routes", () => {
       },
     });
     expect(basket.statusCode).toBe(200);
-    expect(basket.json().items).toHaveLength(6);
+    expect(basket.json().items).toHaveLength(7);
     expect(basket.json().items).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "codex-entry",
@@ -799,6 +876,7 @@ describe("M5 Workshop API routes", () => {
     expect(previewItems.map((item) => item.kind)).toEqual(expect.arrayContaining([
       "full-novel",
       "full-outline",
+      "book",
       "act",
       "chapter",
       "scene",
@@ -806,6 +884,9 @@ describe("M5 Workshop API routes", () => {
     ]));
     expect(previewItems).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "scene", source: expect.objectContaining({ id: selectedScene.metadata.id }) }),
+      expect.objectContaining({ kind: "book", source: expect.objectContaining({ type: "book", id: scene.metadata.bookId }) }),
+      expect.objectContaining({ kind: "act", source: expect.objectContaining({ type: "act", id: scene.metadata.actId }) }),
+      expect.objectContaining({ kind: "chapter", source: expect.objectContaining({ type: "chapter", id: scene.metadata.chapterId }) }),
       expect.objectContaining({ kind: "codex-entry", source: expect.objectContaining({ id: detectedCodex.json().metadata.id }) }),
     ]));
     expect(previewItems.some((item) => item.source.id === manualCodex.json().metadata.id)).toBe(false);
@@ -1767,16 +1848,13 @@ describe("M5 Workshop API routes", () => {
     const providerFetch: typeof fetch = async (input, init) => {
       if (String(input) === "https://example.test/v1/chat/completions") {
         chatBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
-        return new Response(JSON.stringify({
+        return openAiNativeAgentResponse(JSON.stringify({
           choices: [{ message: { content: JSON.stringify({
             schemaVersion: 1,
             type: "respond",
             message: "可以，先讨论这个设定。",
           }) } }],
-        }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        }));
       }
       return new Response(JSON.stringify({ error: { message: "not found" } }), {
         status: 404,
@@ -2051,10 +2129,7 @@ describe("M5 Workshop API routes", () => {
           }),
           "```",
         ].join("\n");
-        return new Response(JSON.stringify({ choices: [{ message: { content: responseText } }] }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        return openAiNativeAgentResponse(responseText);
       }
       return new Response(JSON.stringify({ error: { message: "not found" } }), {
         status: 404,
@@ -2081,7 +2156,7 @@ describe("M5 Workshop API routes", () => {
     });
     expect(call.statusCode).toBe(200);
     const events = parseSseEvents(call.body);
-    expect(events.filter((event) => event.type === "delta")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "delta")).toHaveLength(1);
     const done = events.find((event) => event.type === "done") as {
       result: {
         assistantMessage: { content: string; status: string };
@@ -2231,7 +2306,12 @@ describe("M5 Workshop API routes", () => {
     expect(apply).toBeDefined();
     expect(concurrentConflict).toBeDefined();
     if (!apply || !concurrentConflict) throw new Error("Expected one successful and one rejected concurrent execution");
-    expect(["WORKSHOP_TOOL_EXECUTION_RUNNING", "WORKSHOP_TOOL_ALREADY_EXECUTED"])
+    expect([
+      "CONFLICT",
+      "WORKSHOP_SESSION_ACTIVITY_CONFLICT",
+      "WORKSHOP_TOOL_EXECUTION_RUNNING",
+      "WORKSHOP_TOOL_ALREADY_EXECUTED",
+    ])
       .toContain(concurrentConflict.json().code);
     expect(apply.statusCode).toBe(201);
     expect(apply.json().entry.metadata).toMatchObject({
@@ -2477,14 +2557,11 @@ describe("M5 Workshop API routes", () => {
           headers: { "content-type": "application/json" },
         });
       }
-      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+      return openAiNativeAgentResponse(JSON.stringify({
         schemaVersion: 1,
         type: "respond",
         message: "The retry completed without replaying any tool.",
-      }) } }] }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      }));
     };
     const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(providerFetch);
     const sessionResponse = await app.inject({
@@ -3957,5 +4034,472 @@ describe("M5 Workshop API routes", () => {
     expect(messages.json()).toEqual([]);
 
     await app.close();
+  });
+
+  it("cancels General Chat through a separate command and ends the open stream as cancelled", async () => {
+    const controlled = cancellableOpenAiStreamFetch();
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(controlled.providerFetch);
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Cancelled stream" },
+    })).json();
+    const operationId = randomUUID();
+    const streamPromise = app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/stream`,
+      payload: {
+        operationId,
+        mode: "general-chat",
+        userRequest: "Preserve the partial answer when I stop.",
+        modelProfileId: profile.id,
+      },
+    });
+    await controlled.waitForRequest(1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const cancelPromise = app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/${operationId}/cancel`,
+    });
+    const [stream, cancel] = await Promise.all([streamPromise, cancelPromise]);
+
+    expect(cancel.statusCode, cancel.payload).toBe(200);
+    expect(cancel.json().result).toMatchObject({
+      operationId,
+      status: "cancelled",
+      responseText: "Partial answer. ",
+      assistantMessage: {
+        status: "cancelled",
+        content: "Partial answer. ",
+        reasoningContent: "Partial reasoning. ",
+        errorCode: null,
+        errorMessage: null,
+      },
+      toolMessages: [],
+    });
+    const events = parseSseEvents(stream.payload);
+    expect(events.map((event) => event.type)).toEqual(expect.arrayContaining([
+      "author-message",
+      "assistant-start",
+      "metadata",
+      "reasoning-delta",
+      "delta",
+      "assistant-message",
+      "done",
+    ]));
+    expect(events.some((event) => event.type === "error")).toBe(false);
+    const modelCallId = cancel.json().result.modelCallId as string;
+    const modelCall = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/ai/calls/${modelCallId}`,
+    });
+    expect(modelCall.json()).toMatchObject({
+      status: "cancelled",
+      errorCode: null,
+      errorMessage: null,
+      error: null,
+    });
+    expect(modelCall.json().responseHash).toEqual(expect.any(String));
+    const repeated = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/${operationId}/cancel`,
+    });
+    expect(repeated.statusCode).toBe(200);
+    expect(repeated.json().result.assistantMessage.id).toBe(cancel.json().result.assistantMessage.id);
+    await app.close();
+  });
+
+  it("blocks archive and permanent delete while a General Chat model call is active", async () => {
+    const controlled = cancellableOpenAiStreamFetch();
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(controlled.providerFetch);
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Lifecycle guarded stream" },
+    })).json();
+    const operationId = randomUUID();
+    const streamPromise = app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/stream`,
+      payload: {
+        operationId,
+        mode: "general-chat",
+        userRequest: "Keep this session intact while the Provider is active.",
+        modelProfileId: profile.id,
+      },
+    });
+    await controlled.waitForRequest(1);
+
+    const activeDetail = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}`,
+    });
+    const activeAuthorId = activeDetail.json().messages[0].id as string;
+    const [archive, deletion, messageDeletion, branching] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/archive`,
+      }),
+      app.inject({
+        method: "DELETE",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}`,
+      }),
+      app.inject({
+        method: "DELETE",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${activeAuthorId}`,
+      }),
+      app.inject({
+        method: "POST",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/branch`,
+        payload: { sourceMessageId: activeAuthorId, title: "Must not branch active history" },
+      }),
+    ]);
+    expect(archive.statusCode, archive.payload).toBe(409);
+    expect(deletion.statusCode, deletion.payload).toBe(409);
+    expect(messageDeletion.statusCode, messageDeletion.payload).toBe(409);
+    expect(branching.statusCode, branching.payload).toBe(409);
+
+    const cancelPromise = app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/${operationId}/cancel`,
+    });
+    const [stream, cancel] = await Promise.all([streamPromise, cancelPromise]);
+    expect(cancel.statusCode, cancel.payload).toBe(200);
+    expect(parseSseEvents(stream.payload).find((event) => event.type === "done"))
+      .toMatchObject({ result: { operationId, status: "cancelled" } });
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}`,
+    });
+    expect(detail.statusCode, detail.payload).toBe(200);
+    expect(detail.json()).toMatchObject({
+      session: { status: "active" },
+      messages: [
+        { role: "author", status: "succeeded" },
+        { role: "assistant", status: "cancelled" },
+      ],
+    });
+    const archiveAfterCompletion = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/archive`,
+    });
+    expect(archiveAfterCompletion.statusCode, archiveAfterCompletion.payload).toBe(200);
+    expect(archiveAfterCompletion.json()).toMatchObject({ status: "archived" });
+    await app.close();
+  });
+
+  it("records parameter-resolution preflight failure without inventing a Model Call Log", async () => {
+    let providerRequestCount = 0;
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(async () => {
+      providerRequestCount += 1;
+      return new Response(JSON.stringify({ error: { message: "must not be called" } }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Parameter preflight" },
+    })).json();
+    const stream = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/stream`,
+      payload: {
+        operationId: randomUUID(),
+        mode: "general-chat",
+        userRequest: "Reject unsupported reasoning before calling the Provider.",
+        modelProfileId: profile.id,
+        parameters: { reasoning: { mode: "effort", effort: "high" } },
+      },
+    });
+    expect(stream.statusCode, stream.payload).toBe(200);
+    const events = parseSseEvents(stream.payload);
+    expect(events.map((event) => event.type)).toEqual([
+      "author-message",
+      "assistant-message",
+      "error",
+      "done",
+    ]);
+    const done = events.find((event) => event.type === "done") as {
+      result: {
+        status: string;
+        modelCallId: string | null;
+        assistantMessage: { status: string; modelCallId: string | null; errorCode: string | null };
+      };
+    };
+    expect(done.result).toMatchObject({
+      status: "failed",
+      modelCallId: null,
+      assistantMessage: {
+        status: "failed",
+        modelCallId: null,
+      },
+    });
+    expect(done.result.assistantMessage.errorCode).toEqual(expect.any(String));
+    expect(providerRequestCount).toBe(0);
+    expect((await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/ai/calls`,
+    })).json()).toEqual([]);
+    await app.close();
+  });
+
+  it("cancels Agent streaming without retry continuation or tool side effects", async () => {
+    const controlled = cancellableOpenAiStreamFetch({ agentTool: true });
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(controlled.providerFetch);
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Cancelled Agent" },
+    })).json();
+    const operationId = randomUUID();
+    const streamPromise = app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/stream`,
+      payload: {
+        operationId,
+        mode: "agent",
+        userRequest: "Prepare a tool draft, but stop when asked.",
+        modelProfileId: profile.id,
+      },
+    });
+    await controlled.waitForRequest(1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const cancelPromise = app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/${operationId}/cancel`,
+    });
+    const [stream, cancel] = await Promise.all([streamPromise, cancelPromise]);
+
+    expect(cancel.statusCode, cancel.payload).toBe(200);
+    expect(cancel.json().result).toMatchObject({
+      status: "cancelled",
+      assistantMessage: {
+        status: "cancelled",
+        reasoningContent: "Partial reasoning. ",
+        errorCode: null,
+        errorMessage: null,
+      },
+      toolMessages: [],
+      agentRun: {
+        run: {
+          status: "cancelled",
+          retryable: false,
+          steps: [{ status: "cancelled", retryable: false }],
+        },
+      },
+    });
+    expect(controlled.requestCount()).toBe(1);
+    const events = parseSseEvents(stream.payload);
+    expect(events.some((event) => event.type === "error")).toBe(false);
+    expect(events.find((event) => event.type === "done")).toMatchObject({
+      result: { status: "cancelled", toolMessages: [] },
+    });
+    const messages = (await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+    })).json();
+    expect(messages.map((message: { role: string }) => message.role)).toEqual(["author", "assistant"]);
+    await app.close();
+  });
+
+  it("cancels non-streaming and resend Workshop calls through their stable operation identities", async () => {
+    const controlled = cancellableOpenAiStreamFetch();
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(controlled.providerFetch);
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Cancelled non-streaming calls" },
+    })).json();
+    const operationId = randomUUID();
+    const callPromise = app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        operationId,
+        mode: "general-chat",
+        userRequest: "Cancel this regular HTTP call.",
+        modelProfileId: profile.id,
+      },
+    });
+    await controlled.waitForRequest(1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const cancelPromise = app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/${operationId}/cancel`,
+    });
+    const [call, cancel] = await Promise.all([callPromise, cancelPromise]);
+    expect(call.json()).toMatchObject({ operationId, status: "cancelled" });
+    expect(cancel.json().result).toMatchObject({ operationId, status: "cancelled" });
+
+    const resendSession = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Cancelled resend" },
+    })).json();
+    const original = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${resendSession.id}/messages`,
+      payload: { role: "author", mode: "general-chat", content: "Original resend text." },
+    })).json();
+    const resendOperationId = randomUUID();
+    const resendPromise = app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${resendSession.id}/messages/${original.id}/resend`,
+      payload: {
+        operationId: resendOperationId,
+        content: "Updated resend text remains durable.",
+        modelProfileId: profile.id,
+      },
+    });
+    await controlled.waitForRequest(2);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const resendCancelPromise = app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${resendSession.id}/calls/${resendOperationId}/cancel`,
+    });
+    const [resend, resendCancel] = await Promise.all([resendPromise, resendCancelPromise]);
+    expect(resend.json()).toMatchObject({
+      operationId: resendOperationId,
+      status: "cancelled",
+      authorMessage: { id: original.id, content: "Updated resend text remains durable." },
+    });
+    expect(resendCancel.json().result).toMatchObject({
+      operationId: resendOperationId,
+      status: "cancelled",
+    });
+    await app.close();
+  });
+
+  it.each(["calls/stream", "calls"] as const)(
+    "registers the operation before session lookup for %s so immediate Stop cannot return not found",
+    async (callPath) => {
+      const { app, series, profile } = await createSeriesWithMockProfile();
+      const session = (await app.inject({
+        method: "POST",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+        payload: { title: `Immediate Stop ${callPath}` },
+      })).json();
+      const originalGetSession = ProjectRepository.prototype.getWorkshopSession;
+      let releaseSession!: () => void;
+      let sessionEntered!: () => void;
+      const sessionGate = new Promise<void>((resolve) => { releaseSession = resolve; });
+      const sessionStarted = new Promise<void>((resolve) => { sessionEntered = resolve; });
+      const spy = vi.spyOn(ProjectRepository.prototype, "getWorkshopSession")
+        .mockImplementation(async function (seriesId, sessionId) {
+          sessionEntered();
+          await sessionGate;
+          return originalGetSession.call(this, seriesId, sessionId);
+        });
+      const operationId = randomUUID();
+      try {
+        const callPromise = app.inject({
+          method: "POST",
+          url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/${callPath}`,
+          payload: {
+            operationId,
+            mode: "general-chat",
+            userRequest: "Stop while the session is still loading.",
+            modelProfileId: profile.id,
+          },
+        });
+        await sessionStarted;
+        const cancelPromise = app.inject({
+          method: "POST",
+          url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/${operationId}/cancel`,
+        });
+        const earlyCancel = await Promise.race([
+          cancelPromise.then((response) => ({ kind: "response" as const, statusCode: response.statusCode })),
+          new Promise<{ kind: "pending" }>((resolve) => setTimeout(() => resolve({ kind: "pending" }), 20)),
+        ]);
+        expect(earlyCancel).toEqual({ kind: "pending" });
+        releaseSession();
+        const [call, cancel] = await Promise.all([callPromise, cancelPromise]);
+        expect(cancel.statusCode, cancel.payload).toBe(200);
+        expect(cancel.json().result).toMatchObject({
+          operationId,
+          status: "cancelled",
+          contextBundleId: null,
+          modelCallId: null,
+        });
+        if (callPath === "calls/stream") {
+          expect(parseSseEvents(call.payload).find((event) => event.type === "done")).toMatchObject({
+            result: { operationId, status: "cancelled" },
+          });
+        } else {
+          expect(call.json()).toMatchObject({ operationId, status: "cancelled" });
+        }
+      } finally {
+        releaseSession();
+        spy.mockRestore();
+        await app.close();
+      }
+    },
+  );
+
+  it("cancels before Context Bundle evidence and before the first stream event", async () => {
+    const { app, series, profile } = await createSeriesWithMockProfile();
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Cancelled before context" },
+    })).json();
+    const originalGetBasket = ProjectRepository.prototype.getWorkshopContextBasket;
+    let releaseBasket!: () => void;
+    let basketEntered!: () => void;
+    const basketGate = new Promise<void>((resolve) => { releaseBasket = resolve; });
+    const basketStarted = new Promise<void>((resolve) => { basketEntered = resolve; });
+    const spy = vi.spyOn(ProjectRepository.prototype, "getWorkshopContextBasket")
+      .mockImplementation(async function (seriesId, sessionId) {
+        basketEntered();
+        await basketGate;
+        return originalGetBasket.call(this, seriesId, sessionId);
+      });
+    const operationId = randomUUID();
+    try {
+      const streamPromise = app.inject({
+        method: "POST",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/stream`,
+        payload: {
+          operationId,
+          mode: "general-chat",
+          userRequest: "Stop before context evidence exists.",
+          modelProfileId: profile.id,
+        },
+      });
+      await basketStarted;
+      const cancelPromise = app.inject({
+        method: "POST",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/${operationId}/cancel`,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      releaseBasket();
+      const [stream, cancel] = await Promise.all([streamPromise, cancelPromise]);
+      expect(cancel.statusCode, cancel.payload).toBe(200);
+      expect(cancel.json().result).toMatchObject({
+        status: "cancelled",
+        contextBundleId: null,
+        modelCallId: null,
+        estimatedUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        actualUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        assistantMessage: {
+          status: "cancelled",
+          contextBundleId: null,
+          modelCallId: null,
+        },
+      });
+      const events = parseSseEvents(stream.payload);
+      expect(events.map((event) => event.type)).toEqual([
+        "author-message",
+        "assistant-message",
+        "done",
+      ]);
+    } finally {
+      releaseBasket();
+      spy.mockRestore();
+      await app.close();
+    }
   });
 });

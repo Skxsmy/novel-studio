@@ -1,10 +1,15 @@
 import type { z } from "zod";
 import {
+  normalizeReasoningConfigurationForModel,
+  ModelParametersSchema,
   TokenUsageSchema,
   type ContextBundle,
   type ModelCallError,
   type ModelParameters,
   type ModelProfile,
+  type ProviderReasoningControl,
+  type ReasoningConfiguration,
+  type ReasoningOutputKind,
   type TokenUsage,
 } from "@novel-studio/contracts";
 import type { CredentialStore } from "./credentials.js";
@@ -12,6 +17,7 @@ import { CredentialStoreError } from "./credentials.js";
 import { classifyProviderError, ProviderAdapterError } from "./errors.js";
 import type {
   ProviderAdapter,
+  ProviderChatStreamEvent,
   ProviderChatRequest,
   ProviderChatResult,
   ProviderConnectionResult,
@@ -21,6 +27,7 @@ import type {
   ProviderObjectRequest,
   ProviderPrompt,
   ProviderTextRequest,
+  ProviderTextStreamEvent,
 } from "./provider.js";
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -61,6 +68,8 @@ interface GeminiGenerateContentResponse {
     content?: {
       parts?: Array<{
         text?: unknown;
+        thought?: unknown;
+        thoughtSignature?: unknown;
       }>;
     };
     finishReason?: unknown;
@@ -73,6 +82,11 @@ interface GeminiGenerateContentResponse {
   };
 }
 
+type GeminiParsedStreamEvent =
+  | ProviderTextStreamEvent
+  | { type: "usage"; usage: TokenUsage }
+  | { type: "finish"; finishReason: string | null };
+
 const GEMINI_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_DEFAULT_CONTEXT_WINDOW_TOKENS = 1_000_000;
 const MAX_MODEL_LIST_PAGES = 20;
@@ -84,6 +98,73 @@ const GEMINI_CAPABILITIES = {
   tokenEstimate: true,
   modelList: true,
 } as const;
+
+const GEMINI_EXACT_REASONING_CONTROLS: Readonly<Record<string, ProviderReasoningControl>> = {
+  "gemini-3.5-flash": {
+    kind: "effort",
+    efforts: ["minimal", "low", "medium", "high"],
+    defaultEffort: "medium",
+    canDisable: false,
+  },
+  "gemini-3.1-pro-preview": {
+    kind: "effort",
+    efforts: ["low", "medium", "high"],
+    defaultEffort: "high",
+    canDisable: false,
+  },
+  "gemini-3.1-flash-lite": {
+    kind: "effort",
+    efforts: ["minimal", "low", "medium", "high"],
+    defaultEffort: "minimal",
+    canDisable: false,
+  },
+  "gemini-3.1-flash-lite-image": {
+    kind: "effort",
+    efforts: ["minimal", "high"],
+    defaultEffort: "minimal",
+    canDisable: false,
+  },
+  "gemini-3-flash-preview": {
+    kind: "effort",
+    efforts: ["minimal", "low", "medium", "high"],
+    defaultEffort: "high",
+    canDisable: false,
+  },
+  "gemini-3-pro-preview": {
+    kind: "effort",
+    efforts: ["low", "high"],
+    defaultEffort: "high",
+    canDisable: false,
+  },
+  "gemini-2.5-pro": {
+    kind: "budget",
+    minimumTokens: 128,
+    maximumTokens: 32_768,
+    defaultBudgetTokens: null,
+    supportsDynamicBudget: true,
+    canDisable: false,
+  },
+  "gemini-2.5-flash": {
+    kind: "budget",
+    minimumTokens: 1,
+    maximumTokens: 24_576,
+    defaultBudgetTokens: null,
+    supportsDynamicBudget: true,
+    canDisable: true,
+  },
+  "gemini-2.5-flash-lite": {
+    kind: "budget",
+    minimumTokens: 512,
+    maximumTokens: 24_576,
+    defaultBudgetTokens: null,
+    supportsDynamicBudget: true,
+    canDisable: true,
+  },
+};
+
+function geminiReasoningControl(modelId: string): ProviderReasoningControl {
+  return GEMINI_EXACT_REASONING_CONTROLS[modelId] ?? { kind: "unsupported" };
+}
 
 function sanitizeProviderMessage(value: unknown): string {
   const text = typeof value === "string" && value.trim()
@@ -151,28 +232,34 @@ function modelResourcePath(model: string): string {
     .join("/");
 }
 
-function mergedParameters(profile: ModelProfile, requestParameters?: ModelParameters): ModelParameters {
-  return {
-    ...profile.defaultParameters,
-    ...requestParameters,
-  };
-}
-
 function generationConfig(
-  modelProfile: ModelProfile,
-  parameters: ModelParameters | undefined,
+  resolvedParameters: ModelParameters,
   options: { jsonMode?: boolean } = {},
 ): Record<string, unknown> {
-  const merged = mergedParameters(modelProfile, parameters);
+  const merged = resolvedParameters;
+  const reasoning: ReasoningConfiguration | null = merged.reasoning ?? null;
   const config: Record<string, unknown> = {};
   if (typeof merged.temperature === "number") config.temperature = merged.temperature;
   if (typeof merged.topP === "number") config.topP = merged.topP;
   if (typeof merged.maxOutputTokens === "number") config.maxOutputTokens = merged.maxOutputTokens;
   if (options.jsonMode) config.responseMimeType = "application/json";
+  if (reasoning) {
+    const thinkingConfig: Record<string, unknown> = { includeThoughts: true };
+    if (reasoning.mode === "effort") thinkingConfig.thinkingLevel = reasoning.effort;
+    else if (reasoning.mode === "budget") thinkingConfig.thinkingBudget = reasoning.budgetTokens;
+    else if (reasoning.mode === "enabled") thinkingConfig.thinkingBudget = -1;
+    else thinkingConfig.thinkingBudget = 0;
+    config.thinkingConfig = thinkingConfig;
+  }
 
   for (const [key, value] of Object.entries(merged)) {
     if (value === undefined || value === null) continue;
-    if (key === "temperature" || key === "topP" || key === "maxOutputTokens") continue;
+    if (
+      key === "temperature" ||
+      key === "topP" ||
+      key === "maxOutputTokens" ||
+      key === "reasoning"
+    ) continue;
     config[key] = value;
   }
   return config;
@@ -182,14 +269,30 @@ function geminiGenerateContentBody(
   modelProfile: ModelProfile,
   prompt: ProviderPrompt,
   contextBundle: ContextBundle | null,
-  parameters: ModelParameters | undefined,
-  options: { jsonMode?: boolean } = {},
+  resolvedParameters: ModelParameters,
+  options: {
+    jsonMode?: boolean;
+    history?: ProviderChatRequest["history"];
+  } = {},
 ): Record<string, unknown> {
   const systemText = [prompt.system, prompt.instructions].filter(Boolean).join("\n\n");
   const userText = [contextItemsText(contextBundle), prompt.user].filter(Boolean).join("\n\n");
-  const config = generationConfig(modelProfile, parameters, options);
+  const config = generationConfig(resolvedParameters, options);
   const body: Record<string, unknown> = {
     contents: [
+      ...(options.history ?? []).map((message) => {
+        if (message.role === "tool" || (message.role === "assistant" && message.toolCalls?.length)) {
+          throw new ProviderAdapterError(
+            "model-unavailable",
+            "Gemini tool-call history is not implemented by this adapter.",
+            { retryable: false },
+          );
+        }
+        return {
+          role: message.role === "assistant" ? "model" : "user",
+          parts: [{ text: message.content }],
+        };
+      }),
       {
         role: "user",
         parts: [{ text: userText }],
@@ -251,12 +354,14 @@ function descriptorFromGeminiModel(
       ? source.inputTokenLimit
       : modelProfile.contextWindowTokens,
     capabilities: modelProfile.capabilities,
+    reasoning: geminiReasoningControl(id),
   };
 }
 
 function textFromGeminiResponse(body: GeminiGenerateContentResponse): string {
   const text = body.candidates
     ?.flatMap((candidate) => candidate.content?.parts ?? [])
+    .filter((part) => part.thought !== true)
     .map((part) => (typeof part.text === "string" ? part.text : ""))
     .join("");
   return text ?? "";
@@ -350,75 +455,87 @@ export class GeminiProvider implements ProviderAdapter {
     return [...models.values()];
   }
 
-  async *streamText(request: ProviderTextRequest): AsyncIterable<string> {
-    this.assertProfileProvider(request.modelProfile);
-    this.assertContextFits(request);
-    const secret = await this.readRequiredSecret(request.modelProfile);
-    const init: RequestInit = {
-      method: "POST",
-      headers: this.headers(secret),
-      body: JSON.stringify(geminiGenerateContentBody(
-        request.modelProfile,
-        request.prompt,
-        request.contextBundle,
-        request.parameters,
-      )),
+  async resolveParameters(
+    modelProfile: ModelProfile,
+    requestParameters?: ModelParameters,
+  ): Promise<ModelParameters> {
+    this.assertProfileProvider(modelProfile);
+    const resolved: ModelParameters = {
+      ...modelProfile.defaultParameters,
+      ...requestParameters,
     };
-    if (request.abortSignal) init.signal = request.abortSignal;
-    const response = await this.fetchImpl(
-      geminiEndpoint(
-        request.modelProfile.baseUrl,
-        `/${modelResourcePath(request.modelProfile.model)}:streamGenerateContent`,
-        { alt: "sse" },
-      ),
-      init,
-    );
-    await this.assertOk(response);
-    if (!response.body) {
-      throw new ProviderAdapterError("provider-error", "Gemini did not return a readable stream.", {
-        providerStatus: response.status,
-      });
+    let reasoning: ReasoningConfiguration | null;
+    try {
+      reasoning = normalizeReasoningConfigurationForModel(
+        geminiReasoningControl(modelProfile.model),
+        resolved.reasoning ?? modelProfile.reasoningPreference,
+      );
+    } catch (error) {
+      throw new ProviderAdapterError(
+        "model-unavailable",
+        error instanceof Error ? error.message : "The reasoning preference is invalid for this exact model.",
+        { retryable: false, cause: error },
+      );
     }
+    if (reasoning) resolved.reasoning = reasoning;
+    else delete resolved.reasoning;
+    return ModelParametersSchema.parse(resolved);
+  }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const chunks = buffer.split(/\r?\n\r?\n/u);
-      buffer = chunks.pop() ?? "";
-      for (const chunk of chunks) {
-        const text = this.deltaFromSse(chunk);
-        if (text) yield text;
-      }
-    }
-    buffer += decoder.decode();
-    if (buffer.trim()) {
-      const text = this.deltaFromSse(buffer);
-      if (text) yield text;
+  async *streamText(request: ProviderTextRequest): AsyncIterable<ProviderTextStreamEvent> {
+    for await (const event of this.streamResponse(request)) {
+      if (event.type === "answer-delta" || event.type === "reasoning-delta") yield event;
     }
   }
 
-  async completeChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
+  async *streamChat(request: ProviderChatRequest): AsyncIterable<ProviderChatStreamEvent> {
     if (request.tools?.length) {
       throw new ProviderAdapterError(
         "model-unavailable",
-        "Gemini native tool calls are not implemented by this adapter.",
+        "Gemini native streamed tool calls are not implemented by this adapter.",
         { retryable: false },
       );
     }
     let text = "";
-    for await (const chunk of this.streamText(request)) text += chunk;
-    return {
-      text,
-      reasoningContent: "",
-      toolCalls: [],
-      finishReason: "stop",
-      usage: null,
-      rawResponseText: JSON.stringify({ content: text }),
+    let reasoningContent = "";
+    let reasoningOutputKind: ReasoningOutputKind = "none";
+    let finishReason: string | null = null;
+    let usage: TokenUsage | null = null;
+    for await (const event of this.streamResponse(request, request.history)) {
+      if (event.type === "answer-delta") {
+        text += event.text;
+        yield event;
+      } else if (event.type === "reasoning-delta") {
+        reasoningContent += event.text;
+        reasoningOutputKind = "summary";
+        yield event;
+      } else if (event.type === "usage") {
+        usage = event.usage;
+      } else {
+        finishReason = event.finishReason;
+      }
+    }
+    yield {
+      type: "done",
+      result: {
+        text,
+        reasoningContent,
+        reasoningOutputKind,
+        toolCalls: [],
+        finishReason,
+        usage,
+        rawResponseText: JSON.stringify({ content: text, thoughtSummary: reasoningContent }),
+      },
     };
+  }
+
+  async completeChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
+    for await (const event of this.streamChat(request)) {
+      if (event.type === "done") return event.result;
+    }
+    throw new ProviderAdapterError("provider-error", "Gemini did not finish its response.", {
+      retryable: true,
+    });
   }
 
   async generateObject<T>(
@@ -432,6 +549,7 @@ export class GeminiProvider implements ProviderAdapter {
       request.prompt.user,
       `Return only valid JSON${request.outputSchemaName ? ` for ${request.outputSchemaName}` : ""}.`,
     ].join("\n\n");
+    const resolvedParameters = await this.parametersForRequest(request);
     const init: RequestInit = {
       method: "POST",
       headers: this.headers(secret),
@@ -439,7 +557,7 @@ export class GeminiProvider implements ProviderAdapter {
         request.modelProfile,
         { ...request.prompt, user: jsonInstruction },
         request.contextBundle,
-        request.parameters,
+        resolvedParameters,
         { jsonMode: true },
       )),
     };
@@ -497,6 +615,60 @@ export class GeminiProvider implements ProviderAdapter {
     return classifyProviderError(error);
   }
 
+  private async *streamResponse(
+    request: ProviderTextRequest,
+    history: ProviderChatRequest["history"] = [],
+  ): AsyncIterable<GeminiParsedStreamEvent> {
+    this.assertProfileProvider(request.modelProfile);
+    this.assertContextFits(request);
+    const secret = await this.readRequiredSecret(request.modelProfile);
+    const resolvedParameters = await this.parametersForRequest(request);
+    const init: RequestInit = {
+      method: "POST",
+      headers: this.headers(secret),
+      body: JSON.stringify(geminiGenerateContentBody(
+        request.modelProfile,
+        request.prompt,
+        request.contextBundle,
+        resolvedParameters,
+        { history },
+      )),
+    };
+    if (request.abortSignal) init.signal = request.abortSignal;
+    const response = await this.fetchImpl(
+      geminiEndpoint(
+        request.modelProfile.baseUrl,
+        `/${modelResourcePath(request.modelProfile.model)}:streamGenerateContent`,
+        { alt: "sse" },
+      ),
+      init,
+    );
+    await this.assertOk(response);
+    if (!response.body) {
+      throw new ProviderAdapterError("provider-error", "Gemini did not return a readable stream.", {
+        providerStatus: response.status,
+      });
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split(/\r?\n\r?\n/u);
+      buffer = chunks.pop() ?? "";
+      for (const chunk of chunks) {
+        for (const event of this.eventsFromSse(chunk)) yield event;
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      for (const event of this.eventsFromSse(buffer)) yield event;
+    }
+  }
+
   private headers(secret: string): Record<string, string> {
     return {
       "content-type": "application/json",
@@ -550,34 +722,60 @@ export class GeminiProvider implements ProviderAdapter {
     });
   }
 
-  private deltaFromSse(raw: string): string {
-    const data = raw
+  private eventsFromSse(raw: string): GeminiParsedStreamEvent[] {
+    const dataItems = raw
       .split(/\r?\n/u)
       .map((line) => line.trim())
       .filter((line) => line.startsWith("data:"))
       .map((line) => line.slice("data:".length).trim())
-      .join("\n")
-      .trim();
-    if (!data || data === "[DONE]") return "";
+      .filter((data) => Boolean(data) && data !== "[DONE]");
+    const parsedEvents: GeminiParsedStreamEvent[] = [];
+    for (const data of dataItems) {
+      let event: GeminiGenerateContentResponse;
+      try {
+        event = JSON.parse(data) as GeminiGenerateContentResponse;
+      } catch (error) {
+        throw new ProviderAdapterError("provider-error", "Gemini returned an unparsable stream event.", {
+          retryable: false,
+          cause: error,
+        });
+      }
 
-    let event: GeminiGenerateContentResponse;
-    try {
-      event = JSON.parse(data) as GeminiGenerateContentResponse;
-    } catch (error) {
-      throw new ProviderAdapterError("provider-error", "Gemini returned an unparsable stream event.", {
-        retryable: false,
-        cause: error,
-      });
+      if (event.error) {
+        throw new ProviderAdapterError(
+          errorCodeFromStatus(502, typeof event.error.status === "string" ? event.error.status : undefined),
+          sanitizeProviderMessage(event.error.message),
+          { providerStatus: 502 },
+        );
+      }
+      for (const candidate of event.candidates ?? []) {
+        for (const part of candidate.content?.parts ?? []) {
+          if (typeof part.text !== "string" || !part.text) continue;
+          parsedEvents.push(part.thought === true
+            ? { type: "reasoning-delta", text: part.text, outputKind: "summary" }
+            : { type: "answer-delta", text: part.text });
+        }
+        if (typeof candidate.finishReason === "string") {
+          parsedEvents.push({ type: "finish", finishReason: candidate.finishReason });
+        }
+      }
+      const inputTokens = typeof event.usageMetadata?.promptTokenCount === "number"
+        ? event.usageMetadata.promptTokenCount
+        : 0;
+      const outputTokens = typeof event.usageMetadata?.candidatesTokenCount === "number"
+        ? event.usageMetadata.candidatesTokenCount
+        : 0;
+      const totalTokens = typeof event.usageMetadata?.totalTokenCount === "number"
+        ? event.usageMetadata.totalTokenCount
+        : inputTokens + outputTokens;
+      if (event.usageMetadata) {
+        parsedEvents.push({
+          type: "usage",
+          usage: TokenUsageSchema.parse({ inputTokens, outputTokens, totalTokens }),
+        });
+      }
     }
-
-    if (event.error) {
-      throw new ProviderAdapterError(
-        errorCodeFromStatus(502, typeof event.error.status === "string" ? event.error.status : undefined),
-        sanitizeProviderMessage(event.error.message),
-        { providerStatus: 502 },
-      );
-    }
-    return textFromGeminiResponse(event);
+    return parsedEvents;
   }
 
   private assertContextFits(request: ProviderTextRequest): void {
@@ -595,6 +793,25 @@ export class GeminiProvider implements ProviderAdapter {
         retryable: false,
       });
     }
+  }
+
+  private async parametersForRequest(request: ProviderTextRequest): Promise<ModelParameters> {
+    if (!request.resolvedParameters) {
+      return this.resolveParameters(request.modelProfile, request.parameters);
+    }
+    const resolved = ModelParametersSchema.parse(request.resolvedParameters);
+    const normalizedReasoning = normalizeReasoningConfigurationForModel(
+      geminiReasoningControl(request.modelProfile.model),
+      resolved.reasoning,
+    );
+    if (JSON.stringify(normalizedReasoning) !== JSON.stringify(resolved.reasoning ?? null)) {
+      throw new ProviderAdapterError(
+        "model-unavailable",
+        "The supplied resolved reasoning parameters do not match the exact Gemini model.",
+        { retryable: false },
+      );
+    }
+    return resolved;
   }
 }
 

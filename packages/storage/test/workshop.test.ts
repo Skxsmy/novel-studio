@@ -1,10 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProjectRepository, StorageError } from "../src/index.js";
-import { workshopAgentRunPath, workshopMessagePath } from "../src/workshopFiles.js";
+import {
+  workshopAgentRunPath,
+  workshopContextBasketPath,
+  workshopMessagePath,
+} from "../src/workshopFiles.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -178,6 +182,160 @@ describe("M5 Workshop storage", () => {
       code: "INVALID_DATA",
       message: "Agent sessions cannot own a General Chat system prompt",
     });
+
+    const manuallyRenamed = await store.updateWorkshopSession(series.manifest.id, first.id, {
+      title: "Manual title",
+    });
+    const staleAutomaticRename = await store.updateWorkshopSession(series.manifest.id, first.id, {
+      title: "Automatic title",
+      expectedTitle: "First chat",
+    });
+    expect(staleAutomaticRename).toEqual(manuallyRenamed);
+    expect((await store.getWorkshopSession(series.manifest.id, first.id)).title).toBe("Manual title");
+  });
+
+  it("keeps archived Workshop sessions read-only while preserving read, restore, and permanent delete paths", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "ArchivedWorkshopReadOnly" });
+    const session = await store.createWorkshopSession(series.manifest.id, {
+      title: "Archived chat",
+      generalChatSystemPrompt: "Original prompt.",
+    });
+    const authorMessage = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Keep this archived history readable.",
+    });
+    const attachment = await store.createWorkshopAttachment(
+      series.manifest.id,
+      session.id,
+      workshopAttachment({
+        seriesId: series.manifest.id,
+        sessionId: session.id,
+        draftToken: "archived-draft",
+      }),
+    );
+    const basketBeforeArchive = await store.getWorkshopContextBasket(series.manifest.id, session.id);
+    const archived = await store.archiveWorkshopSession(series.manifest.id, session.id);
+
+    await expect(store.updateWorkshopSession(series.manifest.id, session.id, {
+      title: "Renamed while archived",
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      message: "Archived Workshop session cannot be updated",
+    });
+    await expect(store.updateWorkshopSession(series.manifest.id, session.id, {
+      generalChatSystemPrompt: "Changed while archived.",
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      message: "Archived Workshop session cannot be updated",
+    });
+    await expect(store.branchWorkshopSession(series.manifest.id, session.id, {
+      sourceMessageId: authorMessage.id,
+      title: "Forbidden archived branch",
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      message: "Archived Workshop session cannot be branched",
+    });
+    await expect(store.updateWorkshopContextBasket(series.manifest.id, session.id, {
+      items: [],
+    })).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      message: "Archived Workshop session cannot update context",
+    });
+    await expect(store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Forbidden archived message.",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(saveServerWorkshopMessage(store, series.manifest.id, session.id, {
+      role: "assistant",
+      content: "Forbidden archived assistant message.",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(store.createWorkshopAttachment(
+      series.manifest.id,
+      session.id,
+      workshopAttachment({
+        seriesId: series.manifest.id,
+        sessionId: session.id,
+        draftToken: "forbidden-archived-draft",
+      }),
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(store.deleteWorkshopAttachment(series.manifest.id, session.id, attachment.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(store.deleteWorkshopMessage(series.manifest.id, session.id, authorMessage.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(store.replaceWorkshopGeneralChatAuthorMessage(
+      series.manifest.id,
+      session.id,
+      authorMessage.id,
+      "Forbidden archived resend.",
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    expect(await store.getWorkshopSession(series.manifest.id, session.id)).toEqual(archived);
+    expect(await store.listWorkshopMessages(series.manifest.id, session.id)).toEqual([authorMessage]);
+    expect(await store.listWorkshopAttachments(series.manifest.id, session.id)).toEqual([attachment]);
+    expect(await store.getWorkshopContextBasket(series.manifest.id, session.id)).toEqual(basketBeforeArchive);
+    expect(await store.listWorkshopBranches(series.manifest.id)).toEqual([]);
+
+    await expect(store.restoreWorkshopSession(series.manifest.id, session.id)).resolves.toMatchObject({
+      status: "active",
+      archivedAt: null,
+    });
+    await expect(store.updateWorkshopSession(series.manifest.id, session.id, {
+      title: "Restored chat",
+      generalChatSystemPrompt: "Restored prompt.",
+    })).resolves.toMatchObject({
+      title: "Restored chat",
+      generalChatSystemPrompt: "Restored prompt.",
+    });
+    await expect(store.updateWorkshopContextBasket(series.manifest.id, session.id, {
+      items: [],
+    })).resolves.toMatchObject({ sessionId: session.id, items: [] });
+
+    await store.archiveWorkshopSession(series.manifest.id, session.id);
+    const deleted = await store.deleteWorkshopSession(series.manifest.id, session.id);
+    expect(deleted).toMatchObject({
+      deletedId: session.id,
+      deletedMessageIds: [authorMessage.id],
+      deletedAttachmentIds: [attachment.id],
+    });
+    await expect(store.getWorkshopSession(series.manifest.id, session.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+  });
+
+  it("rejects direct Agent run updates after the owning Workshop session is archived", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "ArchivedWorkshopAgentRun" });
+    const session = await store.createWorkshopSession(series.manifest.id, {
+      kind: "agent",
+      title: "Archived Agent",
+    });
+    const authorMessage = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "agent",
+      content: "Complete this run before archival.",
+    });
+    const createdRun = await store.createWorkshopAgentRun(series.manifest.id, agentRun({
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      authorMessageId: authorMessage.id,
+      status: "completed",
+    }));
+    await store.archiveWorkshopSession(series.manifest.id, session.id);
+
+    await expect(store.updateWorkshopAgentRun(
+      series.manifest.id,
+      session.id,
+      createdRun.run.id,
+      createdRun.revision,
+      createdRun.run,
+    )).rejects.toMatchObject<Partial<StorageError>>({
+      code: "INVALID_DATA",
+      message: "Archived Workshop session cannot update Agent runs",
+    });
+    expect(await store.getWorkshopAgentRun(series.manifest.id, session.id, createdRun.run.id))
+      .toEqual(createdRun);
   });
 
   it("persists sessions and messages as reloadable JSON authority", async () => {
@@ -470,6 +628,266 @@ describe("M5 Workshop storage", () => {
       retryable: false,
       attempt: 2,
     });
+  });
+
+  it("persists author-cancelled Agent runs without failure details or retry eligibility", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "AgentRunCancellation" });
+    const session = await store.createWorkshopSession(series.manifest.id, { kind: "agent", title: "Cancellation" });
+    const author = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "agent",
+      content: "Stop this run.",
+    });
+    const created = await store.createWorkshopAgentRun(series.manifest.id, agentRun({
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      authorMessageId: author.id,
+    }));
+    const cancelledAt = new Date().toISOString();
+    const cancelled = await store.updateWorkshopAgentRun(
+      series.manifest.id,
+      session.id,
+      created.run.id,
+      created.revision,
+      {
+        ...created.run,
+        status: "cancelled",
+        activeStepId: null,
+        steps: created.run.steps.map((step) => ({
+          ...step,
+          status: "cancelled",
+          retryable: false,
+          errorCode: null,
+          errorMessage: null,
+          completedAt: cancelledAt,
+        })),
+        retryable: false,
+        updatedAt: cancelledAt,
+        completedAt: cancelledAt,
+      },
+    );
+    expect(cancelled.run).toMatchObject({ schemaVersion: 2, status: "cancelled", retryable: false });
+    expect(cancelled.run.steps[0]).toMatchObject({
+      schemaVersion: 2,
+      status: "cancelled",
+      errorCode: null,
+      errorMessage: null,
+    });
+  });
+
+  it("migrates Workshop message and Agent run authority to version 2 and restores exact version 1 files", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopV2Migration" });
+    const session = await store.createWorkshopSession(series.manifest.id, { kind: "agent", title: "Migration" });
+    const author = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "agent",
+      content: "Migrate this history.",
+    });
+    const root = seriesRoot(store, "WorkshopV2Migration", series.manifest.id);
+    const legacyMessageId = randomUUID();
+    const legacyMessagePath = workshopMessagePath(root, legacyMessageId);
+    await mkdir(path.dirname(legacyMessagePath), { recursive: true });
+    const legacyMessageRaw = `${JSON.stringify({
+      schemaVersion: 1,
+      id: legacyMessageId,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      role: "assistant",
+      mode: "agent",
+      status: "succeeded",
+      content: "Legacy answer.",
+      reasoningContent: "Legacy reasoning.",
+      contextBundleId: null,
+      modelCallId: null,
+      agentRunId: null,
+      agentStepId: null,
+      proposalIds: [],
+      attachmentIds: [],
+      errorCode: null,
+      errorMessage: null,
+      createdAt: "2026-07-13T00:00:00.000Z",
+    }, null, 2)}\n`;
+    await writeFile(legacyMessagePath, legacyMessageRaw, "utf8");
+    const legacyRun = agentRun({
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      authorMessageId: author.id,
+      status: "completed",
+    });
+    const legacyRunPath = workshopAgentRunPath(root, legacyRun.id);
+    await mkdir(path.dirname(legacyRunPath), { recursive: true });
+    const legacyRunRaw = `${JSON.stringify(legacyRun, null, 2)}\n`;
+    await writeFile(legacyRunPath, legacyRunRaw, "utf8");
+
+    const migration = await store.migrateWorkshopAuthorityToV2(series.manifest.id);
+    expect(migration.migratedMessageIds).toEqual([legacyMessageId]);
+    expect(migration.migratedAgentRunIds).toEqual([legacyRun.id]);
+    expect(JSON.parse(await readFile(legacyMessagePath, "utf8"))).toMatchObject({
+      schemaVersion: 2,
+      reasoningOutputKind: "unknown",
+    });
+    expect(JSON.parse(await readFile(legacyRunPath, "utf8"))).toMatchObject({ schemaVersion: 2 });
+
+    const rollback = await store.rollbackWorkshopAuthorityV2Migration(
+      series.manifest.id,
+      migration.migrationId,
+    );
+    expect(rollback.restoredMessageIds).toEqual([legacyMessageId]);
+    expect(rollback.restoredAgentRunIds).toEqual([legacyRun.id]);
+    expect(await readFile(legacyMessagePath, "utf8")).toBe(legacyMessageRaw);
+    expect(await readFile(legacyRunPath, "utf8")).toBe(legacyRunRaw);
+
+    const secondMigration = await store.migrateWorkshopAuthorityToV2(series.manifest.id);
+    await writeFile(legacyMessagePath, `${await readFile(legacyMessagePath, "utf8")} `, "utf8");
+    await expect(store.rollbackWorkshopAuthorityV2Migration(
+      series.manifest.id,
+      secondMigration.migrationId,
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    await writeFile(legacyMessagePath, legacyMessageRaw, "utf8");
+    const missingTargetMigration = await store.migrateWorkshopAuthorityToV2(series.manifest.id);
+    await rm(legacyMessagePath);
+    await expect(store.rollbackWorkshopAuthorityV2Migration(
+      series.manifest.id,
+      missingTargetMigration.migrationId,
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+  });
+
+  it("rejects damaged Workshop migration input without rewriting valid version 1 authority", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopV2Damage" });
+    const session = await store.createWorkshopSession(series.manifest.id, { title: "Damage" });
+    const root = seriesRoot(store, "WorkshopV2Damage", series.manifest.id);
+    const validId = randomUUID();
+    const validPath = workshopMessagePath(root, validId);
+    await mkdir(path.dirname(validPath), { recursive: true });
+    const validRaw = `${JSON.stringify({
+      schemaVersion: 1,
+      id: validId,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      role: "assistant",
+      content: "Still valid.",
+      createdAt: "2026-07-13T00:00:00.000Z",
+    }, null, 2)}\n`;
+    await writeFile(validPath, validRaw, "utf8");
+    await writeFile(workshopMessagePath(root, randomUUID()), "{damaged-json\n", "utf8");
+    await expect(store.migrateWorkshopAuthorityToV2(series.manifest.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    expect(await readFile(validPath, "utf8")).toBe(validRaw);
+  });
+
+  it("migrates public Workshop Context Basket hierarchy to version 2 and restores exact version 1 authority", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopBasketV2Migration" });
+    const session = await store.createWorkshopSession(series.manifest.id, { title: "Legacy basket" });
+    const root = seriesRoot(store, "WorkshopBasketV2Migration", series.manifest.id);
+    const basketPath = workshopContextBasketPath(root, session.id);
+    const basket = await store.getWorkshopContextBasket(series.manifest.id, session.id);
+    const now = "2026-07-17T00:00:00.000Z";
+    const storedActId = randomUUID();
+    const storedChapterId = randomUUID();
+    const legacyRaw = `${JSON.stringify({
+      schemaVersion: 1,
+      id: basket.id,
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      sceneId: null,
+      blockId: null,
+      selection: null,
+      items: [
+        {
+          id: randomUUID(),
+          kind: "act",
+          sourceId: storedActId,
+          label: "Legacy stored ActManifest",
+          pinned: false,
+          note: "",
+          createdAt: now,
+        },
+        {
+          id: randomUUID(),
+          kind: "chapter",
+          sourceId: storedChapterId,
+          label: "Legacy stored ChapterManifest",
+          pinned: true,
+          note: "",
+          createdAt: now,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    }, null, 2)}\n`;
+    await writeFile(basketPath, legacyRaw, "utf8");
+
+    expect((await store.getWorkshopContextBasket(series.manifest.id, session.id)).items).toMatchObject([
+      { kind: "chapter", sourceId: storedActId },
+      { kind: "act", sourceId: storedChapterId },
+    ]);
+    expect(await readFile(basketPath, "utf8")).toBe(legacyRaw);
+
+    const migration = await store.migrateWorkshopAuthorityToV2(series.manifest.id);
+    expect(migration.migratedContextBasketIds).toEqual([basket.id]);
+    expect(JSON.parse(await readFile(basketPath, "utf8"))).toMatchObject({
+      schemaVersion: 2,
+      items: [
+        { kind: "chapter", sourceId: storedActId },
+        { kind: "act", sourceId: storedChapterId },
+      ],
+    });
+    expect((await store.rollbackWorkshopAuthorityV2Migration(
+      series.manifest.id,
+      migration.migrationId,
+    )).restoredContextBasketIds).toEqual([basket.id]);
+    expect(await readFile(basketPath, "utf8")).toBe(legacyRaw);
+
+    const changedMigration = await store.migrateWorkshopAuthorityToV2(series.manifest.id);
+    await writeFile(basketPath, `${await readFile(basketPath, "utf8")} `, "utf8");
+    await expect(store.rollbackWorkshopAuthorityV2Migration(
+      series.manifest.id,
+      changedMigration.migrationId,
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    await writeFile(basketPath, legacyRaw, "utf8");
+    const missingMigration = await store.migrateWorkshopAuthorityToV2(series.manifest.id);
+    await rm(basketPath);
+    await expect(store.rollbackWorkshopAuthorityV2Migration(
+      series.manifest.id,
+      missingMigration.migrationId,
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+  });
+
+  it("rejects damaged Workshop Context Basket migration input without rewriting valid version 1 authority", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopBasketV2Damage" });
+    const validSession = await store.createWorkshopSession(series.manifest.id, { title: "Valid basket" });
+    const damagedSession = await store.createWorkshopSession(series.manifest.id, { title: "Damaged basket" });
+    const root = seriesRoot(store, "WorkshopBasketV2Damage", series.manifest.id);
+    const validPath = workshopContextBasketPath(root, validSession.id);
+    const damagedPath = workshopContextBasketPath(root, damagedSession.id);
+    const validBasket = await store.getWorkshopContextBasket(series.manifest.id, validSession.id);
+    const now = "2026-07-17T00:00:00.000Z";
+    const validRaw = `${JSON.stringify({
+      schemaVersion: 1,
+      id: validBasket.id,
+      seriesId: series.manifest.id,
+      sessionId: validSession.id,
+      sceneId: null,
+      blockId: null,
+      selection: null,
+      items: [],
+      createdAt: now,
+      updatedAt: now,
+    }, null, 2)}\n`;
+    await writeFile(validPath, validRaw, "utf8");
+    await writeFile(damagedPath, "{damaged-json\n", "utf8");
+
+    await expect(store.migrateWorkshopAuthorityToV2(series.manifest.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    expect(await readFile(validPath, "utf8")).toBe(validRaw);
+    expect(await readFile(damagedPath, "utf8")).toBe("{damaged-json\n");
   });
 
   it("atomically claims Agent tool execution and blocks destructive session changes while running", async () => {
@@ -865,6 +1283,63 @@ describe("M5 Workshop storage", () => {
     expect(await store.listWorkshopMessages(series.manifest.id, branch.session.id)).toHaveLength(2);
   });
 
+  it("serializes General Chat resend truncation with branching so no branch can reference deleted history", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopResendBranchRace" });
+    const session = await store.createWorkshopSession(series.manifest.id, { title: "Concurrent history" });
+    const firstAuthor = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Rewrite this first question.",
+    });
+    await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
+      role: "assistant",
+      mode: "general-chat",
+      content: "First answer.",
+    });
+    const laterAuthor = await store.createWorkshopMessage(series.manifest.id, session.id, {
+      role: "author",
+      mode: "general-chat",
+      content: "Later question.",
+    });
+    const laterAssistant = await saveServerWorkshopMessage(store, series.manifest.id, session.id, {
+      role: "assistant",
+      mode: "general-chat",
+      content: "Later answer.",
+    });
+
+    const [resend, branch] = await Promise.allSettled([
+      store.replaceWorkshopGeneralChatAuthorMessage(
+        series.manifest.id,
+        session.id,
+        firstAuthor.id,
+        "Rewritten first question.",
+      ),
+      store.branchWorkshopSession(series.manifest.id, session.id, {
+        sourceMessageId: laterAssistant.id,
+        title: "Concurrent branch",
+      }),
+    ]);
+
+    expect(resend.status).toBe("fulfilled");
+    expect((await store.listWorkshopMessages(series.manifest.id, session.id)).map((message) => message.id))
+      .toEqual([firstAuthor.id]);
+    const sourceMessageIds = new Set(
+      (await store.listWorkshopMessages(series.manifest.id, session.id)).map((message) => message.id),
+    );
+    expect((await store.listWorkshopBranches(series.manifest.id)).every((record) =>
+      sourceMessageIds.has(record.sourceMessageId),
+    )).toBe(true);
+    expect((await store.listWorkshopSessions(series.manifest.id)).every((candidate) =>
+      candidate.branchOfMessageId === null || sourceMessageIds.has(candidate.branchOfMessageId),
+    )).toBe(true);
+    if (branch.status === "fulfilled") {
+      expect((await store.getWorkshopSession(series.manifest.id, branch.value.session.id)).branchOfMessageId)
+        .toBeNull();
+    }
+    expect(laterAuthor.id).not.toBe(firstAuthor.id);
+  });
+
   it("rejects resend outside General Chat and when later protected records would be erased", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopResendGuard" });
@@ -1036,6 +1511,7 @@ describe("M5 Workshop storage", () => {
   it("updates context basket refs and rejects missing scene targets", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopBasket" });
+    const volume = series.books[0]!;
     const act = series.acts[0]!;
     const chapter = series.chapters[0]!;
     const scene = series.scenes[0]!;
@@ -1052,10 +1528,11 @@ describe("M5 Workshop storage", () => {
     const items = [
       { id: "11111111-1111-4111-8111-111111111111", kind: "full-novel" as const, sourceId: series.manifest.id, label: "Full novel", pinned: false, note: "", createdAt },
       { id: "22222222-2222-4222-8222-222222222222", kind: "full-outline" as const, sourceId: series.manifest.id, label: "Full outline", pinned: false, note: "", createdAt },
-      { id: "33333333-3333-4333-8333-333333333333", kind: "act" as const, sourceId: act.id, label: act.title, pinned: false, note: "", createdAt },
-      { id: "44444444-4444-4444-8444-444444444444", kind: "chapter" as const, sourceId: chapter.id, label: chapter.title, pinned: false, note: "", createdAt },
-      { id: "55555555-5555-4555-8555-555555555555", kind: "scene" as const, sourceId: scene.metadata.id, label: scene.metadata.title, pinned: false, note: "", createdAt },
-      { id: "66666666-6666-4666-8666-666666666666", kind: "codex-entry" as const, sourceId: codexEntry.metadata.id, label: codexEntry.metadata.name, pinned: false, note: "", createdAt },
+      { id: "33333333-3333-4333-8333-333333333333", kind: "volume" as const, sourceId: volume.id, label: volume.title, pinned: false, note: "", createdAt },
+      { id: "44444444-4444-4444-8444-444444444444", kind: "chapter" as const, sourceId: act.id, label: act.title, pinned: false, note: "", createdAt },
+      { id: "55555555-5555-4555-8555-555555555555", kind: "act" as const, sourceId: chapter.id, label: chapter.title, pinned: false, note: "", createdAt },
+      { id: "66666666-6666-4666-8666-666666666666", kind: "scene" as const, sourceId: scene.metadata.id, label: scene.metadata.title, pinned: false, note: "", createdAt },
+      { id: "77777777-7777-4777-8777-777777777777", kind: "codex-entry" as const, sourceId: codexEntry.metadata.id, label: codexEntry.metadata.name, pinned: false, note: "", createdAt },
     ];
 
     const basket = await store.updateWorkshopContextBasket(series.manifest.id, session.id, {
@@ -1064,8 +1541,26 @@ describe("M5 Workshop storage", () => {
     expect(basket.items.map((item) => item.kind)).toEqual([
       "full-novel",
       "full-outline",
-      "act",
+      "volume",
       "chapter",
+      "act",
+      "scene",
+      "codex-entry",
+    ]);
+    const basketAuthority = JSON.parse(await readFile(
+      workshopContextBasketPath(
+        seriesRoot(store, "WorkshopBasket", series.manifest.id),
+        session.id,
+      ),
+      "utf8",
+    )) as { schemaVersion: number; items: Array<{ kind: string }> };
+    expect(basketAuthority.schemaVersion).toBe(2);
+    expect(basketAuthority.items.map((item) => item.kind)).toEqual([
+      "full-novel",
+      "full-outline",
+      "volume",
+      "chapter",
+      "act",
       "scene",
       "codex-entry",
     ]);

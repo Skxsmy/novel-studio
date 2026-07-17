@@ -227,12 +227,13 @@ AI 改写候选必须直接进入正文编辑器并保持整段选中。编辑�
 - Workshop messages use a single broad reading column. Do not alternate author and assistant messages as left/right narrow bubbles; role distinction comes from compact metadata, a restrained surface tint, and a small accent.
 - Workshop message body text, attachment chips, and reasoning blocks must use a readable author-workspace scale rather than compact log typography.
 - In-flight streamed replies must remain visible when the author leaves a Workshop session and returns before the stream finishes.
-- Permanent session delete belongs in a compact session actions menu so it does not compete with primary Archive and Branch controls.
-- Edit and Resend controls belong only on successful General Chat author messages in `chat` sessions. Resend must make the revised author message and new assistant reply replace the old forward history in the visible conversation; old later replies, later requests, and their attachment chips must disappear after the operation. Agent sessions must not show Edit or Resend controls in this slice.
+- Session lifecycle actions belong to the selected session row's context menu. Mouse right click, `Shift+F10`, the keyboard Menu key, and touch long press open the same focused menu; closing it restores focus to the row. The menu contains Rename, Export, Archive or Restore, and confirmed Delete, plus the visible General Chat system prompt entry only for a General Chat session. Double click never renames. The conversation header keeps Branch and removes the duplicate three-dot actions menu.
+- Session filters are `All`, `Chat`, `Agent`, and `Archived`. `All`, `Chat`, and `Agent` exclude archived sessions. `Archived` contains only archived sessions, which remain readable and can be exported, restored, or permanently deleted but cannot send, edit, or resend.
+- Edit and resend, Resend, Branch, and Delete turn live only in an icon-only three-dot menu at the bottom-right of each eligible message. The control has an accessible name but never displays the word `More`. Edit and resend applies only to successful General Chat author messages in `chat` sessions. Resend must make the revised author message and new assistant reply replace the old forward history in the visible conversation; old later replies, later requests, and their attachment chips must disappear after the operation. Agent sessions must not expose Edit and resend or Resend.
 - Export belongs to the session area, not under every message. The export control uses separate `Include reasoning` and `Include prompt audit` checkboxes; default export is a readable chat-history Markdown file without reasoning and without prompt/context audit dumps. Enabling reasoning includes saved reasoning blocks. Enabling prompt audit includes reconstructed provider prompt/context records inside the downloaded file rather than crowding the conversation surface. Attachment chips/files are represented as file records only; attachment body text must not be dumped into the export. Downloaded Markdown must open as readable UTF-8 text in local Windows tools.
 - Agent Codex tool confirmations are write gates, not help/tutorial cards. The visible confirmation appears only for server-owned `role: tool` messages such as `codex.create_entry` and `codex.update_entry`, never under every assistant reply and never by scanning assistant prose for a fake tool call. When missing reusable detail types are detected, the UI should list the draft detail labels that will be created and require one explicit confirmation before creating those detail types and the entry/update.
 - 左列为对话和分支，中间为消息；不得保留常驻右侧 Context Basket 面板。
-- 新会话列表项先显示中性的临时标题；首次发送后应按首条消息或附件文件名自动命名。作者双击会话标题即可编辑名称，保存后不再被自动命名覆盖。
+- 新会话列表项先显示中性的临时标题；首次发送后应按首条消息或附件文件名自动命名。作者从会话行上下文菜单选择 Rename 后编辑名称，保存后不再被自动命名覆盖；双击标题不得触发重命名。
 - Branch 必须让作者继续看到分支点之前的聊天历史和附件名/附件上下文；新开的分支不能呈现为空白对话。
 - Branch must also be available from the actions menu of each eligible settled message so the author can choose the exact divergence point. Pending messages and tool requests whose result would be excluded must not present an enabled branch action; a completed tool result is a valid divergence point when the copied protocol prefix is complete.
 - 上下文选择应靠近输入区，以类似菜单的高折叠控件出现，支持 Series 正文、Series 大纲、Volume、Chapter、Act、多个 Scene、Codex 条目、按详情类型和按类别选择条目。
@@ -243,7 +244,11 @@ AI 改写候选必须直接进入正文编辑器并保持整段选中。编辑�
 - 用户再次点击已选中的上下文项时必须取消选择；不应强迫用户到另一个“已选上下文”列表中删除。
 - 已选上下文在菜单中的状态、输入区附近的轻量摘要和后端实际请求必须一致；用户看到什么，后台就发送什么，后台会发送什么，用户也必须看得到。
 - 选择 Volume、Chapter、Act 或 Scene 后，系统应按 Codex 名称、别名、排除词和条目级上下文策略自动加入相关 Codex 条目，并立即在菜单中显示这些自动加入的条目；条目设置为不自动加入或永不提供给 AI 时不得自动加入。
-- 模型设置和具体模型选择同样应作为折叠菜单靠近输入区出现，不应占据顶部或右侧大面积。
+- 输入区附近的模型选择器只显示模型名称。相邻的运行选项图标显示当前精确模型实际支持的流式输出和推理请求控件；不同模型可以是开关、提供商声明的强度集合、预算范围或不支持，界面不得补齐模型没有的选项。相邻的 Provider 设置图标导航到 Settings 工作区中可见标签为 `Model connections` 的页面；该页面负责凭据、服务地址和模型发现。导航发生时必须记住当前 Workshop 会话，并在 Settings 中显示一个能够返回该同一 Workshop 会话的入口。
+- 当前模型的推理请求设置按 Provider 连接和精确模型名称持久化。应用重启或在模型之间来回切换时，各模型恢复自己的最后一次有效设置；若 Provider 能力变化使旧设置失效，界面改用该模型声明的默认值并明确更新控件，而不是发送无效参数。
+- Workshop 只使用一个固定占位的发送控件。空闲时显示 `Send`，请求建立期间显示动画 `Sending`，整个 Provider 请求进行期间变为可操作的 `Stop`，作者点击后显示动画 `Stopping`，服务端确认取消后回到 `Send`。这四个状态在同一个位置切换；减少动态效果开启时保留状态变化但不播放运动动画。
+- General Chat 和 Agent 的流式 reasoning 都必须在第一段 reasoning 到达时立即显示在回答正文上方。reasoning 默认展开，每条消息只保留一个内联箭头用于折叠或重新展开；不提供 `Show reasoning` 按钮，也不把 reasoning 操作放进消息菜单。
+- Pending Agent tool request 的 `Not now` 只关闭 review 界面。它不能执行、拒绝、删除或修改该请求，再次打开时仍显示同一待确认内容。
 - 角色选择器显示职责而非只显示头像。
 - 会审启动前列出参与角色、预计调用和资料权限。
 - 第一轮意见以独立标签展示；汇总是额外步骤。

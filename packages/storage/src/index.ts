@@ -324,9 +324,15 @@ import {
   listEmbeddingUseCaseBindings,
   listModelCallLogs,
   listModelProfiles,
+  migrateContextBundlesToV2,
+  migrateModelCallLogsToV2,
+  migrateModelProfilesToV2,
   listPromptPresets,
   listPromptTemplates,
   rebuildAiIndex,
+  rollbackContextBundlesV2Migration,
+  rollbackModelCallLogsV2Migration,
+  rollbackModelProfilesV2Migration,
   saveAgentRole,
   saveContextBundle,
   saveEmbeddingModelProfile,
@@ -360,11 +366,13 @@ import {
   listWorkshopBranchFiles,
   listWorkshopMessageFiles,
   listWorkshopSessionFiles,
+  migrateWorkshopAuthorityToV2,
   readWorkshopAttachmentFile,
   readWorkshopAgentRunFile,
   readWorkshopContextBasketFile,
   readWorkshopMessageFile,
   readWorkshopSessionFile,
+  rollbackWorkshopAuthorityV2Migration,
   workshopAttachmentPath,
   workshopAgentRunPath,
   workshopBranchPath,
@@ -1496,22 +1504,24 @@ function workshopSessionMutationKey(seriesRoot: string, sessionId: string): stri
 }
 
 const workshopAgentStepTransitions: Record<string, Set<string>> = {
-  pending: new Set(["pending", "running", "failed", "interrupted", "abandoned"]),
-  running: new Set(["running", "succeeded", "failed", "interrupted", "abandoned"]),
+  pending: new Set(["pending", "running", "failed", "interrupted", "abandoned", "cancelled"]),
+  running: new Set(["running", "succeeded", "failed", "interrupted", "abandoned", "cancelled"]),
   "waiting-confirmation": new Set(["waiting-confirmation", "running", "succeeded", "interrupted", "abandoned"]),
   succeeded: new Set(["succeeded"]),
   failed: new Set(["failed"]),
   interrupted: new Set(["interrupted"]),
   abandoned: new Set(["abandoned"]),
+  cancelled: new Set(["cancelled"]),
 };
 
 const workshopAgentRunTransitions: Record<string, Set<string>> = {
-  running: new Set(["running", "waiting-confirmation", "completed", "failed", "interrupted"]),
+  running: new Set(["running", "waiting-confirmation", "completed", "failed", "interrupted", "cancelled"]),
   "waiting-confirmation": new Set(["waiting-confirmation", "interrupted", "abandoned"]),
   completed: new Set(["completed"]),
   failed: new Set(["failed", "running", "abandoned"]),
   interrupted: new Set(["interrupted", "running", "waiting-confirmation", "abandoned"]),
   abandoned: new Set(["abandoned"]),
+  cancelled: new Set(["cancelled"]),
 };
 
 function assertWorkshopAgentRunEvolution(current: WorkshopAgentRun, next: WorkshopAgentRun): void {
@@ -1542,12 +1552,18 @@ function assertWorkshopAgentRunEvolution(current: WorkshopAgentRun, next: Worksh
   for (let index = 0; index < current.steps.length; index += 1) {
     const before = current.steps[index]!;
     const after = next.steps[index]!;
+    const clearedUnusedModelCallReservation = (
+      before.modelCallId !== null &&
+      after.modelCallId === null &&
+      ["pending", "running"].includes(before.status) &&
+      ["failed", "cancelled"].includes(after.status)
+    );
     if (
       before.id !== after.id ||
       before.index !== after.index ||
       before.kind !== after.kind ||
       before.attempt !== after.attempt ||
-      before.modelCallId !== after.modelCallId ||
+      (before.modelCallId !== after.modelCallId && !clearedUnusedModelCallReservation) ||
       JSON.stringify(before.promptSnapshot) !== JSON.stringify(after.promptSnapshot) ||
       JSON.stringify(before.inputMessageIds) !== JSON.stringify(after.inputMessageIds) ||
       before.degradedStructuredOutput !== after.degradedStructuredOutput ||
@@ -1573,7 +1589,7 @@ function assertWorkshopAgentRunEvolution(current: WorkshopAgentRun, next: Worksh
       });
     }
     if (
-      ["succeeded", "failed", "interrupted", "abandoned"].includes(before.status) &&
+      ["succeeded", "failed", "interrupted", "abandoned", "cancelled"].includes(before.status) &&
       JSON.stringify(before) !== JSON.stringify(after)
     ) {
       throw new StorageError("Terminal Workshop Agent steps cannot change", "INVALID_DATA", {
@@ -4474,6 +4490,14 @@ export class ProjectRepository {
     return listModelProfiles(this.libraryRoot);
   }
 
+  async migrateModelProfilesToV2() {
+    return migrateModelProfilesToV2(this.libraryRoot);
+  }
+
+  async rollbackModelProfilesV2Migration(migrationId: string) {
+    return rollbackModelProfilesV2Migration(this.libraryRoot, migrationId);
+  }
+
   async saveEmbeddingModelProfile(profile: EmbeddingModelProfile): Promise<EmbeddingModelProfile> {
     return saveEmbeddingModelProfile(this.libraryRoot, profile);
   }
@@ -4565,6 +4589,18 @@ export class ProjectRepository {
     return listContextBundles(await this.findSeriesRoot(seriesId));
   }
 
+  async migrateContextBundlesToV2(seriesId: string) {
+    return migrateContextBundlesToV2(await this.findSeriesRoot(seriesId), seriesId);
+  }
+
+  async rollbackContextBundlesV2Migration(seriesId: string, migrationId: string) {
+    return rollbackContextBundlesV2Migration(
+      await this.findSeriesRoot(seriesId),
+      seriesId,
+      migrationId,
+    );
+  }
+
   async saveModelCallLog(seriesId: string, log: ModelCallLog): Promise<ModelCallLog> {
     return saveModelCallLog(await this.findSeriesRoot(seriesId), log);
   }
@@ -4575,6 +4611,18 @@ export class ProjectRepository {
 
   async listModelCallLogs(seriesId: string): Promise<ModelCallLog[]> {
     return listModelCallLogs(await this.findSeriesRoot(seriesId));
+  }
+
+  async migrateModelCallLogsToV2(seriesId: string) {
+    return migrateModelCallLogsToV2(await this.findSeriesRoot(seriesId), seriesId);
+  }
+
+  async rollbackModelCallLogsV2Migration(seriesId: string, migrationId: string) {
+    return rollbackModelCallLogsV2Migration(
+      await this.findSeriesRoot(seriesId),
+      seriesId,
+      migrationId,
+    );
   }
 
   async createWorkshopSession(
@@ -4605,7 +4653,7 @@ export class ProjectRepository {
     });
     const created = await createWorkshopSessionFile(seriesRoot, session);
     const basket = WorkshopContextBasketSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: randomUUID(),
       seriesId,
       sessionId: created.id,
@@ -4622,6 +4670,18 @@ export class ProjectRepository {
 
   async listWorkshopSessions(seriesId: string): Promise<WorkshopSession[]> {
     return listWorkshopSessionFiles(await this.findSeriesRoot(seriesId));
+  }
+
+  async migrateWorkshopAuthorityToV2(seriesId: string) {
+    return migrateWorkshopAuthorityToV2(await this.findSeriesRoot(seriesId), seriesId);
+  }
+
+  async rollbackWorkshopAuthorityV2Migration(seriesId: string, migrationId: string) {
+    return rollbackWorkshopAuthorityV2Migration(
+      await this.findSeriesRoot(seriesId),
+      seriesId,
+      migrationId,
+    );
   }
 
   async getWorkshopSession(seriesId: string, sessionId: string): Promise<WorkshopSession> {
@@ -4707,6 +4767,13 @@ export class ProjectRepository {
     }
     const seriesRoot = await this.findSeriesRoot(seriesId);
     return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+      if (session.status === "archived") {
+        throw new StorageError("Archived Workshop session cannot update Agent runs", "INVALID_DATA", {
+          sessionId,
+          runId,
+        });
+      }
       const current = await readWorkshopAgentRunFile(seriesRoot, runId);
       if (current.revision !== baseRevision) {
         throw new StorageError("Workshop Agent run changed since it was read", "CONFLICT", {
@@ -4954,18 +5021,27 @@ export class ProjectRepository {
   ): Promise<WorkshopSession> {
     const input = UpdateWorkshopSessionInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const current = await readWorkshopSessionFile(seriesRoot, sessionId);
-    if (input.generalChatSystemPrompt !== undefined && current.kind !== "chat") {
-      throw new StorageError("Agent sessions cannot own a General Chat system prompt", "INVALID_DATA", {
-        sessionId,
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const current = await readWorkshopSessionFile(seriesRoot, sessionId);
+      if (current.status === "archived") {
+        throw new StorageError("Archived Workshop session cannot be updated", "INVALID_DATA", {
+          sessionId,
+        });
+      }
+      if (input.expectedTitle !== undefined && current.title !== input.expectedTitle) return current;
+      if (input.generalChatSystemPrompt !== undefined && current.kind !== "chat") {
+        throw new StorageError("Agent sessions cannot own a General Chat system prompt", "INVALID_DATA", {
+          sessionId,
+        });
+      }
+      const { expectedTitle: _expectedTitle, ...update } = input;
+      const updated = WorkshopSessionSchema.parse({
+        ...current,
+        ...update,
+        updatedAt: new Date().toISOString(),
       });
-    }
-    const updated = WorkshopSessionSchema.parse({
-      ...current,
-      ...input,
-      updatedAt: new Date().toISOString(),
+      return writeWorkshopSessionFile(seriesRoot, updated);
     });
-    return writeWorkshopSessionFile(seriesRoot, updated);
   }
 
   async archiveWorkshopSession(seriesId: string, sessionId: string): Promise<WorkshopSession> {
@@ -5000,12 +5076,14 @@ export class ProjectRepository {
 
   async restoreWorkshopSession(seriesId: string, sessionId: string): Promise<WorkshopSession> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const current = await readWorkshopSessionFile(seriesRoot, sessionId);
-    return writeWorkshopSessionFile(seriesRoot, {
-      ...current,
-      status: "active",
-      archivedAt: null,
-      updatedAt: new Date().toISOString(),
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const current = await readWorkshopSessionFile(seriesRoot, sessionId);
+      return writeWorkshopSessionFile(seriesRoot, {
+        ...current,
+        status: "active",
+        archivedAt: null,
+        updatedAt: new Date().toISOString(),
+      });
     });
   }
 
@@ -5115,7 +5193,13 @@ export class ProjectRepository {
   ): Promise<{ branch: WorkshopBranch; session: WorkshopSession }> {
     const input = CreateWorkshopBranchInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
     const sourceSession = await readWorkshopSessionFile(seriesRoot, sessionId);
+    if (sourceSession.status === "archived") {
+      throw new StorageError("Archived Workshop session cannot be branched", "INVALID_DATA", {
+        sessionId,
+      });
+    }
     const sourceMessage = await readWorkshopMessageFile(seriesRoot, input.sourceMessageId);
     if (sourceMessage.sessionId !== sourceSession.id) {
       throw new StorageError("Source message does not belong to the Workshop session", "INVALID_DATA", {
@@ -5247,6 +5331,7 @@ export class ProjectRepository {
       branch,
       session: nextSession,
     };
+    });
   }
 
   async listWorkshopMessages(seriesId: string, sessionId: string): Promise<WorkshopMessage[]> {
@@ -5298,13 +5383,15 @@ export class ProjectRepository {
       });
     }
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const session = await readWorkshopSessionFile(seriesRoot, sessionId);
-    if (session.status === "archived") {
-      throw new StorageError("Archived Workshop session cannot receive attachments", "INVALID_DATA", {
-        sessionId,
-      });
-    }
-    return createWorkshopAttachmentFile(seriesRoot, attachment);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+      if (session.status === "archived") {
+        throw new StorageError("Archived Workshop session cannot receive attachments", "INVALID_DATA", {
+          sessionId,
+        });
+      }
+      return createWorkshopAttachmentFile(seriesRoot, attachment);
+    });
   }
 
   async deleteWorkshopAttachment(
@@ -5313,6 +5400,7 @@ export class ProjectRepository {
     attachmentId: string,
   ): Promise<DeleteWorkshopAttachmentResult> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
     const session = await readWorkshopSessionFile(seriesRoot, sessionId);
     if (session.seriesId !== seriesId) {
       throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", { sessionId });
@@ -5337,6 +5425,7 @@ export class ProjectRepository {
       { targetPath: workshopAttachmentPath(seriesRoot, attachment.id), delete: true },
     ]);
     return DeleteWorkshopAttachmentResultSchema.parse({ deletedId: attachment.id });
+    });
   }
 
   async getWorkshopMessageSource(
@@ -5367,6 +5456,7 @@ export class ProjectRepository {
     const input = CreateWorkshopMessageInputSchema.parse(rawInput);
     const now = new Date().toISOString();
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
     const session = await readWorkshopSessionFile(seriesRoot, sessionId);
     if (session.seriesId !== seriesId) {
       throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", { sessionId });
@@ -5460,6 +5550,7 @@ export class ProjectRepository {
       { targetPath: workshopSessionPath(seriesRoot, session.id), content: serializeJsonAuthority(nextSession) },
     ]);
     return readWorkshopMessageFile(seriesRoot, message.id);
+    });
   }
 
   async saveWorkshopMessage(seriesId: string, message: WorkshopMessage): Promise<WorkshopMessage> {
@@ -5470,6 +5561,7 @@ export class ProjectRepository {
       });
     }
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, parsed.sessionId), async () => {
     const session = await readWorkshopSessionFile(seriesRoot, parsed.sessionId);
     if (session.status === "archived") {
       throw new StorageError("Archived Workshop session cannot receive messages", "INVALID_DATA", {
@@ -5516,6 +5608,7 @@ export class ProjectRepository {
       { targetPath: workshopSessionPath(seriesRoot, session.id), content: serializeJsonAuthority(nextSession) },
     ]);
     return readWorkshopMessageFile(seriesRoot, parsed.id);
+    });
   }
 
   async claimWorkshopMessageToolExecution(
@@ -6299,6 +6392,7 @@ export class ProjectRepository {
       throw new StorageError("Workshop message content is required", "INVALID_DATA", { messageId });
     }
     const seriesRoot = await this.findSeriesRoot(seriesId);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
     const session = await readWorkshopSessionFile(seriesRoot, sessionId);
     if (session.seriesId !== seriesId) {
       throw new StorageError("Workshop session belongs to another series", "INVALID_DATA", { sessionId });
@@ -6404,6 +6498,7 @@ export class ProjectRepository {
       message: await readWorkshopMessageFile(seriesRoot, nextMessage.id),
       session: await readWorkshopSessionFile(seriesRoot, session.id),
     });
+    });
   }
 
   async getWorkshopContextBasket(
@@ -6418,7 +6513,7 @@ export class ProjectRepository {
       if (!(error instanceof StorageError) || error.code !== "NOT_FOUND") throw error;
       const now = new Date().toISOString();
       return writeWorkshopContextBasketFile(seriesRoot, WorkshopContextBasketSchema.parse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         id: randomUUID(),
         seriesId,
         sessionId,
@@ -6439,15 +6534,23 @@ export class ProjectRepository {
   ): Promise<WorkshopContextBasket> {
     const input = UpdateWorkshopContextBasketInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const current = await this.getWorkshopContextBasket(seriesId, sessionId);
-    const candidate = WorkshopContextBasketSchema.parse({
-      ...current,
-      ...input,
-      updatedAt: new Date().toISOString(),
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+      if (session.status === "archived") {
+        throw new StorageError("Archived Workshop session cannot update context", "INVALID_DATA", {
+          sessionId,
+        });
+      }
+      const current = await this.getWorkshopContextBasket(seriesId, sessionId);
+      const candidate = WorkshopContextBasketSchema.parse({
+        ...current,
+        ...input,
+        updatedAt: new Date().toISOString(),
+      });
+      const materialized = await this.withLinkedWorkshopCodexItems(seriesId, candidate);
+      await this.validateWorkshopContextBasket(seriesId, materialized);
+      return writeWorkshopContextBasketFile(seriesRoot, materialized);
     });
-    const materialized = await this.withLinkedWorkshopCodexItems(seriesId, candidate);
-    await this.validateWorkshopContextBasket(seriesId, materialized);
-    return writeWorkshopContextBasketFile(seriesRoot, materialized);
   }
 
   async createProposal(
@@ -8138,11 +8241,14 @@ export class ProjectRepository {
       if (item.kind === "full-outline") {
         texts.push(this.workshopScenesInSeriesOrder(series).map((scene) => this.workshopSceneOutlineText(scene)).join("\n\n"));
       }
-      if (item.kind === "act" && item.sourceId) {
-        texts.push(this.workshopScenesForAct(series, item.sourceId).map((scene) => this.workshopSceneScopeText(scene)).join("\n\n"));
+      if (item.kind === "volume" && item.sourceId) {
+        texts.push(this.workshopScenesForVolume(series, item.sourceId).map((scene) => this.workshopSceneScopeText(scene)).join("\n\n"));
       }
       if (item.kind === "chapter" && item.sourceId) {
-        texts.push(this.workshopScenesForChapter(series, item.sourceId).map((scene) => this.workshopSceneScopeText(scene)).join("\n\n"));
+        texts.push(this.workshopScenesForStoredAct(series, item.sourceId).map((scene) => this.workshopSceneScopeText(scene)).join("\n\n"));
+      }
+      if (item.kind === "act" && item.sourceId) {
+        texts.push(this.workshopScenesForStoredChapter(series, item.sourceId).map((scene) => this.workshopSceneScopeText(scene)).join("\n\n"));
       }
       if (item.kind === "scene" && item.sourceId) {
         selectedSceneIds.add(item.sourceId);
@@ -8178,7 +8284,7 @@ export class ProjectRepository {
     const seen = new Set<string>();
     for (const book of [...series.books].sort((left, right) => left.order - right.order)) {
       for (const act of [...series.acts].filter((item) => item.bookId === book.id).sort((left, right) => left.order - right.order)) {
-        for (const scene of this.workshopScenesForAct(series, act.id)) {
+        for (const scene of this.workshopScenesForStoredAct(series, act.id)) {
           ordered.push(scene);
           seen.add(scene.metadata.id);
         }
@@ -8190,16 +8296,23 @@ export class ProjectRepository {
     return ordered;
   }
 
-  private workshopScenesForAct(series: SeriesDetail, actId: string): SceneDocument[] {
-    return [...series.chapters]
-      .filter((chapter) => chapter.actId === actId)
+  private workshopScenesForVolume(series: SeriesDetail, volumeId: string): SceneDocument[] {
+    return [...series.acts]
+      .filter((storedAct) => storedAct.bookId === volumeId)
       .sort((left, right) => left.order - right.order)
-      .flatMap((chapter) => this.workshopScenesForChapter(series, chapter.id));
+      .flatMap((storedAct) => this.workshopScenesForStoredAct(series, storedAct.id));
   }
 
-  private workshopScenesForChapter(series: SeriesDetail, chapterId: string): SceneDocument[] {
+  private workshopScenesForStoredAct(series: SeriesDetail, storedActId: string): SceneDocument[] {
+    return [...series.chapters]
+      .filter((storedChapter) => storedChapter.actId === storedActId)
+      .sort((left, right) => left.order - right.order)
+      .flatMap((storedChapter) => this.workshopScenesForStoredChapter(series, storedChapter.id));
+  }
+
+  private workshopScenesForStoredChapter(series: SeriesDetail, storedChapterId: string): SceneDocument[] {
     return [...series.scenes]
-      .filter((scene) => scene.metadata.chapterId === chapterId)
+      .filter((scene) => scene.metadata.chapterId === storedChapterId)
       .sort((left, right) => left.metadata.order - right.metadata.order);
   }
 
@@ -8222,11 +8335,21 @@ export class ProjectRepository {
       await this.getSeries(seriesId);
       return;
     }
-    if (parsed.kind === "act") {
-      await this.getAct(seriesId, parsed.sourceId);
+    if (parsed.kind === "volume") {
+      const series = await this.getSeries(seriesId);
+      if (!series.books.some((book) => book.id === parsed.sourceId)) {
+        throw new StorageError("Workshop Volume context item does not exist", "NOT_FOUND", {
+          itemId: parsed.id,
+          volumeId: parsed.sourceId,
+        });
+      }
       return;
     }
     if (parsed.kind === "chapter") {
+      await this.getAct(seriesId, parsed.sourceId);
+      return;
+    }
+    if (parsed.kind === "act") {
       await this.getChapter(seriesId, parsed.sourceId);
       return;
     }
@@ -9588,7 +9711,7 @@ export class ProjectRepository {
         completedAt,
       } : step),
       {
-        schemaVersion: 1 as const,
+        schemaVersion: 2 as const,
         id: resultStepId,
         index: current.run.steps.length,
         kind: "tool-result" as const,

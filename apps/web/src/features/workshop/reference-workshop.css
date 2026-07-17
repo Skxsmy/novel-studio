@@ -1,0 +1,387 @@
+.wr5-session-row {
+  min-width: 0;
+}
+
+.wr5-session-row .wr5-session {
+  width: 100%;
+}
+
+.wr5-session-empty {
+  margin: 20px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.wr5-session-rename {
+  padding: 8px;
+}
+
+.wr5-session-rename input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 10px;
+  border: 1px solid var(--blue);
+  border-radius: 5px;
+  background: white;
+  color: var(--ink);
+  font: 700 14px/1.4 var(--sans);
+}
+
+.wr5-session-context-menu,
+.wr5-message-menu {
+  min-width: 220px;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: white;
+  box-shadow: 0 14px 38px rgba(20, 29, 25, .2);
+}
+
+.wr5-session-context-menu {
+  position: fixed;
+  z-index: 90;
+}
+
+.wr5-session-context-menu button,
+.wr5-message-menu button {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  font: 700 13px/1.3 var(--sans);
+  text-align: left;
+}
+
+.wr5-session-context-menu button:hover,
+.wr5-message-menu button:hover,
+.wr5-session-context-menu button:focus-visible,
+.wr5-message-menu button:focus-visible {
+  background: #eef2ed;
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+.wr5-session-context-menu button.danger,
+.wr5-message-menu button.danger {
+  color: var(--red);
+}
+
+.wr5-message-content {
+  position: relative;
+  min-width: 0;
+  padding-bottom: 38px;
+}
+
+.wr5-message-actions {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+}
+
+.wr5-message-actions > .wr5-icon-button {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.wr5-message-menu {
+  position: absolute;
+  z-index: 65;
+  right: 0;
+  bottom: 42px;
+}
+
+.wr5-message-edit textarea {
+  width: 100%;
+  min-height: 110px;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--ink);
+  font: 15px/1.55 var(--sans);
+  resize: vertical;
+}
+
+.wr5-message-edit > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.wr5-reasoning {
+  margin: 0 0 14px;
+  border-top: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.wr5-reasoning summary {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  list-style: none;
+}
+
+.wr5-reasoning summary::before {
+  content: "›";
+  transform: rotate(0deg);
+  transition: transform 140ms ease;
+}
+
+.wr5-reasoning[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.wr5-proposals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.wr5-message-error {
+  color: var(--red);
+  font-size: 13px;
+}
+
+.wr5-message-cancelled {
+  display: inline-flex;
+  margin: 8px 0 0;
+  padding: 3px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.wr5-icon-tool {
+  min-width: 36px;
+  padding-inline: 8px;
+}
+
+.wr5-runtime-popover {
+  right: auto;
+  left: 260px;
+}
+
+.wr5-runtime-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wr5-runtime-field select,
+.wr5-runtime-field input {
+  min-height: 38px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: white;
+  color: var(--ink);
+}
+
+.wr5-runtime-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.wr5-runtime-budget {
+  display: grid;
+  gap: 10px;
+}
+
+.wr5-draft-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px 0;
+}
+
+.wr5-draft-attachment {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 4px 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.wr5-draft-attachment button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.wr5-merged-send {
+  min-width: 108px;
+  justify-content: center;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.wr5-merged-send.is-busy {
+  border-color: #d7b56d;
+  background: #fff6df;
+  color: #76530b;
+}
+
+.wr5-send-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: wr5-send-spin 700ms linear infinite;
+}
+
+@keyframes wr5-send-spin {
+  to { transform: rotate(360deg); }
+}
+
+.wr5-modal-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(20, 29, 25, .48);
+}
+
+.wr5-simple-dialog {
+  width: min(560px, 100%);
+  padding: 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 24px 70px rgba(20, 29, 25, .28);
+}
+
+.wr5-simple-dialog h2 {
+  margin: 0 0 10px;
+}
+
+.wr5-simple-dialog textarea {
+  width: 100%;
+  min-height: 160px;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+}
+
+.wr5-simple-dialog footer,
+.wr5-dialog-options {
+  display: flex;
+  gap: 10px;
+}
+
+.wr5-simple-dialog footer {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.wr5-dialog-options {
+  flex-direction: column;
+}
+
+.wr5-review-backdrop.is-open {
+  display: grid;
+  z-index: 105;
+}
+
+.wr5-tool-payload {
+  max-height: 50vh;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #f6f8f4;
+  color: var(--ink);
+  font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.wr5-toast.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.wr5 :focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wr5 *,
+  .wr5 *::before,
+  .wr5 *::after,
+  .wr5-toast,
+  .wr5-merged-send {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@media (pointer: coarse) {
+  .wr5-session-context-menu button,
+  .wr5-message-menu button,
+  .wr5-icon-tool,
+  .wr5-message-actions > .wr5-icon-button {
+    min-height: 44px;
+  }
+}
+
+.st7-page.is-provider-bridge > :not(.workshop-provider-settings-bridge) {
+  display: none !important;
+}
+
+.workshop-provider-settings-bridge {
+  display: grid;
+  gap: 20px;
+}
+
+.workshop-provider-settings-bridge > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.workshop-provider-settings-bridge h2 {
+  margin: 0;
+}
+
+.workshop-provider-settings-bridge p {
+  max-width: 760px;
+  margin: 7px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.workshop-provider-settings-disabled {
+  padding: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #f6f8f4;
+  color: var(--muted);
+}

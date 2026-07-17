@@ -20,7 +20,7 @@ describe("Workshop route ownership", () => {
       expect(recordSource).toContain(`"${path}"`);
       expect(orchestrationSource).not.toContain(`"${path}"`);
     }
-    expect(orchestrationSource.match(/registerWorkshopRecordRoutes\(app, repository\)/gu)).toHaveLength(1);
+    expect(orchestrationSource.match(/registerWorkshopRecordRoutes\(app, repository, \{/gu)).toHaveLength(1);
     expect(recordSource).not.toMatch(/ProviderRegistry|EmbeddingRouter|WorkshopAgentCoordinator|codexDraft/u);
   });
 });

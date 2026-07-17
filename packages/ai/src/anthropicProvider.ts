@@ -1,10 +1,15 @@
 import type { z } from "zod";
 import {
+  normalizeReasoningConfigurationForModel,
+  ModelParametersSchema,
   TokenUsageSchema,
   type ContextBundle,
   type ModelCallError,
   type ModelParameters,
   type ModelProfile,
+  type ProviderReasoningControl,
+  type ReasoningConfiguration,
+  type ReasoningOutputKind,
   type TokenUsage,
 } from "@novel-studio/contracts";
 import type { CredentialStore } from "./credentials.js";
@@ -12,6 +17,7 @@ import { CredentialStoreError } from "./credentials.js";
 import { classifyProviderError, ProviderAdapterError } from "./errors.js";
 import type {
   ProviderAdapter,
+  ProviderChatStreamEvent,
   ProviderChatRequest,
   ProviderChatResult,
   ProviderConnectionResult,
@@ -21,6 +27,7 @@ import type {
   ProviderObjectRequest,
   ProviderPrompt,
   ProviderTextRequest,
+  ProviderTextStreamEvent,
 } from "./provider.js";
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -66,10 +73,22 @@ interface AnthropicMessageBody {
 }
 
 interface AnthropicStreamEvent {
-  delta?: { text?: unknown; type?: unknown };
+  delta?: {
+    thinking?: unknown;
+    text?: unknown;
+    type?: unknown;
+    stop_reason?: unknown;
+  };
   error?: { message?: unknown; type?: unknown };
+  message?: { usage?: { input_tokens?: unknown; output_tokens?: unknown } };
   type?: unknown;
+  usage?: { input_tokens?: unknown; output_tokens?: unknown };
 }
+
+type AnthropicParsedStreamEvent =
+  | ProviderTextStreamEvent
+  | { type: "usage"; inputTokens?: number; outputTokens?: number }
+  | { type: "finish"; finishReason: string | null };
 
 const ANTHROPIC_API_VERSION = "2023-06-01";
 const ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com";
@@ -84,6 +103,49 @@ const ANTHROPIC_CAPABILITIES = {
   tokenEstimate: true,
   modelList: true,
 } as const;
+
+const ANTHROPIC_EXACT_REASONING_CONTROLS: Readonly<Record<string, ProviderReasoningControl>> = {
+  "claude-fable-5": {
+    kind: "effort",
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "high",
+    canDisable: false,
+  },
+  "claude-opus-4-8": {
+    kind: "effort",
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "high",
+    canDisable: true,
+  },
+  "claude-opus-4-7": {
+    kind: "effort",
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "high",
+    canDisable: true,
+  },
+  "claude-opus-4-6": {
+    kind: "effort",
+    efforts: ["low", "medium", "high", "max"],
+    defaultEffort: "high",
+    canDisable: true,
+  },
+  "claude-sonnet-4-6": {
+    kind: "effort",
+    efforts: ["low", "medium", "high", "max"],
+    defaultEffort: "high",
+    canDisable: true,
+  },
+  "claude-sonnet-5": {
+    kind: "effort",
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "high",
+    canDisable: true,
+  },
+};
+
+function anthropicReasoningControl(modelId: string): ProviderReasoningControl {
+  return ANTHROPIC_EXACT_REASONING_CONTROLS[modelId] ?? { kind: "unsupported" };
+}
 
 function sanitizeProviderMessage(value: unknown): string {
   const text = typeof value === "string" && value.trim()
@@ -137,21 +199,16 @@ function anthropicEndpoint(
   return url.toString();
 }
 
-function mergedParameters(profile: ModelProfile, requestParameters?: ModelParameters): ModelParameters {
-  return {
-    ...profile.defaultParameters,
-    ...requestParameters,
-  };
-}
-
 function anthropicMessageBody(
   modelProfile: ModelProfile,
   prompt: ProviderPrompt,
   contextBundle: ContextBundle | null,
-  parameters: ModelParameters | undefined,
+  resolvedParameters: ModelParameters,
   stream: boolean,
+  history: ProviderChatRequest["history"] = [],
 ): Record<string, unknown> {
-  const merged = mergedParameters(modelProfile, parameters);
+  const merged = resolvedParameters;
+  const reasoning: ReasoningConfiguration | null = merged.reasoning ?? null;
   const body: Record<string, unknown> = {
     model: modelProfile.model,
     max_tokens: typeof merged.maxOutputTokens === "number"
@@ -159,6 +216,16 @@ function anthropicMessageBody(
       : ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS,
     system: [prompt.system, prompt.instructions].filter(Boolean).join("\n\n"),
     messages: [
+      ...(history ?? []).map((message) => {
+        if (message.role === "tool" || (message.role === "assistant" && message.toolCalls?.length)) {
+          throw new ProviderAdapterError(
+            "model-unavailable",
+            "Anthropic tool-call history is not implemented by this adapter.",
+            { retryable: false },
+          );
+        }
+        return { role: message.role, content: message.content };
+      }),
       {
         role: "user",
         content: [
@@ -169,13 +236,27 @@ function anthropicMessageBody(
     ],
   };
 
+  if (reasoning?.mode === "disabled") {
+    body.thinking = { type: "disabled" };
+  } else if (reasoning?.mode === "effort") {
+    body.thinking = { type: "adaptive", display: "summarized" };
+    body.output_config = { effort: reasoning.effort };
+  }
+
   if (stream) body.stream = true;
-  if (typeof merged.temperature === "number") body.temperature = merged.temperature;
-  if (typeof merged.topP === "number") body.top_p = merged.topP;
+  if (!reasoning || reasoning.mode === "disabled") {
+    if (typeof merged.temperature === "number") body.temperature = merged.temperature;
+    if (typeof merged.topP === "number") body.top_p = merged.topP;
+  }
 
   for (const [key, value] of Object.entries(merged)) {
     if (value === undefined || value === null) continue;
-    if (key === "temperature" || key === "topP" || key === "maxOutputTokens") continue;
+    if (
+      key === "temperature" ||
+      key === "topP" ||
+      key === "maxOutputTokens" ||
+      key === "reasoning"
+    ) continue;
     body[key] = value;
   }
   return body;
@@ -213,6 +294,7 @@ function descriptorFromAnthropicModel(
       ? source.max_input_tokens
       : modelProfile.contextWindowTokens,
     capabilities: modelProfile.capabilities,
+    reasoning: anthropicReasoningControl(id),
   };
 }
 
@@ -313,72 +395,102 @@ export class AnthropicProvider implements ProviderAdapter {
     return [...models.values()];
   }
 
-  async *streamText(request: ProviderTextRequest): AsyncIterable<string> {
-    this.assertProfileProvider(request.modelProfile);
-    this.assertContextFits(request);
-    const secret = await this.readRequiredSecret(request.modelProfile);
-    const init: RequestInit = {
-      method: "POST",
-      headers: this.headers(secret),
-      body: JSON.stringify(anthropicMessageBody(
-        request.modelProfile,
-        request.prompt,
-        request.contextBundle,
-        request.parameters,
-        true,
-      )),
+  async resolveParameters(
+    modelProfile: ModelProfile,
+    requestParameters?: ModelParameters,
+  ): Promise<ModelParameters> {
+    this.assertProfileProvider(modelProfile);
+    const resolved: ModelParameters = {
+      ...modelProfile.defaultParameters,
+      ...requestParameters,
     };
-    if (request.abortSignal) init.signal = request.abortSignal;
-    const response = await this.fetchImpl(
-      anthropicEndpoint(request.modelProfile.baseUrl, "/v1/messages"),
-      init,
-    );
-    await this.assertOk(response);
-    if (!response.body) {
-      throw new ProviderAdapterError("provider-error", "Anthropic did not return a readable stream.", {
-        providerStatus: response.status,
-      });
+    if (resolved.maxOutputTokens === undefined) {
+      resolved.maxOutputTokens = ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS;
     }
+    let reasoning: ReasoningConfiguration | null;
+    try {
+      reasoning = normalizeReasoningConfigurationForModel(
+        anthropicReasoningControl(modelProfile.model),
+        resolved.reasoning ?? modelProfile.reasoningPreference,
+      );
+    } catch (error) {
+      throw new ProviderAdapterError(
+        "model-unavailable",
+        error instanceof Error ? error.message : "The reasoning preference is invalid for this exact model.",
+        { retryable: false, cause: error },
+      );
+    }
+    if (reasoning) resolved.reasoning = reasoning;
+    else delete resolved.reasoning;
+    if (reasoning && reasoning.mode !== "disabled") {
+      delete resolved.temperature;
+      delete resolved.topP;
+    }
+    return ModelParametersSchema.parse(resolved);
+  }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const chunks = buffer.split(/\r?\n\r?\n/u);
-      buffer = chunks.pop() ?? "";
-      for (const chunk of chunks) {
-        const text = this.deltaFromSse(chunk);
-        if (text) yield text;
-      }
-    }
-    buffer += decoder.decode();
-    if (buffer.trim()) {
-      const text = this.deltaFromSse(buffer);
-      if (text) yield text;
+  async *streamText(request: ProviderTextRequest): AsyncIterable<ProviderTextStreamEvent> {
+    for await (const event of this.streamResponse(request)) {
+      if (event.type === "answer-delta" || event.type === "reasoning-delta") yield event;
     }
   }
 
-  async completeChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
+  async *streamChat(request: ProviderChatRequest): AsyncIterable<ProviderChatStreamEvent> {
     if (request.tools?.length) {
       throw new ProviderAdapterError(
         "model-unavailable",
-        "Anthropic native tool calls are not implemented by this adapter.",
+        "Anthropic native streamed tool calls are not implemented by this adapter.",
         { retryable: false },
       );
     }
     let text = "";
-    for await (const chunk of this.streamText(request)) text += chunk;
-    return {
-      text,
-      reasoningContent: "",
-      toolCalls: [],
-      finishReason: "stop",
-      usage: null,
-      rawResponseText: JSON.stringify({ content: text }),
+    let reasoningContent = "";
+    let reasoningOutputKind: ReasoningOutputKind = "none";
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let finishReason: string | null = null;
+    for await (const event of this.streamResponse(request, request.history)) {
+      if (event.type === "answer-delta") {
+        text += event.text;
+        yield event;
+      } else if (event.type === "reasoning-delta") {
+        reasoningContent += event.text;
+        reasoningOutputKind = "summary";
+        yield event;
+      } else if (event.type === "usage") {
+        if (event.inputTokens !== undefined) inputTokens = event.inputTokens;
+        if (event.outputTokens !== undefined) outputTokens = event.outputTokens;
+      } else {
+        finishReason = event.finishReason;
+      }
+    }
+    yield {
+      type: "done",
+      result: {
+        text,
+        reasoningContent,
+        reasoningOutputKind,
+        toolCalls: [],
+        finishReason,
+        usage: inputTokens || outputTokens
+          ? TokenUsageSchema.parse({
+            inputTokens,
+            outputTokens,
+            totalTokens: inputTokens + outputTokens,
+          })
+          : null,
+        rawResponseText: JSON.stringify({ content: text, thinking: reasoningContent }),
+      },
     };
+  }
+
+  async completeChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
+    for await (const event of this.streamChat(request)) {
+      if (event.type === "done") return event.result;
+    }
+    throw new ProviderAdapterError("provider-error", "Anthropic did not finish its response.", {
+      retryable: true,
+    });
   }
 
   async generateObject<T>(
@@ -392,6 +504,7 @@ export class AnthropicProvider implements ProviderAdapter {
       request.prompt.user,
       `Return only valid JSON${request.outputSchemaName ? ` for ${request.outputSchemaName}` : ""}.`,
     ].join("\n\n");
+    const resolvedParameters = await this.parametersForRequest(request);
     const init: RequestInit = {
       method: "POST",
       headers: this.headers(secret),
@@ -399,7 +512,7 @@ export class AnthropicProvider implements ProviderAdapter {
         request.modelProfile,
         { ...request.prompt, user: jsonInstruction },
         request.contextBundle,
-        request.parameters,
+        resolvedParameters,
         false,
       )),
     };
@@ -448,6 +561,57 @@ export class AnthropicProvider implements ProviderAdapter {
 
   classifyError(error: unknown): ModelCallError {
     return classifyProviderError(error);
+  }
+
+  private async *streamResponse(
+    request: ProviderTextRequest,
+    history: ProviderChatRequest["history"] = [],
+  ): AsyncIterable<AnthropicParsedStreamEvent> {
+    this.assertProfileProvider(request.modelProfile);
+    this.assertContextFits(request);
+    const secret = await this.readRequiredSecret(request.modelProfile);
+    const resolvedParameters = await this.parametersForRequest(request);
+    const init: RequestInit = {
+      method: "POST",
+      headers: this.headers(secret),
+      body: JSON.stringify(anthropicMessageBody(
+        request.modelProfile,
+        request.prompt,
+        request.contextBundle,
+        resolvedParameters,
+        true,
+        history,
+      )),
+    };
+    if (request.abortSignal) init.signal = request.abortSignal;
+    const response = await this.fetchImpl(
+      anthropicEndpoint(request.modelProfile.baseUrl, "/v1/messages"),
+      init,
+    );
+    await this.assertOk(response);
+    if (!response.body) {
+      throw new ProviderAdapterError("provider-error", "Anthropic did not return a readable stream.", {
+        providerStatus: response.status,
+      });
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split(/\r?\n\r?\n/u);
+      buffer = chunks.pop() ?? "";
+      for (const chunk of chunks) {
+        for (const event of this.eventsFromSse(chunk)) yield event;
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      for (const event of this.eventsFromSse(buffer)) yield event;
+    }
   }
 
   private headers(secret: string): Record<string, string> {
@@ -508,36 +672,64 @@ export class AnthropicProvider implements ProviderAdapter {
     });
   }
 
-  private deltaFromSse(raw: string): string {
-    const data = raw
+  private eventsFromSse(raw: string): AnthropicParsedStreamEvent[] {
+    const dataItems = raw
       .split(/\r?\n/u)
       .map((line) => line.trim())
       .filter((line) => line.startsWith("data:"))
       .map((line) => line.slice("data:".length).trim())
-      .join("\n")
-      .trim();
-    if (!data) return "";
+      .filter(Boolean);
+    const parsedEvents: AnthropicParsedStreamEvent[] = [];
+    for (const data of dataItems) {
+      let event: AnthropicStreamEvent;
+      try {
+        event = JSON.parse(data) as AnthropicStreamEvent;
+      } catch (error) {
+        throw new ProviderAdapterError("provider-error", "Anthropic returned an unparsable stream event.", {
+          retryable: false,
+          cause: error,
+        });
+      }
 
-    let event: AnthropicStreamEvent;
-    try {
-      event = JSON.parse(data) as AnthropicStreamEvent;
-    } catch (error) {
-      throw new ProviderAdapterError("provider-error", "Anthropic returned an unparsable stream event.", {
-        retryable: false,
-        cause: error,
-      });
+      if (event.type === "error") {
+        throw new ProviderAdapterError(
+          errorCodeFromStatus(529, typeof event.error?.type === "string" ? event.error.type : undefined),
+          sanitizeProviderMessage(event.error?.message),
+          { retryable: true, providerStatus: 529 },
+        );
+      }
+      if (event.type === "message_start") {
+        const inputTokens = event.message?.usage?.input_tokens;
+        if (typeof inputTokens === "number") {
+          parsedEvents.push({ type: "usage", inputTokens });
+        }
+      } else if (event.type === "message_delta") {
+        const outputTokens = event.usage?.output_tokens;
+        if (typeof outputTokens === "number") {
+          parsedEvents.push({ type: "usage", outputTokens });
+        }
+        parsedEvents.push({
+          type: "finish",
+          finishReason: typeof event.delta?.stop_reason === "string"
+            ? event.delta.stop_reason
+            : null,
+        });
+      } else if (event.type === "content_block_delta") {
+        if (event.delta?.type === "text_delta" && typeof event.delta.text === "string") {
+          parsedEvents.push({ type: "answer-delta", text: event.delta.text });
+        } else if (
+          event.delta?.type === "thinking_delta" &&
+          typeof event.delta.thinking === "string"
+        ) {
+          parsedEvents.push({
+            type: "reasoning-delta",
+            text: event.delta.thinking,
+            outputKind: "summary",
+          });
+        }
+      }
     }
-
-    if (event.type === "error") {
-      throw new ProviderAdapterError(
-        errorCodeFromStatus(529, typeof event.error?.type === "string" ? event.error.type : undefined),
-        sanitizeProviderMessage(event.error?.message),
-        { retryable: true, providerStatus: 529 },
-      );
-    }
-    if (event.type !== "content_block_delta") return "";
-    if (event.delta?.type !== "text_delta") return "";
-    return typeof event.delta.text === "string" ? event.delta.text : "";
+    return parsedEvents;
   }
 
   private assertContextFits(request: ProviderTextRequest): void {
@@ -555,6 +747,36 @@ export class AnthropicProvider implements ProviderAdapter {
         retryable: false,
       });
     }
+  }
+
+  private async parametersForRequest(request: ProviderTextRequest): Promise<ModelParameters> {
+    if (!request.resolvedParameters) {
+      return this.resolveParameters(request.modelProfile, request.parameters);
+    }
+    const resolved = ModelParametersSchema.parse(request.resolvedParameters);
+    const normalizedReasoning = normalizeReasoningConfigurationForModel(
+      anthropicReasoningControl(request.modelProfile.model),
+      resolved.reasoning,
+    );
+    if (JSON.stringify(normalizedReasoning) !== JSON.stringify(resolved.reasoning ?? null)) {
+      throw new ProviderAdapterError(
+        "model-unavailable",
+        "The supplied resolved reasoning parameters do not match the exact Anthropic model.",
+        { retryable: false },
+      );
+    }
+    if (
+      normalizedReasoning &&
+      normalizedReasoning.mode !== "disabled" &&
+      (resolved.temperature !== undefined || resolved.topP !== undefined)
+    ) {
+      throw new ProviderAdapterError(
+        "model-unavailable",
+        "Resolved Anthropic thinking parameters must omit temperature and topP.",
+        { retryable: false },
+      );
+    }
+    return resolved;
   }
 }
 

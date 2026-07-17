@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   CreateWorkshopBranchInputSchema,
   AbandonWorkshopAgentRunInputSchema,
+  CancelWorkshopCallResultSchema,
   ContextBundleSchema,
   ExecuteWorkshopCodexCreateEntryToolInputSchema,
   ExecuteWorkshopCodexUpdateEntryToolInputSchema,
@@ -10,6 +11,7 @@ import {
   WorkshopCodexCreateEntryToolResultSchema,
   WorkshopCodexUpdateEntryToolResultSchema,
   ModelCallLogSchema,
+  NewModelCallLogV2Schema,
   ResendWorkshopMessageInputSchema,
   ResendWorkshopMessageResultSchema,
   RetryWorkshopAgentRunInputSchema,
@@ -30,6 +32,7 @@ import {
   type ModelCallLog,
   type ModelParameters,
   type ModelProfile,
+  type ReasoningOutputKind,
   type TokenUsage,
   type WorkshopContextBasket,
   type WorkshopAgentRunDocument,
@@ -39,7 +42,13 @@ import {
   type WorkshopMessage,
   type WorkshopSession,
 } from "@novel-studio/contracts";
-import type { EmbeddingRouter, ProviderPrompt, ProviderRegistry } from "@novel-studio/ai";
+import type {
+  EmbeddingRouter,
+  ProviderChatResult,
+  ProviderChatStreamEvent,
+  ProviderPrompt,
+  ProviderRegistry,
+} from "@novel-studio/ai";
 import {
   StorageError,
   type ProjectRepository,
@@ -68,7 +77,7 @@ import {
 } from "../workshop/codexDraft.js";
 import { planWorkshopDetailSchema } from "../workshop/detailSchemaPlanner.js";
 import { WorkshopAgentCoordinator } from "../workshop/workshopAgentCoordinator.js";
-import { createReasoningParser, splitReasoningContent } from "../workshop/workshopReasoning.js";
+import { WorkshopCallRegistry } from "../workshop/workshopCallRegistry.js";
 import {
   workshopPromptDefinition,
   workshopProviderPrompt as workshopModeProviderPrompt,
@@ -158,8 +167,9 @@ function manualContextIds(basket: WorkshopContextBasket): string[] {
     if (!item.sourceId) return [];
     if (item.kind === "full-novel") return [`full-novel:${item.sourceId}`];
     if (item.kind === "full-outline") return [`full-outline:${item.sourceId}`];
-    if (item.kind === "act") return [`act:${item.sourceId}`];
+    if (item.kind === "volume") return [`volume:${item.sourceId}`];
     if (item.kind === "chapter") return [`chapter:${item.sourceId}`];
+    if (item.kind === "act") return [`act:${item.sourceId}`];
     if (item.kind === "scene") return [`scene:${item.sourceId}`];
     if (item.kind === "codex-entry") return [`codex:${item.sourceId}`];
     return [];
@@ -301,12 +311,12 @@ function baseModelCallLog(input: {
   contextBundle: ContextBundle;
   requestContextBundle?: ContextBundle;
   prompt: ProviderPrompt;
-  parameters: ModelParameters;
+  resolvedParameters: ModelParameters;
   estimatedUsage: TokenUsage;
   startedAt: string;
 }): ModelCallLog {
-  return ModelCallLogSchema.parse({
-    schemaVersion: 1,
+  return NewModelCallLogV2Schema.parse({
+    schemaVersion: 2,
     id: input.callId,
     seriesId: input.seriesId,
     sceneId: input.contextBundle.sceneId,
@@ -321,8 +331,9 @@ function baseModelCallLog(input: {
       modelProfile: input.modelProfile,
       contextBundle: input.requestContextBundle ?? input.contextBundle,
       prompt: input.prompt,
-      parameters: input.parameters,
+      parameters: input.resolvedParameters,
     }),
+    resolvedParameters: input.resolvedParameters,
     responseHash: null,
     status: "pending",
     estimatedUsage: input.estimatedUsage,
@@ -335,17 +346,72 @@ function baseModelCallLog(input: {
   });
 }
 
-function failedLog(baseLog: ModelCallLog, error: ModelCallError, responseText = ""): ModelCallLog {
+function failedLog(
+  baseLog: ModelCallLog,
+  error: ModelCallError,
+  responseText = "",
+  reasoningText = "",
+): ModelCallLog {
+  const producedOutput = `${reasoningText}${responseText}`;
   return ModelCallLogSchema.parse({
     ...baseLog,
     status: "failed",
-    responseHash: responseText ? hashText(responseText) : null,
-    actualUsage: usage(baseLog.estimatedUsage.inputTokens, responseText),
+    responseHash: producedOutput ? hashText(`${reasoningText}\n${responseText}`) : null,
+    actualUsage: usage(baseLog.estimatedUsage.inputTokens, producedOutput),
     errorCode: error.code,
     errorMessage: error.message,
     error,
     completedAt: new Date().toISOString(),
   });
+}
+
+function cancelledLog(baseLog: ModelCallLog, responseText: string, reasoningText: string): ModelCallLog {
+  return ModelCallLogSchema.parse({
+    ...baseLog,
+    status: "cancelled",
+    responseHash: responseText || reasoningText ? hashText(`${reasoningText}\n${responseText}`) : null,
+    actualUsage: baseLog.actualUsage ?? usage(
+      baseLog.estimatedUsage.inputTokens,
+      `${reasoningText}${responseText}`,
+    ),
+    errorCode: null,
+    errorMessage: null,
+    error: null,
+    completedAt: new Date().toISOString(),
+  });
+}
+
+interface WorkshopPreflightResult {
+  log: null;
+  preflightStatus: "failed" | "cancelled";
+  preflightError: ModelCallError | null;
+  estimatedUsage: TokenUsage;
+  responseText: string;
+  reasoningText: string;
+  reasoningOutputKind: ReasoningOutputKind;
+}
+
+type WorkshopExecutionResult = WorkshopPreflightResult | {
+  log: ModelCallLog;
+  responseText: string;
+  reasoningText: string;
+  reasoningOutputKind: ReasoningOutputKind;
+};
+
+function preflightResult(
+  estimatedUsage: TokenUsage,
+  status: "failed" | "cancelled",
+  error: ModelCallError | null,
+): WorkshopPreflightResult {
+  return {
+    log: null,
+    preflightStatus: status,
+    preflightError: error,
+    estimatedUsage,
+    responseText: "",
+    reasoningText: "",
+    reasoningOutputKind: "none",
+  };
 }
 
 async function executeWorkshopCall(input: {
@@ -359,38 +425,41 @@ async function executeWorkshopCall(input: {
   prompt?: ProviderPrompt;
   parameters: ModelParameters;
   abortSignal?: AbortSignal;
-  onChunk?: (chunk: string) => void | Promise<void>;
+  onStreamEvent?: (
+    event: Exclude<ProviderChatStreamEvent, { type: "done" }>,
+  ) => void | Promise<void>;
   onStreamingLog?: (log: ModelCallLog) => void | Promise<void>;
-}): Promise<{ log: ModelCallLog; responseText: string }> {
+}): Promise<WorkshopExecutionResult> {
   const { repository, providerRegistry, seriesId, contextBundle, modelProfile, parameters } = input;
   const prompt = input.prompt ?? contextPrompt(contextBundle);
   const providerContextBundle = input.providerContextBundle ?? contextBundle;
+  if (input.abortSignal?.aborted) {
+    const estimatedUsage = combinedInputUsage(providerContextBundle, modelProfile, prompt, null);
+    return preflightResult(estimatedUsage, "cancelled", null);
+  }
   let adapter;
   try {
     adapter = providerRegistry.get(modelProfile.provider);
   } catch {
     const estimatedUsage = combinedInputUsage(providerContextBundle, modelProfile, prompt, null);
-    const baseLog = baseModelCallLog({
-      seriesId,
-      callId: randomUUID(),
-      modelProfile,
-      contextBundle,
-      requestContextBundle: providerContextBundle,
-      prompt,
-      parameters,
-      estimatedUsage,
-      startedAt: new Date().toISOString(),
-    });
     const error = modelError(
       "provider-unavailable",
       "当前版本还没有启用这个 Provider。不会自动回退到其他模型。",
       true,
     );
-    const log = failedLog(baseLog, error);
-    await repository.saveModelCallLog(seriesId, log);
-    return { log, responseText: "" };
+    return preflightResult(estimatedUsage, "failed", error);
   }
 
+  let resolvedParameters: ModelParameters;
+  try {
+    resolvedParameters = await adapter.resolveParameters(modelProfile, parameters);
+  } catch (caught) {
+    const estimatedUsage = combinedInputUsage(providerContextBundle, modelProfile, prompt, providerRegistry);
+    if (input.abortSignal?.aborted || (caught instanceof Error && caught.name === "AbortError")) {
+      return preflightResult(estimatedUsage, "cancelled", null);
+    }
+    return preflightResult(estimatedUsage, "failed", adapter.classifyError(caught));
+  }
   const estimatedUsage = combinedInputUsage(providerContextBundle, modelProfile, prompt, providerRegistry);
   const baseLog = baseModelCallLog({
     seriesId,
@@ -399,53 +468,101 @@ async function executeWorkshopCall(input: {
     contextBundle,
     requestContextBundle: providerContextBundle,
     prompt,
-    parameters,
+    resolvedParameters,
     estimatedUsage,
     startedAt: new Date().toISOString(),
   });
 
-  await repository.saveModelCallLog(seriesId, baseLog);
+  if (input.abortSignal?.aborted) {
+    return preflightResult(estimatedUsage, "cancelled", null);
+  }
   const blocked = ensureCredentialBoundary(modelProfile);
   if (blocked) {
-    const log = failedLog(baseLog, blocked);
-    await repository.saveModelCallLog(seriesId, log);
-    return { log, responseText: "" };
+    return preflightResult(estimatedUsage, "failed", blocked);
   }
   if (estimatedUsage.inputTokens > modelProfile.contextWindowTokens) {
     const error = modelError("context-too-large", "上下文超过模型窗口，调用已拒绝。", false);
-    const log = failedLog(baseLog, error);
-    await repository.saveModelCallLog(seriesId, log);
-    return { log, responseText: "" };
+    return preflightResult(estimatedUsage, "failed", error);
   }
 
+  await repository.saveModelCallLog(seriesId, baseLog);
+  if (input.abortSignal?.aborted) {
+    const log = cancelledLog(baseLog, "", "");
+    await repository.saveModelCallLog(seriesId, log);
+    return { log, responseText: "", reasoningText: "", reasoningOutputKind: "none" };
+  }
   let latestLog = ModelCallLogSchema.parse({ ...baseLog, status: "streaming" });
   await repository.saveModelCallLog(seriesId, latestLog);
   await input.onStreamingLog?.(latestLog);
   let responseText = "";
+  let reasoningText = "";
+  let reasoningOutputKind: ReasoningOutputKind = "none";
+  let providerResult: ProviderChatResult | null = null;
   try {
-    for await (const chunk of adapter.streamText({
+    if (input.abortSignal?.aborted) {
+      const abortError = new Error("Workshop call cancelled by the author");
+      abortError.name = "AbortError";
+      throw abortError;
+    }
+    for await (const event of adapter.streamChat({
       modelProfile,
       prompt,
       contextBundle: providerContextBundle,
-      parameters,
+      resolvedParameters,
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     })) {
-      responseText += chunk;
-      await input.onChunk?.(chunk);
+      if (input.abortSignal?.aborted) {
+        const abortError = new Error("Workshop call cancelled by the author");
+        abortError.name = "AbortError";
+        throw abortError;
+      }
+      if (event.type === "done") {
+        if (providerResult) {
+          throw modelError("provider-error", "The Provider returned more than one terminal result.");
+        }
+        providerResult = event.result;
+        continue;
+      }
+      if (event.type === "reasoning-delta") {
+        reasoningText += event.text;
+        reasoningOutputKind = event.outputKind === "full" ? "full" : reasoningOutputKind === "full" ? "full" : "summary";
+      } else {
+        responseText += event.text;
+      }
+      await input.onStreamEvent?.(event);
     }
+    if (input.abortSignal?.aborted) {
+      const abortError = new Error("Workshop call cancelled by the author");
+      abortError.name = "AbortError";
+      throw abortError;
+    }
+    if (!providerResult) {
+      throw modelError("provider-error", "The Provider stream ended without a terminal result.", true);
+    }
+    responseText = providerResult.text;
+    reasoningText = providerResult.reasoningContent;
+    reasoningOutputKind = providerResult.reasoningOutputKind;
     latestLog = ModelCallLogSchema.parse({
       ...latestLog,
       status: "succeeded",
-      responseHash: hashText(responseText),
-      actualUsage: usage(estimatedUsage.inputTokens, responseText),
+      responseHash: hashText(providerResult.rawResponseText || `${reasoningText}\n${responseText}`),
+      actualUsage: providerResult.usage ?? usage(
+        estimatedUsage.inputTokens,
+        `${reasoningText}${responseText}`,
+      ),
       completedAt: new Date().toISOString(),
     });
     await repository.saveModelCallLog(seriesId, latestLog);
-    return { log: latestLog, responseText };
+    return { log: latestLog, responseText, reasoningText, reasoningOutputKind };
   } catch (caught) {
-    const log = failedLog(baseLog, adapter.classifyError(caught), responseText);
+    if (input.abortSignal?.aborted || (caught instanceof Error && caught.name === "AbortError")) {
+      const log = cancelledLog(baseLog, responseText, reasoningText);
+      await repository.saveModelCallLog(seriesId, log);
+      return { log, responseText, reasoningText, reasoningOutputKind };
+    }
+    const log = failedLog(baseLog, adapter.classifyError(caught), responseText, reasoningText);
     await repository.saveModelCallLog(seriesId, log);
-    return { log, responseText };
+    return { log, responseText, reasoningText, reasoningOutputKind };
   }
 }
 
@@ -859,7 +976,11 @@ export function registerWorkshopRoutes(
 ): void {
   const { embeddingRouter, providerRegistry } = options;
   const agentCoordinator = new WorkshopAgentCoordinator();
-  registerWorkshopRecordRoutes(app, repository);
+  const callRegistry = new WorkshopCallRegistry();
+  registerWorkshopRecordRoutes(app, repository, {
+    guardSessionLifecycle: (seriesId, sessionId, mutation) =>
+      callRegistry.guardSessionLifecycle(seriesId, sessionId, mutation),
+  });
 
   async function continueToolResult(input: {
     seriesId: string;
@@ -906,7 +1027,10 @@ export function registerWorkshopRoutes(
 
   app.post<{ Params: { seriesId: string; sessionId: string; runId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/agent-runs/:runId/retry",
-    async (request, reply) => {
+    async (request, reply) => callRegistry.guardSessionActivity(
+      request.params.seriesId,
+      request.params.sessionId,
+      async () => {
       const input = RetryWorkshopAgentRunInputSchema.parse(request.body);
       const run = await repository.getWorkshopAgentRun(
         request.params.seriesId,
@@ -948,10 +1072,11 @@ export function registerWorkshopRoutes(
         agentRun: result.run,
         assistantMessage: result.assistantMessage,
         toolMessages: result.toolMessages,
-        modelCallId: result.modelCall.id,
+        modelCallId: result.modelCall?.id ?? null,
         responseText: result.responseText,
       });
-    },
+      },
+    ),
   );
 
   app.post<{ Params: { seriesId: string; sessionId: string; runId: string } }>(
@@ -972,6 +1097,14 @@ export function registerWorkshopRoutes(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/resend",
     async (request, reply) => {
       const input = ResendWorkshopMessageInputSchema.parse(request.body);
+      const operationId = input.operationId ?? randomUUID();
+      const callHandle = callRegistry.begin(
+        operationId,
+        request.params.seriesId,
+        request.params.sessionId,
+      );
+      const assistantMessageId = randomUUID();
+      try {
       const source = await repository.getWorkshopMessageSource(
         request.params.seriesId,
         request.params.messageId,
@@ -982,7 +1115,27 @@ export function registerWorkshopRoutes(
         request.params.messageId,
         input.content ?? source.message.content,
       );
+      const finishPreContextCancellation = async () => {
+        const cancelled = await createWorkshopPreContextCancellation({
+          operationId,
+          seriesId: request.params.seriesId,
+          sessionId: request.params.sessionId,
+          mode: "general-chat",
+          authorMessage: replacement.message,
+          assistantMessageId,
+        });
+        const result = ResendWorkshopMessageResultSchema.parse({
+          ...cancelled,
+          deletedAttachmentIds: replacement.deletedAttachmentIds,
+          deletedBranchIds: replacement.deletedBranchIds,
+          deletedMessageIds: replacement.deletedMessageIds,
+        });
+        callHandle.complete(result);
+        return result;
+      };
+      if (callHandle.abortSignal.aborted) return finishPreContextCancellation();
       const callInput = RunWorkshopCallInputSchema.parse({
+        operationId: input.operationId,
         mode: "general-chat",
         userRequest: replacement.message.content,
         roleId: input.roleId,
@@ -1002,25 +1155,39 @@ export function registerWorkshopRoutes(
       );
       let contextBundle;
       try {
+        const contextInput = await workshopContextPayload(
+          repository,
+          request.params.seriesId,
+          basket,
+          replacement.session,
+          callInput,
+          {
+            excludeWorkshopMessageId: replacement.message.id,
+          },
+        );
+        if (callHandle.abortSignal.aborted) throw new Error("Workshop call cancelled before context evidence was built");
         contextBundle = await buildContextBundle(
           repository,
           providerRegistry,
           request.params.seriesId,
-          await workshopContextPayload(repository, request.params.seriesId, basket, replacement.session, callInput, {
-            excludeWorkshopMessageId: replacement.message.id,
-          }),
+          contextInput,
         );
       } catch (error) {
-        if (sendContextError(reply, error)) return reply;
+        if (callHandle.abortSignal.aborted) return finishPreContextCancellation();
+        if (sendContextError(reply, error)) {
+          callHandle.fail(error);
+          return reply;
+        }
         throw error;
       }
+      if (callHandle.abortSignal.aborted) return finishPreContextCancellation();
       const modelProfile = effectiveModelProfile(
         await repository.getModelProfile(callInput.modelProfileId),
         callInput.modelOverride,
       );
       const prompt = await workshopProviderPrompt(contextBundle, callInput.mode, replacement.session);
       const providerContextBundle = workshopProviderContextBundle(contextBundle, callInput.mode);
-      const { log, responseText } = await executeWorkshopCall({
+      const execution = await executeWorkshopCall({
         repository,
         providerRegistry,
         seriesId: request.params.seriesId,
@@ -1030,36 +1197,57 @@ export function registerWorkshopRoutes(
         modelProfile,
         prompt,
         parameters: callInput.parameters,
+        abortSignal: callHandle.abortSignal,
       });
-      const { assistantMessage, toolMessages, responseText: finalResponseText } = await saveWorkshopAssistantTurn({
+      const {
+        log: finalLog,
+        assistantMessage,
+        toolMessages,
+        responseText: finalResponseText,
+        estimatedUsage,
+        actualUsage,
+      } = await saveWorkshopAssistantTurn({
         seriesId: request.params.seriesId,
         sessionId: request.params.sessionId,
         mode: "general-chat",
         userRequest: replacement.message.content,
-        log,
         contextBundle,
-        responseText,
+        execution,
+        assistantMessageId,
+        abortSignal: callHandle.abortSignal,
       });
-      return ResendWorkshopMessageResultSchema.parse({
+      const result = ResendWorkshopMessageResultSchema.parse({
+        operationId,
         authorMessage: replacement.message,
         assistantMessage,
         toolMessages,
         contextBundleId: contextBundle.id,
-        modelCallId: log.id,
+        modelCallId: finalLog?.id ?? null,
         status: assistantMessage.status,
         responseText: finalResponseText,
-        estimatedUsage: log.estimatedUsage,
-        actualUsage: log.actualUsage,
+        estimatedUsage,
+        actualUsage,
         deletedAttachmentIds: replacement.deletedAttachmentIds,
         deletedBranchIds: replacement.deletedBranchIds,
         deletedMessageIds: replacement.deletedMessageIds,
       });
+      callHandle.complete(result);
+      return result;
+      } catch (error) {
+        callHandle.fail(error);
+        throw error;
+      } finally {
+        callHandle.release();
+      }
     },
   );
 
   app.post<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/tools/codex.create_entry/execute",
-    async (request, reply) => {
+    async (request, reply) => callRegistry.guardSessionActivity(
+      request.params.seriesId,
+      request.params.sessionId,
+      async () => {
       const input = ExecuteWorkshopCodexCreateEntryToolInputSchema.parse(request.body);
       const source = await repository.getWorkshopMessageSource(
         request.params.seriesId,
@@ -1225,12 +1413,16 @@ export function registerWorkshopRoutes(
           ...continuation,
         });
       }
-    },
+      },
+    ),
   );
 
   app.post<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/tools/codex.update_entry/execute",
-    async (request, reply) => {
+    async (request, reply) => callRegistry.guardSessionActivity(
+      request.params.seriesId,
+      request.params.sessionId,
+      async () => {
       const input = ExecuteWorkshopCodexUpdateEntryToolInputSchema.parse(request.body);
       const source = await repository.getWorkshopMessageSource(
         request.params.seriesId,
@@ -1431,7 +1623,8 @@ export function registerWorkshopRoutes(
           ...continuation,
         });
       }
-    },
+      },
+    ),
   );
 
   app.post<{ Params: { seriesId: string; sessionId: string } }>(
@@ -1439,10 +1632,14 @@ export function registerWorkshopRoutes(
     async (request, reply) => {
       const input = CreateWorkshopBranchInputSchema.parse(request.body);
       return reply.status(201).send(
-        await repository.branchWorkshopSession(
+        await callRegistry.guardSessionLifecycle(
           request.params.seriesId,
           request.params.sessionId,
-          input,
+          () => repository.branchWorkshopSession(
+            request.params.seriesId,
+            request.params.sessionId,
+            input,
+          ),
         ),
       );
     },
@@ -1471,43 +1668,131 @@ export function registerWorkshopRoutes(
     sessionId: string;
     mode: string;
     userRequest: string;
-    log: ModelCallLog;
     contextBundle: ContextBundle;
+    execution: WorkshopExecutionResult;
+    assistantMessageId?: string;
+    abortSignal?: AbortSignal;
+  }): Promise<{
+    log: ModelCallLog | null;
+    assistantMessage: WorkshopMessage;
+    toolMessages: WorkshopMessage[];
     responseText: string;
-    visibleText?: string;
-    reasoningText?: string;
-  }): Promise<{ assistantMessage: WorkshopMessage; toolMessages: WorkshopMessage[]; responseText: string }> {
-    const parsedResponse = splitReasoningContent(input.responseText);
-    const rawAssistantContent =
-      input.visibleText ||
-      parsedResponse.content ||
-      input.log.errorMessage ||
-      "Model call failed.";
-    let assistantContent = rawAssistantContent;
-    let responseText = parsedResponse.content || input.visibleText || "";
+    estimatedUsage: TokenUsage;
+    actualUsage: TokenUsage | null;
+  }> {
+    const execution = input.execution;
+    const preflight = execution.log === null ? execution : null;
+    const log = input.abortSignal?.aborted && execution.log?.status !== "cancelled"
+      ? execution.log
+        ? cancelledLog(execution.log, execution.responseText, execution.reasoningText)
+        : null
+      : execution.log;
+    if (log && log !== execution.log) {
+      await repository.saveModelCallLog(input.seriesId, log);
+    }
+    const status = input.abortSignal?.aborted
+      ? "cancelled"
+      : log
+        ? log.status === "succeeded" ? "succeeded" : log.status === "cancelled" ? "cancelled" : "failed"
+        : preflight!.preflightStatus;
+    const assistantContent = status === "failed"
+      ? execution.responseText || log?.errorMessage || preflight?.preflightError?.message || "Model call failed."
+      : execution.responseText;
+    const estimatedUsage = log?.estimatedUsage ?? preflight!.estimatedUsage;
+    const actualUsage = log?.actualUsage ?? null;
 
     const assistantMessage = await repository.saveWorkshopMessage(
       input.seriesId,
       WorkshopMessageSchema.parse({
-        schemaVersion: 1,
-        id: randomUUID(),
+        schemaVersion: 2,
+        id: input.assistantMessageId ?? randomUUID(),
         seriesId: input.seriesId,
         sessionId: input.sessionId,
         role: "assistant",
         mode: input.mode,
-        status: input.log.status === "succeeded" ? "succeeded" : "failed",
-        content: assistantContent || input.log.errorMessage || "Model call failed.",
-        reasoningContent: input.reasoningText || parsedResponse.reasoningContent,
+        status,
+        content: assistantContent,
+        reasoningContent: execution.reasoningText,
+        reasoningOutputKind: execution.reasoningText ? execution.reasoningOutputKind : "none",
         contextBundleId: input.contextBundle.id,
-        modelCallId: input.log.id,
+        modelCallId: log?.id ?? null,
         proposalIds: [],
         attachmentIds: [],
-        errorCode: input.log.errorCode,
-        errorMessage: input.log.errorMessage,
+        errorCode: status === "failed" ? log?.errorCode ?? preflight?.preflightError?.code ?? null : null,
+        errorMessage: status === "failed" ? log?.errorMessage ?? preflight?.preflightError?.message ?? null : null,
         createdAt: new Date().toISOString(),
       }),
     );
-    return { assistantMessage, toolMessages: [], responseText };
+    return {
+      log,
+      assistantMessage,
+      toolMessages: [],
+      responseText: execution.responseText,
+      estimatedUsage,
+      actualUsage,
+    };
+  }
+
+  async function createWorkshopPreContextCancellation(input: {
+    operationId: string;
+    seriesId: string;
+    sessionId: string;
+    mode: string;
+    authorMessage: WorkshopMessage;
+    assistantMessageId: string;
+  }) {
+    const assistantMessage = await repository.saveWorkshopMessage(
+      input.seriesId,
+      WorkshopMessageSchema.parse({
+        schemaVersion: 2,
+        id: input.assistantMessageId,
+        seriesId: input.seriesId,
+        sessionId: input.sessionId,
+        role: "assistant",
+        mode: input.mode,
+        status: "cancelled",
+        content: "",
+        reasoningContent: "",
+        reasoningOutputKind: "none",
+        contextBundleId: null,
+        modelCallId: null,
+        proposalIds: [],
+        attachmentIds: [],
+        errorCode: null,
+        errorMessage: null,
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    return WorkshopCallResultSchema.parse({
+      operationId: input.operationId,
+      authorMessage: input.authorMessage,
+      assistantMessage,
+      toolMessages: [],
+      contextBundleId: null,
+      modelCallId: null,
+      status: "cancelled",
+      responseText: "",
+      estimatedUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      actualUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      agentRun: null,
+    });
+  }
+
+  function writePreContextCancelledStream(
+    reply: FastifyReply,
+    operationId: string,
+    result: ReturnType<typeof WorkshopCallResultSchema.parse>,
+  ): void {
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+    });
+    writeWorkshopEvent(reply, { type: "author-message", operationId, message: result.authorMessage });
+    writeWorkshopEvent(reply, { type: "assistant-message", operationId, message: result.assistantMessage });
+    writeWorkshopEvent(reply, { type: "done", result });
+    reply.raw.end();
   }
 
 
@@ -1531,9 +1816,32 @@ export function registerWorkshopRoutes(
           await workshopContextPayload(repository, request.params.seriesId, basket, session, input),
         );
       } catch (error) {
-        if (sendContextError(reply, error)) return reply;
+        if (sendContextError(reply, error)) {
+          return reply;
+        }
         throw error;
       }
+    },
+  );
+
+  app.post<{ Params: { seriesId: string; sessionId: string; operationId: string } }>(
+    "/api/v1/series/:seriesId/workshop/sessions/:sessionId/calls/:operationId/cancel",
+    async (request, reply) => {
+      const result = await callRegistry.cancel(
+        request.params.operationId,
+        request.params.seriesId,
+        request.params.sessionId,
+      );
+      if (!result) {
+        return reply.status(404).send({
+          code: "NOT_FOUND",
+          message: "Workshop operation does not exist in this session",
+        });
+      }
+      return CancelWorkshopCallResultSchema.parse({
+        operationId: request.params.operationId,
+        result,
+      });
     },
   );
 
@@ -1541,6 +1849,14 @@ export function registerWorkshopRoutes(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/calls/stream",
     async (request, reply) => {
       const input = RunWorkshopCallInputSchema.parse(request.body);
+      const operationId = input.operationId ?? randomUUID();
+      const callHandle = callRegistry.begin(
+        operationId,
+        request.params.seriesId,
+        request.params.sessionId,
+      );
+      const assistantMessageId = randomUUID();
+      try {
       const session = await repository.getWorkshopSession(
         request.params.seriesId,
         request.params.sessionId,
@@ -1557,24 +1873,50 @@ export function registerWorkshopRoutes(
           draftToken: input.draftToken,
         },
       );
+      const finishPreContextCancellation = async () => {
+        const result = await createWorkshopPreContextCancellation({
+          operationId,
+          seriesId: request.params.seriesId,
+          sessionId: request.params.sessionId,
+          mode: input.mode,
+          authorMessage,
+          assistantMessageId,
+        });
+        callHandle.complete(result);
+        writePreContextCancelledStream(reply, operationId, result);
+        return reply;
+      };
+      if (callHandle.abortSignal.aborted) return finishPreContextCancellation();
       let contextBundle;
       try {
         const basket = await repository.getWorkshopContextBasket(
           request.params.seriesId,
           request.params.sessionId,
         );
+        const contextInput = await workshopContextPayload(
+          repository,
+          request.params.seriesId,
+          basket,
+          session,
+          input,
+          { excludeWorkshopMessageId: authorMessage.id },
+        );
+        if (callHandle.abortSignal.aborted) throw new Error("Workshop call cancelled before context evidence was built");
         contextBundle = await buildContextBundle(
           repository,
           providerRegistry,
           request.params.seriesId,
-          await workshopContextPayload(repository, request.params.seriesId, basket, session, input, {
-            excludeWorkshopMessageId: authorMessage.id,
-          }),
+          contextInput,
         );
       } catch (error) {
-        if (sendContextError(reply, error)) return reply;
+        if (callHandle.abortSignal.aborted) return finishPreContextCancellation();
+        if (sendContextError(reply, error)) {
+          callHandle.fail(error);
+          return reply;
+        }
         throw error;
       }
+      if (callHandle.abortSignal.aborted) return finishPreContextCancellation();
       const modelProfile = effectiveModelProfile(
         await repository.getModelProfile(input.modelProfileId),
         input.modelOverride,
@@ -1588,17 +1930,20 @@ export function registerWorkshopRoutes(
         "cache-control": "no-cache, no-transform",
         connection: "keep-alive",
       });
+      const emit = (event: WorkshopCallStreamEvent): void => {
+        if (!reply.raw.destroyed && !reply.raw.writableEnded) writeWorkshopEvent(reply, event);
+      };
 
-      const abortController = new AbortController();
-      request.raw.on("close", () => abortController.abort());
+      request.raw.on("aborted", () => callRegistry.abort(operationId));
+      reply.raw.on("close", () => {
+        if (!reply.raw.writableEnded) callRegistry.abort(operationId);
+      });
       let metadataSent = false;
-      let visibleText = "";
-      let reasoningText = "";
-      const suppressRawAgentStream = input.mode === "agent";
-      const parser = createReasoningParser();
-      writeWorkshopEvent(reply, { type: "author-message", message: authorMessage });
+      let activeModelCallId: string | null = null;
+      emit({ type: "author-message", operationId, message: authorMessage });
 
       if (input.mode === "agent") {
+        let agentAttemptStarted = false;
         const agent = await agentCoordinator.start({
           repository,
           providerRegistry,
@@ -1610,44 +1955,94 @@ export function registerWorkshopRoutes(
           modelProfile,
           parameters: input.parameters,
           prompt,
+          assistantMessageId,
+          abortSignal: callHandle.abortSignal,
+          onAttemptStart: ({ modelCallId, attempt, reset }) => {
+            agentAttemptStarted = true;
+            emit({
+              type: "assistant-start",
+              operationId,
+              assistantMessageId,
+              contextBundleId: contextBundle.id,
+              modelCallId,
+              attempt,
+              reset,
+            });
+            emit({
+              type: "metadata",
+              operationId,
+              assistantMessageId,
+              contextBundleId: contextBundle.id,
+              modelCallId,
+              attempt,
+              reset,
+            });
+          },
+          onStreamEvent: ({ modelCallId, attempt, event }) => {
+            emit(event.type === "reasoning-delta" ? {
+              type: "reasoning-delta",
+              operationId,
+              assistantMessageId,
+              modelCallId,
+              attempt,
+              text: event.text,
+              outputKind: event.outputKind,
+            } : {
+              type: "delta",
+              operationId,
+              assistantMessageId,
+              modelCallId,
+              attempt,
+              text: event.text,
+            });
+          },
           prepareUpdateDraft: (draft) => captureCodexUpdateDraftBaselines({
             draft,
             repository,
             seriesId: request.params.seriesId,
           }),
         });
-        writeWorkshopEvent(reply, {
-          type: "metadata",
-          contextBundleId: contextBundle.id,
-          modelCallId: agent.modelCall.id,
-        });
+        if (!agentAttemptStarted && agent.modelCall) {
+          emit({
+            type: "assistant-start",
+            operationId,
+            assistantMessageId,
+            contextBundleId: contextBundle.id,
+            modelCallId: agent.modelCall.id,
+            attempt: agent.run.run.steps.at(-1)?.attempt ?? 1,
+            reset: false,
+          });
+        }
         const result = WorkshopCallResultSchema.parse({
+          operationId,
           authorMessage,
           assistantMessage: agent.assistantMessage,
           toolMessages: agent.toolMessages,
           contextBundleId: contextBundle.id,
-          modelCallId: agent.modelCall.id,
+          modelCallId: agent.modelCall?.id ?? null,
           status: agent.assistantMessage.status,
           responseText: agent.responseText,
-          estimatedUsage: agent.modelCall.estimatedUsage,
-          actualUsage: agent.modelCall.actualUsage,
+          estimatedUsage: agent.modelCall?.estimatedUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          actualUsage: agent.modelCall?.actualUsage ?? null,
           agentRun: agent.run,
         });
-        writeWorkshopEvent(reply, { type: "assistant-message", message: agent.assistantMessage });
+        callHandle.complete(result);
+        emit({ type: "assistant-message", operationId, message: agent.assistantMessage });
         if (agent.assistantMessage.status === "failed") {
-          writeWorkshopEvent(reply, {
+          emit({
             type: "error",
+            operationId,
             code: agent.assistantMessage.errorCode,
             message: agent.assistantMessage.errorMessage ?? agent.assistantMessage.content,
             assistantMessage: agent.assistantMessage,
           });
         }
-        writeWorkshopEvent(reply, { type: "done", result });
+        emit({ type: "done", result });
         reply.raw.end();
         return reply;
       }
 
-      let { log, responseText } = await executeWorkshopCall({
+      const execution = await executeWorkshopCall({
         repository,
         providerRegistry,
         seriesId: request.params.seriesId,
@@ -1657,79 +2052,111 @@ export function registerWorkshopRoutes(
         modelProfile,
         prompt,
         parameters: input.parameters,
-        abortSignal: abortController.signal,
+        abortSignal: callHandle.abortSignal,
         onStreamingLog: (streamingLog) => {
           metadataSent = true;
-          writeWorkshopEvent(reply, {
-            type: "metadata",
+          activeModelCallId = streamingLog.id;
+          emit({
+            type: "assistant-start",
+            operationId,
+            assistantMessageId,
             contextBundleId: contextBundle.id,
             modelCallId: streamingLog.id,
+            attempt: 1,
+            reset: false,
+          });
+          emit({
+            type: "metadata",
+            operationId,
+            assistantMessageId,
+            contextBundleId: contextBundle.id,
+            modelCallId: streamingLog.id,
+            attempt: 1,
+            reset: false,
           });
         },
-        onChunk: (chunk) => {
-          for (const event of parser.push(chunk)) {
-            if (event.type === "reasoning-delta") {
-              reasoningText += event.text;
-              if (!suppressRawAgentStream) writeWorkshopEvent(reply, event);
-            } else {
-              visibleText += event.text;
-              if (!suppressRawAgentStream) writeWorkshopEvent(reply, event);
-            }
-          }
+        onStreamEvent: (event) => {
+          if (!activeModelCallId) return;
+          emit(event.type === "reasoning-delta" ? {
+            type: "reasoning-delta",
+            operationId,
+            assistantMessageId,
+            modelCallId: activeModelCallId,
+            attempt: 1,
+            text: event.text,
+            outputKind: event.outputKind,
+          } : {
+            type: "delta",
+            operationId,
+            assistantMessageId,
+            modelCallId: activeModelCallId,
+            attempt: 1,
+            text: event.text,
+          });
         },
       });
-
-      for (const event of parser.finish()) {
-        if (event.type === "reasoning-delta") {
-          reasoningText += event.text;
-          if (!suppressRawAgentStream) writeWorkshopEvent(reply, event);
-        } else {
-          visibleText += event.text;
-          if (!suppressRawAgentStream) writeWorkshopEvent(reply, event);
-        }
-      }
-      if (!metadataSent) {
-        writeWorkshopEvent(reply, {
-          type: "metadata",
+      const { log } = execution;
+      if (!metadataSent && log) {
+        emit({
+          type: "assistant-start",
+          operationId,
+          assistantMessageId,
           contextBundleId: contextBundle.id,
           modelCallId: log.id,
+          attempt: 1,
+          reset: false,
         });
       }
 
-      const { assistantMessage, toolMessages, responseText: finalResponseText } = await saveWorkshopAssistantTurn({
+      const {
+        log: finalLog,
+        assistantMessage,
+        toolMessages,
+        responseText: finalResponseText,
+        estimatedUsage,
+        actualUsage,
+      } = await saveWorkshopAssistantTurn({
         seriesId: request.params.seriesId,
         sessionId: request.params.sessionId,
         mode: input.mode,
         userRequest: input.userRequest,
-        log,
         contextBundle,
-        responseText,
-        visibleText,
-        reasoningText,
+        execution,
+        assistantMessageId,
+        abortSignal: callHandle.abortSignal,
       });
       const result = WorkshopCallResultSchema.parse({
+        operationId,
         authorMessage,
         assistantMessage,
         toolMessages,
         contextBundleId: contextBundle.id,
-        modelCallId: log.id,
+        modelCallId: finalLog?.id ?? null,
         status: assistantMessage.status,
         responseText: finalResponseText,
-        estimatedUsage: log.estimatedUsage,
-        actualUsage: log.actualUsage,
+        estimatedUsage,
+        actualUsage,
       });
-      writeWorkshopEvent(reply, { type: "assistant-message", message: assistantMessage });
+      callHandle.complete(result);
+      emit({ type: "assistant-message", operationId, message: assistantMessage });
       if (assistantMessage.status === "failed") {
-        writeWorkshopEvent(reply, {
+        emit({
           type: "error",
+          operationId,
           code: assistantMessage.errorCode,
           message: assistantMessage.errorMessage ?? assistantMessage.content,
           assistantMessage,
         });
       }
-      writeWorkshopEvent(reply, { type: "done", result });
+      emit({ type: "done", result });
       reply.raw.end();
       return reply;
+      } catch (error) {
+        callHandle.fail(error);
+        throw error;
+      } finally {
+        callHandle.release();
+      }
     },
   );
 
@@ -1737,6 +2164,14 @@ export function registerWorkshopRoutes(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/calls",
     async (request, reply) => {
       const input = RunWorkshopCallInputSchema.parse(request.body);
+      const operationId = input.operationId ?? randomUUID();
+      const callHandle = callRegistry.begin(
+        operationId,
+        request.params.seriesId,
+        request.params.sessionId,
+      );
+      const assistantMessageId = randomUUID();
+      try {
       const session = await repository.getWorkshopSession(
         request.params.seriesId,
         request.params.sessionId,
@@ -1753,24 +2188,49 @@ export function registerWorkshopRoutes(
           draftToken: input.draftToken,
         },
       );
+      const finishPreContextCancellation = async () => {
+        const result = await createWorkshopPreContextCancellation({
+          operationId,
+          seriesId: request.params.seriesId,
+          sessionId: request.params.sessionId,
+          mode: input.mode,
+          authorMessage,
+          assistantMessageId,
+        });
+        callHandle.complete(result);
+        return result;
+      };
+      if (callHandle.abortSignal.aborted) return finishPreContextCancellation();
       let contextBundle;
       try {
         const basket = await repository.getWorkshopContextBasket(
           request.params.seriesId,
           request.params.sessionId,
         );
+        const contextInput = await workshopContextPayload(
+          repository,
+          request.params.seriesId,
+          basket,
+          session,
+          input,
+          { excludeWorkshopMessageId: authorMessage.id },
+        );
+        if (callHandle.abortSignal.aborted) throw new Error("Workshop call cancelled before context evidence was built");
         contextBundle = await buildContextBundle(
           repository,
           providerRegistry,
           request.params.seriesId,
-          await workshopContextPayload(repository, request.params.seriesId, basket, session, input, {
-            excludeWorkshopMessageId: authorMessage.id,
-          }),
+          contextInput,
         );
       } catch (error) {
-        if (sendContextError(reply, error)) return reply;
+        if (callHandle.abortSignal.aborted) return finishPreContextCancellation();
+        if (sendContextError(reply, error)) {
+          callHandle.fail(error);
+          return reply;
+        }
         throw error;
       }
+      if (callHandle.abortSignal.aborted) return finishPreContextCancellation();
       const modelProfile = effectiveModelProfile(
         await repository.getModelProfile(input.modelProfileId),
         input.modelOverride,
@@ -1789,26 +2249,31 @@ export function registerWorkshopRoutes(
           modelProfile,
           parameters: input.parameters,
           prompt,
+          assistantMessageId,
+          abortSignal: callHandle.abortSignal,
           prepareUpdateDraft: (draft) => captureCodexUpdateDraftBaselines({
             draft,
             repository,
             seriesId: request.params.seriesId,
           }),
         });
-        return WorkshopCallResultSchema.parse({
+        const result = WorkshopCallResultSchema.parse({
+          operationId,
           authorMessage,
           assistantMessage: agent.assistantMessage,
           toolMessages: agent.toolMessages,
           contextBundleId: contextBundle.id,
-          modelCallId: agent.modelCall.id,
+          modelCallId: agent.modelCall?.id ?? null,
           status: agent.assistantMessage.status,
           responseText: agent.responseText,
-          estimatedUsage: agent.modelCall.estimatedUsage,
-          actualUsage: agent.modelCall.actualUsage,
+          estimatedUsage: agent.modelCall?.estimatedUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          actualUsage: agent.modelCall?.actualUsage ?? null,
           agentRun: agent.run,
         });
+        callHandle.complete(result);
+        return result;
       }
-      let { log, responseText } = await executeWorkshopCall({
+      const execution = await executeWorkshopCall({
         repository,
         providerRegistry,
         seriesId: request.params.seriesId,
@@ -1818,27 +2283,45 @@ export function registerWorkshopRoutes(
         modelProfile,
         prompt,
         parameters: input.parameters,
+        abortSignal: callHandle.abortSignal,
       });
-      const { assistantMessage, toolMessages, responseText: finalResponseText } = await saveWorkshopAssistantTurn({
+      const {
+        log: finalLog,
+        assistantMessage,
+        toolMessages,
+        responseText: finalResponseText,
+        estimatedUsage,
+        actualUsage,
+      } = await saveWorkshopAssistantTurn({
         seriesId: request.params.seriesId,
         sessionId: request.params.sessionId,
         mode: input.mode,
         userRequest: input.userRequest,
-        log,
         contextBundle,
-        responseText,
+        execution,
+        assistantMessageId,
+        abortSignal: callHandle.abortSignal,
       });
-      return WorkshopCallResultSchema.parse({
+      const result = WorkshopCallResultSchema.parse({
+        operationId,
         authorMessage,
         assistantMessage,
         toolMessages,
         contextBundleId: contextBundle.id,
-        modelCallId: log.id,
+        modelCallId: finalLog?.id ?? null,
         status: assistantMessage.status,
         responseText: finalResponseText,
-        estimatedUsage: log.estimatedUsage,
-        actualUsage: log.actualUsage,
+        estimatedUsage,
+        actualUsage,
       });
+      callHandle.complete(result);
+      return result;
+      } catch (error) {
+        callHandle.fail(error);
+        throw error;
+      } finally {
+        callHandle.release();
+      }
     },
   );
 }

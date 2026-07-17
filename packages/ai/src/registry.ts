@@ -62,6 +62,12 @@ export function createDefaultProviderRegistry(options: ProviderRegistryOptions =
           tokenEstimate: true,
           modelList: true,
         },
+        reasoning: {
+          kind: "effort",
+          efforts: ["high", "max"],
+          defaultEffort: "high",
+          canDisable: true,
+        },
       },
       {
         id: "deepseek-v4-pro",
@@ -73,6 +79,12 @@ export function createDefaultProviderRegistry(options: ProviderRegistryOptions =
           embeddings: false,
           tokenEstimate: true,
           modelList: true,
+        },
+        reasoning: {
+          kind: "effort",
+          efforts: ["high", "max"],
+          defaultEffort: "high",
+          canDisable: true,
         },
       },
     ],
@@ -110,7 +122,7 @@ export function createDefaultProviderRegistry(options: ProviderRegistryOptions =
     title: "Ollama",
     defaultBaseUrl: "http://localhost:11434/v1",
     chatCapabilities: {
-      nativeToolCalls: false,
+      nativeToolCalls: true,
       reasoningReplay: false,
       parallelToolCalls: false,
       strictToolSchema: false,

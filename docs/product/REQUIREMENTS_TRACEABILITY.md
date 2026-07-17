@@ -106,7 +106,7 @@
 
 覆盖：全部角色、单角色调用、独立会审、Workshop、Proposal、Review、正文候选和后台分析策略。
 
-完成标准：Proposal/Review 闭环先可用，Review 主路径必须是待审队列加清晰的修改前后差异，不能变成 Proposal 管理台或常驻批量/影响/证据仪表盘；Workshop 作为可靠 Proposal 来源进入闭环；Workshop 上下文选择必须支持折叠菜单式选择 Series 正文、Series 大纲、Volume、Chapter、Act、多个 Scene 和 Codex，并让按规则自动加入的 Codex 与后端实际请求保持可见一致；Workshop 会话默认标题中性，首次发送后按聊天内容自动命名，并支持作者双击改名；Branch 必须复制分支点之前的消息历史和附件快照，不能创建空聊天；Codex detail 的发送开关必须实际影响 Context Bundle；General Chat 不默认绑定 Scene、不暴露 Proposal 操作、system prompt 完整可见且无隐藏追加 prompt，流式 reasoning 与正式回答分离并可折叠；两个编辑独立评审产生可见分歧；候选应用前磁盘不变；过期 Proposal 被拒；事实提取进入收件箱而非 Canon；Tool Plan 只有在用户明确授权后才能通过共享命令适配器操作 Write/Codex，或退回 Proposal。
+完成标准：Proposal/Review 闭环先可用，Review 主路径必须是待审队列加清晰的修改前后差异，不能变成 Proposal 管理台或常驻批量/影响/证据仪表盘；Workshop 作为可靠 Proposal 来源进入闭环；Workshop 上下文选择必须支持折叠菜单式选择 Series 正文、Series 大纲、Volume、Chapter、Act、多个 Scene 和 Codex，并让按规则自动加入的 Codex 与后端实际请求保持可见一致；Workshop 会话默认标题中性，首次发送后按聊天内容自动命名，Rename、Archive、Restore、Export 和 Delete 从会话行上下文菜单进入，Archived 使用独立筛选且只读；Branch 必须复制分支点之前的消息历史和附件快照，不能创建空聊天；消息 Edit and resend、Resend、Branch 和 Delete turn 从消息右下角图标菜单进入；Codex detail 的发送开关必须实际影响 Context Bundle；General Chat 不默认绑定 Scene、不暴露 Proposal 操作、system prompt 完整可见且无隐藏追加 prompt；General Chat 和 Agent 都将 reasoning 与正式回答分离流式显示，reasoning 位于正文上方并默认展开；一个 Send、Sending、Stop、Stopping 控件真实取消 Provider 请求；模型选择、模型运行选项和 Provider Settings 使用三个相邻但职责分离的入口，推理设置按 Provider 连接和精确模型名称持久化；两个编辑独立评审产生可见分歧；候选应用前磁盘不变；过期 Proposal 被拒；事实提取进入收件箱而非 Canon；Tool Plan 只有在用户明确授权后才能通过共享命令适配器操作 Write/Codex，或退回 Proposal。
 
 验收 ID：`M5-A01` 至 `M5-A45`，详见 `docs/testing/M5_ACCEPTANCE.md`。
 

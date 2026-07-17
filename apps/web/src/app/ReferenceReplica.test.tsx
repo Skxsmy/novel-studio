@@ -3,9 +3,9 @@
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ReferenceReplica } from "./ReferenceReplica";
+import { ReferenceReplica, WorkshopProviderSettingsBridge } from "./ReferenceReplica";
 import { getReferenceRuntimeText } from "./reference-source";
-import { omitCodexReferenceRuntime, omitWriteReferenceRuntime } from "./useReferenceRuntime";
+import { omitCodexReferenceRuntime, omitWorkshopReferenceRuntime, omitWriteReferenceRuntime } from "./useReferenceRuntime";
 
 function signature(element: Element) {
   return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${[...element.classList].map((name) => `.${name}`).join("")}${element.hasAttribute("hidden") ? "[hidden]" : ""}`;
@@ -39,8 +39,32 @@ describe("NS-514 P3/P4 reference replica", () => {
     expect(runtime).toContain('const trigger = document.getElementById("project-library-button");');
   });
 
+  it("omits fixture Workshop behavior when the connected Workshop owns its interactions", () => {
+    const runtime = omitWorkshopReferenceRuntime(getReferenceRuntimeText());
+    expect(runtime).not.toContain('const root = document.getElementById("workshop-workspace");');
+    expect(runtime).not.toContain('const sessionButtons = [...root.querySelectorAll(".wr5-session[data-wr5-thread]")]');
+    expect(runtime).not.toContain('const composerInput = document.getElementById("wr5-composer-input")');
+    expect(runtime).toContain('const root = document.getElementById("write-workspace");');
+    expect(runtime).toContain('const trigger = document.getElementById("project-library-button");');
+  });
+
+  it("shows an honest disabled Model connections destination and a visible return action", async () => {
+    const onReturn = vi.fn();
+    const { findByRole, getByTestId } = render(<>
+      <button data-st7-section="connections" type="button"><span>Model connections</span></button>
+      <section data-st7-page="connections"><div data-testid="fixture-provider-editor">Fixture provider editor</div></section>
+      <WorkshopProviderSettingsBridge onReturn={onReturn} />
+    </>);
+    expect(await findByRole("heading", { name: "Model connections" })).toBeTruthy();
+    expect(document.querySelector("[data-st7-page='connections']")?.classList.contains("is-provider-bridge")).toBe(true);
+    expect(document.body.textContent).toContain("Editing model-provider credentials and connection settings is not available yet.");
+    expect(getByTestId("fixture-provider-editor").parentElement?.classList.contains("is-provider-bridge")).toBe(true);
+    fireEvent.click(await findByRole("button", { name: "Return to Workshop" }));
+    expect(onReturn).toHaveBeenCalledTimes(1);
+  });
+
   it("assembles every reference surface without non-reference controls", () => {
-    const { container } = render(<ReferenceReplica connectWrite={false} enableRuntime={false} />);
+    const { container } = render(<ReferenceReplica connectWorkshop={false} connectWrite={false} enableRuntime={false} />);
     const prototype = container.querySelector("main.prototype")!;
     expect([...prototype.children].map(signature)).toEqual([
       "header.appbar",
@@ -72,7 +96,7 @@ describe("NS-514 P3/P4 reference replica", () => {
     vi.useFakeTimers();
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
-    const { container } = render(<ReferenceReplica connectWrite={false} />);
+    const { container } = render(<ReferenceReplica connectWorkshop={false} connectWrite={false} />);
 
     const view = (name: string) => container.querySelector<HTMLElement>(`[data-workspace-view='${name}']`)!;
     const workspaceButton = (name: string) => container.querySelector<HTMLButtonElement>(`.workspace-button[data-workspace='${name}']`)!;

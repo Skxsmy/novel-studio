@@ -68,7 +68,7 @@ Workshop 的 General Chat 属于讨论型单角色调用。它必须满足：
 - 不默认绑定当前写作场景；上下文完全来自用户显式选择。
 - system prompt 完整暴露给用户编辑，允许为空，不在服务端追加不可见的默认角色 prompt；它在发送前保存到当前 chat session，Provider 调用不得接受 request-local prompt 覆盖。
 - 输出不得自动进入 Proposal，也不得在前端暴露 Create Proposal 操作。
-- 可选流式输出时，模型 reasoning 与正式回答分离存储和显示；reasoning 使用不同字体/样式并可折叠。
+- 当精确模型声明 reasoning 能力时，请求默认启用 reasoning。流式 reasoning 与正式回答分离存储和显示，并在第一段内容到达时立即出现在正文上方；每条消息默认展开，作者可用该消息自己的内联箭头折叠或重新展开。界面不提供全局、模型级或消息菜单内的 `Show reasoning` 开关。
 - 普通未关联 Proposal 的 General Chat 内容只能按完整、已结束的对话 turn 删除；不得单独删除作者问题或助手回复而留下孤立历史。Agent 协议消息、pending turn 和已进入 Proposal 审计链的消息不得删除。
 
 ### 3.2 编辑会审
@@ -223,7 +223,7 @@ Workshop 的 General Chat 属于讨论型单角色调用。它必须满足：
 - `generateObject`
 - `embed`
 
-`streamText`、JSON object、JSON schema、native tool calls、strict tool schema、parallel tool calls、reasoning replay 和 usage 必须分别声明能力，不能合并为一个 `structuredOutput` 判断。Provider transport 负责保存续跑所需的 Provider metadata；Workshop 运行时只消费统一结果。没有 native tool call 能力的模型可以对话，但不得获得写工具或用文本模拟工具调用。
+`streamText`、JSON object、JSON schema、native tool calls、strict tool schema、parallel tool calls、reasoning replay、reasoning request controls、reasoning output kind 和 usage 必须分别声明能力，不能合并为一个 `structuredOutput` 判断。Reasoning request controls are resolved from the Provider connection and exact model name and may be a toggle, a Provider-declared effort set, a token budget, or unsupported; adapters must not invent a universal effort list. Provider transport emits typed reasoning and answer events instead of wrapping reasoning in answer text, and it preserves the opaque Provider metadata required for supported continuation. Workshop stores the resolved normalized request settings for retry and audit while credentials and Provider-private objects remain outside project data.没有 native tool call 能力的模型可以对话，但不得获得写工具或用文本模拟工具调用。
 - `estimateTokens`
 - `capabilities`
 

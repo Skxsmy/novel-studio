@@ -1,16 +1,18 @@
 import { describe, expect, it } from "vitest";
-import type { WorkshopMessage } from "@novel-studio/contracts";
+import type { SeriesDetail, WorkshopContextItemKind, WorkshopContextItemRef, WorkshopMessage } from "@novel-studio/contracts";
 import { isEligibleWorkshopBranchSource, workshopGeneralChatTurn } from "./workshopConversation";
+import { selectedScopeTexts } from "./workshopViewModel";
 
 function message(input: Partial<WorkshopMessage> & Pick<WorkshopMessage, "id" | "role">): WorkshopMessage {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     seriesId: "11111111-1111-4111-8111-111111111111",
     sessionId: "22222222-2222-4222-8222-222222222222",
     mode: "general-chat",
     status: "succeeded",
     content: "Message",
     reasoningContent: "",
+    reasoningOutputKind: "none",
     contextBundleId: null,
     modelCallId: null,
     proposalIds: [],
@@ -71,5 +73,52 @@ describe("Workshop conversation policy", () => {
       },
     });
     expect(isEligibleWorkshopBranchSource([author, tool], 1)).toBe(false);
+  });
+});
+
+describe("Workshop selected story scope", () => {
+  const volumeId = "11111111-1111-4111-8111-111111111111";
+  const storedActId = "22222222-2222-4222-8222-222222222222";
+  const storedChapterId = "33333333-3333-4333-8333-333333333333";
+  const series = {
+    books: [{ id: volumeId, title: "Volume One", order: 1 }],
+    acts: [{ id: storedActId, bookId: volumeId, title: "Chapter One", order: 1 }],
+    chapters: [{ id: storedChapterId, actId: storedActId, title: "Act One", order: 1 }],
+    scenes: [{
+      metadata: {
+        id: "44444444-4444-4444-8444-444444444444",
+        chapterId: storedChapterId,
+        title: "Scene One",
+        order: 1,
+        summary: "The brass observatory opens.",
+        goal: "Enter the observatory.",
+        conflict: "The lock is frozen.",
+        outcome: "The lock opens.",
+        beats: [],
+      },
+      plainText: "Mara enters the brass observatory.",
+      content: "Mara enters the brass observatory.",
+    }],
+  } as unknown as SeriesDetail;
+
+  function contextItem(kind: WorkshopContextItemKind, sourceId: string): WorkshopContextItemRef {
+    return {
+      id: crypto.randomUUID(),
+      kind,
+      sourceId,
+      label: kind,
+      pinned: false,
+      note: "",
+      createdAt: "2026-07-17T00:00:00.000Z",
+    };
+  }
+
+  it.each([
+    ["volume", volumeId],
+    ["chapter", storedActId],
+    ["act", storedChapterId],
+  ] as const)("maps the public %s selection to its compatible stored hierarchy", (kind, sourceId) => {
+    expect(selectedScopeTexts(series, [contextItem(kind, sourceId)]).join("\n"))
+      .toContain("Mara enters the brass observatory.");
   });
 });

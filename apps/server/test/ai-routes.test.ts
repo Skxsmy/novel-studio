@@ -634,6 +634,104 @@ describe("M4 model settings API", () => {
     await app.close();
   });
 
+  it("persists a version 2 reasoning preference for the exact model only after its credential is available", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-reasoning-profile-api-"));
+    roots.push(root);
+    const secrets = new Map<string, string>();
+    const providerFetch: typeof fetch = async (input) => {
+      if (String(input) === "https://api.openai.com/v1/models") {
+        return new Response(JSON.stringify({
+          object: "list",
+          data: [{ id: "gpt-5.4", object: "model", owned_by: "openai" }],
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ error: { message: "not found" } }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const app = await buildApp({
+      libraryRoot: root,
+      credentialStore: memoryCredentialStore(secrets),
+      providerFetch,
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/ai/model-profiles",
+      payload: {
+        title: "Exact reasoning model",
+        provider: "openai",
+        model: "gpt-5.4",
+        reasoningPreference: null,
+      },
+    });
+    expect(created.statusCode, created.payload).toBe(201);
+    expect(created.json()).toMatchObject({
+      schemaVersion: 2,
+      credentialRef: null,
+      model: "gpt-5.4",
+      reasoningPreference: null,
+    });
+
+    const rejectedWithoutCredential = await app.inject({
+      method: "POST",
+      url: "/api/v1/ai/model-profiles",
+      payload: {
+        title: "Unverifiable reasoning model",
+        provider: "openai",
+        model: "gpt-5.4",
+        reasoningPreference: { mode: "effort", effort: "high" },
+      },
+    });
+    expect(rejectedWithoutCredential.statusCode).toBe(422);
+    expect((await app.inject({ method: "GET", url: "/api/v1/ai/model-profiles" })).json())
+      .toHaveLength(1);
+
+    const credential = await app.inject({
+      method: "POST",
+      url: `/api/v1/ai/model-profiles/${created.json().id}/credential`,
+      payload: { secret: "openai-exact-reasoning-key" },
+    });
+    expect(credential.statusCode).toBe(200);
+    expect(JSON.stringify(credential.json())).not.toContain("openai-exact-reasoning-key");
+
+    const saved = await app.inject({
+      method: "PUT",
+      url: `/api/v1/ai/model-profiles/${created.json().id}`,
+      payload: { reasoningPreference: { mode: "effort", effort: "high" } },
+    });
+    expect(saved.statusCode, saved.payload).toBe(200);
+    expect(saved.json().reasoningPreference).toEqual({ mode: "effort", effort: "high" });
+
+    const unsupported = await app.inject({
+      method: "PUT",
+      url: `/api/v1/ai/model-profiles/${created.json().id}`,
+      payload: { reasoningPreference: { mode: "effort", effort: "max" } },
+    });
+    expect(unsupported.statusCode).toBe(422);
+    expect(JSON.stringify(unsupported.json())).not.toContain("openai-exact-reasoning-key");
+    await app.close();
+
+    const restarted = await buildApp({
+      libraryRoot: root,
+      credentialStore: memoryCredentialStore(secrets),
+      providerFetch,
+    });
+    const restored = (await restarted.inject({
+      method: "GET",
+      url: "/api/v1/ai/model-profiles",
+    })).json();
+    expect(restored).toMatchObject([{
+      id: created.json().id,
+      schemaVersion: 2,
+      model: "gpt-5.4",
+      reasoningPreference: { mode: "effort", effort: "high" },
+    }]);
+    expect(JSON.stringify(restored)).not.toContain("openai-exact-reasoning-key");
+    await restarted.close();
+  });
+
   it("saves a DeepSeek key to the credential store and tests the provider", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-ai-api-"));
     roots.push(root);

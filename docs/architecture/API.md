@@ -138,6 +138,59 @@ Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复�
 
 ## Workshop Agent Tools
 
+Workshop session mutations enforce one in-process activity boundary. A session
+may have only one active General Chat call, Agent call, resend, Agent retry, or
+confirmed tool execution with Agent continuation. While one of those operations
+is active, a second model-producing operation, Branch, Archive, Restore,
+permanent session Delete, and message-turn Delete return `409`; the rejected
+request does not truncate history or begin Provider transport. The same
+boundary prevents a history or lifecycle mutation from racing with call
+registration.
+
+An archived Workshop session is read-only. Reading and export remain available,
+and the session may be restored or permanently deleted. Title or General Chat
+prompt updates, branching, context changes, message and attachment changes,
+resend, tool execution, and Agent-run changes are rejected by the repository
+even if a client bypasses the visible disabled controls.
+
+- `PUT /series/:seriesId/workshop/sessions/:sessionId`
+
+Session title or General Chat system-prompt updates use this existing session
+mutation route. An automatic first-message title update supplies both `title`
+and `expectedTitle`; the repository changes the title only when the persisted
+title still equals `expectedTitle`. If the author has already completed Rename,
+the route returns the unchanged current session, so a delayed automatic response
+cannot overwrite the author's title. `expectedTitle` is a write precondition and
+is never persisted in session authority.
+
+- `POST /series/:seriesId/workshop/sessions/:sessionId/calls/:operationId/cancel`
+
+Every streaming General Chat or Agent send receives one stable `operationId`
+before the Provider attempt starts. Retries, repairs, and continuations keep the
+same operation identifier even when they create another model call. The cancel
+command validates the active session operation, aborts its shared Provider
+signal, waits for version 2 call/message/run cancellation persistence, and
+returns the cancelled Workshop result. The original server-sent event stream
+remains open and emits the same terminal `done(status=cancelled)` result; the
+client must not abort that stream as its normal Stop action. A disconnected
+stream is only a fallback cancellation signal. Repeating a cancel command is
+idempotent for the same completed cancelled operation and cannot trigger a
+retry, continuation, or tool side effect.
+
+Workshop streaming events identify `operationId`, `assistantMessageId`,
+`modelCallId`, and `attempt`. An `assistant-start` event declares the target and
+whether provisional answer/reasoning content must reset. Every answer or
+reasoning delta carries the same scope. Automatic retry or repair reuses its
+target with reset; a post-tool continuation declares a new assistant target.
+Late events from replaced or cancelled attempts are ignored.
+
+Exact-model parameter resolution is a pre-transport step. If Provider metadata
+or parameter resolution fails before transport, the server records the failed
+assistant message and Agent step with `modelCallId: null`, does not create a
+Model Call Log, and does not invoke Provider chat transport. Cancellation during
+the automatic retry delay likewise creates no retry step and starts no second
+Provider request.
+
 - `POST /series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/resend`
 
 This route edits/resends a previous General Chat author message. It is valid only for active `chat` sessions and successful `author` / `general-chat` messages that are not Proposal-linked. The request may provide replacement `content` plus model options for the new call; it cannot override the General Chat system prompt. The server reads the prompt persisted on the target session, updates the source author message, deletes later unprotected General Chat messages, deletes message-bound attachments attached to those deleted messages, clears branch records/pointers that depended on deleted messages, creates a new ContextBundle/ModelCallLog from the revised history, and appends the new assistant message. Agent sessions and Agent/tool/result histories are not supported by this route in the current slice; protected later records return an error instead of being silently erased.
@@ -152,6 +205,9 @@ For Agent sessions, `GET /series/:seriesId/workshop/sessions/:sessionId` reconci
 - `POST /series/:seriesId/workshop/sessions/:sessionId/agent-runs/:runId/abandon`
 
 Retry requires the current run revision and is valid only for server-classified retryable `failed` or `interrupted` runs. It appends a new attempt without deleting prior steps. Abandon also requires the current revision, is terminal, and preserves the run/message history. Neither endpoint changes Provider/model selection, infers permission, or re-executes confirmed Codex writes.
+Agent retry holds the session activity boundary until its Provider attempt and
+authority commit finish, so Send, lifecycle changes, and another retry cannot
+run concurrently in the same session.
 
 - `POST /series/:seriesId/workshop/sessions/:sessionId/messages/:messageId/tools/codex.create_entry/execute`
 
@@ -162,6 +218,10 @@ This route is a limited author-confirmed execution path for server-owned Agent `
 This route is the matching author-confirmed execution path for server-owned Agent `role: tool` messages whose content is a structured JSON `codex.update_entry` request. It can update one existing Codex entry's name, aliases, Canon description, reusable Details, research notes, and unified Codex Progression operations in `patch.progressions`. Progression operations support `create`, `update`, and `delete` by calling the same validated Codex Progression repository commands used by the normal Codex API, including `baseRevision` checks for updates/deletes. The route may fill the target entry ID for field/world progression drafts that clearly target the same entry, but it does not execute assistant prose, fake tool-call text, relation writes, character knowledge writes, category edits, or broad Tool Plans. Explicit author authorization in the Agent conversation is a valid source basis for the Agent to draft a structured tool request; the write still requires this route's explicit confirmation before authority changes.
 
 Both limited execute routes claim the source tool message before the first authority write. The message persists validated `toolExecution` with request hash, attempt, retryable flag, `running` / `succeeded` / `failed` / `interrupted` / `abandoned` status, timestamps, optional result-message ID, and optional terminal error. Claims are serialized per Workshop session in the target single local server process; concurrent or later requests for the same tool message return `409` without repeating the authority mutation. Archived sessions cannot claim execution. A running execution blocks session archive/delete. Tool requests and linked results cannot be independently removed through generic message deletion. Branch remaps a complete tool/result pair to cloned IDs, detaches copied messages from source Agent runs, and rejects running or incomplete execution history. The Codex/detail/progression/result write and Agent tool-result step commit atomically. Success or an atomic command failure produces a durable result and continues the same run without another author message; another tool request waits for a separate author confirmation. Update normalizes legacy name-keyed Details to exact same-category reusable IDs before claim and sends unresolved legacy/new labels through one planner response. Restart recovery marks an uncommitted running claim interrupted and requires explicit retry.
+The session activity boundary spans both the confirmed Codex command and its
+Agent continuation Provider attempt. Therefore Archive, permanent Delete, Send,
+retry, or another tool execution cannot enter the window between the durable
+tool result and the continuation commit.
 
 ## M4 AI 基础设施
 
@@ -186,13 +246,13 @@ Both limited execute routes claim the source tool message before the first autho
 - `POST /ai/model-profiles/:profileId/test`
 - `GET /ai/model-profiles/:profileId/models`
 
-`ModelProfile` 描述一个全局模型配置，包括 Provider、模型名、服务地址、能力、默认参数和凭据引用。模型配置和服务密钥独立于 project/series，保存在作品库级 Settings 中，所有项目共享。Create/Update profile payload 不接收 `credentialRef`；普通保存设置必须保留已有凭据引用。API 不返回明文 API key。
+`ModelProfile` 描述一个全局模型配置，包括 Provider、精确模型名、服务地址、能力、默认参数、该模型最后一次有效的标准化 reasoning preference 和凭据引用。模型配置和服务密钥独立于 project/series，保存在作品库级 Settings 中，所有项目共享。Create/Update profile payload 不接收 `credentialRef`；普通保存设置必须保留已有凭据引用。API 不返回明文 API key。Version 1 profile compatibility reads `reasoningPreference` as null; explicit profile mutation writes version 2 and retains rollback data as ADR-0017 specifies。
 
 `POST /ai/model-profiles/:profileId/credential` 接收一次性密钥输入并写入 `CredentialStore`，随后把模型配置更新为凭据引用。设置页的 `Save Setting` 若密码框有新密钥，必须在保存 profile 后调用该 credential 端点；若密码框为空，则只保存 profile 字段并保留已有 key。服务端不得把明文密钥写入作品目录、调用日志、错误响应或 Git 可追踪文件。
 
 `POST /ai/model-profiles/:profileId/test` 只做连接测试和能力读取。Provider 认证失败、余额不足、限流、模型不可用和服务不可达会返回对应错误分类；不会自动换用其它 Provider。
 
-`GET /ai/model-profiles/:profileId/models` 返回 Provider 可见模型列表。若 Provider 不支持模型列表，返回能力声明中的静态模型或明确的“不支持”，不能伪造动态列表。
+`GET /ai/model-profiles/:profileId/models` 返回 Provider 可见模型列表。每个精确模型可另外声明 reasoning 为 unsupported、toggle、Provider-declared effort set 或 bounded token budget，并说明能否关闭及可见输出是 summary、full 或 none。若 Provider 不支持模型列表，返回能力声明中的静态模型或明确的“不支持”，不能伪造动态列表，也不能为未知模型伪造统一 reasoning 选项。
 
 ### Embedding 配置与调用边界
 

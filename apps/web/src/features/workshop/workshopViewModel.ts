@@ -132,6 +132,11 @@ function scenesForAct(series: SeriesDetail, actId: string) {
   return chaptersForAct(series, actId).flatMap((chapter) => scenesForChapter(series, chapter.id));
 }
 
+function scenesForVolume(series: SeriesDetail, volumeId: string) {
+  return byOrder(series.acts.filter((chapter) => chapter.bookId === volumeId))
+    .flatMap((chapter) => scenesForAct(series, chapter.id));
+}
+
 function scenesInSeriesOrder(series: SeriesDetail) {
   const ordered: SceneDocument[] = [];
   const seen = new Set<string>();
@@ -149,7 +154,11 @@ function scenesInSeriesOrder(series: SeriesDetail) {
   return ordered;
 }
 
-export function selectedScopeTexts(series: SeriesDetail, items: WorkshopContextItemRef[]): string[] {
+export function selectedScopeTexts(
+  series: SeriesDetail,
+  items: WorkshopContextItemRef[],
+  hierarchy: "author-facing" | "legacy-storage-hierarchy" = "author-facing",
+): string[] {
   const texts: string[] = [];
   const selectedSceneIds = new Set<string>();
   for (const item of items) {
@@ -159,11 +168,20 @@ export function selectedScopeTexts(series: SeriesDetail, items: WorkshopContextI
     if (item.kind === "full-outline") {
       texts.push(scenesInSeriesOrder(series).map(sceneOutlineText).join("\n\n"));
     }
-    if (item.kind === "act" && item.sourceId) {
-      texts.push(scenesForAct(series, item.sourceId).map(sceneScopeText).join("\n\n"));
+    if (item.kind === "volume" && item.sourceId) {
+      texts.push(scenesForVolume(series, item.sourceId).map(sceneScopeText).join("\n\n"));
     }
     if (item.kind === "chapter" && item.sourceId) {
-      texts.push(scenesForChapter(series, item.sourceId).map(sceneScopeText).join("\n\n"));
+      const scenes = hierarchy === "legacy-storage-hierarchy"
+        ? scenesForChapter(series, item.sourceId)
+        : scenesForAct(series, item.sourceId);
+      texts.push(scenes.map(sceneScopeText).join("\n\n"));
+    }
+    if (item.kind === "act" && item.sourceId) {
+      const scenes = hierarchy === "legacy-storage-hierarchy"
+        ? scenesForAct(series, item.sourceId)
+        : scenesForChapter(series, item.sourceId);
+      texts.push(scenes.map(sceneScopeText).join("\n\n"));
     }
     if (item.kind === "scene" && item.sourceId) selectedSceneIds.add(item.sourceId);
   }

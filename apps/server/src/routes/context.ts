@@ -4,6 +4,7 @@ import {
   ContextBundleSchema,
   ContextPreviewInputSchema,
   type ActManifest,
+  type BookManifest,
   type ChapterManifest,
   type CodexEntryDocument,
   type ContextBundle,
@@ -199,7 +200,7 @@ function previousSceneSummary(scene: SceneDocument): string {
 
 function manualIdMatches(
   manualIds: Set<string>,
-  kind: "section" | "codex" | "full-novel" | "full-outline" | "act" | "chapter" | "scene",
+  kind: "section" | "codex" | "full-novel" | "full-outline" | "volume" | "chapter" | "act" | "scene",
   id: string,
 ): boolean {
   return manualIds.has(id) || manualIds.has(`${kind}:${id}`);
@@ -337,11 +338,11 @@ function fullOutlineContent(series: SeriesDetail): string {
   ];
   for (const book of sortedByOrder(series.books)) {
     lines.push(`\nVolume: ${book.title}`);
-    for (const act of actsInBook(series, book.id)) {
-      lines.push(`  Act: ${act.title}`);
-      for (const chapter of chaptersInAct(series, act.id)) {
-        lines.push(`    Chapter: ${chapter.title}`);
-        for (const scene of scenesInChapter(series, chapter.id)) {
+    for (const storedAct of actsInBook(series, book.id)) {
+      lines.push(`  Chapter: ${storedAct.title}`);
+      for (const storedChapter of chaptersInAct(series, storedAct.id)) {
+        lines.push(`    Act: ${storedChapter.title}`);
+        for (const scene of scenesInChapter(series, storedChapter.id)) {
           lines.push(`      ${sceneOutlineContent(scene).replace(/\n/gu, "\n      ")}`);
         }
       }
@@ -350,12 +351,12 @@ function fullOutlineContent(series: SeriesDetail): string {
   return boundedContextContent(lines.filter(Boolean).join("\n"));
 }
 
-function chapterContextContent(series: SeriesDetail, chapter: ChapterManifest): string {
-  const act = series.acts.find((item) => item.id === chapter.actId);
+function authorActContextContent(series: SeriesDetail, storedChapter: ChapterManifest): string {
+  const storedAct = series.acts.find((item) => item.id === storedChapter.actId);
   return boundedContextContent([
-    `Chapter: ${chapter.title}`,
-    act ? `Act: ${act.title}` : "",
-    ...scenesInChapter(series, chapter.id).map((scene) => [
+    `Act: ${storedChapter.title}`,
+    storedAct ? `Chapter: ${storedAct.title}` : "",
+    ...scenesInChapter(series, storedChapter.id).map((scene) => [
       sceneOutlineContent(scene),
       "",
       sceneManuscriptContent(scene),
@@ -363,12 +364,21 @@ function chapterContextContent(series: SeriesDetail, chapter: ChapterManifest): 
   ].filter(Boolean).join("\n\n"));
 }
 
-function actContextContent(series: SeriesDetail, act: ActManifest): string {
-  const book = series.books.find((item) => item.id === act.bookId);
+function authorChapterContextContent(series: SeriesDetail, storedAct: ActManifest): string {
+  const book = series.books.find((item) => item.id === storedAct.bookId);
   return boundedContextContent([
-    `Act: ${act.title}`,
+    `Chapter: ${storedAct.title}`,
     book ? `Volume: ${book.title}` : "",
-    ...chaptersInAct(series, act.id).map((chapter) => chapterContextContent(series, chapter)),
+    ...chaptersInAct(series, storedAct.id).map((storedChapter) =>
+      authorActContextContent(series, storedChapter)),
+  ].filter(Boolean).join("\n\n"));
+}
+
+function volumeContextContent(series: SeriesDetail, volume: BookManifest): string {
+  return boundedContextContent([
+    `Volume: ${volume.title}`,
+    ...actsInBook(series, volume.id).map((storedAct) =>
+      authorChapterContextContent(series, storedAct)),
   ].filter(Boolean).join("\n\n"));
 }
 
@@ -711,38 +721,56 @@ export async function buildContextBundle(
     }));
   }
 
-  for (const act of sortedByOrder(series.acts)) {
-    if (!manualIdMatches(manualIds, "act", act.id)) continue;
-    const content = actContextContent(series, act);
+  for (const volume of sortedByOrder(series.books)) {
+    if (!manualIdMatches(manualIds, "volume", volume.id)) continue;
+    const content = volumeContextContent(series, volume);
     selectedScopeTexts.push(content);
     items.push(contextItem({
-      kind: "act",
-      sourceType: "act",
-      sourceId: act.id,
+      kind: "book",
+      sourceType: "book",
+      sourceId: volume.id,
       sourceRevision: hashText(content),
-      sourceLabel: act.title,
-      title: `Act: ${act.title}`,
+      sourceLabel: volume.title,
+      title: `Volume: ${volume.title}`,
       content,
       inclusion: "selected",
-      inclusionReason: "The author selected this act.",
+      inclusionReason: "The author selected this Volume.",
       manuallySelected: true,
     }));
   }
 
-  for (const chapter of sortedByOrder(series.chapters)) {
-    if (!manualIdMatches(manualIds, "chapter", chapter.id)) continue;
-    const content = chapterContextContent(series, chapter);
+  for (const storedAct of sortedByOrder(series.acts)) {
+    if (!manualIdMatches(manualIds, "chapter", storedAct.id)) continue;
+    const content = authorChapterContextContent(series, storedAct);
+    selectedScopeTexts.push(content);
+    items.push(contextItem({
+      kind: "act",
+      sourceType: "act",
+      sourceId: storedAct.id,
+      sourceRevision: hashText(content),
+      sourceLabel: storedAct.title,
+      title: `Chapter: ${storedAct.title}`,
+      content,
+      inclusion: "selected",
+      inclusionReason: "The author selected this Chapter.",
+      manuallySelected: true,
+    }));
+  }
+
+  for (const storedChapter of sortedByOrder(series.chapters)) {
+    if (!manualIdMatches(manualIds, "act", storedChapter.id)) continue;
+    const content = authorActContextContent(series, storedChapter);
     selectedScopeTexts.push(content);
     items.push(contextItem({
       kind: "chapter",
       sourceType: "chapter",
-      sourceId: chapter.id,
+      sourceId: storedChapter.id,
       sourceRevision: hashText(content),
-      sourceLabel: chapter.title,
-      title: `Chapter: ${chapter.title}`,
+      sourceLabel: storedChapter.title,
+      title: `Act: ${storedChapter.title}`,
       content,
       inclusion: "selected",
-      inclusionReason: "The author selected this chapter.",
+      inclusionReason: "The author selected this Act.",
       manuallySelected: true,
     }));
   }
@@ -1032,7 +1060,7 @@ export async function buildContextBundle(
   const budgeted = applyBudget(items, excluded, budget);
   const totalInput = budgeted.items.reduce((sum, item) => sum + item.tokenEstimate, 0);
   const bundle = ContextBundleSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: randomUUID(),
     seriesId,
     sceneId: currentScene?.metadata.id ?? null,

@@ -122,6 +122,8 @@ Projects currently support Trash, restore, and exact-name-confirmed permanent di
 ## AI And Credentials
 
 - Model calls use an explicitly selected Provider/model profile and never silently cross a local/cloud boundary.
+- Provider model discovery returns exact-model reasoning controls separately from the persisted connection profile. Model Profile version 2 stores only the normalized last valid reasoning preference for its exact Provider connection and model; Provider-private request objects remain adapter details.
+- Workshop General Chat and Agent consume typed Provider answer/reasoning stream events. Version 2 call logs persist resolved parameters, and version 2 Workshop messages/runs distinguish author cancellation from failure, completion, and restart interruption under ADR-0017.
 - Credentials are library-global references resolved through the credential service; plaintext keys do not enter project JSON, logs, or API responses.
 - Context assembly applies source permission, Codex policy, per-detail switches, story position, character knowledge, and token budgeting before Provider delivery.
 - `EmbeddingModelProfile` and `EmbeddingRouter` are shared infrastructure separate from generation-model configuration. Embeddings and vector indexes are rebuildable derived data, not evidence or Canon.

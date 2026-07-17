@@ -1,29 +1,62 @@
-import { mkdir, readdir, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type Database from "better-sqlite3";
 import {
   AgentRoleSchema,
+  ContextBundleAuthoritySchema,
   ContextBundleSchema,
+  ContextBundleV1Schema,
+  ContextBundleV2MigrationBackupSchema,
+  ContextBundleV2MigrationResultSchema,
   EmbeddingModelProfileSchema,
   EmbeddingUseCaseBindingDocumentSchema,
   EmbeddingUseCaseIdSchema,
+  ModelCallLogV1Schema,
+  ModelCallLogV2MigrationBackupSchema,
+  ModelCallLogV2MigrationResultSchema,
+  ModelCallLogV2Schema,
   ModelCallLogSchema,
+  NewModelCallLogV2Schema,
+  ModelProfileV1Schema,
+  ModelProfileV2MigrationBackupSchema,
+  ModelProfileV2MigrationResultSchema,
+  ModelProfileV2Schema,
   ModelProfileSchema,
   PromptPresetSchema,
   PromptTemplateSchema,
+  RollbackContextBundleV2MigrationResultSchema,
+  RollbackModelCallLogV2MigrationResultSchema,
+  RollbackModelProfileV2MigrationResultSchema,
   type AgentRole,
   type ContextBundle,
+  type ContextBundleV2MigrationBackup,
+  type ContextBundleV2MigrationResult,
   type EmbeddingModelProfile,
   type EmbeddingUseCaseBindingDocument,
   type EmbeddingUseCaseId,
   type ModelCallLog,
+  type ModelCallLogV2MigrationBackup,
+  type ModelCallLogV2MigrationResult,
   type ModelProfile,
+  type ModelProfileV2MigrationBackup,
+  type ModelProfileV2MigrationResult,
   type PromptPreset,
   type PromptTemplate,
+  type RollbackModelCallLogV2MigrationResult,
+  type RollbackModelProfileV2MigrationResult,
+  type RollbackContextBundleV2MigrationResult,
 } from "@novel-studio/contracts";
 import { StorageError } from "./errors.js";
+import { runSeriesFileTransaction } from "./fileTransactions.js";
 import { assertInside } from "./fileSystem.js";
-import { readJsonAuthorityFile, writeJsonAuthorityFile } from "./jsonAuthority.js";
+import {
+  jsonAuthorityRevision,
+  parseJsonAuthorityText,
+  readJsonAuthorityFile,
+  serializeJsonAuthority,
+  writeJsonAuthorityFile,
+} from "./jsonAuthority.js";
 
 const STUDIO_DIR = ".studio";
 const MODEL_PROFILES_DIR = "model-profiles";
@@ -35,6 +68,7 @@ const PROMPTS_DIR = "prompts";
 const PROMPT_ROLES_DIR = "roles";
 const PROMPT_TEMPLATES_DIR = "templates";
 const PROMPT_PRESETS_DIR = "presets";
+const MIGRATIONS_DIR = "migrations";
 
 export interface AiIndexCounts {
   indexedContextBundles: number;
@@ -127,6 +161,31 @@ function modelCallsRoot(seriesRoot: string): string {
   return assertInside(seriesRoot, path.join(seriesRoot, STUDIO_DIR, MODEL_CALLS_DIR));
 }
 
+function migrationsRoot(root: string): string {
+  return assertInside(root, path.join(root, STUDIO_DIR, MIGRATIONS_DIR));
+}
+
+function modelProfileMigrationBackupPath(libraryRoot: string, migrationId: string): string {
+  return assertInside(
+    libraryRoot,
+    path.join(migrationsRoot(libraryRoot), `adr-0017-model-profiles-${migrationId}.json`),
+  );
+}
+
+function modelCallLogMigrationBackupPath(seriesRoot: string, migrationId: string): string {
+  return assertInside(
+    seriesRoot,
+    path.join(migrationsRoot(seriesRoot), `adr-0017-model-calls-${migrationId}.json`),
+  );
+}
+
+function contextBundleMigrationBackupPath(seriesRoot: string, migrationId: string): string {
+  return assertInside(
+    seriesRoot,
+    path.join(migrationsRoot(seriesRoot), `adr-0017-context-bundles-${migrationId}.json`),
+  );
+}
+
 function promptRolesRoot(seriesRoot: string): string {
   return assertInside(seriesRoot, path.join(seriesRoot, PROMPTS_DIR, PROMPT_ROLES_DIR));
 }
@@ -184,6 +243,18 @@ function assertFileNameMatches(filePath: string, expectedName: string): void {
   }
 }
 
+function parseModelProfileAuthority(value: unknown) {
+  const version2 = ModelProfileV2Schema.safeParse(value);
+  if (version2.success) return version2.data;
+  return ModelProfileV1Schema.parse(value);
+}
+
+function parseModelCallLogAuthority(value: unknown) {
+  const version2 = ModelCallLogV2Schema.safeParse(value);
+  if (version2.success) return version2.data;
+  return ModelCallLogV1Schema.parse(value);
+}
+
 export function ensureAiIndexTables(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS ai_context_bundles (
@@ -221,9 +292,10 @@ export function ensureAiIndexTables(database: Database.Database): void {
 export async function saveModelProfile(libraryRoot: string, rawProfile: ModelProfile): Promise<ModelProfile> {
   const profile = ModelProfileSchema.parse(rawProfile);
   await mkdir(modelProfilesRoot(libraryRoot), { recursive: true });
-  return writeJson(modelProfilePath(libraryRoot, profile.id), profile, (value) =>
-    ModelProfileSchema.parse(value),
-  );
+  return runSeriesFileTransaction(libraryRoot, () =>
+    writeJson(modelProfilePath(libraryRoot, profile.id), profile, (value) =>
+      ModelProfileSchema.parse(value),
+    ));
 }
 
 export async function getModelProfile(libraryRoot: string, profileId: string): Promise<ModelProfile> {
@@ -239,6 +311,139 @@ export async function listModelProfiles(libraryRoot: string): Promise<ModelProfi
     profiles.push(profile);
   }
   return profiles.sort((left, right) => left.title.localeCompare(right.title, "zh-CN"));
+}
+
+export async function migrateModelProfilesToV2(
+  libraryRoot: string,
+): Promise<ModelProfileV2MigrationResult> {
+  return runSeriesFileTransaction(libraryRoot, async (commit) => {
+  const migrationId = randomUUID();
+  const documents: ModelProfileV2MigrationBackup["documents"] = [];
+  const mutations: Array<{ targetPath: string; content: string }> = [];
+  const seenIds = new Set<string>();
+  for (const filePath of await listJsonFiles(modelProfilesRoot(libraryRoot))) {
+    const raw = await readFile(filePath, "utf8");
+    const authority = parseJsonAuthorityText(
+      raw,
+      parseModelProfileAuthority,
+      "Model Profile migration source",
+    );
+    assertFileNameMatches(filePath, authority.id);
+    if (seenIds.has(authority.id)) {
+      throw new StorageError("Model Profile migration found a duplicate identity", "INVALID_DATA", {
+        profileId: authority.id,
+      });
+    }
+    seenIds.add(authority.id);
+    if (authority.schemaVersion !== 1) continue;
+    const migratedRaw = serializeJsonAuthority(ModelProfileSchema.parse(authority));
+    documents.push({
+      profileId: authority.id,
+      relativePath: path.posix.join(STUDIO_DIR, MODEL_PROFILES_DIR, `${authority.id}.json`),
+      raw,
+      revision: jsonAuthorityRevision(raw),
+      migratedRevision: jsonAuthorityRevision(migratedRaw),
+    });
+    mutations.push({ targetPath: filePath, content: migratedRaw });
+  }
+  const backup = ModelProfileV2MigrationBackupSchema.parse({
+    schemaVersion: 1,
+    scope: "library-model-profiles",
+    migrationId,
+    createdAt: new Date().toISOString(),
+    documents,
+  });
+  await commit([{
+    targetPath: modelProfileMigrationBackupPath(libraryRoot, migrationId),
+    content: serializeJsonAuthority(backup),
+  }, ...mutations]);
+  return ModelProfileV2MigrationResultSchema.parse({
+    migrationId,
+    migratedProfileIds: documents.map((document) => document.profileId),
+  });
+  });
+}
+
+export async function rollbackModelProfilesV2Migration(
+  libraryRoot: string,
+  migrationId: string,
+): Promise<RollbackModelProfileV2MigrationResult> {
+  return runSeriesFileTransaction(libraryRoot, async (commit) => {
+  let rawBackup: string;
+  try {
+    rawBackup = await readFile(modelProfileMigrationBackupPath(libraryRoot, migrationId), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new StorageError("Model Profile migration backup does not exist", "NOT_FOUND", { migrationId });
+    }
+    throw error;
+  }
+  const backup = parseJsonAuthorityText(
+    rawBackup,
+    (value) => ModelProfileV2MigrationBackupSchema.parse(value),
+    "Model Profile migration backup",
+  );
+  if (backup.migrationId !== migrationId || backup.scope !== "library-model-profiles") {
+    throw new StorageError("Model Profile migration backup identity does not match", "INVALID_DATA", {
+      migrationId,
+    });
+  }
+  const mutations: Array<{ targetPath: string; content: string }> = [];
+  for (const document of backup.documents) {
+    const expectedRelativePath = path.posix.join(
+      STUDIO_DIR,
+      MODEL_PROFILES_DIR,
+      `${document.profileId}.json`,
+    );
+    if (
+      document.relativePath !== expectedRelativePath ||
+      jsonAuthorityRevision(document.raw) !== document.revision
+    ) {
+      throw new StorageError("Model Profile migration backup document is invalid", "INVALID_DATA", {
+        migrationId,
+        profileId: document.profileId,
+      });
+    }
+    const original = parseJsonAuthorityText(
+      document.raw,
+      (value) => ModelProfileV1Schema.parse(value),
+      "Model Profile rollback source",
+    );
+    if (original.id !== document.profileId) {
+      throw new StorageError("Model Profile rollback source identity does not match", "INVALID_DATA", {
+        migrationId,
+        profileId: document.profileId,
+      });
+    }
+    const targetPath = modelProfilePath(libraryRoot, document.profileId);
+    let currentRaw: string;
+    try {
+      currentRaw = await readFile(targetPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("Model Profile changed after migration", "CONFLICT", {
+          migrationId,
+          profileId: document.profileId,
+          currentRevision: null,
+        });
+      }
+      throw error;
+    }
+    if (jsonAuthorityRevision(currentRaw) !== document.migratedRevision) {
+      throw new StorageError("Model Profile changed after migration", "CONFLICT", {
+        migrationId,
+        profileId: document.profileId,
+        currentRevision: jsonAuthorityRevision(currentRaw),
+      });
+    }
+    mutations.push({ targetPath, content: document.raw });
+  }
+  await commit(mutations);
+  return RollbackModelProfileV2MigrationResultSchema.parse({
+    migrationId,
+    restoredProfileIds: backup.documents.map((document) => document.profileId),
+  });
+  });
 }
 
 export async function saveEmbeddingModelProfile(
@@ -411,11 +616,13 @@ export async function listPromptPresets(seriesRoot: string): Promise<PromptPrese
 }
 
 export async function saveContextBundle(seriesRoot: string, rawBundle: ContextBundle): Promise<ContextBundle> {
-  const bundle = ContextBundleSchema.parse(rawBundle);
-  await mkdir(contextBundlesRoot(seriesRoot), { recursive: true });
-  return writeJson(contextBundlePath(seriesRoot, bundle.id), bundle, (value) =>
-    ContextBundleSchema.parse(value),
-  );
+  return runSeriesFileTransaction(seriesRoot, async () => {
+    const bundle = ContextBundleSchema.parse(rawBundle);
+    await mkdir(contextBundlesRoot(seriesRoot), { recursive: true });
+    return writeJson(contextBundlePath(seriesRoot, bundle.id), bundle, (value) =>
+      ContextBundleSchema.parse(value),
+    );
+  });
 }
 
 export async function getContextBundle(seriesRoot: string, contextBundleId: string): Promise<ContextBundle> {
@@ -435,12 +642,141 @@ export async function listContextBundles(seriesRoot: string): Promise<ContextBun
   return bundles.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
+export async function migrateContextBundlesToV2(
+  seriesRoot: string,
+  seriesId: string,
+): Promise<ContextBundleV2MigrationResult> {
+  return runSeriesFileTransaction(seriesRoot, async (commit) => {
+    const migrationId = randomUUID();
+    const documents: ContextBundleV2MigrationBackup["documents"] = [];
+    const mutations: Array<{ targetPath: string; content: string }> = [];
+    for (const filePath of await listJsonFiles(contextBundlesRoot(seriesRoot))) {
+      const raw = await readFile(filePath, "utf8");
+      const authority = parseJsonAuthorityText(
+        raw,
+        (value) => ContextBundleAuthoritySchema.parse(value),
+        "Context Bundle migration source",
+      );
+      assertFileNameMatches(filePath, authority.id);
+      if (authority.seriesId !== seriesId) {
+        throw new StorageError("Context Bundle migration found another Series identity", "INVALID_DATA", {
+          contextBundleId: authority.id,
+        });
+      }
+      if (authority.schemaVersion !== 1) continue;
+      const migratedRaw = serializeJsonAuthority(ContextBundleSchema.parse(authority));
+      documents.push({
+        contextBundleId: authority.id,
+        relativePath: path.posix.join(STUDIO_DIR, CONTEXT_BUNDLES_DIR, `${authority.id}.json`),
+        raw,
+        revision: jsonAuthorityRevision(raw),
+        migratedRevision: jsonAuthorityRevision(migratedRaw),
+      });
+      mutations.push({ targetPath: filePath, content: migratedRaw });
+    }
+    const backup = ContextBundleV2MigrationBackupSchema.parse({
+      schemaVersion: 1,
+      migrationId,
+      seriesId,
+      createdAt: new Date().toISOString(),
+      documents,
+    });
+    await commit([{
+      targetPath: contextBundleMigrationBackupPath(seriesRoot, migrationId),
+      content: serializeJsonAuthority(backup),
+    }, ...mutations]);
+    return ContextBundleV2MigrationResultSchema.parse({
+      migrationId,
+      migratedContextBundleIds: documents.map((document) => document.contextBundleId),
+    });
+  });
+}
+
+export async function rollbackContextBundlesV2Migration(
+  seriesRoot: string,
+  seriesId: string,
+  migrationId: string,
+): Promise<RollbackContextBundleV2MigrationResult> {
+  return runSeriesFileTransaction(seriesRoot, async (commit) => {
+    let rawBackup: string;
+    try {
+      rawBackup = await readFile(contextBundleMigrationBackupPath(seriesRoot, migrationId), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("Context Bundle migration backup does not exist", "NOT_FOUND", { migrationId });
+      }
+      throw error;
+    }
+    const backup = parseJsonAuthorityText(
+      rawBackup,
+      (value) => ContextBundleV2MigrationBackupSchema.parse(value),
+      "Context Bundle migration backup",
+    );
+    if (backup.migrationId !== migrationId || backup.seriesId !== seriesId) {
+      throw new StorageError("Context Bundle migration backup identity does not match", "INVALID_DATA", { migrationId });
+    }
+    const mutations: Array<{ targetPath: string; content: string }> = [];
+    for (const document of backup.documents) {
+      const expectedRelativePath = path.posix.join(
+        STUDIO_DIR,
+        CONTEXT_BUNDLES_DIR,
+        `${document.contextBundleId}.json`,
+      );
+      if (document.relativePath !== expectedRelativePath || jsonAuthorityRevision(document.raw) !== document.revision) {
+        throw new StorageError("Context Bundle migration backup document is invalid", "INVALID_DATA", {
+          migrationId,
+          contextBundleId: document.contextBundleId,
+        });
+      }
+      const original = parseJsonAuthorityText(
+        document.raw,
+        (value) => ContextBundleV1Schema.parse(value),
+        "Context Bundle rollback source",
+      );
+      if (original.id !== document.contextBundleId || original.seriesId !== seriesId) {
+        throw new StorageError("Context Bundle rollback source identity does not match", "INVALID_DATA", {
+          migrationId,
+          contextBundleId: document.contextBundleId,
+        });
+      }
+      const targetPath = contextBundlePath(seriesRoot, document.contextBundleId);
+      let currentRaw: string;
+      try {
+        currentRaw = await readFile(targetPath, "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new StorageError("Context Bundle changed after migration", "CONFLICT", {
+            migrationId,
+            contextBundleId: document.contextBundleId,
+            currentRevision: null,
+          });
+        }
+        throw error;
+      }
+      if (jsonAuthorityRevision(currentRaw) !== document.migratedRevision) {
+        throw new StorageError("Context Bundle changed after migration", "CONFLICT", {
+          migrationId,
+          contextBundleId: document.contextBundleId,
+          currentRevision: jsonAuthorityRevision(currentRaw),
+        });
+      }
+      mutations.push({ targetPath, content: document.raw });
+    }
+    await commit(mutations);
+    return RollbackContextBundleV2MigrationResultSchema.parse({
+      migrationId,
+      restoredContextBundleIds: backup.documents.map((document) => document.contextBundleId),
+    });
+  });
+}
+
 export async function saveModelCallLog(seriesRoot: string, rawLog: ModelCallLog): Promise<ModelCallLog> {
-  const log = ModelCallLogSchema.parse(rawLog);
+  const log = NewModelCallLogV2Schema.parse(rawLog);
   await mkdir(modelCallsRoot(seriesRoot), { recursive: true });
-  return writeJson(modelCallLogPath(seriesRoot, log.id), log, (value) =>
-    ModelCallLogSchema.parse(value),
-  );
+  return runSeriesFileTransaction(seriesRoot, () =>
+    writeJson(modelCallLogPath(seriesRoot, log.id), log, (value) =>
+      NewModelCallLogV2Schema.parse(value),
+    ));
 }
 
 export async function getModelCallLog(seriesRoot: string, modelCallId: string): Promise<ModelCallLog> {
@@ -456,6 +792,142 @@ export async function listModelCallLogs(seriesRoot: string): Promise<ModelCallLo
     logs.push(log);
   }
   return logs.sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+}
+
+export async function migrateModelCallLogsToV2(
+  seriesRoot: string,
+  seriesId: string,
+): Promise<ModelCallLogV2MigrationResult> {
+  return runSeriesFileTransaction(seriesRoot, async (commit) => {
+  const migrationId = randomUUID();
+  const documents: ModelCallLogV2MigrationBackup["documents"] = [];
+  const mutations: Array<{ targetPath: string; content: string }> = [];
+  const seenIds = new Set<string>();
+  for (const filePath of await listJsonFiles(modelCallsRoot(seriesRoot))) {
+    const raw = await readFile(filePath, "utf8");
+    const authority = parseJsonAuthorityText(
+      raw,
+      parseModelCallLogAuthority,
+      "Model Call Log migration source",
+    );
+    assertFileNameMatches(filePath, authority.id);
+    if (seenIds.has(authority.id)) {
+      throw new StorageError("Model Call Log migration found a duplicate identity", "INVALID_DATA", {
+        callId: authority.id,
+      });
+    }
+    seenIds.add(authority.id);
+    if (authority.seriesId !== seriesId) {
+      throw new StorageError("Model Call Log migration found another Series identity", "INVALID_DATA", {
+        callId: authority.id,
+      });
+    }
+    if (authority.schemaVersion !== 1) continue;
+    const migratedRaw = serializeJsonAuthority(ModelCallLogSchema.parse(authority));
+    documents.push({
+      callId: authority.id,
+      relativePath: path.posix.join(STUDIO_DIR, MODEL_CALLS_DIR, `${authority.id}.json`),
+      raw,
+      revision: jsonAuthorityRevision(raw),
+      migratedRevision: jsonAuthorityRevision(migratedRaw),
+    });
+    mutations.push({ targetPath: filePath, content: migratedRaw });
+  }
+  const backup = ModelCallLogV2MigrationBackupSchema.parse({
+    schemaVersion: 1,
+    migrationId,
+    seriesId,
+    createdAt: new Date().toISOString(),
+    documents,
+  });
+  await commit([{
+    targetPath: modelCallLogMigrationBackupPath(seriesRoot, migrationId),
+    content: serializeJsonAuthority(backup),
+  }, ...mutations]);
+  return ModelCallLogV2MigrationResultSchema.parse({
+    migrationId,
+    migratedCallIds: documents.map((document) => document.callId),
+  });
+  });
+}
+
+export async function rollbackModelCallLogsV2Migration(
+  seriesRoot: string,
+  seriesId: string,
+  migrationId: string,
+): Promise<RollbackModelCallLogV2MigrationResult> {
+  return runSeriesFileTransaction(seriesRoot, async (commit) => {
+  let rawBackup: string;
+  try {
+    rawBackup = await readFile(modelCallLogMigrationBackupPath(seriesRoot, migrationId), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new StorageError("Model Call Log migration backup does not exist", "NOT_FOUND", { migrationId });
+    }
+    throw error;
+  }
+  const backup = parseJsonAuthorityText(
+    rawBackup,
+    (value) => ModelCallLogV2MigrationBackupSchema.parse(value),
+    "Model Call Log migration backup",
+  );
+  if (backup.migrationId !== migrationId || backup.seriesId !== seriesId) {
+    throw new StorageError("Model Call Log migration backup identity does not match", "INVALID_DATA", {
+      migrationId,
+    });
+  }
+  const mutations: Array<{ targetPath: string; content: string }> = [];
+  for (const document of backup.documents) {
+    const expectedRelativePath = path.posix.join(STUDIO_DIR, MODEL_CALLS_DIR, `${document.callId}.json`);
+    if (
+      document.relativePath !== expectedRelativePath ||
+      jsonAuthorityRevision(document.raw) !== document.revision
+    ) {
+      throw new StorageError("Model Call Log migration backup document is invalid", "INVALID_DATA", {
+        migrationId,
+        callId: document.callId,
+      });
+    }
+    const original = parseJsonAuthorityText(
+      document.raw,
+      (value) => ModelCallLogV1Schema.parse(value),
+      "Model Call Log rollback source",
+    );
+    if (original.id !== document.callId || original.seriesId !== seriesId) {
+      throw new StorageError("Model Call Log rollback source identity does not match", "INVALID_DATA", {
+        migrationId,
+        callId: document.callId,
+      });
+    }
+    const targetPath = modelCallLogPath(seriesRoot, document.callId);
+    let currentRaw: string;
+    try {
+      currentRaw = await readFile(targetPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("Model Call Log changed after migration", "CONFLICT", {
+          migrationId,
+          callId: document.callId,
+          currentRevision: null,
+        });
+      }
+      throw error;
+    }
+    if (jsonAuthorityRevision(currentRaw) !== document.migratedRevision) {
+      throw new StorageError("Model Call Log changed after migration", "CONFLICT", {
+        migrationId,
+        callId: document.callId,
+        currentRevision: jsonAuthorityRevision(currentRaw),
+      });
+    }
+    mutations.push({ targetPath, content: document.raw });
+  }
+  await commit(mutations);
+  return RollbackModelCallLogV2MigrationResultSchema.parse({
+    migrationId,
+    restoredCallIds: backup.documents.map((document) => document.callId),
+  });
+  });
 }
 
 export async function rebuildAiIndex(seriesRoot: string, database: Database.Database): Promise<AiIndexCounts> {

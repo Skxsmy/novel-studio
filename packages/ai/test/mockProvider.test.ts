@@ -19,6 +19,8 @@ import {
   createDefaultProviderRegistry,
   isLikelySecret,
   type CredentialStore,
+  type ProviderChatStreamEvent,
+  type ProviderTextStreamEvent,
 } from "../src/index.js";
 
 const NOW = "2026-06-21T00:00:00.000Z";
@@ -109,12 +111,28 @@ function prompt() {
   };
 }
 
-async function collect(iterable: AsyncIterable<string>): Promise<string> {
+async function collect(iterable: AsyncIterable<ProviderTextStreamEvent>): Promise<string> {
   const chunks: string[] = [];
-  for await (const chunk of iterable) {
-    chunks.push(chunk);
+  for await (const event of iterable) {
+    if (event.type === "answer-delta") chunks.push(event.text);
   }
   return chunks.join("");
+}
+
+async function collectEvents(
+  iterable: AsyncIterable<ProviderTextStreamEvent>,
+): Promise<ProviderTextStreamEvent[]> {
+  const events: ProviderTextStreamEvent[] = [];
+  for await (const event of iterable) events.push(event);
+  return events;
+}
+
+async function collectChatEvents(
+  iterable: AsyncIterable<ProviderChatStreamEvent>,
+): Promise<ProviderChatStreamEvent[]> {
+  const events: ProviderChatStreamEvent[] = [];
+  for await (const event of iterable) events.push(event);
+  return events;
 }
 
 function fakeCredentialStore(secret = "test-deepseek-key"): CredentialStore {
@@ -196,6 +214,18 @@ describe("ProviderAdapter core and MockProvider", () => {
 
     expect(text).toContain("非写入型分析结果");
     expect(text).toContain("不会修改正文、已确认设定或任何故事资料文件");
+  });
+
+  it("stops a text stream before emitting output when cancellation is requested", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(collectEvents(new MockProvider().streamText({
+      modelProfile: modelProfile(),
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      abortSignal: controller.signal,
+    }))).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("generates validated structured output marked unsafe to write directly", async () => {
@@ -396,6 +426,12 @@ describe("ProviderAdapter core and MockProvider", () => {
             tokenEstimate: true,
             modelList: true,
           },
+          reasoning: {
+            kind: "effort",
+            efforts: ["high", "max"],
+            defaultEffort: "high",
+            canDisable: true,
+          },
         },
         {
           id: "deepseek-v4-pro",
@@ -407,6 +443,12 @@ describe("ProviderAdapter core and MockProvider", () => {
             embeddings: false,
             tokenEstimate: true,
             modelList: true,
+          },
+          reasoning: {
+            kind: "effort",
+            efforts: ["high", "max"],
+            defaultEffort: "high",
+            canDisable: true,
           },
         },
       ],
@@ -431,16 +473,34 @@ describe("ProviderAdapter core and MockProvider", () => {
       ok: true,
       provider: "deepseek",
       models: [
-        { id: "deepseek-v4-flash" },
-        { id: "deepseek-v4-pro" },
+        {
+          id: "deepseek-v4-flash",
+          reasoning: {
+            kind: "effort",
+            efforts: ["high", "max"],
+            defaultEffort: "high",
+            canDisable: true,
+          },
+        },
+        { id: "deepseek-v4-pro", reasoning: { kind: "effort" } },
       ],
     });
 
+    const resolvedParameters = await provider.resolveParameters(profile, {
+      temperature: 0.3,
+      maxOutputTokens: 128,
+      seed: 42,
+    });
+    expect(resolvedParameters).toEqual({
+      maxOutputTokens: 128,
+      reasoning: { mode: "effort", effort: "high" },
+      seed: 42,
+    });
     await expect(collect(provider.streamText({
       modelProfile: profile,
       prompt: prompt(),
       contextBundle: contextBundle(),
-      parameters: { temperature: 0.3, maxOutputTokens: 128 },
+      resolvedParameters,
     }))).resolves.toBe("雨声压低了脚步。");
 
     expect(requests.some((request) => request.url === "https://api.deepseek.com/models")).toBe(true);
@@ -449,9 +509,12 @@ describe("ProviderAdapter core and MockProvider", () => {
     expect(chatRequest?.body).toMatchObject({
       model: "deepseek-v4-flash",
       stream: true,
-      temperature: 0.3,
       max_tokens: 128,
+      thinking: { type: "enabled" },
+      reasoning_effort: "high",
+      seed: 42,
     });
+    expect(chatRequest?.body).not.toHaveProperty("temperature");
     const chatBodyText = JSON.stringify(chatRequest?.body);
     expect(chatBodyText).toContain("## 当前场景");
     expect(chatBodyText).toContain("当前场景：雨夜，主角发现信件。");
@@ -481,6 +544,59 @@ describe("ProviderAdapter core and MockProvider", () => {
     await expect(provider.listModels(profile)).resolves.toEqual([
       expect.objectContaining({ id: "provider-model-a" }),
     ]);
+  });
+
+  it("rejects transport-owned parameter overrides before OpenAI-compatible, Anthropic, or Gemini transport", async () => {
+    let transportCalls = 0;
+    const registry = createDefaultProviderRegistry({
+      credentialStore: fakeCredentialStore("provider-test-key"),
+      fetchImpl: async () => {
+        transportCalls += 1;
+        return new Response("unexpected transport", { status: 500 });
+      },
+    });
+    const cases = [
+      {
+        provider: registry.get("openai-compatible"),
+        profile: modelProfile({
+          provider: "openai-compatible",
+          baseUrl: "https://example.test/v1",
+          model: "author-selected-model",
+          credentialRef: "novel-studio/model-profile/openai-compatible",
+        }),
+        parameters: { model: "attacker-selected-model" },
+      },
+      {
+        provider: registry.get("anthropic"),
+        profile: modelProfile({
+          provider: "anthropic",
+          baseUrl: null,
+          model: "claude-test",
+          credentialRef: "novel-studio/model-profile/anthropic",
+        }),
+        parameters: { messages: "attacker-owned-messages" },
+      },
+      {
+        provider: registry.get("google"),
+        profile: modelProfile({
+          provider: "google",
+          baseUrl: null,
+          model: "gemini-test",
+          credentialRef: "novel-studio/model-profile/google",
+        }),
+        parameters: { thinkingConfig: "attacker-owned-thinking" },
+      },
+    ];
+
+    for (const testCase of cases) {
+      await expect(collect(testCase.provider.streamText({
+        modelProfile: testCase.profile,
+        prompt: prompt(),
+        contextBundle: contextBundle(),
+        parameters: testCase.parameters,
+      }))).rejects.toThrow("transport-owned request fields");
+    }
+    expect(transportCalls).toBe(0);
   });
 
   it("normalizes native DeepSeek tool calls and replays reasoning with the matching tool result", async () => {
@@ -560,10 +676,11 @@ describe("ProviderAdapter core and MockProvider", () => {
     });
     expect(requests[0]).toMatchObject({
       stream: false,
-      tool_choice: "auto",
       parallel_tool_calls: false,
+      thinking: { type: "enabled" },
       tools: [{ type: "function", function: { name: "codex_create_entry" } }],
     });
+    expect(requests[0]).not.toHaveProperty("tool_choice");
 
     const second = await provider.completeChat({
       modelProfile: profile,
@@ -588,15 +705,104 @@ describe("ProviderAdapter core and MockProvider", () => {
     expect(requests[1]).toMatchObject({
       messages: [
         { role: "system" },
-        { role: "user" },
         {
           role: "assistant",
           reasoning_content: "The author requested a Codex entry.",
           tool_calls: [{ id: "call_create_1", function: { name: "codex_create_entry" } }],
         },
         { role: "tool", tool_call_id: "call_create_1" },
+        { role: "user" },
       ],
     });
+  });
+
+  it("keeps DeepSeek Agent stream tools while omitting unsupported thinking-mode fields", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    const provider = createDefaultProviderRegistry({
+      credentialStore: fakeCredentialStore("deepseek-test-key"),
+      fetchImpl: async (_input, init) => {
+        requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        if (requests.length === 1) {
+          return sseResponse(
+            JSON.stringify({ choices: [{ delta: { content: "Done" }, finish_reason: "stop" }] }),
+            "[DONE]",
+          );
+        }
+        return new Response(JSON.stringify({
+          choices: [{ finish_reason: "stop", message: { content: "Done" } }],
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      },
+    }).get("deepseek");
+    const profile = modelProfile({
+      provider: "deepseek",
+      baseUrl: null,
+      model: "deepseek-v4-flash",
+      credentialRef: "novel-studio/model-profile/deepseek",
+      contextWindowTokens: 1_000_000,
+    });
+    const tools = [{
+      name: "codex.create_entry",
+      description: "Create one Codex entry.",
+      parameters: { type: "object", properties: { name: { type: "string" } } },
+    }];
+
+    await collectChatEvents(provider.streamChat({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      tools,
+      toolChoice: "required",
+      parameters: {
+        temperature: 0.7,
+        topP: 0.8,
+        presence_penalty: 0.4,
+        frequency_penalty: 0.3,
+      },
+    }));
+    await provider.completeChat({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      tools,
+      toolChoice: "required",
+      parameters: {
+        reasoning: { mode: "disabled" },
+        temperature: 0.7,
+        topP: 0.8,
+        presence_penalty: 0.4,
+        frequency_penalty: 0.3,
+      },
+    });
+    await expect(collectChatEvents(provider.streamChat({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      tools,
+      resolvedParameters: {
+        reasoning: { mode: "effort", effort: "high" },
+        presence_penalty: 0.4,
+      },
+    }))).rejects.toMatchObject({ code: "model-unavailable" });
+
+    expect(requests[0]).toMatchObject({
+      thinking: { type: "enabled" },
+      tools: [{ type: "function", function: { name: "codex_create_entry" } }],
+    });
+    expect(requests[0]).not.toHaveProperty("tool_choice");
+    expect(requests[0]).not.toHaveProperty("temperature");
+    expect(requests[0]).not.toHaveProperty("top_p");
+    expect(requests[0]).not.toHaveProperty("presence_penalty");
+    expect(requests[0]).not.toHaveProperty("frequency_penalty");
+    expect(requests[1]).toMatchObject({
+      thinking: { type: "disabled" },
+      tool_choice: "required",
+      temperature: 0.7,
+      top_p: 0.8,
+      presence_penalty: 0.4,
+      frequency_penalty: 0.3,
+      tools: [{ type: "function", function: { name: "codex_create_entry" } }],
+    });
+    expect(requests).toHaveLength(2);
   });
 
   it("keeps colliding canonical tool IDs distinct across Provider-safe names", async () => {
@@ -709,7 +915,7 @@ describe("ProviderAdapter core and MockProvider", () => {
     expect(JSON.stringify(chatRequest?.body)).not.toContain("max_tokens");
   });
 
-  it("parses OpenRouter model metadata and uses OpenRouter completion fields", async () => {
+  it("refreshes exact OpenRouter reasoning metadata before resolving a cold-start preference", async () => {
     const requests: Array<{ url: string; authorization: string | null; body?: unknown }> = [];
     const registry = createDefaultProviderRegistry({
       credentialStore: fakeCredentialStore("openrouter-test-key"),
@@ -727,6 +933,13 @@ describe("ProviderAdapter core and MockProvider", () => {
               name: "GPT Test",
               context_length: 128000,
               supported_parameters: ["temperature", "top_p", "max_tokens"],
+              reasoning: {
+                supported_efforts: ["low", "medium", "high", "none"],
+                default_effort: "medium",
+                default_enabled: true,
+                supports_max_tokens: true,
+                mandatory: false,
+              },
             }],
           }), { status: 200, headers: { "content-type": "application/json" } });
         }
@@ -741,24 +954,38 @@ describe("ProviderAdapter core and MockProvider", () => {
     });
     const provider = registry.get("openrouter");
     const profile = modelProfile({
+      schemaVersion: 2,
       provider: "openrouter",
       baseUrl: null,
       model: "openai/gpt-test",
       credentialRef: "novel-studio/model-profile/openrouter",
+      reasoningPreference: { mode: "effort", effort: "high" },
     });
 
+    const resolvedParameters = await provider.resolveParameters(profile, { maxOutputTokens: 64 });
+    expect(resolvedParameters).toEqual({
+      temperature: 0.2,
+      maxOutputTokens: 64,
+      reasoning: { mode: "effort", effort: "high" },
+    });
     await expect(provider.listModels(profile)).resolves.toEqual([
       expect.objectContaining({
         id: "openai/gpt-test",
         title: "GPT Test",
         contextWindowTokens: 128000,
+        reasoning: {
+          kind: "effort",
+          efforts: ["low", "medium", "high"],
+          defaultEffort: "medium",
+          canDisable: true,
+        },
       }),
     ]);
     await expect(collect(provider.streamText({
       modelProfile: profile,
       prompt: prompt(),
       contextBundle: contextBundle(),
-      parameters: { maxOutputTokens: 64 },
+      resolvedParameters,
     }))).resolves.toBe("OpenRouter");
 
     const chatRequest = requests.find((request) => request.url === "https://openrouter.ai/api/v1/chat/completions");
@@ -771,22 +998,108 @@ describe("ProviderAdapter core and MockProvider", () => {
         { role: "system" },
         { role: "user" },
       ],
+      reasoning: { effort: "high", exclude: false },
     });
     const chatBodyText = JSON.stringify(chatRequest?.body);
     expect(chatBodyText).toContain("## 当前场景");
     expect(chatBodyText).toContain("当前场景：雨夜，主角发现信件。");
   });
 
-  it("uses Ollama OpenAI-compatible endpoints without requiring an Authorization header", async () => {
+  it("loads exact OpenRouter metadata before direct cold-process resolved-parameter replay", async () => {
+    const requests: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      requests.push({
+        url,
+        body: init?.body
+          ? JSON.parse(String(init.body)) as Record<string, unknown>
+          : undefined,
+      });
+      if (url === "https://openrouter.ai/api/v1/models") {
+        return new Response(JSON.stringify({
+          data: [{
+            id: "openai/cold-reasoner",
+            name: "Cold Reasoner",
+            context_length: 128000,
+            reasoning: {
+              supported_efforts: ["low", "medium", "high", "none"],
+              default_effort: "medium",
+              default_enabled: true,
+              mandatory: false,
+            },
+          }],
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url === "https://openrouter.ai/api/v1/chat/completions") {
+        return sseResponse(
+          JSON.stringify({ choices: [{ delta: { content: "Cold replay" } }] }),
+          "[DONE]",
+        );
+      }
+      return new Response("not found", { status: 404 });
+    };
+    const profile = modelProfile({
+      schemaVersion: 2,
+      provider: "openrouter",
+      baseUrl: null,
+      model: "openai/cold-reasoner",
+      credentialRef: "novel-studio/model-profile/openrouter-cold",
+      reasoningPreference: null,
+    });
+    const resolvedParameters = {
+      temperature: 0.2,
+      maxOutputTokens: 64,
+      reasoning: { mode: "effort" as const, effort: "high" as const },
+    };
+    const freshProvider = () => createDefaultProviderRegistry({
+      credentialStore: fakeCredentialStore("openrouter-test-key"),
+      fetchImpl,
+    }).get("openrouter");
+
+    await expect(collect(freshProvider().streamText({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      resolvedParameters,
+    }))).resolves.toBe("Cold replay");
+    const chatEvents = await collectChatEvents(freshProvider().streamChat({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      resolvedParameters,
+    }));
+    expect(chatEvents.at(-1)).toEqual({
+      type: "done",
+      result: expect.objectContaining({ text: "Cold replay" }),
+    });
+
+    expect(requests.map((request) => request.url)).toEqual([
+      "https://openrouter.ai/api/v1/models",
+      "https://openrouter.ai/api/v1/chat/completions",
+      "https://openrouter.ai/api/v1/models",
+      "https://openrouter.ai/api/v1/chat/completions",
+    ]);
+    for (const request of requests.filter((item) => item.body)) {
+      expect(request.body).toMatchObject({
+        model: "openai/cold-reasoner",
+        reasoning: { effort: "high", exclude: false },
+      });
+    }
+  });
+
+  it("uses Ollama OpenAI-compatible endpoints and native Agent tools without Authorization", async () => {
     const requests: Array<{ url: string; authorization: string | null; body?: unknown }> = [];
     const registry = createDefaultProviderRegistry({
       credentialStore: fakeCredentialStore("unused"),
       fetchImpl: async (input, init) => {
         const url = String(input);
+        const body = init?.body
+          ? JSON.parse(String(init.body)) as Record<string, unknown>
+          : undefined;
         requests.push({
           url,
           authorization: new Headers(init?.headers).get("authorization"),
-          body: init?.body ? JSON.parse(String(init.body)) as unknown : undefined,
+          body,
         });
         if (url === "http://localhost:11434/v1/models") {
           return new Response(JSON.stringify({
@@ -795,6 +1108,27 @@ describe("ProviderAdapter core and MockProvider", () => {
           }), { status: 200, headers: { "content-type": "application/json" } });
         }
         if (url === "http://localhost:11434/v1/chat/completions") {
+          if (Array.isArray(body?.tools)) {
+            return sseResponse(
+              JSON.stringify({
+                choices: [{
+                  finish_reason: "tool_calls",
+                  delta: {
+                    tool_calls: [{
+                      index: 0,
+                      id: "call_ollama_1",
+                      type: "function",
+                      function: {
+                        name: "codex_create_entry",
+                        arguments: "{\"name\":\"Mara\"}",
+                      },
+                    }],
+                  },
+                }],
+              }),
+              "[DONE]",
+            );
+          }
           return sseResponse(
             JSON.stringify({ choices: [{ delta: { content: "Ollama" } }] }),
             "[DONE]",
@@ -812,7 +1146,15 @@ describe("ProviderAdapter core and MockProvider", () => {
     });
 
     await expect(provider.listModels(profile)).resolves.toEqual([
-      expect.objectContaining({ id: "gpt-oss:20b" }),
+      expect.objectContaining({
+        id: "gpt-oss:20b",
+        reasoning: {
+          kind: "effort",
+          efforts: ["low", "medium", "high"],
+          defaultEffort: "medium",
+          canDisable: false,
+        },
+      }),
     ]);
     await expect(collect(provider.streamText({
       modelProfile: profile,
@@ -820,6 +1162,28 @@ describe("ProviderAdapter core and MockProvider", () => {
       contextBundle: contextBundle(),
       parameters: { maxOutputTokens: 64 },
     }))).resolves.toBe("Ollama");
+    const agentEvents = await collectChatEvents(provider.streamChat({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      tools: [{
+        name: "codex.create_entry",
+        description: "Create one Codex entry.",
+        parameters: { type: "object", properties: { name: { type: "string" } } },
+      }],
+      toolChoice: "auto",
+    }));
+    expect(agentEvents.at(-1)).toEqual({
+      type: "done",
+      result: expect.objectContaining({
+        finishReason: "tool_calls",
+        toolCalls: [{
+          id: "call_ollama_1",
+          name: "codex.create_entry",
+          arguments: "{\"name\":\"Mara\"}",
+        }],
+      }),
+    });
 
     expect(requests).toContainEqual(expect.objectContaining({
       url: "http://localhost:11434/v1/models",
@@ -835,10 +1199,45 @@ describe("ProviderAdapter core and MockProvider", () => {
         { role: "system" },
         { role: "user" },
       ],
+      reasoning_effort: "medium",
     });
     const chatBodyText = JSON.stringify(chatRequest?.body);
     expect(chatBodyText).toContain("## 当前场景");
     expect(chatBodyText).toContain("当前场景：雨夜，主角发现信件。");
+    const agentRequest = requests.filter((request) =>
+      request.url === "http://localhost:11434/v1/chat/completions"
+    ).at(-1);
+    expect(agentRequest?.authorization).toBeNull();
+    expect(agentRequest?.body).toMatchObject({
+      model: "gpt-oss:20b",
+      stream: true,
+      reasoning_effort: "medium",
+      tool_choice: "auto",
+      parallel_tool_calls: false,
+      tools: [{ type: "function", function: { name: "codex_create_entry" } }],
+    });
+  });
+
+  it("does not downgrade an OpenRouter discovery failure to unsupported reasoning", async () => {
+    const provider = createDefaultProviderRegistry({
+      credentialStore: fakeCredentialStore("openrouter-test-key"),
+      fetchImpl: async () => new Response(JSON.stringify({
+        error: { message: "model discovery unavailable" },
+      }), { status: 503, headers: { "content-type": "application/json" } }),
+    }).get("openrouter");
+    const profile = modelProfile({
+      schemaVersion: 2,
+      provider: "openrouter",
+      baseUrl: null,
+      model: "openai/exact-reasoner",
+      credentialRef: "novel-studio/model-profile/openrouter",
+      reasoningPreference: { mode: "effort", effort: "high" },
+    });
+
+    await expect(provider.resolveParameters(profile)).rejects.toMatchObject({
+      code: "provider-unavailable",
+      providerStatus: 503,
+    });
   });
 
   it("uses official Anthropic Messages fields, stream events, and model list shape", async () => {
@@ -910,7 +1309,7 @@ describe("ProviderAdapter core and MockProvider", () => {
       modelProfile: profile,
       prompt: prompt(),
       contextBundle: contextBundle(),
-      parameters: { maxOutputTokens: 64 },
+      parameters: { maxOutputTokens: 64, seed: 42 },
     }))).resolves.toBe("Claude says hi.");
 
     const listRequest = requests.find((request) => request.url === "https://api.anthropic.com/v1/models?limit=1000");
@@ -923,6 +1322,7 @@ describe("ProviderAdapter core and MockProvider", () => {
       model: "claude-test",
       stream: true,
       max_tokens: 64,
+      seed: 42,
       messages: [{ role: "user" }],
     });
     expect(JSON.stringify(messageRequest?.body)).toContain("当前场景");
@@ -1006,7 +1406,7 @@ describe("ProviderAdapter core and MockProvider", () => {
       modelProfile: profile,
       prompt: prompt(),
       contextBundle: contextBundle(),
-      parameters: { maxOutputTokens: 64, temperature: 0.4 },
+      parameters: { maxOutputTokens: 64, temperature: 0.4, seed: 42 },
     }))).resolves.toBe("Gemini says hi.");
     await expect(provider.generateObject({
       modelProfile: profile,
@@ -1031,6 +1431,7 @@ describe("ProviderAdapter core and MockProvider", () => {
       generationConfig: {
         maxOutputTokens: 64,
         temperature: 0.4,
+        seed: 42,
       },
       systemInstruction: { parts: [{ text: expect.any(String) }] },
     });
@@ -1043,6 +1444,281 @@ describe("ProviderAdapter core and MockProvider", () => {
       generationConfig: {
         maxOutputTokens: 64,
         responseMimeType: "application/json",
+      },
+    });
+  });
+
+  it("maps exact Anthropic adaptive-thinking models and streams summarized thinking before text", async () => {
+    const requests: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    const provider = new AnthropicProvider({
+      credentialStore: fakeCredentialStore("anthropic-test-key"),
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        requests.push({
+          url,
+          body: init?.body
+            ? JSON.parse(String(init.body)) as Record<string, unknown>
+            : undefined,
+        });
+        if (url.includes("/models?")) {
+          return new Response(JSON.stringify({
+            data: [
+              { id: "claude-fable-5", display_name: "Claude Fable 5", max_input_tokens: 200000 },
+              { id: "claude-opus-4-8", display_name: "Claude Opus 4.8", max_input_tokens: 200000 },
+              { id: "claude-opus-4-7", display_name: "Claude Opus 4.7", max_input_tokens: 200000 },
+              { id: "claude-opus-4-6", display_name: "Claude Opus 4.6", max_input_tokens: 200000 },
+              { id: "claude-sonnet-5", display_name: "Claude Sonnet 5", max_input_tokens: 200000 },
+              { id: "claude-sonnet-4-6", display_name: "Claude Sonnet 4.6", max_input_tokens: 200000 },
+              { id: "claude-unverified", display_name: "Claude Unverified", max_input_tokens: 200000 },
+            ],
+            has_more: false,
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        return new Response(new TextEncoder().encode([
+          'data: {"type":"message_start","message":{"usage":{"input_tokens":12,"output_tokens":0}}}',
+          'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"Summary first. "}}',
+          'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Final answer."}}',
+          'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}',
+          'data: {"type":"message_stop"}',
+          "",
+        ].join("\n\n")), { status: 200, headers: { "content-type": "text/event-stream" } });
+      },
+    });
+    const profile = modelProfile({
+      schemaVersion: 2,
+      provider: "anthropic",
+      baseUrl: null,
+      model: "claude-fable-5",
+      credentialRef: "novel-studio/model-profile/anthropic",
+      reasoningPreference: null,
+      contextWindowTokens: 200000,
+    });
+
+    await expect(provider.listModels(profile)).resolves.toEqual([
+      expect.objectContaining({
+        id: "claude-fable-5",
+        reasoning: {
+          kind: "effort",
+          efforts: ["low", "medium", "high", "xhigh", "max"],
+          defaultEffort: "high",
+          canDisable: false,
+        },
+      }),
+      expect.objectContaining({
+        id: "claude-opus-4-8",
+        reasoning: expect.objectContaining({ efforts: ["low", "medium", "high", "xhigh", "max"] }),
+      }),
+      expect.objectContaining({
+        id: "claude-opus-4-7",
+        reasoning: expect.objectContaining({ efforts: ["low", "medium", "high", "xhigh", "max"] }),
+      }),
+      expect.objectContaining({
+        id: "claude-opus-4-6",
+        reasoning: expect.objectContaining({ efforts: ["low", "medium", "high", "max"] }),
+      }),
+      expect.objectContaining({
+        id: "claude-sonnet-5",
+        reasoning: expect.objectContaining({ efforts: ["low", "medium", "high", "xhigh", "max"] }),
+      }),
+      expect.objectContaining({
+        id: "claude-sonnet-4-6",
+        reasoning: expect.objectContaining({ efforts: ["low", "medium", "high", "max"] }),
+      }),
+      expect.objectContaining({ id: "claude-unverified", reasoning: { kind: "unsupported" } }),
+    ]);
+    const resolvedParameters = await provider.resolveParameters(profile);
+    expect(resolvedParameters).toEqual({
+      maxOutputTokens: 4096,
+      reasoning: { mode: "effort", effort: "high" },
+    });
+    const events = await collectChatEvents(provider.streamChat({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      resolvedParameters,
+    }));
+    expect(events).toEqual([
+      { type: "reasoning-delta", text: "Summary first. ", outputKind: "summary" },
+      { type: "answer-delta", text: "Final answer." },
+      {
+        type: "done",
+        result: expect.objectContaining({
+          reasoningContent: "Summary first. ",
+          reasoningOutputKind: "summary",
+          text: "Final answer.",
+          finishReason: "end_turn",
+          usage: { inputTokens: 12, outputTokens: 7, totalTokens: 19 },
+        }),
+      },
+    ]);
+    const messageBody = requests.find((request) => request.url.endsWith("/v1/messages"))?.body;
+    expect(messageBody).toMatchObject({
+      max_tokens: 4096,
+      thinking: { type: "adaptive", display: "summarized" },
+      output_config: { effort: "high" },
+    });
+    expect(messageBody).not.toHaveProperty("temperature");
+
+    const disabledProfile = modelProfile({
+      schemaVersion: 2,
+      provider: "anthropic",
+      baseUrl: null,
+      model: "claude-fable-5",
+      credentialRef: "novel-studio/model-profile/anthropic",
+      reasoningPreference: { mode: "disabled" },
+      contextWindowTokens: 200000,
+    });
+    await expect(collect(provider.streamText({
+      modelProfile: disabledProfile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+    }))).rejects.toMatchObject({ code: "model-unavailable" });
+  });
+
+  it("maps exact Gemini thinking controls and enables dynamic thinking for first-use Flash Lite", async () => {
+    const requests: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    const provider = new GeminiProvider({
+      credentialStore: fakeCredentialStore("gemini-test-key"),
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        requests.push({
+          url,
+          body: init?.body
+            ? JSON.parse(String(init.body)) as Record<string, unknown>
+            : undefined,
+        });
+        if (url.includes("/models?pageSize=")) {
+          return new Response(JSON.stringify({
+            models: [
+              {
+                name: "models/gemini-3.5-flash",
+                baseModelId: "gemini-3.5-flash",
+                displayName: "Gemini 3.5 Flash",
+                inputTokenLimit: 1048576,
+                supportedGenerationMethods: ["generateContent"],
+              },
+              {
+                name: "models/gemini-2.5-flash-lite",
+                baseModelId: "gemini-2.5-flash-lite",
+                displayName: "Gemini 2.5 Flash Lite",
+                inputTokenLimit: 1048576,
+                supportedGenerationMethods: ["generateContent"],
+              },
+              {
+                name: "models/gemini-unverified",
+                baseModelId: "gemini-unverified",
+                displayName: "Gemini Unverified",
+                inputTokenLimit: 1048576,
+                supportedGenerationMethods: ["generateContent"],
+              },
+            ],
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        return sseResponse(JSON.stringify({
+          candidates: [{
+            content: {
+              parts: [
+                { text: "Thought summary. ", thought: true },
+                { text: "Gemini answer." },
+              ],
+            },
+            finishReason: "STOP",
+          }],
+          usageMetadata: {
+            promptTokenCount: 8,
+            candidatesTokenCount: 6,
+            totalTokenCount: 14,
+          },
+        }));
+      },
+    });
+    const profile = modelProfile({
+      schemaVersion: 2,
+      provider: "google",
+      baseUrl: null,
+      model: "gemini-3.5-flash",
+      credentialRef: "novel-studio/model-profile/google",
+      reasoningPreference: null,
+      contextWindowTokens: 1048576,
+    });
+
+    await expect(provider.listModels(profile)).resolves.toEqual([
+      expect.objectContaining({
+        id: "gemini-3.5-flash",
+        reasoning: {
+          kind: "effort",
+          efforts: ["minimal", "low", "medium", "high"],
+          defaultEffort: "medium",
+          canDisable: false,
+        },
+      }),
+      expect.objectContaining({
+        id: "gemini-2.5-flash-lite",
+        reasoning: {
+          kind: "budget",
+          minimumTokens: 512,
+          maximumTokens: 24576,
+          defaultBudgetTokens: null,
+          supportsDynamicBudget: true,
+          canDisable: true,
+        },
+      }),
+      expect.objectContaining({ id: "gemini-unverified", reasoning: { kind: "unsupported" } }),
+    ]);
+    const resolvedParameters = await provider.resolveParameters(profile);
+    expect(resolvedParameters).toEqual({
+      temperature: 0.2,
+      reasoning: { mode: "effort", effort: "medium" },
+    });
+    const events = await collectChatEvents(provider.streamChat({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      resolvedParameters,
+    }));
+    expect(events).toEqual([
+      { type: "reasoning-delta", text: "Thought summary. ", outputKind: "summary" },
+      { type: "answer-delta", text: "Gemini answer." },
+      {
+        type: "done",
+        result: expect.objectContaining({
+          text: "Gemini answer.",
+          reasoningContent: "Thought summary. ",
+          reasoningOutputKind: "summary",
+          finishReason: "STOP",
+          usage: { inputTokens: 8, outputTokens: 6, totalTokens: 14 },
+        }),
+      },
+    ]);
+    const flashBody = requests.find((request) =>
+      request.url.includes("gemini-3.5-flash:streamGenerateContent")
+    )?.body;
+    expect(flashBody).toMatchObject({
+      generationConfig: {
+        thinkingConfig: { includeThoughts: true, thinkingLevel: "medium" },
+      },
+    });
+
+    const flashLiteProfile = modelProfile({
+      schemaVersion: 2,
+      provider: "google",
+      baseUrl: null,
+      model: "gemini-2.5-flash-lite",
+      credentialRef: "novel-studio/model-profile/google",
+      reasoningPreference: null,
+      contextWindowTokens: 1048576,
+    });
+    await collect(provider.streamText({
+      modelProfile: flashLiteProfile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+    }));
+    const flashLiteBody = requests.find((request) =>
+      request.url.includes("gemini-2.5-flash-lite:streamGenerateContent")
+    )?.body;
+    expect(flashLiteBody).toMatchObject({
+      generationConfig: {
+        thinkingConfig: { includeThoughts: true, thinkingBudget: -1 },
       },
     });
   });
@@ -1067,7 +1743,7 @@ describe("ProviderAdapter core and MockProvider", () => {
     });
   });
 
-  it("preserves official OpenAI-compatible reasoning fields in streamed text", async () => {
+  it("streams provider-native reasoning as typed events without wrapping answer text", async () => {
     const provider = new OpenAiCompatibleProvider({
       credentialStore: fakeCredentialStore("generic-key"),
       fetchImpl: async (input) => {
@@ -1094,17 +1770,197 @@ describe("ProviderAdapter core and MockProvider", () => {
       credentialRef: "novel-studio/model-profile/generic",
     });
 
+    await expect(collectEvents(provider.streamText({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+    }))).resolves.toEqual([
+      { type: "reasoning-delta", text: "deepseek trace.", outputKind: "full" },
+      { type: "reasoning-delta", text: "openrouter trace.", outputKind: "full" },
+      { type: "reasoning-delta", text: "details trace.", outputKind: "full" },
+      { type: "reasoning-delta", text: "ollama trace.", outputKind: "full" },
+      { type: "answer-delta", text: "Final answer." },
+    ]);
+  });
+
+  it("maps OpenAI none to normalized disabled only for a verified exact model", async () => {
+    const requests: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    const provider = createDefaultProviderRegistry({
+      credentialStore: fakeCredentialStore("openai-test-key"),
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        requests.push({
+          url,
+          body: init?.body
+            ? JSON.parse(String(init.body)) as Record<string, unknown>
+            : undefined,
+        });
+        if (url.endsWith("/models")) {
+          return new Response(JSON.stringify({
+            object: "list",
+            data: [
+              { id: "gpt-5.6", object: "model", owned_by: "openai" },
+              { id: "gpt-5.6-unverified-snapshot", object: "model", owned_by: "openai" },
+            ],
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        return sseResponse(
+          JSON.stringify({ choices: [{ delta: { content: "OpenAI answer" } }] }),
+          "[DONE]",
+        );
+      },
+    }).get("openai");
+    const profile = modelProfile({
+      schemaVersion: 2,
+      provider: "openai",
+      baseUrl: null,
+      model: "gpt-5.6",
+      credentialRef: "novel-studio/model-profile/openai",
+      reasoningPreference: { mode: "disabled" },
+    });
+
+    await expect(provider.listModels(profile)).resolves.toEqual([
+      expect.objectContaining({
+        id: "gpt-5.6",
+        reasoning: {
+          kind: "effort",
+          efforts: ["low", "medium", "high", "xhigh", "max"],
+          defaultEffort: "medium",
+          canDisable: true,
+        },
+      }),
+      expect.objectContaining({
+        id: "gpt-5.6-unverified-snapshot",
+        reasoning: { kind: "unsupported" },
+      }),
+    ]);
+    const resolvedParameters = await provider.resolveParameters(profile);
+    expect(resolvedParameters).toEqual({
+      temperature: 0.2,
+      reasoning: { mode: "disabled" },
+    });
     await expect(collect(provider.streamText({
       modelProfile: profile,
       prompt: prompt(),
       contextBundle: contextBundle(),
-    }))).resolves.toBe(
-      "<think>deepseek trace.</think>" +
-      "<think>openrouter trace.</think>" +
-      "<think>details trace.</think>" +
-      "<think>ollama trace.</think>" +
-      "Final answer.",
-    );
+      resolvedParameters,
+    }))).resolves.toBe("OpenAI answer");
+    expect(requests.find((request) => request.url.endsWith("/chat/completions"))?.body)
+      .toMatchObject({ reasoning_effort: "none" });
+
+    const unknownProfile = modelProfile({
+      schemaVersion: 2,
+      provider: "openai",
+      baseUrl: null,
+      model: "gpt-5.6-unverified-snapshot",
+      credentialRef: "novel-studio/model-profile/openai",
+      reasoningPreference: { mode: "effort", effort: "high" },
+    });
+    await expect(collect(provider.streamText({
+      modelProfile: unknownProfile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+    }))).rejects.toMatchObject({ code: "model-unavailable" });
+  });
+
+  it("streams Agent reasoning and assembles incremental tool calls before one authoritative result", async () => {
+    let requestBody: Record<string, unknown> = {};
+    const provider = createDefaultProviderRegistry({
+      credentialStore: fakeCredentialStore("deepseek-test-key"),
+      fetchImpl: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return sseResponse(
+          JSON.stringify({ choices: [{ delta: { reasoning_content: "Check the Codex first. " } }] }),
+          JSON.stringify({
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: "call_create_1",
+                  type: "function",
+                  function: { name: "codex_", arguments: "{\"name\":" },
+                }],
+              },
+            }],
+          }),
+          JSON.stringify({
+            choices: [{
+              finish_reason: "tool_calls",
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  function: { name: "create_entry", arguments: "\"Mara\"}" },
+                }],
+              },
+            }],
+          }),
+          JSON.stringify({
+            choices: [],
+            usage: { prompt_tokens: 31, completion_tokens: 9, total_tokens: 40 },
+          }),
+          "[DONE]",
+        );
+      },
+    }).get("deepseek");
+    const profile = modelProfile({
+      provider: "deepseek",
+      baseUrl: null,
+      model: "deepseek-v4-flash",
+      credentialRef: "novel-studio/model-profile/deepseek",
+      contextWindowTokens: 1_000_000,
+    });
+    const tools = [{
+      name: "codex.create_entry",
+      description: "Create one Codex entry.",
+      parameters: { type: "object", properties: { name: { type: "string" } } },
+    }];
+
+    const events = await collectChatEvents(provider.streamChat({
+      modelProfile: profile,
+      prompt: prompt(),
+      contextBundle: contextBundle(),
+      tools,
+      history: [
+        {
+          role: "assistant",
+          content: "",
+          reasoningContent: "Earlier reasoning",
+          toolCalls: [{ id: "call_prior", name: "codex.create_entry", arguments: "{}" }],
+        },
+        { role: "tool", toolCallId: "call_prior", content: "Created earlier entry" },
+      ],
+    }));
+
+    expect(events[0]).toEqual({
+      type: "reasoning-delta",
+      text: "Check the Codex first. ",
+      outputKind: "full",
+    });
+    expect(events.at(-1)).toEqual({
+      type: "done",
+      result: expect.objectContaining({
+        text: "",
+        reasoningContent: "Check the Codex first. ",
+        reasoningOutputKind: "full",
+        finishReason: "tool_calls",
+        usage: { inputTokens: 31, outputTokens: 9, totalTokens: 40 },
+        toolCalls: [{
+          id: "call_create_1",
+          name: "codex.create_entry",
+          arguments: "{\"name\":\"Mara\"}",
+        }],
+      }),
+    });
+    expect(requestBody).toMatchObject({
+      stream: true,
+      messages: [
+        { role: "system" },
+        { role: "assistant", reasoning_content: "Earlier reasoning" },
+        { role: "tool", tool_call_id: "call_prior" },
+        { role: "user" },
+      ],
+      tools: [{ type: "function", function: { name: "codex_create_entry" } }],
+    });
   });
 
   it("classifies DeepSeek auth failures without leaking secrets", async () => {

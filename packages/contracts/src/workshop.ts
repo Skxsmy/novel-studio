@@ -38,8 +38,12 @@ export type WorkshopSessionStatus = z.infer<typeof WorkshopSessionStatusSchema>;
 export const WorkshopMessageRoleSchema = z.enum(["author", "assistant", "system", "tool", "result"]);
 export type WorkshopMessageRole = z.infer<typeof WorkshopMessageRoleSchema>;
 
-export const WorkshopMessageStatusSchema = z.enum(["pending", "succeeded", "failed"]);
+const WorkshopMessageStatusV1Schema = z.enum(["pending", "succeeded", "failed"]);
+export const WorkshopMessageStatusSchema = z.enum(["pending", "succeeded", "failed", "cancelled"]);
 export type WorkshopMessageStatus = z.infer<typeof WorkshopMessageStatusSchema>;
+
+export const WorkshopReasoningOutputKindSchema = z.enum(["none", "summary", "full", "unknown"]);
+export type WorkshopReasoningOutputKind = z.infer<typeof WorkshopReasoningOutputKindSchema>;
 
 export const WorkshopToolExecutionStatusSchema = z.enum([
   "running",
@@ -112,8 +116,9 @@ export type WorkshopMode = z.infer<typeof WorkshopModeSchema>;
 export const WorkshopContextItemKindSchema = z.enum([
   "full-novel",
   "full-outline",
-  "act",
+  "volume",
   "chapter",
+  "act",
   "scene",
   "codex-entry",
 ]);
@@ -279,14 +284,12 @@ export const WorkshopBranchSchema = z.object({
 });
 export type WorkshopBranch = z.infer<typeof WorkshopBranchSchema>;
 
-export const WorkshopMessageSchema = z.object({
-  schemaVersion: z.literal(1),
+const WorkshopMessageBaseShape = {
   id: z.string().uuid(),
   seriesId: z.string().uuid(),
   sessionId: z.string().uuid(),
   role: WorkshopMessageRoleSchema,
   mode: WorkshopModeSchema.default("general-chat"),
-  status: WorkshopMessageStatusSchema.default("succeeded"),
   content: z.string().max(400000).default(""),
   reasoningContent: z.string().max(400000).default(""),
   contextBundleId: z.string().uuid().nullable().default(null),
@@ -299,7 +302,14 @@ export const WorkshopMessageSchema = z.object({
   errorMessage: z.string().max(4000).nullable().default(null),
   toolExecution: WorkshopToolExecutionSchema.optional(),
   createdAt: z.string().datetime(),
-}).superRefine((message, context) => {
+} satisfies z.ZodRawShape;
+
+function refineWorkshopMessage(
+  message: z.infer<z.ZodObject<typeof WorkshopMessageBaseShape>> & {
+    status: WorkshopMessageStatus;
+  },
+  context: z.RefinementCtx,
+): void {
   const hasAgentRun = typeof message.agentRunId === "string";
   const hasAgentStep = typeof message.agentStepId === "string";
   if (hasAgentRun !== hasAgentStep) {
@@ -326,16 +336,81 @@ export const WorkshopMessageSchema = z.object({
       message: "Tool execution state belongs only to successful Agent tool messages",
     });
   }
+  if (message.status === "cancelled" && (message.errorCode !== null || message.errorMessage !== null)) {
+    context.addIssue({
+      code: "custom",
+      path: [message.errorCode !== null ? "errorCode" : "errorMessage"],
+      message: "Cancelled Workshop messages cannot carry failure details",
+    });
+  }
+}
+
+export const WorkshopMessageV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  ...WorkshopMessageBaseShape,
+  status: WorkshopMessageStatusV1Schema.default("succeeded"),
+}).superRefine(refineWorkshopMessage);
+export type WorkshopMessageV1 = z.infer<typeof WorkshopMessageV1Schema>;
+
+export const WorkshopMessageV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  ...WorkshopMessageBaseShape,
+  status: WorkshopMessageStatusSchema.default("succeeded"),
+  reasoningOutputKind: WorkshopReasoningOutputKindSchema,
+}).superRefine(refineWorkshopMessage);
+export type WorkshopMessageV2 = z.infer<typeof WorkshopMessageV2Schema>;
+
+export const WorkshopMessageAuthoritySchema = z.union([
+  WorkshopMessageV2Schema,
+  WorkshopMessageV1Schema,
+]);
+
+export const WorkshopMessageSchema = WorkshopMessageAuthoritySchema.transform((message): WorkshopMessageV2 => {
+  if (message.schemaVersion === 2) return message;
+  return WorkshopMessageV2Schema.parse({
+    ...message,
+    schemaVersion: 2,
+    reasoningOutputKind: message.reasoningContent.trim() ? "unknown" : "none",
+  });
 });
 export type WorkshopMessage = z.infer<typeof WorkshopMessageSchema>;
 
-export const WorkshopAgentRunStatusSchema = z.enum([
+export const WorkshopMessageV1RollbackSnapshotSchema = z.object({
+  message: WorkshopMessageV1Schema,
+  cancelledStatusBackup: z.literal("cancelled").nullable(),
+  reasoningOutputKindBackup: WorkshopReasoningOutputKindSchema,
+});
+export type WorkshopMessageV1RollbackSnapshot = z.infer<
+  typeof WorkshopMessageV1RollbackSnapshotSchema
+>;
+
+export function workshopMessageV1RollbackSnapshot(
+  rawMessage: WorkshopMessage,
+): WorkshopMessageV1RollbackSnapshot {
+  const message = WorkshopMessageSchema.parse(rawMessage);
+  return WorkshopMessageV1RollbackSnapshotSchema.parse({
+    message: {
+      ...message,
+      schemaVersion: 1,
+      status: message.status === "cancelled" ? "failed" : message.status,
+      reasoningOutputKind: undefined,
+    },
+    cancelledStatusBackup: message.status === "cancelled" ? "cancelled" : null,
+    reasoningOutputKindBackup: message.reasoningOutputKind,
+  });
+}
+
+const WorkshopAgentRunStatusV1Schema = z.enum([
   "running",
   "waiting-confirmation",
   "completed",
   "failed",
   "interrupted",
   "abandoned",
+]);
+export const WorkshopAgentRunStatusSchema = z.enum([
+  ...WorkshopAgentRunStatusV1Schema.options,
+  "cancelled",
 ]);
 export type WorkshopAgentRunStatus = z.infer<typeof WorkshopAgentRunStatusSchema>;
 
@@ -349,7 +424,7 @@ export const WorkshopAgentStepKindSchema = z.enum([
 ]);
 export type WorkshopAgentStepKind = z.infer<typeof WorkshopAgentStepKindSchema>;
 
-export const WorkshopAgentStepStatusSchema = z.enum([
+const WorkshopAgentStepStatusV1Schema = z.enum([
   "pending",
   "running",
   "waiting-confirmation",
@@ -357,6 +432,10 @@ export const WorkshopAgentStepStatusSchema = z.enum([
   "failed",
   "interrupted",
   "abandoned",
+]);
+export const WorkshopAgentStepStatusSchema = z.enum([
+  ...WorkshopAgentStepStatusV1Schema.options,
+  "cancelled",
 ]);
 export type WorkshopAgentStepStatus = z.infer<typeof WorkshopAgentStepStatusSchema>;
 
@@ -393,12 +472,10 @@ export const WorkshopProviderHistoryMessageSchema = z.discriminatedUnion("role",
 ]);
 export type WorkshopProviderHistoryMessage = z.infer<typeof WorkshopProviderHistoryMessageSchema>;
 
-export const WorkshopAgentStepRecordSchema = z.object({
-  schemaVersion: z.literal(1),
+const WorkshopAgentStepRecordBaseShape = {
   id: z.string().uuid(),
   index: z.number().int().nonnegative(),
   kind: WorkshopAgentStepKindSchema,
-  status: WorkshopAgentStepStatusSchema,
   attempt: z.number().int().positive().default(1),
   modelCallId: z.string().uuid().nullable().default(null),
   promptSnapshot: WorkshopProviderPromptSnapshotSchema.nullable().default(null),
@@ -411,8 +488,15 @@ export const WorkshopAgentStepRecordSchema = z.object({
   errorMessage: z.string().max(4000).nullable().default(null),
   startedAt: z.string().datetime().nullable().default(null),
   completedAt: z.string().datetime().nullable().default(null),
-}).superRefine((step, context) => {
-  const terminal = ["succeeded", "failed", "interrupted", "abandoned"].includes(step.status);
+} satisfies z.ZodRawShape;
+
+function refineWorkshopAgentStep(
+  step: z.infer<z.ZodObject<typeof WorkshopAgentStepRecordBaseShape>> & {
+    status: WorkshopAgentStepStatus;
+  },
+  context: z.RefinementCtx,
+): void {
+  const terminal = ["succeeded", "failed", "interrupted", "abandoned", "cancelled"].includes(step.status);
   if (step.status === "pending" && step.startedAt !== null) {
     context.addIssue({ code: "custom", path: ["startedAt"], message: "Pending Agent step cannot have startedAt" });
   }
@@ -425,8 +509,13 @@ export const WorkshopAgentStepRecordSchema = z.object({
   if (step.status === "waiting-confirmation" && step.kind !== "tool-request") {
     context.addIssue({ code: "custom", path: ["status"], message: "Only a tool-request step can wait for confirmation" });
   }
-  if (["model", "retry", "repair", "continuation"].includes(step.kind) && step.status !== "pending" && step.modelCallId === null) {
-    context.addIssue({ code: "custom", path: ["modelCallId"], message: "Started model Agent step requires a ModelCallLog" });
+  if (
+    ["model", "retry", "repair", "continuation"].includes(step.kind) &&
+    step.status !== "pending" &&
+    step.modelCallId === null &&
+    !["failed", "cancelled"].includes(step.status)
+  ) {
+    context.addIssue({ code: "custom", path: ["modelCallId"], message: "A model Agent step may omit ModelCallLog only for a preflight failure or cancellation" });
   }
   if (["model", "retry", "repair", "continuation"].includes(step.kind) && step.status !== "pending" && step.promptSnapshot === null) {
     context.addIssue({ code: "custom", path: ["promptSnapshot"], message: "Started model Agent step requires an exact prompt snapshot" });
@@ -447,16 +536,36 @@ export const WorkshopAgentStepRecordSchema = z.object({
   if (step.retryable && !["failed", "interrupted"].includes(step.status)) {
     context.addIssue({ code: "custom", path: ["retryable"], message: "Only failed or interrupted Agent steps can be retryable" });
   }
+}
+
+export const WorkshopAgentStepRecordV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  ...WorkshopAgentStepRecordBaseShape,
+  status: WorkshopAgentStepStatusV1Schema,
+}).superRefine(refineWorkshopAgentStep);
+export type WorkshopAgentStepRecordV1 = z.infer<typeof WorkshopAgentStepRecordV1Schema>;
+
+export const WorkshopAgentStepRecordV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  ...WorkshopAgentStepRecordBaseShape,
+  status: WorkshopAgentStepStatusSchema,
+}).superRefine(refineWorkshopAgentStep);
+export type WorkshopAgentStepRecordV2 = z.infer<typeof WorkshopAgentStepRecordV2Schema>;
+
+export const WorkshopAgentStepRecordSchema = z.union([
+  WorkshopAgentStepRecordV2Schema,
+  WorkshopAgentStepRecordV1Schema,
+]).transform((step): WorkshopAgentStepRecordV2 => {
+  if (step.schemaVersion === 2) return step;
+  return WorkshopAgentStepRecordV2Schema.parse({ ...step, schemaVersion: 2 });
 });
 export type WorkshopAgentStepRecord = z.infer<typeof WorkshopAgentStepRecordSchema>;
 
-export const WorkshopAgentRunSchema = z.object({
-  schemaVersion: z.literal(1),
+const WorkshopAgentRunBaseShape = {
   id: z.string().uuid(),
   seriesId: z.string().uuid(),
   sessionId: z.string().uuid(),
   authorMessageId: z.string().uuid(),
-  status: WorkshopAgentRunStatusSchema,
   modelProfileId: z.string().uuid(),
   modelOverride: z.string().trim().min(1).max(200).nullable().default(null),
   parameters: ModelParametersSchema.default({}),
@@ -465,13 +574,20 @@ export const WorkshopAgentRunSchema = z.object({
   promptTemplateVersion: z.number().int().positive(),
   promptSnapshot: WorkshopProviderPromptSnapshotSchema,
   activeStepId: z.string().uuid().nullable().default(null),
-  steps: z.array(WorkshopAgentStepRecordSchema).default([]),
   degradedStructuredOutput: z.boolean().default(false),
   retryable: z.boolean().default(false),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   completedAt: z.string().datetime().nullable().default(null),
-}).superRefine((run, context) => {
+} satisfies z.ZodRawShape;
+
+function refineWorkshopAgentRun(
+  run: z.infer<z.ZodObject<typeof WorkshopAgentRunBaseShape>> & {
+    status: WorkshopAgentRunStatus;
+    steps: WorkshopAgentStepRecordV2[] | WorkshopAgentStepRecordV1[];
+  },
+  context: z.RefinementCtx,
+): void {
   const ids = new Set<string>();
   for (let index = 0; index < run.steps.length; index += 1) {
     const step = run.steps[index]!;
@@ -497,7 +613,7 @@ export const WorkshopAgentRunSchema = z.object({
   if (run.status === "waiting-confirmation" && activeStep?.status !== "waiting-confirmation") {
     context.addIssue({ code: "custom", path: ["activeStepId"], message: "Waiting Agent run must point to its confirmation step" });
   }
-  const terminal = ["completed", "failed", "interrupted", "abandoned"].includes(run.status);
+  const terminal = ["completed", "failed", "interrupted", "abandoned", "cancelled"].includes(run.status);
   if (terminal !== (run.completedAt !== null)) {
     context.addIssue({ code: "custom", path: ["completedAt"], message: "Agent run completion timestamp must match terminal state" });
   }
@@ -510,8 +626,118 @@ export const WorkshopAgentRunSchema = z.object({
   if (run.degradedStructuredOutput !== run.steps.some((step) => step.degradedStructuredOutput)) {
     context.addIssue({ code: "custom", path: ["degradedStructuredOutput"], message: "Agent run degraded state must reflect its steps" });
   }
+}
+
+export const WorkshopAgentRunV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  ...WorkshopAgentRunBaseShape,
+  status: WorkshopAgentRunStatusV1Schema,
+  steps: z.array(WorkshopAgentStepRecordV1Schema).default([]),
+}).superRefine(refineWorkshopAgentRun);
+export type WorkshopAgentRunV1 = z.infer<typeof WorkshopAgentRunV1Schema>;
+
+export const WorkshopAgentRunV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  ...WorkshopAgentRunBaseShape,
+  status: WorkshopAgentRunStatusSchema,
+  steps: z.array(WorkshopAgentStepRecordV2Schema).default([]),
+}).superRefine(refineWorkshopAgentRun);
+export type WorkshopAgentRunV2 = z.infer<typeof WorkshopAgentRunV2Schema>;
+
+export const WorkshopAgentRunAuthoritySchema = z.union([
+  WorkshopAgentRunV2Schema,
+  WorkshopAgentRunV1Schema,
+]);
+
+export const WorkshopAgentRunSchema = WorkshopAgentRunAuthoritySchema.transform((run): WorkshopAgentRunV2 => {
+  if (run.schemaVersion === 2) return run;
+  return WorkshopAgentRunV2Schema.parse({
+    ...run,
+    schemaVersion: 2,
+    steps: run.steps.map((step) => ({ ...step, schemaVersion: 2 })),
+  });
 });
 export type WorkshopAgentRun = z.infer<typeof WorkshopAgentRunSchema>;
+
+export const WorkshopAgentRunV1RollbackSnapshotSchema = z.object({
+  run: WorkshopAgentRunV1Schema,
+  cancelledRunStatusBackup: z.literal("cancelled").nullable(),
+  cancelledStepStatusBackups: z.array(z.object({
+    stepId: z.string().uuid(),
+    status: z.literal("cancelled"),
+  })),
+});
+export type WorkshopAgentRunV1RollbackSnapshot = z.infer<
+  typeof WorkshopAgentRunV1RollbackSnapshotSchema
+>;
+
+export function workshopAgentRunV1RollbackSnapshot(
+  rawRun: WorkshopAgentRun,
+): WorkshopAgentRunV1RollbackSnapshot {
+  const run = WorkshopAgentRunSchema.parse(rawRun);
+  const cancelledSteps = run.steps.filter((step) => step.status === "cancelled");
+  return WorkshopAgentRunV1RollbackSnapshotSchema.parse({
+    run: {
+      ...run,
+      schemaVersion: 1,
+      status: run.status === "cancelled" ? "abandoned" : run.status,
+      steps: run.steps.map((step) => ({
+        ...step,
+        schemaVersion: 1,
+        status: step.status === "cancelled" ? "abandoned" : step.status,
+        errorCode: step.status === "cancelled" ? "AGENT_RUN_CANCELLED_ROLLBACK" : step.errorCode,
+        errorMessage: step.status === "cancelled"
+          ? "Cancelled by the author; exact status is preserved in the rollback backup."
+          : step.errorMessage,
+      })),
+    },
+    cancelledRunStatusBackup: run.status === "cancelled" ? "cancelled" : null,
+    cancelledStepStatusBackups: cancelledSteps.map((step) => ({
+      stepId: step.id,
+      status: "cancelled" as const,
+    })),
+  });
+}
+
+const WorkshopAuthorityMigrationDocumentSchema = z.object({
+  kind: z.enum(["message", "agent-run", "context-basket"]),
+  id: z.string().uuid(),
+  relativePath: z.string().trim().min(1).max(500),
+  raw: z.string().min(1).max(4_000_000),
+  revision: RevisionHashSchema,
+  migratedRevision: RevisionHashSchema,
+}).strict();
+
+export const WorkshopAuthorityV2MigrationBackupSchema = z.object({
+  schemaVersion: z.literal(1),
+  migrationId: z.string().uuid(),
+  seriesId: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  documents: z.array(WorkshopAuthorityMigrationDocumentSchema),
+}).strict();
+export type WorkshopAuthorityV2MigrationBackup = z.infer<
+  typeof WorkshopAuthorityV2MigrationBackupSchema
+>;
+
+export const WorkshopAuthorityV2MigrationResultSchema = z.object({
+  migrationId: z.string().uuid(),
+  migratedMessageIds: z.array(z.string().uuid()),
+  migratedAgentRunIds: z.array(z.string().uuid()),
+  migratedContextBasketIds: z.array(z.string().uuid()),
+}).strict();
+export type WorkshopAuthorityV2MigrationResult = z.infer<
+  typeof WorkshopAuthorityV2MigrationResultSchema
+>;
+
+export const RollbackWorkshopAuthorityV2MigrationResultSchema = z.object({
+  migrationId: z.string().uuid(),
+  restoredMessageIds: z.array(z.string().uuid()),
+  restoredAgentRunIds: z.array(z.string().uuid()),
+  restoredContextBasketIds: z.array(z.string().uuid()),
+}).strict();
+export type RollbackWorkshopAuthorityV2MigrationResult = z.infer<
+  typeof RollbackWorkshopAuthorityV2MigrationResultSchema
+>;
 
 export const WorkshopAgentRunDocumentSchema = z.object({
   run: WorkshopAgentRunSchema,
@@ -547,36 +773,56 @@ export const WorkshopAgentRunActionResultSchema = z.object({
   agentRun: WorkshopAgentRunDocumentSchema,
   assistantMessage: WorkshopMessageSchema,
   toolMessages: z.array(WorkshopMessageSchema).default([]),
-  modelCallId: z.string().uuid(),
+  modelCallId: z.string().uuid().nullable(),
   responseText: z.string().max(400000).default(""),
 });
 export type WorkshopAgentRunActionResult = z.infer<typeof WorkshopAgentRunActionResultSchema>;
 
-export const WorkshopContextItemRefSchema = z.object({
+const WorkshopContextItemKindV1Schema = z.enum([
+  "full-novel",
+  "full-outline",
+  "act",
+  "chapter",
+  "scene",
+  "codex-entry",
+]);
+
+const WorkshopContextItemRefBaseShape = {
   id: z.string().uuid(),
-  kind: WorkshopContextItemKindSchema,
   sourceId: z.string().min(1).max(240),
   label: z.string().trim().min(1).max(200),
   pinned: z.boolean().default(false),
   note: z.string().max(1000).default(""),
   createdAt: z.string().datetime(),
+} satisfies z.ZodRawShape;
+
+export const WorkshopContextItemRefV1Schema = z.object({
+  ...WorkshopContextItemRefBaseShape,
+  kind: WorkshopContextItemKindV1Schema,
+});
+export type WorkshopContextItemRefV1 = z.infer<typeof WorkshopContextItemRefV1Schema>;
+
+export const WorkshopContextItemRefSchema = z.object({
+  ...WorkshopContextItemRefBaseShape,
+  kind: WorkshopContextItemKindSchema,
 });
 export type WorkshopContextItemRef = z.infer<typeof WorkshopContextItemRefSchema>;
 
-export const WorkshopContextBasketSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    id: z.string().uuid(),
-    seriesId: z.string().uuid(),
-    sessionId: z.string().uuid(),
-    sceneId: z.string().uuid().nullable().default(null),
-    blockId: z.string().uuid().nullable().default(null),
-    selection: ContextPreviewSelectionSchema.nullable().default(null),
-    items: z.array(WorkshopContextItemRefSchema).default([]),
-    createdAt: z.string().datetime(),
-    updatedAt: z.string().datetime(),
-  })
-  .superRefine((basket, context) => {
+const WorkshopContextBasketBaseShape = {
+  id: z.string().uuid(),
+  seriesId: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  sceneId: z.string().uuid().nullable().default(null),
+  blockId: z.string().uuid().nullable().default(null),
+  selection: ContextPreviewSelectionSchema.nullable().default(null),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+} satisfies z.ZodRawShape;
+
+function refineWorkshopContextBasket(
+  basket: { items: Array<{ id: string }> },
+  context: z.RefinementCtx,
+): void {
     const seen = new Set<string>();
     for (let index = 0; index < basket.items.length; index += 1) {
       const item = basket.items[index]!;
@@ -589,7 +835,39 @@ export const WorkshopContextBasketSchema = z
       }
       seen.add(item.id);
     }
-  });
+}
+
+export const WorkshopContextBasketV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  ...WorkshopContextBasketBaseShape,
+  items: z.array(WorkshopContextItemRefV1Schema).default([]),
+}).superRefine(refineWorkshopContextBasket);
+export type WorkshopContextBasketV1 = z.infer<typeof WorkshopContextBasketV1Schema>;
+
+export const WorkshopContextBasketV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  ...WorkshopContextBasketBaseShape,
+  items: z.array(WorkshopContextItemRefSchema).default([]),
+}).superRefine(refineWorkshopContextBasket);
+export type WorkshopContextBasketV2 = z.infer<typeof WorkshopContextBasketV2Schema>;
+
+export const WorkshopContextBasketAuthoritySchema = z.union([
+  WorkshopContextBasketV2Schema,
+  WorkshopContextBasketV1Schema,
+]);
+
+export const WorkshopContextBasketSchema = WorkshopContextBasketAuthoritySchema.transform(
+  (basket): WorkshopContextBasketV2 => basket.schemaVersion === 2
+    ? basket
+    : WorkshopContextBasketV2Schema.parse({
+      ...basket,
+      schemaVersion: 2,
+      items: basket.items.map((item) => ({
+        ...item,
+        kind: item.kind === "act" ? "chapter" : item.kind === "chapter" ? "act" : item.kind,
+      })),
+    }),
+);
 export type WorkshopContextBasket = z.infer<typeof WorkshopContextBasketSchema>;
 
 export const CreateWorkshopSessionInputSchema = z.object({
@@ -610,10 +888,18 @@ export type CreateWorkshopSessionInput = z.input<typeof CreateWorkshopSessionInp
 
 export const UpdateWorkshopSessionInputSchema = z.object({
   title: z.string().trim().min(1).max(160).optional(),
+  expectedTitle: z.string().trim().min(1).max(160).optional(),
   generalChatSystemPrompt: z.string().trim().max(8000).optional(),
 }).superRefine((input, context) => {
-  if (Object.keys(input).length === 0) {
+  if (input.title === undefined && input.generalChatSystemPrompt === undefined) {
     context.addIssue({ code: "custom", message: "At least one session field is required" });
+  }
+  if (input.expectedTitle !== undefined && input.title === undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["expectedTitle"],
+      message: "expectedTitle can only guard a title update",
+    });
   }
 });
 export type UpdateWorkshopSessionInput = z.infer<typeof UpdateWorkshopSessionInputSchema>;
@@ -630,6 +916,7 @@ export const CreateWorkshopMessageInputSchema =
 export type CreateWorkshopMessageInput = z.input<typeof CreateWorkshopMessageInputSchema>;
 
 export const ResendWorkshopMessageInputSchema = z.object({
+  operationId: z.string().uuid().optional(),
   content: z.string().trim().min(1).max(16000).optional(),
   roleId: z.string().min(1).max(120).default("workshop-general-chat"),
   taskKind: AiTaskKindSchema.default("analysis"),
@@ -818,17 +1105,19 @@ export const WorkshopContextPreviewInputSchema =
 export type WorkshopContextPreviewInput = z.input<typeof WorkshopContextPreviewInputSchema>;
 
 export const RunWorkshopCallInputSchema = WorkshopContextPreviewInputBaseSchema.extend({
+  operationId: z.string().uuid().optional(),
   modelProfileId: z.string().uuid(),
   parameters: ModelParametersSchema.default({}),
 }).strict().superRefine(requireDraftTokenForAttachments);
 export type RunWorkshopCallInput = z.input<typeof RunWorkshopCallInputSchema>;
 
 export const WorkshopCallResultSchema = z.object({
+  operationId: z.string().uuid(),
   authorMessage: WorkshopMessageSchema,
   assistantMessage: WorkshopMessageSchema,
   toolMessages: z.array(WorkshopMessageSchema).default([]),
-  contextBundleId: z.string().uuid(),
-  modelCallId: z.string().uuid(),
+  contextBundleId: z.string().uuid().nullable(),
+  modelCallId: z.string().uuid().nullable(),
   status: WorkshopMessageStatusSchema,
   responseText: z.string().max(400000).default(""),
   estimatedUsage: TokenUsageSchema,
@@ -847,27 +1136,52 @@ export type ResendWorkshopMessageResult = z.infer<typeof ResendWorkshopMessageRe
 export const WorkshopCallStreamEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("author-message"),
+    operationId: z.string().uuid(),
     message: WorkshopMessageSchema,
   }),
   z.object({
-    type: z.literal("metadata"),
+    type: z.literal("assistant-start"),
+    operationId: z.string().uuid(),
+    assistantMessageId: z.string().uuid(),
     contextBundleId: z.string().uuid(),
     modelCallId: z.string().uuid(),
+    attempt: z.number().int().positive(),
+    reset: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("metadata"),
+    operationId: z.string().uuid(),
+    assistantMessageId: z.string().uuid(),
+    contextBundleId: z.string().uuid(),
+    modelCallId: z.string().uuid(),
+    attempt: z.number().int().positive(),
+    reset: z.boolean(),
   }),
   z.object({
     type: z.literal("delta"),
+    operationId: z.string().uuid(),
+    assistantMessageId: z.string().uuid(),
+    modelCallId: z.string().uuid(),
+    attempt: z.number().int().positive(),
     text: z.string(),
   }),
   z.object({
     type: z.literal("reasoning-delta"),
+    operationId: z.string().uuid(),
+    assistantMessageId: z.string().uuid(),
+    modelCallId: z.string().uuid(),
+    attempt: z.number().int().positive(),
     text: z.string(),
+    outputKind: z.enum(["summary", "full"]),
   }),
   z.object({
     type: z.literal("assistant-message"),
+    operationId: z.string().uuid(),
     message: WorkshopMessageSchema,
   }),
   z.object({
     type: z.literal("error"),
+    operationId: z.string().uuid(),
     code: z.string().max(120).nullable().default(null),
     message: z.string().min(1).max(4000),
     assistantMessage: WorkshopMessageSchema.optional(),
@@ -878,3 +1192,9 @@ export const WorkshopCallStreamEventSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export type WorkshopCallStreamEvent = z.infer<typeof WorkshopCallStreamEventSchema>;
+
+export const CancelWorkshopCallResultSchema = z.object({
+  operationId: z.string().uuid(),
+  result: WorkshopCallResultSchema,
+});
+export type CancelWorkshopCallResult = z.infer<typeof CancelWorkshopCallResultSchema>;

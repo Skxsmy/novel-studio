@@ -2,7 +2,7 @@
 
 Status: in_progress
 Task: `docs/tasks/NS-514.md`
-Updated: 2026-07-16
+Updated: 2026-07-17
 
 Binding reference:
 `docs/design/ui-redesign/novel-studio-full-ui-redesign-reference.html`
@@ -28,8 +28,8 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-514-A10 | passed | explicit user manual | `P4 author reference-replica visual review` | Passed by the author's 2026-07-15 direction to start P5 after the audit phase and gate were restated |
 | NS-514-A11 | passed | automated/source | `tests/docs/ns-514-reference-audit.test.mjs` — `accounts for every manifest control exactly once` | Passed; all 368 binding controls appear once with node, state/interaction, frontend/API candidate, proposed disposition, structural fit, and pending author decision |
 | NS-514-A12 | passed | automated/manual | `tests/docs/ns-514-reference-audit.test.mjs` — `accounts for every inventoried runtime capability exactly once` plus pre-NS-514 source review | Passed; 80 unique reachable `api.*` methods and 21 frontend-local capabilities appear once; 33 absent and 14 partial gaps are explicit; six handlerless old buttons and one disabled command placeholder are excluded with reasons |
-| NS-514-A13 | in_progress | automated test | focused approved-mapping tests plus production-fixture exclusion regression | Write and Codex passed real-data, real-result, and fixture-runtime exclusion tests; Settings and Workshop remain pending and unapproved |
-| NS-514-A14 | in_progress | automated test | affected existing safety tests plus exact new mapping regressions | Write and Codex retain revision conflicts, destructive confirmation, atomic authority writes, effective-story boundaries, and server-owned delete blockers; other surfaces remain pending |
+| NS-514-A13 | in_progress | automated test | focused approved-mapping tests plus production-fixture exclusion regression | Write, Codex, and Workshop passed real-data, real-result, stale-response, and fixture-runtime exclusion tests; Settings remains pending and unapproved |
+| NS-514-A14 | in_progress | automated test | affected existing safety tests plus exact new mapping regressions | Write, Codex, and Workshop retain revision, confirmation, atomic authority, Provider, cancellation, context, destructive-history, and archived-read-only boundaries; Settings remains pending |
 | NS-514-A15 | planned | automated/source | focused/full commands, docs/link checks, diff and repository-state ledger | Pending P7 |
 | NS-514-A16 | manual_pending | explicit user manual | `P7 final author visual acceptance` | Awaiting completed approved integration; diagnostics cannot pass this gate |
 | NS-514-A17 | passed | automated test | `ReferenceWriteWorkspace.test.tsx` — `connects real Write data and the complete NovelEditor without fixture manuscript claims` | Passed with real hierarchy/Scene content/counts, effective block-aware Canon Description preview, and no binding fixture manuscript claim |
@@ -44,6 +44,13 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-514-A26 | passed | automated test | `ReferenceCodexWorkspace.test.tsx` — `opens real Progression and Mention targets in Write` | Passed: both controls resolve the actual Scene and block through the shared project-session callback; unresolved targets remain disabled in implementation |
 | NS-514-A27 | passed | automated test | `ReferenceCodexWorkspace.test.tsx` — `keeps Mention sources stable while Canon popovers follow Baseline and Current Scene`; existing Write/NovelEditor mention-preview regressions | Passed: Manuscript and Codex mention sources stay independent of Canon mode, while highlighted Canon mentions preview the referenced Baseline or Current Scene effective Canon Description as selected |
 | NS-514-A28 | passed | contract/storage/server/Web | `packages/contracts/test/codex.test.ts` — `accepts Detail Type v2 descriptions and projects v1 without inventing text`; `packages/storage/test/repository.test.ts` — `renames a Detail Type and atomically converts legacy Entry keys` plus the three migration/rollback cases; `apps/server/test/app.test.ts` — `persists Detail Type Rename descriptions and NSFW state through create update and list`; `apps/web/src/features/codex/ReferenceCodexWorkspace.test.tsx` — `reproduces the three-column Detail Type Library and persists descriptions` | Passed: the author-rejected two-column inline form is absent; the binding Category, Detail Type list, and selected editor columns are restored; description and NSFW use real version 2 writes; Rename and Delete are keyboard-reachable row context actions; Rename rejects same-Category duplicates and atomically converts non-conflicting legacy Entry keys without overwriting conflicts. A16 remains the separate visual acceptance gate |
+| NS-514-A29 | passed | Web/storage/server | Exact Workshop session-filter, archived-read-only, mouse/keyboard/touch context-menu, lifecycle, no-double-click, and no-header-menu cases named in the active task | Passed: real active and archived sessions are filtered without fake counts; row menus open by right-click, Menu, Shift+F10, and touch long press; double-click does not Rename; Archived exposes only Export, Restore, and confirmed Delete; repository and route regressions reject archived writes and active-call lifecycle races |
+| NS-514-A30 | passed | Web/storage/server | Exact bottom-right icon-menu, eligibility, edit/resend, branch, and complete-turn deletion cases named in the active task plus protected-history regressions | Passed: only eligible settled boundaries expose the icon menu; General Chat edit/resend truncates later unprotected history; Agent edit/resend is absent; complete-turn Delete and Branch preserve protected tool, Proposal, attachment, child-session, and source-link invariants; concurrent resend and Branch cannot leave a dangling reference |
+| NS-514-A31 | passed | Web/server/storage | Exact merged-control, separate-cancel-command, terminal-cancelled, partial-content, no-retry/tool-side-effect, reduced-motion, and session-switch cases named in the active task | Passed: the single animated control reaches Send, Sending, Stop, and Stopping; a separate cancel command keeps the stream authoritative through terminal `cancelled`; cancellation before context or the first event, non-streaming cancellation, resend cancellation, late completion/cancel races, reduced motion, and session switching all converge without failure, interruption, retry, duplicate optimistic rows, or tool side effects |
+| NS-514-A32 | passed | Provider/server/Web | Typed Provider reasoning, attempt-scoped Agent stream, reasoning-before-answer, initial expansion, per-message chevron, and no-Show-reasoning cases named in the active task | Passed: OpenAI-compatible, Anthropic, Gemini, DeepSeek, OpenRouter, Ollama, and Mock adapters use declared exact-model controls and typed reasoning events; General Chat and Agent streams render reasoning immediately above answer text; retry/repair resets are attempt-scoped; saved reasoning starts expanded and only its own chevron changes it |
+| NS-514-A33 | passed | contract/Provider/server/Web | Exact-model capability, version 2 preference persistence, separate model/runtime/Provider entries, no-invented-options, Settings return, and credential-boundary cases named in the active task | Passed: the picker lists model names only; runtime options and Provider Settings are separate; exact-model preferences persist through the library-global profile route and restore after switching or restart; unsupported or still-loading metadata never reuses or invents controls; preference save completes before Send uses the saved value; credentials remain outside returned profiles and call authority |
+| NS-514-A34 | passed | Web/server integration | `apps/web/src/features/workshop/ReferenceWorkshopWorkspace.test.tsx` — `keeps Not now local and reopens the unchanged pending tool request` and `reviews and confirms the exact pending tool request without bypassing server validation`; existing `apps/server/test/workshop-routes.test.ts` exact tool-execution validation cases | Passed: `Not now` closes and reopens the unchanged durable request without an API mutation; Confirm and run remains the only execution path, requires the exact server-owned payload, preserves atomic Codex validation, and holds the session activity boundary through Agent continuation |
+| NS-514-A35 | passed | contract/storage | ADR-0017 Model Profile, Model Call Log, Workshop Message, Workshop Agent Run, Workshop Context Basket, and Context Bundle version 1 compatibility; version 2 write; hierarchy-preserving projection; exact rollback backup; damaged input; and changed-target refusal cases named in the active task | Passed: version 1 reads do not invent reasoning or cancellation history; version 2 writes persist normalized parameters, output kind, cancelled state, public hierarchy kinds, and internal `book` evidence; exact rollback artifacts restore version 1 bytes; damaged sources and changed targets are rejected without partial rewrites |
 
 Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 `blocked`, `not_applicable`.
@@ -58,7 +65,7 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 | P3 isolated workspaces | passed | A07-A08 passed |
 | P4 assembled replica | passed | A09 automated evidence and explicit author gate A10 passed |
 | P5 control/capability audit | passed | A11-A12 passed; all 469 decision rows remain `pending_author` |
-| P6 approved integration | in_progress | Write A17-A21 and Codex A22-A28 pass automated evidence. Settings and Workshop remain pending; A16 author visual review remains open |
+| P6 approved integration | in_progress | Write A17-A21, Codex A22-A28, and Workshop A29-A35 pass automated evidence. Settings remains pending; A16 author visual review remains open |
 | P7 final verification | planned | A15 plus explicit user gate A16 |
 
 ## Required Commands
@@ -100,6 +107,11 @@ git diff --check
 | Detail Type description is displayed but not durable | Author edits Description, closes the library, and opens it again | The version 2 authority write returns through the real API and the reopened selected editor shows the saved description | A28 passed |
 | Detail Type Rename strands legacy name-keyed Entry values | An Entry stores Detail and context-policy values under the old display name | Rename converts both keys to the stable Detail Type identifier in the same authority transaction | A28 passed |
 | Detail Type Rename overwrites an ambiguous Entry value | An Entry contains different values under the old display name and the stable identifier | The server rejects Rename and changes neither the Detail Type nor any Entry file | A28 passed |
+| A model call races with another call, Branch, Archive, Restore, session Delete, or turn Delete | Two operations target one Workshop session before the first becomes terminal | The second operation returns conflict before Provider transport or history/lifecycle mutation; a different session remains independent | A29-A31 passed |
+| Resend truncation races with Branch | Resend removes the selected turn's later history while Branch targets a later message | Per-session storage serialization leaves either a valid branch or no branch; no branch or child session references deleted source history | A30 passed |
+| Stop races with the first stream event or a successful terminal result | The cancel command arrives before context, before the first event, or after the request settles | The operation converges to one authoritative cancelled or successful terminal result without duplicate messages, a false error, retry, or tool side effect | A31 passed |
+| Exact-model metadata or preference saves arrive late | The author changes model, Series, session, or reasoning choice while requests are pending | Stale metadata and stale session/Series responses are ignored; Send waits for the current exact-model preference write and uses its returned normalized value | A29/A33 passed |
+| Version 1 authority is damaged or its target changes before migration/rollback | One source fails validation or a post-migration file no longer matches the recorded target | Migration or rollback refuses the operation and leaves every unaffected authority file unchanged | A35 passed |
 
 ## Write P6 Acceptance Mapping
 
@@ -124,6 +136,20 @@ git diff --check
 | Manuscript/Codex mention sources and Canon-page inline Entry preview | A27 verifies two independent behaviors: the separate Mentions page keeps its Manuscript/Codex source and real content when the Canon mode changes; the popover opened from a highlighted Entry inside the Canon page shows referenced Baseline Canon in Baseline mode and referenced effective Canon at the Write-selected Scene in Current Scene mode |
 | Three-column Detail Type Library, description authority, and row lifecycle | A28 verifies the binding three-column structure, original list/editor placement, real Description and NSFW writes, context-menu-only Rename/Delete, revision protection, same-Category uniqueness, atomic legacy Entry key conversion, conflicting-key rejection, migration, and exact rollback under ADR-0016 |
 | Visual result | A16 remains an explicit author gate; automated evidence cannot pass it |
+
+## Workshop P6 Acceptance Mapping
+
+| Approved behavior | Exact proof before implementation completion |
+| --- | --- |
+| Active and archived session filters plus row-only lifecycle menu | A29 exact Web interaction cases; real session API results; no fixture counts, double-click Rename, or header actions menu |
+| Message bottom-right icon menu and eligibility | A30 exact Web cases plus existing protected resend/branch/delete storage and server regressions |
+| One Send/Sending/Stop/Stopping control and truthful cancellation | A31 Web state/reduced-motion/session-switch cases plus separate cancel command, cancelled authority, no retry, and no tool-side-effect server/storage cases |
+| Immediate reasoning above answer for General Chat and Agent | A32 Provider typed-event cases, attempt-scoped server stream cases, and Web order/expansion/chevron cases |
+| Separate model, runtime options, and Provider Settings entries with exact-model persistence | A33 contract, Provider, model-profile route, Web model-switch, and Settings entry/return cases |
+| `Not now` changes no durable request | A34 Web reopen-unchanged case plus existing exact Confirm and run server validation |
+| Versioned authority, migration, and rollback | A35 contract and storage compatibility for model, call, message, run, public context basket, and internal Context Bundle authority; hierarchy-preserving projection; damaged-input; exact-backup; and changed-target refusal cases under ADR-0017 |
+| Browser acceptance | After implementation is committed, the explicitly requested `qa` skill runs the affected Workshop paths in a clean QA worktree; its report is diagnostic evidence and does not pass A16 |
+| Visual result | A16 remains an explicit author gate; skill/browser evidence cannot pass it |
 
 ## Run Ledger
 
@@ -201,6 +227,14 @@ git diff --check
 | 2026-07-16 | `e62315a`, Detail Type Library correction worktree | `npm.cmd run build` | Passed the complete Contracts, artificial-intelligence, Storage, Server, and Web production build; Vite built 190 modules and emitted only the existing chunk-size advisory |
 | 2026-07-16 | `e62315a`, Detail Type Library correction worktree | `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs`; `npm.cmd run docs:check`; `git diff --check` | Passed 11/11 documentation and audit tests; documentation passed for 111 Markdown files; diff check emitted only existing line-ending warnings |
 | 2026-07-16 | branch `codex/ns-410-json-authority` | `git commit -m "NS-514 feat(codex): connect approved reference workspace"`; post-commit `git status --short` review | Created implementation commit `c4dd028` with exactly 40 NS-514 files and no deletions. The unrelated HANDOFF, NS-507, design-directory, and `.hermes/plans/` changes remain outside the commit |
+| 2026-07-17 | `8fe2d44`, Workshop P6 integration review worktree | Root review of active-call, lifecycle, history, archive, stale-response, optimistic-state, and exact-model preference boundaries | Corrected a resend-versus-Branch storage race, added Branch to the active-session boundary, serialized archived-session message/attachment writes, corrected one invalid frontend test fixture, and retained the legacy storage-hierarchy helper only for the old workspace while the connected reference workspace uses the public hierarchy |
+| 2026-07-17 | `8fe2d44`, Workshop P6 worktree | `npm.cmd run typecheck -w @novel-studio/storage`; `npm.cmd run test -w @novel-studio/storage -- test/workshop.test.ts` | Passed Storage typecheck and all 27 focused Workshop storage tests, including archived read-only authority and concurrent resend/Branch consistency |
+| 2026-07-17 | `8fe2d44`, Workshop P6 worktree | six focused Workshop Server files; connected Workshop plus reference and legacy shell Web files | Passed 6 Server files and 71 tests; passed 3 Web files and 112 tests |
+| 2026-07-17 | `8fe2d44`, Workshop P6 worktree | `npm.cmd run test` | Passed all suites: Server 102/102, Web 158/158, artificial-intelligence Provider layer 39/39, Contracts 43/43, and Storage 121/121 |
+| 2026-07-17 | `8fe2d44`, Workshop P6 worktree | `npm.cmd run typecheck --workspaces --if-present` | Passed Server, Web, artificial-intelligence Provider layer, Contracts, and Storage typechecks. The root wrapper's redundant pre-typecheck Contracts rebuild separately encountered a transient Windows `EPERM` write lock; no typecheck failed, and the complete production build below rebuilt the same artifacts successfully |
+| 2026-07-17 | `8fe2d44`, Workshop P6 worktree | `npm.cmd run build` | Passed complete Contracts, artificial-intelligence Provider layer, Storage, Server, and Web production build; Vite built 194 modules and emitted only the existing chunk-size advisory |
+| 2026-07-17 | `8fe2d44`, Workshop P6 worktree | `npm.cmd run docs:check`; `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs` | Documentation passed for 112 Markdown files; all 11 governance, reference-contract, and audit tests passed |
+| 2026-07-17 | `8fe2d44`, Workshop P6 Provider review | Manual comparison against every official Provider source listed in ADR-0017 | Confirmed the implemented exact-model controls and request fields for OpenAI, Anthropic, Gemini, OpenRouter, DeepSeek, and Ollama; models without exact declared metadata remain unsupported instead of inheriting a family guess |
 
 ## P0 Recovery Evidence
 
@@ -224,10 +258,12 @@ git diff --check
 - Starting commit: `27d0c10 NS-510 docs(workshop): record closure evidence`.
 - Write implementation baseline: `e62315a NS-514 feat(ui): rebuild reference shell and connect Write`.
 - Codex implementation commit: `c4dd028 NS-514 feat(codex): connect approved reference workspace`.
-- The Codex P6 source, tests, product records, ADR-0015, ADR-0016, status,
-  changelog, and automated acceptance evidence are committed. NS-514 remains in
-  progress because Settings and Workshop integration plus the explicit A16
-  author visual gate remain open.
+- Codex evidence commit: `8fe2d44 NS-514 docs(codex): record integration evidence`.
+- The Workshop P6 source, tests, product records, ADR-0017, status, changelog,
+  and automated A29-A35 evidence are reviewed and awaiting the required
+  task-only implementation commit. NS-514 remains in progress because Settings,
+  clean-worktree browser quality assurance, and the explicit A16 author visual
+  gate remain open.
 - Unrelated preserved files: existing `HANDOFF.md` and
   `docs/testing/NS-507_ACCEPTANCE.md` edits; existing
   `docs/design/ui-redesign/` deletions and `README.md` edit; untracked

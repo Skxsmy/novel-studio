@@ -2,15 +2,19 @@ import { createHash } from "node:crypto";
 import type { z } from "zod";
 import {
   ModelCallErrorSchema,
+  ModelParametersSchema,
+  normalizeReasoningConfigurationForModel,
   TokenUsageSchema,
   type ContextBundle,
   type ModelCallError,
   type ModelProfile,
+  type ModelParameters,
   type TokenUsage,
 } from "@novel-studio/contracts";
 import { classifyProviderError, ProviderAdapterError } from "./errors.js";
 import type {
   ProviderAdapter,
+  ProviderChatStreamEvent,
   ProviderChatRequest,
   ProviderChatResult,
   ProviderConnectionResult,
@@ -20,6 +24,7 @@ import type {
   ProviderObjectRequest,
   ProviderPrompt,
   ProviderTextRequest,
+  ProviderTextStreamEvent,
 } from "./provider.js";
 
 const MOCK_CAPABILITIES = {
@@ -36,24 +41,33 @@ const MOCK_MODELS: ProviderModelDescriptor[] = [
     title: "Mock 主笔模型",
     contextWindowTokens: 32000,
     capabilities: MOCK_CAPABILITIES,
+    reasoning: { kind: "unsupported" },
   },
   {
     id: "mock-continuity-v1",
     title: "Mock 连续性模型",
     contextWindowTokens: 32000,
     capabilities: MOCK_CAPABILITIES,
+    reasoning: { kind: "unsupported" },
   },
   {
     id: "mock-reasoning-v1",
     title: "Mock 思考流模型",
     contextWindowTokens: 32000,
     capabilities: MOCK_CAPABILITIES,
+    reasoning: {
+      kind: "effort",
+      efforts: ["low", "medium", "high"],
+      defaultEffort: "medium",
+      canDisable: true,
+    },
   },
   {
     id: "mock-small-context",
     title: "Mock 小上下文模型",
     contextWindowTokens: 64,
     capabilities: MOCK_CAPABILITIES,
+    reasoning: { kind: "unsupported" },
   },
 ];
 
@@ -125,19 +139,40 @@ export class MockProvider implements ProviderAdapter {
     return MOCK_MODELS;
   }
 
-  async *streamText(request: ProviderTextRequest): AsyncIterable<string> {
+  async resolveParameters(
+    modelProfile: ModelProfile,
+    requestParameters?: ModelParameters,
+  ): Promise<ModelParameters> {
+    this.assertProfileProvider(modelProfile);
+    const resolved: ModelParameters = {
+      ...modelProfile.defaultParameters,
+      ...requestParameters,
+    };
+    const control = MOCK_MODELS.find((model) => model.id === modelProfile.model)?.reasoning ?? {
+      kind: "unsupported" as const,
+    };
+    const reasoning = normalizeReasoningConfigurationForModel(
+      control,
+      resolved.reasoning ?? modelProfile.reasoningPreference,
+    );
+    if (reasoning) resolved.reasoning = reasoning;
+    else delete resolved.reasoning;
+    return ModelParametersSchema.parse(resolved);
+  }
+
+  async *streamText(request: ProviderTextRequest): AsyncIterable<ProviderTextStreamEvent> {
     this.assertProfileProvider(request.modelProfile);
     this.throwForScenario(request.modelProfile);
     this.assertContextFits(request);
     const writingCandidateTasks = new Set(["draft", "rewrite", "expand", "compress"]);
     const scenario = scenarioFromProfile(request.modelProfile);
+    const reasoningConfiguration = (await this.parametersForRequest(request)).reasoning ?? null;
+    const reasoning = scenario.includes("reasoning") &&
+        reasoningConfiguration?.mode !== "disabled"
+      ? "先检查用户请求、已选上下文和模型边界。"
+      : "";
     const response = scenario.includes("reasoning")
-      ? [
-        "<think>",
-        "先检查用户请求、已选上下文和模型边界。",
-        "</think>",
-        "【MockProvider】这是公开回复，不会写入项目文件。",
-      ].join("\n")
+      ? "【MockProvider】这是公开回复，不会写入项目文件。"
       : writingCandidateTasks.has(request.contextBundle?.taskKind ?? "")
       ? [
         "【MockProvider 候选正文】",
@@ -150,36 +185,55 @@ export class MockProvider implements ProviderAdapter {
         "这是一段非写入型分析结果。",
         "它不会修改正文、已确认设定或任何故事资料文件。",
       ].join("\n");
+    for (const chunk of textToChunks(reasoning)) {
+      if (request.abortSignal?.aborted) {
+        throw new DOMException("MockProvider call was cancelled", "AbortError");
+      }
+      yield { type: "reasoning-delta", text: chunk, outputKind: "full" };
+    }
     for (const chunk of textToChunks(response)) {
       if (request.abortSignal?.aborted) {
-        throw new ProviderAdapterError("provider-error", "MockProvider 调用已取消", {
-          retryable: false,
-        });
+        throw new DOMException("MockProvider call was cancelled", "AbortError");
       }
-      yield chunk;
+      yield { type: "answer-delta", text: chunk };
     }
   }
 
-  async completeChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
-    let output = "";
-    for await (const chunk of this.streamText(request)) output += chunk;
-    const reasoning = [...output.matchAll(/<think>([\s\S]*?)<\/think>/gu)]
-      .map((match) => match[1] ?? "")
-      .filter(Boolean)
-      .join("\n");
-    const text = output.replace(/<think>[\s\S]*?<\/think>/gu, "");
-    return {
-      text,
-      reasoningContent: reasoning,
-      toolCalls: [],
-      finishReason: "stop",
-      usage: TokenUsageSchema.parse({
-        inputTokens: this.estimateTokens(request.prompt).inputTokens,
-        outputTokens: countTokensApprox(output),
-        totalTokens: this.estimateTokens(request.prompt).inputTokens + countTokensApprox(output),
-      }),
-      rawResponseText: JSON.stringify({ content: text, reasoning_content: reasoning }),
+  async *streamChat(request: ProviderChatRequest): AsyncIterable<ProviderChatStreamEvent> {
+    let text = "";
+    let reasoningContent = "";
+    for await (const event of this.streamText(request)) {
+      if (event.type === "answer-delta") text += event.text;
+      else reasoningContent += event.text;
+      yield event;
+    }
+    const usage = TokenUsageSchema.parse({
+      inputTokens: this.estimateTokens(request.prompt).inputTokens,
+      outputTokens: countTokensApprox(`${reasoningContent}${text}`),
+      totalTokens: this.estimateTokens(request.prompt).inputTokens +
+        countTokensApprox(`${reasoningContent}${text}`),
+    });
+    yield {
+      type: "done",
+      result: {
+        text,
+        reasoningContent,
+        reasoningOutputKind: reasoningContent ? "full" : "none",
+        toolCalls: [],
+        finishReason: "stop",
+        usage,
+        rawResponseText: JSON.stringify({ content: text, reasoning_content: reasoningContent }),
+      },
     };
+  }
+
+  async completeChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
+    for await (const event of this.streamChat(request)) {
+      if (event.type === "done") return event.result;
+    }
+    throw new ProviderAdapterError("provider-error", "MockProvider did not finish its response.", {
+      retryable: false,
+    });
   }
 
   async generateObject<T>(
@@ -281,6 +335,28 @@ export class MockProvider implements ProviderAdapter {
     if (scenario.includes("unknown-error")) {
       throw new Error("MockProvider unknown failure");
     }
+  }
+
+  private async parametersForRequest(request: ProviderTextRequest): Promise<ModelParameters> {
+    if (!request.resolvedParameters) {
+      return this.resolveParameters(request.modelProfile, request.parameters);
+    }
+    const resolved = ModelParametersSchema.parse(request.resolvedParameters);
+    const control = MOCK_MODELS.find((model) =>
+      model.id === request.modelProfile.model
+    )?.reasoning ?? { kind: "unsupported" as const };
+    const normalizedReasoning = normalizeReasoningConfigurationForModel(
+      control,
+      resolved.reasoning,
+    );
+    if (JSON.stringify(normalizedReasoning) !== JSON.stringify(resolved.reasoning ?? null)) {
+      throw new ProviderAdapterError(
+        "model-unavailable",
+        "The supplied resolved reasoning parameters do not match the exact mock model.",
+        { retryable: false },
+      );
+    }
+    return resolved;
   }
 }
 

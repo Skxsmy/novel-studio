@@ -9,6 +9,7 @@ import {
   type ProviderAdapter,
   type ProviderChatRequest,
   type ProviderChatResult,
+  type ProviderChatStreamEvent,
   type ProviderObjectRequest,
   type ProviderTextRequest,
 } from "@novel-studio/ai";
@@ -16,6 +17,7 @@ import {
   ContextBundleSchema,
   ModelProfileSchema,
   type ContextBundle,
+  type ModelParameters,
   type ModelProfile,
 } from "@novel-studio/contracts";
 import { ProjectRepository } from "@novel-studio/storage";
@@ -72,6 +74,13 @@ class QueuedProvider implements ProviderAdapter {
 
   async listModels() { return []; }
 
+  async resolveParameters(
+    modelProfile: ModelProfile,
+    requestParameters: ModelParameters = {},
+  ): Promise<ModelParameters> {
+    return { ...modelProfile.defaultParameters, ...requestParameters };
+  }
+
   async *streamText(_request: ProviderTextRequest) {
     this.textCalls += 1;
     yield this.texts.shift() ?? "";
@@ -88,6 +97,7 @@ class QueuedProvider implements ProviderAdapter {
         return {
           text,
           reasoningContent: "",
+          reasoningOutputKind: "none",
           toolCalls: [],
           finishReason: "stop",
           usage: null,
@@ -102,6 +112,7 @@ class QueuedProvider implements ProviderAdapter {
       return {
         text: "",
         reasoningContent: "tool reasoning",
+        reasoningOutputKind: "summary",
         toolCalls: [{ id: randomUUID(), name, arguments: JSON.stringify(argumentsValue) }],
         finishReason: "tool_calls",
         usage: null,
@@ -112,11 +123,27 @@ class QueuedProvider implements ProviderAdapter {
     return {
       text,
       reasoningContent: "",
+      reasoningOutputKind: "none",
       toolCalls: [],
       finishReason: "stop",
       usage: null,
       rawResponseText: JSON.stringify({ content: text }),
     };
+  }
+
+  async *streamChat(request: ProviderChatRequest): AsyncIterable<ProviderChatStreamEvent> {
+    const result = await this.completeChat(request);
+    if (result.reasoningContent) {
+      yield {
+        type: "reasoning-delta",
+        text: result.reasoningContent,
+        outputKind: result.reasoningOutputKind === "full" ? "full" : "summary",
+      };
+    }
+    if (result.text) {
+      yield { type: "answer-delta", text: result.text };
+    }
+    yield { type: "done", result };
   }
 
   async generateObject<T>(_request: ProviderObjectRequest, schema: z.ZodType<T>): Promise<T> {
@@ -331,6 +358,48 @@ describe("NS-509 Workshop Agent runner", () => {
     ]);
   });
 
+  it("does not create a Model Call Log when exact-model parameter resolution fails before transport", async () => {
+    const provider = new QueuedProvider({ texts: ["Transport must not start."] });
+    provider.resolveParameters = async () => {
+      throw new ProviderAdapterError("provider-unavailable", "Parameter metadata is unavailable", {
+        retryable: false,
+      });
+    };
+    const input = await fixture(provider);
+    const result = await runWorkshopAgent(input);
+    expect(provider.chatCalls).toBe(0);
+    expect(result.modelCall).toBeNull();
+    expect(result.assistantMessage).toMatchObject({ status: "failed", modelCallId: null });
+    expect(result.run.run).toMatchObject({ status: "failed", retryable: false });
+    expect(result.run.run.steps).toEqual([
+      expect.objectContaining({ status: "failed", modelCallId: null }),
+    ]);
+    expect(await input.repository.listModelCallLogs(input.seriesId)).toEqual([]);
+  });
+
+  it("cancels during the automatic retry delay without creating a retry step or second Provider request", async () => {
+    const provider = new QueuedProvider({ objects: [
+      new ProviderAdapterError("provider-unavailable", "Temporary outage", {
+        retryable: true,
+        providerStatus: 503,
+      }),
+      { schemaVersion: 1, type: "respond", message: "This second request must not happen." },
+    ] });
+    const controller = new AbortController();
+    const input = await fixture(provider);
+    const resultPromise = runWorkshopAgent({ ...input, abortSignal: controller.signal });
+    while (provider.chatCalls < 1) await new Promise((resolve) => setTimeout(resolve, 1));
+    controller.abort();
+    const result = await resultPromise;
+    expect(provider.chatCalls).toBe(1);
+    expect(result.modelCall).toMatchObject({ status: "cancelled" });
+    expect(result.run.run).toMatchObject({ status: "cancelled", retryable: false });
+    expect(result.run.run.steps).toEqual([
+      expect.objectContaining({ kind: "model", status: "cancelled", retryable: false }),
+    ]);
+    expect(result.assistantMessage).toMatchObject({ status: "cancelled", errorCode: null, errorMessage: null });
+  });
+
   it("keeps Agent conversation available when the selected adapter has no native tools", async () => {
     const provider = new QueuedProvider({ texts: ["We can keep the scene intimate."], nativeToolCalls: false });
     const result = await runWorkshopAgent(await fixture(provider, false));
@@ -339,8 +408,8 @@ describe("NS-509 Workshop Agent runner", () => {
     expect(provider.chatCalls).toBe(1);
     expect(provider.textCalls).toBe(0);
     expect(provider.objectCalls).toBe(0);
-    expect(result.modelCall.provider).toBe("mock");
-    expect(result.modelCall.model).toBe("queued-agent");
+    expect(result.modelCall?.provider).toBe("mock");
+    expect(result.modelCall?.model).toBe("queued-agent");
   });
 
   it("returns the model structured pending-draft revision without server keyword rewriting", async () => {

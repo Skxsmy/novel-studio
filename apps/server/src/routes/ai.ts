@@ -8,6 +8,7 @@ import {
   DeleteModelProfileCredentialResultSchema,
   ModelProfileSchema,
   ModelProfileCredentialStatusSchema,
+  normalizeReasoningConfigurationForModel,
   ProviderConnectionResultSchema,
   ProviderModelDescriptorSchema,
   SaveModelProfileCredentialInputSchema,
@@ -17,6 +18,7 @@ import {
   type AiProvider,
   type ModelCapability,
   type ModelProfile,
+  type ReasoningConfiguration,
 } from "@novel-studio/contracts";
 import {
   CredentialStoreError,
@@ -24,7 +26,7 @@ import {
   type CredentialStore,
   type ProviderRegistry,
 } from "@novel-studio/ai";
-import type { ProjectRepository } from "@novel-studio/storage";
+import { StorageError, type ProjectRepository } from "@novel-studio/storage";
 import {
   ensureCredentialBoundary,
   modelError,
@@ -62,6 +64,57 @@ function defaultContextWindow(registry: ProviderRegistry, provider: AiProvider, 
     return descriptor.models.find((item) => item.id === model)?.contextWindowTokens ?? 8192;
   } catch {
     return 8192;
+  }
+}
+
+async function validateExactModelReasoningPreference(
+  registry: ProviderRegistry,
+  profile: ModelProfile,
+  preference: ReasoningConfiguration | null,
+): Promise<void> {
+  ensureCredentialBoundary(profile);
+  if (!profile.credentialRef && profile.provider !== "mock" && profile.provider !== "ollama") {
+    throw new StorageError("The exact model reasoning preference cannot be verified without its Provider credential", "INVALID_DATA", {
+      provider: profile.provider,
+      model: profile.model,
+      cause: "Provider credential is not configured",
+    });
+  }
+  let adapter;
+  try {
+    adapter = registry.get(profile.provider);
+  } catch {
+    throw new StorageError("The selected Provider is not available", "INVALID_DATA", {
+      provider: profile.provider,
+      model: profile.model,
+    });
+  }
+  let descriptor = adapter.describeCapabilities().models.find((model) => model.id === profile.model);
+  if (!descriptor) {
+    try {
+      descriptor = (await adapter.listModels(profile)).find((model) => model.id === profile.model);
+    } catch (error) {
+      throw new StorageError("The exact model descriptor could not be verified", "INVALID_DATA", {
+        provider: profile.provider,
+        model: profile.model,
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (!descriptor) {
+    throw new StorageError("The exact model descriptor does not exist", "INVALID_DATA", {
+      provider: profile.provider,
+      model: profile.model,
+    });
+  }
+  try {
+    normalizeReasoningConfigurationForModel(descriptor.reasoning, preference);
+  } catch (error) {
+    throw new StorageError("The reasoning preference is not supported by the exact model", "INVALID_DATA", {
+      provider: profile.provider,
+      model: profile.model,
+      cause: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -123,7 +176,7 @@ export function registerAiRoutes(
         ? defaultCapabilities(providerRegistry, input.provider, input.model)
         : input.capabilities;
       const profile = ModelProfileSchema.parse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         id: randomUUID(),
         title: input.title,
         provider: input.provider,
@@ -131,6 +184,7 @@ export function registerAiRoutes(
         model: input.model,
         credentialRef: null,
         defaultParameters: input.defaultParameters,
+        reasoningPreference: input.reasoningPreference,
         capabilities: profileCapabilities,
         contextWindowTokens:
           input.contextWindowTokens === 8192
@@ -140,6 +194,9 @@ export function registerAiRoutes(
         updatedAt: now,
         archivedAt: null,
       });
+      if (profile.reasoningPreference !== null) {
+        await validateExactModelReasoningPreference(providerRegistry, profile, profile.reasoningPreference);
+      }
       return reply.status(201).send(await repository.saveModelProfile(profile));
     },
   );
@@ -149,6 +206,14 @@ export function registerAiRoutes(
     async (request) => {
       const input = UpdateModelProfileInputSchema.parse(request.body);
       const current = await repository.getModelProfile(request.params.profileId);
+      const modelIdentityChanged =
+        (input.provider !== undefined && input.provider !== current.provider) ||
+        (input.model !== undefined && input.model !== current.model);
+      const reasoningPreference = Object.prototype.hasOwnProperty.call(input, "reasoningPreference")
+        ? input.reasoningPreference ?? null
+        : modelIdentityChanged
+          ? null
+          : current.reasoningPreference;
       const updated = ModelProfileSchema.parse({
         ...current,
         ...input,
@@ -156,8 +221,22 @@ export function registerAiRoutes(
         capabilities: input.capabilities ?? current.capabilities,
         credentialRef: current.credentialRef,
         defaultParameters: input.defaultParameters ?? current.defaultParameters,
+        reasoningPreference,
         updatedAt: new Date().toISOString(),
       });
+      if (
+        updated.reasoningPreference !== null && (
+          Object.prototype.hasOwnProperty.call(input, "reasoningPreference") ||
+          modelIdentityChanged ||
+          Object.prototype.hasOwnProperty.call(input, "baseUrl")
+        )
+      ) {
+        await validateExactModelReasoningPreference(
+          providerRegistry,
+          updated,
+          updated.reasoningPreference,
+        );
+      }
       return repository.saveModelProfile(updated);
     },
   );

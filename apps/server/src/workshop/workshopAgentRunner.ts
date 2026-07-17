@@ -2,11 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 import type {
   ProviderChatMessage,
   ProviderChatResult,
+  ProviderChatStreamEvent,
   ProviderPrompt,
   ProviderRegistry,
 } from "@novel-studio/ai";
 import {
   ModelCallLogSchema,
+  NewModelCallLogV2Schema,
   WorkshopAgentRunSchema,
   WorkshopAgentStepRecordSchema,
   WorkshopMessageSchema,
@@ -15,6 +17,7 @@ import {
   type ModelCallLog,
   type ModelParameters,
   type ModelProfile,
+  type ReasoningOutputKind,
   type TokenUsage,
   type WorkshopAgentRunDocument,
   type WorkshopAgentStepRecord,
@@ -65,12 +68,12 @@ function baseLog(input: {
   contextBundle: ContextBundle;
   modelProfile: ModelProfile;
   prompt: ProviderPrompt;
-  parameters: ModelParameters;
+  resolvedParameters: ModelParameters;
   estimatedUsage: TokenUsage;
   startedAt: string;
 }): ModelCallLog {
-  return ModelCallLogSchema.parse({
-    schemaVersion: 1,
+  return NewModelCallLogV2Schema.parse({
+    schemaVersion: 2,
     id: input.id,
     seriesId: input.seriesId,
     sceneId: input.contextBundle.sceneId,
@@ -85,20 +88,27 @@ function baseLog(input: {
       modelProfile: input.modelProfile,
       contextBundle: input.contextBundle,
       prompt: input.prompt,
-      parameters: input.parameters,
+      parameters: input.resolvedParameters,
     }),
+    resolvedParameters: input.resolvedParameters,
     status: "pending",
     estimatedUsage: input.estimatedUsage,
     startedAt: input.startedAt,
   });
 }
 
-function failedLog(log: ModelCallLog, error: ModelCallError, responseText: string): ModelCallLog {
+function failedLog(
+  log: ModelCallLog,
+  error: ModelCallError,
+  responseText: string,
+  reasoningText = "",
+): ModelCallLog {
+  const producedOutput = `${reasoningText}${responseText}`;
   return ModelCallLogSchema.parse({
     ...log,
     status: "failed",
-    responseHash: responseText ? hashText(responseText) : null,
-    actualUsage: usage(log.estimatedUsage.inputTokens, responseText),
+    responseHash: producedOutput ? hashText(`${reasoningText}\n${responseText}`) : null,
+    actualUsage: usage(log.estimatedUsage.inputTokens, producedOutput),
     errorCode: error.code,
     errorMessage: error.message,
     error,
@@ -107,11 +117,15 @@ function failedLog(log: ModelCallLog, error: ModelCallError, responseText: strin
 }
 
 interface ModelAttemptResult {
-  log: ModelCallLog;
+  log: ModelCallLog | null;
   rawOutput: string;
+  answerText: string;
+  reasoningText: string;
+  reasoningOutputKind: ReasoningOutputKind;
   step: WorkshopAgentStep | null;
   error: ModelCallError | null;
   providerResult: ProviderChatResult | null;
+  cancelled: boolean;
 }
 
 async function executeModelAttempt(input: {
@@ -124,21 +138,68 @@ async function executeModelAttempt(input: {
   parameters: ModelParameters;
   modelCallId: string;
   history?: ProviderChatMessage[];
+  abortSignal?: AbortSignal;
+  attemptNumber: number;
+  reset: boolean;
+  onAttemptStart?: (input: { modelCallId: string; attempt: number; reset: boolean }) => void | Promise<void>;
+  onStreamEvent?: (input: {
+    modelCallId: string;
+    attempt: number;
+    event: Exclude<ProviderChatStreamEvent, { type: "done" }>;
+  }) => void | Promise<void>;
 }): Promise<ModelAttemptResult> {
   let adapter;
   let rawOutput = "";
+  let answerText = "";
+  let reasoningText = "";
+  let reasoningOutputKind: ReasoningOutputKind = "none";
+  if (input.abortSignal?.aborted) {
+    return {
+      log: null,
+      rawOutput,
+      answerText,
+      reasoningText,
+      reasoningOutputKind,
+      step: null,
+      error: null,
+      providerResult: null,
+      cancelled: true,
+    };
+  }
   try {
     adapter = input.providerRegistry.get(input.modelProfile.provider);
   } catch {
     const error = modelError("provider-unavailable", "The selected Provider is not available.", true);
-    const log = failedLog(baseLog({
-      ...input,
-      id: input.modelCallId,
-      estimatedUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-      startedAt: new Date().toISOString(),
-    }), error, "");
-    await input.repository.saveModelCallLog(input.seriesId, log);
-    return { log, rawOutput: "", step: null, error, providerResult: null };
+    return {
+      log: null,
+      rawOutput: "",
+      answerText,
+      reasoningText,
+      reasoningOutputKind,
+      step: null,
+      error,
+      providerResult: null,
+      cancelled: false,
+    };
+  }
+
+  let resolvedParameters: ModelParameters;
+  try {
+    resolvedParameters = await adapter.resolveParameters(input.modelProfile, input.parameters);
+  } catch (caught) {
+    const cancelled = input.abortSignal?.aborted || (caught instanceof Error && caught.name === "AbortError");
+    const error = cancelled ? null : adapter.classifyError(caught);
+    return {
+      log: null,
+      rawOutput,
+      answerText,
+      reasoningText,
+      reasoningOutputKind,
+      step: null,
+      error,
+      providerResult: null,
+      cancelled,
+    };
   }
 
   const estimate = estimatedUsage(
@@ -150,29 +211,83 @@ async function executeModelAttempt(input: {
   let log = baseLog({
     ...input,
     id: input.modelCallId,
+    resolvedParameters,
     estimatedUsage: estimate,
     startedAt: new Date().toISOString(),
   });
   await input.repository.saveModelCallLog(input.seriesId, log);
   let providerResult: ProviderChatResult | null = null;
   try {
+    if (input.abortSignal?.aborted) {
+      const abortError = new Error("Workshop Agent call cancelled by the author");
+      abortError.name = "AbortError";
+      throw abortError;
+    }
     ensureCredentialBoundary(input.modelProfile);
     if (estimate.inputTokens > input.modelProfile.contextWindowTokens) {
       throw modelError("context-too-large", "The selected context exceeds the model context window.");
     }
     log = ModelCallLogSchema.parse({ ...log, status: "streaming" });
     await input.repository.saveModelCallLog(input.seriesId, log);
-    providerResult = await adapter.completeChat({
+    await input.onAttemptStart?.({
+      modelCallId: input.modelCallId,
+      attempt: input.attemptNumber,
+      reset: input.reset,
+    });
+    if (input.abortSignal?.aborted) {
+      const abortError = new Error("Workshop Agent call cancelled by the author");
+      abortError.name = "AbortError";
+      throw abortError;
+    }
+    for await (const event of adapter.streamChat({
       modelProfile: input.modelProfile,
       prompt: input.prompt,
       contextBundle: input.contextBundle,
-      parameters: input.parameters,
+      resolvedParameters,
       ...(input.history ? { history: input.history } : {}),
+      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
       ...(adapter.chatCapabilities.nativeToolCalls
         ? { tools: workshopAgentToolDefinitions(), toolChoice: "auto" as const }
         : {}),
-    });
+    })) {
+      if (input.abortSignal?.aborted) {
+        const abortError = new Error("Workshop Agent call cancelled by the author");
+        abortError.name = "AbortError";
+        throw abortError;
+      }
+      if (event.type === "done") {
+        if (providerResult) {
+          throw modelError("provider-error", "The Provider returned more than one terminal result.");
+        }
+        providerResult = event.result;
+        continue;
+      }
+      if (event.type === "reasoning-delta") {
+        reasoningText += event.text;
+        reasoningOutputKind = event.outputKind === "full"
+          ? "full"
+          : reasoningOutputKind === "full" ? "full" : "summary";
+      } else {
+        answerText += event.text;
+      }
+      await input.onStreamEvent?.({
+        modelCallId: input.modelCallId,
+        attempt: input.attemptNumber,
+        event,
+      });
+    }
+    if (!providerResult) {
+      throw modelError("provider-error", "The Provider stream ended without a terminal result.", true);
+    }
+    if (input.abortSignal?.aborted) {
+      const abortError = new Error("Workshop Agent call cancelled by the author");
+      abortError.name = "AbortError";
+      throw abortError;
+    }
     rawOutput = providerResult.rawResponseText;
+    answerText = providerResult.text;
+    reasoningText = providerResult.reasoningContent;
+    reasoningOutputKind = providerResult.reasoningOutputKind;
     if (providerResult.toolCalls.length > 1) {
       throw modelError(
         "structured-output-failed",
@@ -208,25 +323,63 @@ async function executeModelAttempt(input: {
       completedAt: new Date().toISOString(),
     });
     await input.repository.saveModelCallLog(input.seriesId, log);
-    return { log, rawOutput, step, error: null, providerResult };
+    return {
+      log,
+      rawOutput,
+      answerText,
+      reasoningText,
+      reasoningOutputKind,
+      step,
+      error: null,
+      providerResult,
+      cancelled: false,
+    };
   } catch (caught) {
     if (!rawOutput && caught && typeof caught === "object" && "rawOutput" in caught) {
       const candidate = (caught as { rawOutput?: unknown }).rawOutput;
       if (typeof candidate === "string") rawOutput = candidate;
+    }
+    if (input.abortSignal?.aborted || (caught instanceof Error && caught.name === "AbortError")) {
+      const cancelled = ModelCallLogSchema.parse({
+        ...log,
+        status: "cancelled",
+        responseHash: answerText || reasoningText ? hashText(`${reasoningText}\n${answerText}`) : null,
+        actualUsage: usage(log.estimatedUsage.inputTokens, `${reasoningText}${answerText}`),
+        errorCode: null,
+        errorMessage: null,
+        error: null,
+        completedAt: new Date().toISOString(),
+      });
+      await input.repository.saveModelCallLog(input.seriesId, cancelled);
+      return {
+        log: cancelled,
+        rawOutput,
+        answerText,
+        reasoningText,
+        reasoningOutputKind,
+        step: null,
+        error: null,
+        providerResult: null,
+        cancelled: true,
+      };
     }
     const error = typeof caught === "object" && caught !== null && "code" in caught && "retryable" in caught
       ? caught as ModelCallError
       : caught instanceof SyntaxError || (caught instanceof Error && caught.name === "ZodError")
         ? modelError("structured-output-failed", "The model output did not match the Workshop Agent step schema.", true)
         : adapter.classifyError(caught);
-    const failed = failedLog(log, error, rawOutput);
+    const failed = failedLog(log, error, answerText, reasoningText);
     await input.repository.saveModelCallLog(input.seriesId, failed);
     return {
       log: failed,
       rawOutput,
+      answerText,
+      reasoningText,
+      reasoningOutputKind,
       step: null,
       error,
       providerResult,
+      cancelled: false,
     };
   }
 }
@@ -251,6 +404,20 @@ function toolCorrectionHistory(
   ];
 }
 
+async function waitForAutomaticRetry(abortSignal?: AbortSignal): Promise<boolean> {
+  if (abortSignal?.aborted) return false;
+  return new Promise((resolve) => {
+    const finish = (ready: boolean) => {
+      clearTimeout(timer);
+      abortSignal?.removeEventListener("abort", onAbort);
+      resolve(ready);
+    };
+    const onAbort = () => finish(false);
+    const timer = setTimeout(() => finish(!abortSignal?.aborted), 100);
+    abortSignal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 async function automaticTransportRetry(input: WorkshopAgentRunnerInput & {
   run: WorkshopAgentRunDocument;
   stepRecord: WorkshopAgentStepRecord;
@@ -262,7 +429,12 @@ async function automaticTransportRetry(input: WorkshopAgentRunnerInput & {
   attemptResult: ModelAttemptResult;
 }> {
   const error = input.attemptResult.error;
-  if (!error?.retryable || error.code === "structured-output-failed") {
+  if (
+    input.abortSignal?.aborted ||
+    !error?.retryable ||
+    error.code === "structured-output-failed" ||
+    !await waitForAutomaticRetry(input.abortSignal)
+  ) {
     return {
       run: input.run,
       stepRecord: input.stepRecord,
@@ -272,7 +444,7 @@ async function automaticTransportRetry(input: WorkshopAgentRunnerInput & {
   const retryStartedAt = new Date().toISOString();
   const retryCallId = randomUUID();
   const retryStep = WorkshopAgentStepRecordSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: randomUUID(),
     index: input.run.run.steps.length,
     kind: "retry",
@@ -311,7 +483,6 @@ async function automaticTransportRetry(input: WorkshopAgentRunnerInput & {
     input.run.revision,
     retryingRun,
   );
-  await new Promise((resolve) => setTimeout(resolve, 100));
   const attemptResult = await executeModelAttempt({
     repository: input.repository,
     providerRegistry: input.providerRegistry,
@@ -321,6 +492,11 @@ async function automaticTransportRetry(input: WorkshopAgentRunnerInput & {
     prompt: input.prompt,
     parameters: input.parameters,
     modelCallId: retryCallId,
+    attemptNumber: retryStep.attempt,
+    reset: true,
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
+    ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
     ...(input.history ? { history: input.history } : {}),
   });
   return { run, stepRecord: retryStep, attemptResult };
@@ -396,16 +572,18 @@ function assistantMessage(input: {
   runId: string;
   stepId: string;
   contextBundleId: string;
-  modelCallId: string;
+  modelCallId: string | null;
   content: string;
+  id?: string;
   reasoningContent?: string;
-  status?: "succeeded" | "failed";
+  reasoningOutputKind?: ReasoningOutputKind;
+  status?: "succeeded" | "failed" | "cancelled";
   error?: ModelCallError | null;
   createdAt: string;
 }): WorkshopMessage {
   return WorkshopMessageSchema.parse({
-    schemaVersion: 1,
-    id: randomUUID(),
+    schemaVersion: 2,
+    id: input.id ?? randomUUID(),
     seriesId: input.seriesId,
     sessionId: input.sessionId,
     role: "assistant",
@@ -413,14 +591,15 @@ function assistantMessage(input: {
     status: input.status ?? "succeeded",
     content: input.content,
     reasoningContent: input.reasoningContent ?? "",
+    reasoningOutputKind: input.reasoningContent ? input.reasoningOutputKind ?? "unknown" : "none",
     contextBundleId: input.contextBundleId,
     modelCallId: input.modelCallId,
     agentRunId: input.runId,
     agentStepId: input.stepId,
     proposalIds: [],
     attachmentIds: [],
-    errorCode: input.error?.code ?? null,
-    errorMessage: input.error?.message ?? null,
+    errorCode: input.status === "cancelled" ? null : input.error?.code ?? null,
+    errorMessage: input.status === "cancelled" ? null : input.error?.message ?? null,
     createdAt: input.createdAt,
   });
 }
@@ -436,7 +615,7 @@ function toolMessage(input: {
   createdAt: string;
 }): WorkshopMessage {
   return WorkshopMessageSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: randomUUID(),
     seriesId: input.seriesId,
     sessionId: input.sessionId,
@@ -445,6 +624,7 @@ function toolMessage(input: {
     status: "succeeded",
     content: input.content,
     reasoningContent: "",
+    reasoningOutputKind: "none",
     contextBundleId: input.contextBundleId,
     modelCallId: input.modelCallId,
     agentRunId: input.runId,
@@ -461,7 +641,7 @@ export interface WorkshopAgentRunnerResult {
   run: WorkshopAgentRunDocument;
   assistantMessage: WorkshopMessage;
   toolMessages: WorkshopMessage[];
-  modelCall: ModelCallLog;
+  modelCall: ModelCallLog | null;
   responseText: string;
 }
 
@@ -476,6 +656,14 @@ export interface WorkshopAgentRunnerInput {
   modelProfile: ModelProfile;
   parameters: ModelParameters;
   prompt: ProviderPrompt;
+  assistantMessageId?: string;
+  abortSignal?: AbortSignal;
+  onAttemptStart?: (input: { modelCallId: string; attempt: number; reset: boolean }) => void | Promise<void>;
+  onStreamEvent?: (input: {
+    modelCallId: string;
+    attempt: number;
+    event: Exclude<ProviderChatStreamEvent, { type: "done" }>;
+  }) => void | Promise<void>;
   prepareUpdateDraft: (draft: WorkshopCodexUpdateDraft) => Promise<WorkshopCodexUpdateDraft>;
 }
 
@@ -484,8 +672,89 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
   stepRecord: WorkshopAgentStepRecord;
   attempt: ModelAttemptResult;
 }): Promise<WorkshopAgentRunnerResult> {
+  if (input.abortSignal?.aborted && !input.attempt.cancelled) {
+    const cancelled = input.attempt.log
+      ? ModelCallLogSchema.parse({
+        ...input.attempt.log,
+        status: "cancelled",
+        responseHash: input.attempt.answerText || input.attempt.reasoningText
+          ? hashText(`${input.attempt.reasoningText}\n${input.attempt.answerText}`)
+          : null,
+        actualUsage: usage(
+          input.attempt.log.estimatedUsage.inputTokens,
+          `${input.attempt.reasoningText}${input.attempt.answerText}`,
+        ),
+        errorCode: null,
+        errorMessage: null,
+        error: null,
+        completedAt: new Date().toISOString(),
+      })
+      : null;
+    if (cancelled) await input.repository.saveModelCallLog(input.seriesId, cancelled);
+    return finalizeAttempt({
+      ...input,
+      attempt: {
+        ...input.attempt,
+        log: cancelled,
+        step: null,
+        error: null,
+        providerResult: null,
+        cancelled: true,
+      },
+    });
+  }
   const now = new Date().toISOString();
   const currentSteps = input.run.run.steps;
+  if (input.attempt.cancelled) {
+    const message = assistantMessage({
+      seriesId: input.seriesId,
+      sessionId: input.sessionId,
+      runId: input.run.run.id,
+      stepId: input.stepRecord.id,
+      contextBundleId: input.contextBundle.id,
+      modelCallId: input.attempt.log?.id ?? null,
+      ...(input.assistantMessageId ? { id: input.assistantMessageId } : {}),
+      content: input.attempt.answerText,
+      reasoningContent: input.attempt.reasoningText,
+      reasoningOutputKind: input.attempt.reasoningOutputKind,
+      status: "cancelled",
+      createdAt: now,
+    });
+    const steps = currentSteps.map((step) => step.id === input.stepRecord.id ? {
+      ...step,
+      modelCallId: input.attempt.log?.id ?? null,
+      status: "cancelled" as const,
+      messageId: message.id,
+      retryable: false,
+      errorCode: null,
+      errorMessage: null,
+      completedAt: now,
+    } : step);
+    const run = WorkshopAgentRunSchema.parse({
+      ...input.run.run,
+      status: "cancelled",
+      activeStepId: null,
+      steps,
+      retryable: false,
+      updatedAt: now,
+      completedAt: now,
+    });
+    const committed = await input.repository.commitWorkshopAgentRunEffects(
+      input.seriesId,
+      input.sessionId,
+      run.id,
+      input.run.revision,
+      run,
+      [message],
+    );
+    return {
+      run: committed.run,
+      assistantMessage: message,
+      toolMessages: [],
+      modelCall: input.attempt.log,
+      responseText: message.content,
+    };
+  }
   if (!input.attempt.step || input.attempt.error) {
     const error = input.attempt.error ?? modelError("structured-output-failed", "The Agent output was invalid.");
     const message = assistantMessage({
@@ -494,7 +763,8 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
       runId: input.run.run.id,
       stepId: input.stepRecord.id,
       contextBundleId: input.contextBundle.id,
-      modelCallId: input.stepRecord.modelCallId!,
+      modelCallId: input.attempt.log?.id ?? null,
+      ...(input.assistantMessageId ? { id: input.assistantMessageId } : {}),
       content: error.message,
       status: "failed",
       error,
@@ -502,6 +772,7 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
     });
     const steps = currentSteps.map((step) => step.id === input.stepRecord.id ? {
       ...step,
+      modelCallId: input.attempt.log?.id ?? null,
       status: "failed" as const,
       messageId: message.id,
       retryable: error.retryable,
@@ -535,6 +806,9 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
     };
   }
 
+  if (!input.attempt.log) {
+    throw new Error("A successful Workshop Agent model step is missing its Model Call Log.");
+  }
   const step = input.attempt.step;
   const assistant = assistantMessage({
     seriesId: input.seriesId,
@@ -542,9 +816,11 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
     runId: input.run.run.id,
     stepId: input.stepRecord.id,
     contextBundleId: input.contextBundle.id,
-    modelCallId: input.stepRecord.modelCallId!,
+    modelCallId: input.attempt.log.id,
     content: step.message,
+    ...(input.assistantMessageId ? { id: input.assistantMessageId } : {}),
     reasoningContent: input.attempt.providerResult?.reasoningContent ?? "",
+    reasoningOutputKind: input.attempt.providerResult?.reasoningOutputKind ?? "none",
     createdAt: now,
   });
   let requestContent: string | null = null;
@@ -563,6 +839,9 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
         attempt: { ...input.attempt, step: null, error },
       });
     }
+  }
+  if (input.abortSignal?.aborted) {
+    return finalizeAttempt({ ...input, attempt: { ...input.attempt, cancelled: false } });
   }
   const completedModelSteps = currentSteps.map((record) => record.id === input.stepRecord.id ? {
     ...record,
@@ -605,12 +884,12 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
     runId: input.run.run.id,
     stepId: toolStepId,
     contextBundleId: input.contextBundle.id,
-    modelCallId: input.stepRecord.modelCallId!,
+    modelCallId: input.attempt.log.id,
     content: requestContent,
     createdAt: new Date(Date.parse(now) + 1).toISOString(),
   });
   const toolStep = WorkshopAgentStepRecordSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: toolStepId,
     index: completedModelSteps.length,
     kind: "tool-request",
@@ -653,7 +932,7 @@ export async function runWorkshopAgent(input: WorkshopAgentRunnerInput): Promise
   const degraded = false;
   const snapshot = promptSnapshot(input.prompt);
   const step = WorkshopAgentStepRecordSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: stepId,
     index: 0,
     kind: "model",
@@ -667,7 +946,7 @@ export async function runWorkshopAgent(input: WorkshopAgentRunnerInput): Promise
     startedAt: now,
   });
   let run = await input.repository.createWorkshopAgentRun(input.seriesId, WorkshopAgentRunSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: runId,
     seriesId: input.seriesId,
     sessionId: input.sessionId,
@@ -690,6 +969,8 @@ export async function runWorkshopAgent(input: WorkshopAgentRunnerInput): Promise
     ...input,
     contextBundle: input.providerContextBundle,
     modelCallId,
+    attemptNumber: step.attempt,
+    reset: false,
   });
   let activeStep = step;
   const transportRetry = await automaticTransportRetry({
@@ -712,11 +993,14 @@ export async function runWorkshopAgent(input: WorkshopAgentRunnerInput): Promise
   if (!correctionHistory) {
     return finalizeAttempt({ ...input, run, stepRecord: activeStep, attempt });
   }
+  if (input.abortSignal?.aborted) {
+    return finalizeAttempt({ ...input, run, stepRecord: activeStep, attempt });
+  }
 
   const failedAt = new Date().toISOString();
   const repairCallId = randomUUID();
   const repairStep = WorkshopAgentStepRecordSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: randomUUID(),
     index: run.run.steps.length,
     kind: "repair",
@@ -758,6 +1042,8 @@ export async function runWorkshopAgent(input: WorkshopAgentRunnerInput): Promise
     contextBundle: input.providerContextBundle,
     modelCallId: repairCallId,
     history: correctionHistory,
+    attemptNumber: repairStep.attempt,
+    reset: true,
   });
   return finalizeAttempt({ ...input, run, stepRecord: repairStep, attempt });
 }
@@ -772,6 +1058,10 @@ export async function continueWorkshopAgentAfterToolResult(input: {
   contextBundle: ContextBundle;
   providerContextBundle: ContextBundle;
   modelProfile: ModelProfile;
+  assistantMessageId?: string;
+  abortSignal?: AbortSignal;
+  onAttemptStart?: WorkshopAgentRunnerInput["onAttemptStart"];
+  onStreamEvent?: WorkshopAgentRunnerInput["onStreamEvent"];
   prepareUpdateDraft: (draft: WorkshopCodexUpdateDraft) => Promise<WorkshopCodexUpdateDraft>;
 }): Promise<WorkshopAgentRunnerResult> {
   if (
@@ -798,7 +1088,7 @@ export async function continueWorkshopAgentAfterToolResult(input: {
   const degraded = false;
   const modelCallId = randomUUID();
   const continuationStep = WorkshopAgentStepRecordSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: randomUUID(),
     index: input.run.run.steps.length,
     kind: "continuation",
@@ -838,6 +1128,11 @@ export async function continueWorkshopAgentAfterToolResult(input: {
     parameters: input.run.run.parameters,
     modelCallId,
     history: providerHistory,
+    attemptNumber: continuationStep.attempt,
+    reset: false,
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
+    ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
   });
   const runnerInput: WorkshopAgentRunnerInput = {
     repository: input.repository,
@@ -850,6 +1145,10 @@ export async function continueWorkshopAgentAfterToolResult(input: {
     modelProfile: input.modelProfile,
     parameters: input.run.run.parameters,
     prompt: continuationPrompt,
+    ...(input.assistantMessageId ? { assistantMessageId: input.assistantMessageId } : {}),
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
+    ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
     prepareUpdateDraft: input.prepareUpdateDraft,
   };
   let activeStep = continuationStep;
@@ -873,10 +1172,13 @@ export async function continueWorkshopAgentAfterToolResult(input: {
   if (!correctionTail) {
     return finalizeAttempt({ ...runnerInput, run, stepRecord: activeStep, attempt });
   }
+  if (input.abortSignal?.aborted) {
+    return finalizeAttempt({ ...runnerInput, run, stepRecord: activeStep, attempt });
+  }
   const failedAt = new Date().toISOString();
   const repairCallId = randomUUID();
   const repairStep = WorkshopAgentStepRecordSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: randomUUID(),
     index: run.run.steps.length,
     kind: "repair",
@@ -922,6 +1224,11 @@ export async function continueWorkshopAgentAfterToolResult(input: {
     parameters: input.run.run.parameters,
     modelCallId: repairCallId,
     history: [...providerHistory, ...correctionTail],
+    attemptNumber: repairStep.attempt,
+    reset: true,
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
+    ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
   });
   return finalizeAttempt({
     ...runnerInput,
@@ -940,6 +1247,10 @@ export async function retryWorkshopAgent(input: {
   contextBundle: ContextBundle;
   providerContextBundle: ContextBundle;
   modelProfile: ModelProfile;
+  assistantMessageId?: string;
+  abortSignal?: AbortSignal;
+  onAttemptStart?: WorkshopAgentRunnerInput["onAttemptStart"];
+  onStreamEvent?: WorkshopAgentRunnerInput["onStreamEvent"];
   prepareUpdateDraft: (draft: WorkshopCodexUpdateDraft) => Promise<WorkshopCodexUpdateDraft>;
 }): Promise<WorkshopAgentRunnerResult> {
   if (!["failed", "interrupted"].includes(input.run.run.status) || !input.run.run.retryable) {
@@ -970,7 +1281,7 @@ export async function retryWorkshopAgent(input: {
   const degraded = false;
   const modelCallId = randomUUID();
   const retryStep = WorkshopAgentStepRecordSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: randomUUID(),
     index: input.run.run.steps.length,
     kind: "retry",
@@ -1010,6 +1321,11 @@ export async function retryWorkshopAgent(input: {
     parameters: input.run.run.parameters,
     modelCallId,
     history: retryHistory,
+    attemptNumber: retryStep.attempt,
+    reset: false,
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
+    ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
   });
   const runnerInput: WorkshopAgentRunnerInput = {
     repository: input.repository,
@@ -1022,6 +1338,10 @@ export async function retryWorkshopAgent(input: {
     modelProfile: input.modelProfile,
     parameters: input.run.run.parameters,
     prompt,
+    ...(input.assistantMessageId ? { assistantMessageId: input.assistantMessageId } : {}),
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
+    ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
     prepareUpdateDraft: input.prepareUpdateDraft,
   };
   let activeStep = retryStep;
@@ -1042,10 +1362,13 @@ export async function retryWorkshopAgent(input: {
   if (!correctionTail) {
     return finalizeAttempt({ ...runnerInput, run, stepRecord: activeStep, attempt });
   }
+  if (input.abortSignal?.aborted) {
+    return finalizeAttempt({ ...runnerInput, run, stepRecord: activeStep, attempt });
+  }
   const failedAt = new Date().toISOString();
   const repairCallId = randomUUID();
   const repairStep = WorkshopAgentStepRecordSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: randomUUID(),
     index: run.run.steps.length,
     kind: "repair",
@@ -1091,6 +1414,11 @@ export async function retryWorkshopAgent(input: {
     parameters: input.run.run.parameters,
     modelCallId: repairCallId,
     history: [...retryHistory, ...correctionTail],
+    attemptNumber: repairStep.attempt,
+    reset: true,
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
+    ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
   });
   return finalizeAttempt({ ...runnerInput, run, stepRecord: repairStep, attempt });
 }

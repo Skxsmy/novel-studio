@@ -8,7 +8,7 @@ This changelog records user-visible product changes. Task status, command logs, 
 
 - Connected Codex workspace with real categories and Entries, Archived Entries, keyboard-reachable lifecycle menus, appended Detail editing, the original three-column Detail Type Library with persisted descriptions and row-context Rename/Delete, description-only Relation creation, Current Scene projection, real Write navigation, and separate Manuscript/Codex mentions with Canon previews.
 - Relation authority v2 migration with exact v1 rollback artifacts and guarded permanent deletion.
-- Persistent Workshop Chat and Agent sessions with message attachments, branch history, session export, reasoning display, stop controls, and session lifecycle actions.
+- Connected reference Workshop workspace with real Chat, Agent, and Archived filtering; row-only session lifecycle menus; bottom-right message action menus; context selection; attachments; branch history; export; immediate expanded reasoning above replies; exact-model runtime options; and one truthful Send/Sending/Stop/Stopping control.
 - Durable Workshop Agent runs now support ordinary conversation, structured Codex requests, bounded output repair, confirmed-tool continuation, separately confirmed follow-up tools, and explicit retry or abandon after eligible interruptions.
 - Proposal-backed Review inbox and focused before/after decision workspace.
 - Limited author-confirmed Agent tools for Codex entry creation and update, including unified Codex Progression changes.

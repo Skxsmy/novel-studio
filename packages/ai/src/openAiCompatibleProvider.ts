@@ -1,11 +1,17 @@
 import type { z } from "zod";
 import {
+  normalizeReasoningConfigurationForModel,
   type AiProvider,
+  ModelParametersSchema,
   TokenUsageSchema,
   type ContextBundle,
   type ModelCallError,
   type ModelParameters,
   type ModelProfile,
+  type ProviderReasoningControl,
+  type ReasoningConfiguration,
+  ReasoningEffortSchema,
+  type ReasoningOutputKind,
   type TokenUsage,
 } from "@novel-studio/contracts";
 import type { CredentialStore } from "./credentials.js";
@@ -14,6 +20,7 @@ import { classifyProviderError, ProviderAdapterError } from "./errors.js";
 import type {
   ProviderAdapter,
   ProviderChatCapabilities,
+  ProviderChatStreamEvent,
   ProviderChatMessage,
   ProviderChatRequest,
   ProviderChatResult,
@@ -24,6 +31,7 @@ import type {
   ProviderObjectRequest,
   ProviderPrompt,
   ProviderTextRequest,
+  ProviderTextStreamEvent,
 } from "./provider.js";
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -63,6 +71,13 @@ interface OpenAiModelListBody {
     owned_by?: unknown;
     name?: unknown;
     context_length?: unknown;
+    reasoning?: {
+      supported_efforts?: unknown;
+      default_effort?: unknown;
+      default_enabled?: unknown;
+      supports_max_tokens?: unknown;
+      mandatory?: unknown;
+    };
   }>;
 }
 type OpenAiModelListItem = NonNullable<OpenAiModelListBody["data"]>[number];
@@ -99,6 +114,18 @@ interface OpenAiCompatibleChoice {
   delta?: OpenAiCompatibleMessageDelta;
   message?: OpenAiCompatibleMessageDelta;
   text?: unknown;
+  finish_reason?: unknown;
+}
+
+interface OpenAiCompatibleStreamBody {
+  choices?: OpenAiCompatibleChoice[];
+  usage?: OpenAiChatCompletionBody["usage"];
+}
+
+interface StreamToolCallAccumulator {
+  id: string;
+  name: string;
+  arguments: string;
 }
 
 const OPENAI_COMPATIBLE_CAPABILITIES = {
@@ -122,12 +149,24 @@ const DEEPSEEK_MODELS: ProviderModelDescriptor[] = [
     title: "DeepSeek V4 Flash",
     contextWindowTokens: 1_000_000,
     capabilities: OPENAI_COMPATIBLE_CAPABILITIES,
+    reasoning: {
+      kind: "effort",
+      efforts: ["high", "max"],
+      defaultEffort: "high",
+      canDisable: true,
+    },
   },
   {
     id: "deepseek-v4-pro",
     title: "DeepSeek V4 Pro",
     contextWindowTokens: 1_000_000,
     capabilities: OPENAI_COMPATIBLE_CAPABILITIES,
+    reasoning: {
+      kind: "effort",
+      efforts: ["high", "max"],
+      defaultEffort: "high",
+      canDisable: true,
+    },
   },
 ];
 
@@ -136,6 +175,98 @@ const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 const OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1";
 const GENERIC_CONTEXT_WINDOW_TOKENS = 8192;
+
+const OPENAI_EXACT_REASONING_CONTROLS: Readonly<Record<string, ProviderReasoningControl>> = {
+  "gpt-5.6": {
+      kind: "effort",
+      efforts: ["low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      canDisable: true,
+  },
+  "gpt-5.4": {
+      kind: "effort",
+      efforts: ["low", "medium", "high", "xhigh"],
+      defaultEffort: "medium",
+      canDisable: true,
+  },
+};
+
+function openAiReasoningControl(modelId: string): ProviderReasoningControl {
+  return OPENAI_EXACT_REASONING_CONTROLS[modelId] ?? { kind: "unsupported" };
+}
+
+function openRouterReasoningControl(
+  source: OpenAiModelListItem | undefined,
+): ProviderReasoningControl {
+  const metadata = source?.reasoning;
+  if (!metadata || typeof metadata !== "object") return { kind: "unsupported" };
+  const rawEfforts = Array.isArray(metadata.supported_efforts)
+    ? metadata.supported_efforts
+    : [];
+  const canDisable = metadata.mandatory !== true;
+  const efforts = rawEfforts.flatMap((value) => {
+    const parsed = ReasoningEffortSchema.safeParse(value);
+    return parsed.success ? [parsed.data] : [];
+  });
+  if (efforts.length) {
+    const parsedDefault = ReasoningEffortSchema.safeParse(metadata.default_effort);
+    return {
+      kind: "effort",
+      efforts: [...new Set(efforts)],
+      defaultEffort: parsedDefault.success && efforts.includes(parsedDefault.data)
+        ? parsedDefault.data
+        : efforts[0]!,
+      canDisable,
+    };
+  }
+  if (
+    metadata.default_enabled !== undefined ||
+    rawEfforts.includes("none") ||
+    metadata.mandatory === true
+  ) {
+    return {
+      kind: "toggle",
+      defaultEnabled: metadata.mandatory === true ? true : metadata.default_enabled !== false,
+      canDisable,
+    };
+  }
+  return { kind: "unsupported" };
+}
+
+const OLLAMA_EXACT_REASONING_CONTROLS: Readonly<Record<string, ProviderReasoningControl>> = {
+  "gpt-oss:20b": {
+      kind: "effort",
+      efforts: ["low", "medium", "high"],
+      defaultEffort: "medium",
+      canDisable: false,
+  },
+  "gpt-oss:120b": {
+      kind: "effort",
+      efforts: ["low", "medium", "high"],
+      defaultEffort: "medium",
+      canDisable: false,
+  },
+};
+
+function ollamaReasoningControl(modelId: string): ProviderReasoningControl {
+  return OLLAMA_EXACT_REASONING_CONTROLS[modelId] ?? { kind: "unsupported" };
+}
+
+function reasoningControlForModel(
+  provider: OpenAiCompatibleRoutedProvider,
+  modelId: string,
+  source?: OpenAiModelListItem,
+): ProviderReasoningControl {
+  if (provider === "deepseek") {
+    return DEEPSEEK_MODELS.find((model) => model.id === modelId)?.reasoning ?? {
+      kind: "unsupported",
+    };
+  }
+  if (provider === "openai") return openAiReasoningControl(modelId);
+  if (provider === "openrouter") return openRouterReasoningControl(source);
+  if (provider === "ollama") return ollamaReasoningControl(modelId);
+  return { kind: "unsupported" };
+}
 
 function sanitizeProviderMessage(value: unknown): string {
   const text = typeof value === "string" && value.trim()
@@ -180,29 +311,50 @@ function textFromProviderField(value: unknown): string {
   return "";
 }
 
-function reasoningTextFromDetails(value: unknown): string {
-  if (!Array.isArray(value)) return textFromProviderField(value);
-  return value
-    .map((detail) => {
-      if (!detail || typeof detail !== "object") return textFromProviderField(detail);
-      const object = detail as Record<string, unknown>;
-      return textFromProviderField(object.text ?? object.content ?? object.summary ?? object.reasoning);
-    })
-    .filter(Boolean)
-    .join("\n");
+interface ReasoningDeltaPart {
+  text: string;
+  outputKind: Exclude<ReasoningOutputKind, "none">;
 }
 
-function reasoningTextFromDelta(delta: OpenAiCompatibleMessageDelta | undefined): string {
-  if (!delta) return "";
+function reasoningPartsFromDetails(value: unknown): ReasoningDeltaPart[] {
+  if (!Array.isArray(value)) {
+    const text = textFromProviderField(value);
+    return text ? [{ text, outputKind: "full" }] : [];
+  }
+  return value.flatMap((detail): ReasoningDeltaPart[] => {
+    if (!detail || typeof detail !== "object") {
+      const text = textFromProviderField(detail);
+      return text ? [{ text, outputKind: "full" }] : [];
+    }
+    const object = detail as Record<string, unknown>;
+    const type = typeof object.type === "string" ? object.type.toLowerCase() : "";
+    if (type.includes("encrypted")) return [];
+    const text = textFromProviderField(
+      object.text ?? object.content ?? object.summary ?? object.reasoning,
+    );
+    if (!text) return [];
+    return [{
+      text,
+      outputKind: type.includes("summary") || object.summary !== undefined ? "summary" : "full",
+    }];
+  });
+}
+
+function reasoningPartsFromDelta(
+  delta: OpenAiCompatibleMessageDelta | undefined,
+): ReasoningDeltaPart[] {
+  if (!delta) return [];
   const rawReasoning = textFromProviderField(
     delta.reasoning_content ?? delta.reasoning ?? delta.thinking,
   );
-  const detailReasoning = reasoningTextFromDetails(delta.reasoning_details);
-  return [rawReasoning, detailReasoning].filter(Boolean).join("\n");
+  const detailedReasoning = reasoningPartsFromDetails(delta.reasoning_details);
+  if (detailedReasoning.length) return detailedReasoning;
+  return rawReasoning ? [{ text: rawReasoning, outputKind: "full" }] : [];
 }
 
-function taggedReasoning(value: string): string {
-  return value ? `<think>${value}</think>` : "";
+function combinedReasoningOutputKind(parts: ReasoningDeltaPart[]): ReasoningOutputKind {
+  if (parts.some((part) => part.outputKind === "full")) return "full";
+  return parts.length ? "summary" : "none";
 }
 
 function endpoint(baseUrl: string | null | undefined, defaultBaseUrl: string | null, pathname: string): string {
@@ -224,15 +376,88 @@ function mergedParameters(profile: ModelProfile, requestParameters?: ModelParame
   };
 }
 
+function resolvedReasoningConfiguration(
+  modelProfile: ModelProfile,
+  parameters: ModelParameters,
+  control: ProviderReasoningControl,
+): ReasoningConfiguration | null {
+  try {
+    return normalizeReasoningConfigurationForModel(
+      control,
+      parameters.reasoning ?? modelProfile.reasoningPreference,
+    );
+  } catch (error) {
+    throw new ProviderAdapterError(
+      "model-unavailable",
+      error instanceof Error ? error.message : "The reasoning preference is invalid for this exact model.",
+      { retryable: false, cause: error },
+    );
+  }
+}
+
+function applyReasoningConfiguration(
+  body: Record<string, unknown>,
+  provider: OpenAiCompatibleRoutedProvider,
+  configuration: ReasoningConfiguration | null,
+  control: ProviderReasoningControl,
+): boolean {
+  if (!configuration) return false;
+  if (provider === "deepseek") {
+    if (configuration.mode === "disabled") {
+      body.thinking = { type: "disabled" };
+      return false;
+    }
+    body.thinking = { type: "enabled" };
+    body.reasoning_effort = configuration.mode === "effort"
+      ? configuration.effort
+      : control.kind === "effort"
+        ? control.defaultEffort
+        : "high";
+    return true;
+  }
+  if (provider === "openrouter") {
+    if (configuration.mode === "disabled") {
+      body.reasoning = { enabled: false, exclude: false };
+    } else if (configuration.mode === "effort") {
+      body.reasoning = { effort: configuration.effort, exclude: false };
+    } else if (configuration.mode === "budget") {
+      body.reasoning = { max_tokens: configuration.budgetTokens, exclude: false };
+    } else {
+      body.reasoning = { enabled: true, exclude: false };
+    }
+    return configuration.mode !== "disabled";
+  }
+  if (provider === "openai" || provider === "ollama") {
+    if (configuration.mode === "disabled") {
+      body.reasoning_effort = "none";
+      return false;
+    }
+    if (configuration.mode === "effort") {
+      body.reasoning_effort = configuration.effort;
+      return true;
+    }
+    if (control.kind === "effort") {
+      body.reasoning_effort = control.defaultEffort;
+      return true;
+    }
+  }
+  return configuration.mode !== "disabled";
+}
+
 function chatBody(
   modelProfile: ModelProfile,
   prompt: ProviderPrompt,
   contextBundle: ContextBundle | null,
-  parameters: ModelParameters | undefined,
+  resolvedParameters: ModelParameters,
   stream: boolean,
-  options: { instructionRole: InstructionRole; maxOutputTokenField: MaxOutputTokenField },
+  options: {
+    instructionRole: InstructionRole;
+    maxOutputTokenField: MaxOutputTokenField;
+    provider: OpenAiCompatibleRoutedProvider;
+    reasoningControl: ProviderReasoningControl;
+  },
 ): Record<string, unknown> {
-  const merged = mergedParameters(modelProfile, parameters);
+  const merged = resolvedParameters;
   const body: Record<string, unknown> = {
     model: modelProfile.model,
     stream,
@@ -251,6 +476,13 @@ function chatBody(
     ],
   };
 
+  applyReasoningConfiguration(
+    body,
+    options.provider,
+    merged.reasoning ?? null,
+    options.reasoningControl,
+  );
+
   if (typeof merged.temperature === "number") body.temperature = merged.temperature;
   if (typeof merged.topP === "number") body.top_p = merged.topP;
   if (typeof merged.maxOutputTokens === "number") {
@@ -259,7 +491,12 @@ function chatBody(
 
   for (const [key, value] of Object.entries(merged)) {
     if (value === undefined || value === null) continue;
-    if (key === "temperature" || key === "topP" || key === "maxOutputTokens") continue;
+    if (
+      key === "temperature" ||
+      key === "topP" ||
+      key === "maxOutputTokens" ||
+      key === "reasoning"
+    ) continue;
     body[key] = value;
   }
   return body;
@@ -338,6 +575,36 @@ function openAiHistoryMessage(
   return result;
 }
 
+function applyChatHistoryAndTools(
+  body: Record<string, unknown>,
+  request: ProviderChatRequest,
+  capabilities: ProviderChatCapabilities,
+  options: { omitToolChoice?: boolean } = {},
+): ProviderToolNameMap {
+  const toolNames = providerToolNames(request.tools);
+  const messages = body.messages as Array<Record<string, unknown>>;
+  const history = (request.history ?? []).map((message) =>
+    openAiHistoryMessage(message, capabilities, toolNames)
+  );
+  messages.splice(Math.max(0, messages.length - 1), 0, ...history);
+  if (request.tools?.length) {
+    body.tools = request.tools.map((tool) => ({
+      type: "function",
+      function: {
+        name: providerToolName(tool.name, toolNames),
+        description: tool.description,
+        parameters: tool.parameters,
+        ...(tool.strict !== undefined && capabilities.strictToolSchema
+          ? { strict: tool.strict }
+          : {}),
+      },
+    }));
+    if (!options.omitToolChoice) body.tool_choice = request.toolChoice ?? "auto";
+    if (!capabilities.parallelToolCalls) body.parallel_tool_calls = false;
+  }
+  return toolNames;
+}
+
 function parseToolCalls(
   value: unknown,
   toolNames: ProviderToolNameMap,
@@ -393,6 +660,72 @@ function tokenUsageFromOpenAi(value: OpenAiChatCompletionBody["usage"]): TokenUs
   return TokenUsageSchema.parse({ inputTokens, outputTokens, totalTokens });
 }
 
+function openAiSsePayloads(raw: string): OpenAiCompatibleStreamBody[] {
+  const lines = raw
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("data:"));
+  const payloads: OpenAiCompatibleStreamBody[] = [];
+  for (const line of lines) {
+    const data = line.slice("data:".length).trim();
+    if (!data || data === "[DONE]") continue;
+    try {
+      payloads.push(JSON.parse(data) as OpenAiCompatibleStreamBody);
+    } catch (error) {
+      throw new ProviderAdapterError("provider-error", "Provider 返回了无法解析的流式事件。", {
+        retryable: false,
+        cause: error,
+      });
+    }
+  }
+  return payloads;
+}
+
+function appendStreamToolCallDeltas(
+  value: unknown,
+  accumulators: Map<number, StreamToolCallAccumulator>,
+): void {
+  if (value === undefined || value === null) return;
+  if (!Array.isArray(value)) {
+    throw new ProviderAdapterError("provider-error", "Provider returned an invalid streamed tool-call list.", {
+      retryable: true,
+    });
+  }
+  value.forEach((rawCall, fallbackIndex) => {
+    if (!rawCall || typeof rawCall !== "object") {
+      throw new ProviderAdapterError("provider-error", "Provider returned an invalid streamed tool call.", {
+        retryable: true,
+      });
+    }
+    const call = rawCall as Record<string, unknown>;
+    const index = typeof call.index === "number" && Number.isInteger(call.index)
+      ? call.index
+      : fallbackIndex;
+    const current = accumulators.get(index) ?? { id: "", name: "", arguments: "" };
+    if (typeof call.id === "string") current.id += call.id;
+    if (call.function && typeof call.function === "object") {
+      const fn = call.function as Record<string, unknown>;
+      if (typeof fn.name === "string") current.name += fn.name;
+      if (typeof fn.arguments === "string") current.arguments += fn.arguments;
+    }
+    accumulators.set(index, current);
+  });
+}
+
+function finalizedStreamToolCalls(
+  accumulators: Map<number, StreamToolCallAccumulator>,
+  toolNames: ProviderToolNameMap,
+): ProviderChatResult["toolCalls"] {
+  const rawCalls = [...accumulators.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, call]) => ({
+      id: call.id,
+      type: "function",
+      function: { name: call.name, arguments: call.arguments },
+    }));
+  return parseToolCalls(rawCalls, toolNames);
+}
+
 function errorCodeFromStatus(status: number): ModelCallError["code"] {
   if (status === 401 || status === 403) return "provider-auth-failed";
   if (status === 402) return "provider-billing-required";
@@ -409,6 +742,7 @@ function retryableFromStatus(status: number): boolean {
 }
 
 function staticModelDescriptor(
+  provider: OpenAiCompatibleRoutedProvider,
   modelProfile: ModelProfile,
   knownModels: ProviderModelDescriptor[],
   modelId: string,
@@ -422,6 +756,7 @@ function staticModelDescriptor(
     title: typeof source?.name === "string" && source.name.trim() ? source.name.trim() : modelId,
     contextWindowTokens,
     capabilities: modelProfile.capabilities,
+    reasoning: reasoningControlForModel(provider, modelId, source),
   };
 }
 
@@ -434,6 +769,7 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
   private readonly models: ProviderModelDescriptor[];
   private readonly instructionRole: InstructionRole;
   private readonly maxOutputTokenField: MaxOutputTokenField;
+  private readonly discoveredModels = new Map<string, ProviderModelDescriptor>();
 
   constructor(private readonly options: OpenAiCompatibleProviderOptions) {
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -509,21 +845,57 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
       if (!id) continue;
       if (!uniqueItems.has(id)) uniqueItems.set(id, item);
     }
-    return [...uniqueItems.entries()].map(([id, item]) =>
-      staticModelDescriptor(modelProfile, this.models, id, item)
+    const descriptors = [...uniqueItems.entries()].map(([id, item]) =>
+      staticModelDescriptor(this.provider, modelProfile, this.models, id, item)
     );
+    for (const descriptor of descriptors) {
+      this.discoveredModels.set(this.modelCacheKey(modelProfile, descriptor.id), descriptor);
+    }
+    return descriptors;
   }
 
-  async *streamText(request: ProviderTextRequest): AsyncIterable<string> {
+  async resolveParameters(
+    modelProfile: ModelProfile,
+    requestParameters?: ModelParameters,
+  ): Promise<ModelParameters> {
+    this.assertProfileProvider(modelProfile);
+    if (
+      this.provider === "openrouter" &&
+      !this.models.some((model) => model.id === modelProfile.model) &&
+      !this.discoveredModels.has(this.modelCacheKey(modelProfile, modelProfile.model))
+    ) {
+      await this.listModels(modelProfile);
+    }
+    const resolved: ModelParameters = mergedParameters(modelProfile, requestParameters);
+    const reasoning = resolvedReasoningConfiguration(
+      modelProfile,
+      resolved,
+      this.reasoningControl(modelProfile),
+    );
+    if (reasoning) resolved.reasoning = reasoning;
+    else delete resolved.reasoning;
+    if (this.provider === "deepseek" && reasoning?.mode !== "disabled" && reasoning !== null) {
+      delete resolved.temperature;
+      delete resolved.topP;
+      delete resolved.presence_penalty;
+      delete resolved.frequency_penalty;
+    }
+    return ModelParametersSchema.parse(resolved);
+  }
+
+  async *streamText(request: ProviderTextRequest): AsyncIterable<ProviderTextStreamEvent> {
     this.assertProfileProvider(request.modelProfile);
     this.assertContextFits(request);
     const secret = await this.readOptionalSecret(request.modelProfile);
+    const resolvedParameters = await this.parametersForRequest(request);
     const init: RequestInit = {
       method: "POST",
       headers: this.headers(secret),
-      body: JSON.stringify(chatBody(request.modelProfile, request.prompt, request.contextBundle, request.parameters, true, {
+      body: JSON.stringify(chatBody(request.modelProfile, request.prompt, request.contextBundle, resolvedParameters, true, {
         instructionRole: this.instructionRole,
         maxOutputTokenField: this.maxOutputTokenField,
+        provider: this.provider,
+        reasoningControl: this.reasoningControl(request.modelProfile),
       })),
     };
     if (request.abortSignal) init.signal = request.abortSignal;
@@ -547,15 +919,139 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
       const chunks = buffer.split(/\r?\n\r?\n/u);
       buffer = chunks.pop() ?? "";
       for (const chunk of chunks) {
-        const text = this.deltaFromSse(chunk);
-        if (text) yield text;
+        for (const event of this.eventsFromSse(chunk)) yield event;
       }
     }
     buffer += decoder.decode();
     if (buffer.trim()) {
-      const text = this.deltaFromSse(buffer);
-      if (text) yield text;
+      for (const event of this.eventsFromSse(buffer)) yield event;
     }
+  }
+
+  async *streamChat(request: ProviderChatRequest): AsyncIterable<ProviderChatStreamEvent> {
+    this.assertProfileProvider(request.modelProfile);
+    this.assertContextFits(request);
+    if (request.tools?.length && !this.chatCapabilities.nativeToolCalls) {
+      throw new ProviderAdapterError(
+        "model-unavailable",
+        "The selected Provider adapter does not declare native streamed tool-call support.",
+        { retryable: false },
+      );
+    }
+    const secret = await this.readOptionalSecret(request.modelProfile);
+    const resolvedParameters = await this.parametersForRequest(request);
+    const body = chatBody(
+      request.modelProfile,
+      request.prompt,
+      request.contextBundle,
+      resolvedParameters,
+      true,
+      {
+        instructionRole: this.instructionRole,
+        maxOutputTokenField: this.maxOutputTokenField,
+        provider: this.provider,
+        reasoningControl: this.reasoningControl(request.modelProfile),
+      },
+    );
+    const toolNames = applyChatHistoryAndTools(body, request, this.chatCapabilities, {
+      omitToolChoice: this.provider === "deepseek" &&
+        resolvedParameters.reasoning !== undefined &&
+        resolvedParameters.reasoning.mode !== "disabled",
+    });
+    const init: RequestInit = {
+      method: "POST",
+      headers: this.headers(secret),
+      body: JSON.stringify(body),
+    };
+    if (request.abortSignal) init.signal = request.abortSignal;
+    const response = await this.fetchImpl(
+      endpoint(request.modelProfile.baseUrl, this.defaultBaseUrl, "/chat/completions"),
+      init,
+    );
+    await this.assertOk(response);
+    if (!response.body) {
+      throw new ProviderAdapterError("provider-error", "Provider did not return a readable chat stream.", {
+        providerStatus: response.status,
+      });
+    }
+
+    let text = "";
+    let reasoningContent = "";
+    let reasoningOutputKind: ReasoningOutputKind = "none";
+    let finishReason: string | null = null;
+    let usage: TokenUsage | null = null;
+    const toolCallAccumulators = new Map<number, StreamToolCallAccumulator>();
+    const consumeSseChunk = (raw: string): ProviderTextStreamEvent[] => {
+      const events: ProviderTextStreamEvent[] = [];
+      for (const payload of openAiSsePayloads(raw)) {
+        const parsedUsage = tokenUsageFromOpenAi(payload.usage);
+        if (parsedUsage) usage = parsedUsage;
+        const choice = payload.choices?.[0];
+        if (!choice) continue;
+        if (typeof choice.finish_reason === "string") finishReason = choice.finish_reason;
+        const delta = choice.delta ?? choice.message;
+        const reasoningParts = reasoningPartsFromDelta(delta);
+        for (const part of reasoningParts) {
+          reasoningContent += part.text;
+          reasoningOutputKind = part.outputKind === "full" ? "full" :
+            reasoningOutputKind === "none" ? "summary" : reasoningOutputKind;
+          events.push({
+            type: "reasoning-delta",
+            text: part.text,
+            outputKind: part.outputKind,
+          });
+        }
+        const content = textFromProviderField(delta?.content ?? choice.text);
+        if (content) {
+          text += content;
+          events.push({ type: "answer-delta", text: content });
+        }
+        appendStreamToolCallDeltas(delta?.tool_calls, toolCallAccumulators);
+      }
+      return events;
+    };
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split(/\r?\n\r?\n/u);
+      buffer = chunks.pop() ?? "";
+      for (const chunk of chunks) {
+        for (const event of consumeSseChunk(chunk)) yield event;
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      for (const event of consumeSseChunk(buffer)) yield event;
+    }
+
+    const toolCalls = finalizedStreamToolCalls(toolCallAccumulators, toolNames);
+    if (!text && !toolCalls.length) {
+      throw new ProviderAdapterError("provider-error", "Provider returned an empty assistant response.", {
+        retryable: true,
+        providerStatus: response.status,
+      });
+    }
+    yield {
+      type: "done",
+      result: {
+        text,
+        reasoningContent,
+        reasoningOutputKind,
+        toolCalls,
+        finishReason,
+        usage,
+        rawResponseText: JSON.stringify({
+          content: text,
+          reasoning_content: reasoningContent,
+          tool_calls: toolCalls,
+        }),
+      },
+    };
   }
 
   async completeChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
@@ -569,37 +1065,25 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
       );
     }
     const secret = await this.readOptionalSecret(request.modelProfile);
+    const resolvedParameters = await this.parametersForRequest(request);
     const body = chatBody(
       request.modelProfile,
       request.prompt,
       request.contextBundle,
-      request.parameters,
+      resolvedParameters,
       false,
       {
         instructionRole: this.instructionRole,
         maxOutputTokenField: this.maxOutputTokenField,
+        provider: this.provider,
+        reasoningControl: this.reasoningControl(request.modelProfile),
       },
     );
-    const toolNames = providerToolNames(request.tools);
-    const messages = body.messages as Array<Record<string, unknown>>;
-    messages.push(...(request.history ?? []).map((message) =>
-      openAiHistoryMessage(message, this.chatCapabilities, toolNames)
-    ));
-    if (request.tools?.length) {
-      body.tools = request.tools.map((tool) => ({
-        type: "function",
-        function: {
-          name: providerToolName(tool.name, toolNames),
-          description: tool.description,
-          parameters: tool.parameters,
-          ...(tool.strict !== undefined && this.chatCapabilities.strictToolSchema
-            ? { strict: tool.strict }
-            : {}),
-        },
-      }));
-      body.tool_choice = request.toolChoice ?? "auto";
-      if (!this.chatCapabilities.parallelToolCalls) body.parallel_tool_calls = false;
-    }
+    const toolNames = applyChatHistoryAndTools(body, request, this.chatCapabilities, {
+      omitToolChoice: this.provider === "deepseek" &&
+        resolvedParameters.reasoning !== undefined &&
+        resolvedParameters.reasoning.mode !== "disabled",
+    });
     const init: RequestInit = {
       method: "POST",
       headers: this.headers(secret),
@@ -623,7 +1107,8 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
       });
     }
     const text = textFromProviderField(message.content);
-    const reasoningContent = reasoningTextFromDelta(message);
+    const reasoningParts = reasoningPartsFromDelta(message);
+    const reasoningContent = reasoningParts.map((part) => part.text).join("\n");
     const toolCalls = parseToolCalls(message.tool_calls, toolNames);
     if (!text && !toolCalls.length) {
       throw new ProviderAdapterError("provider-error", "Provider returned an empty assistant response.", {
@@ -635,6 +1120,7 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
     return {
       text,
       reasoningContent,
+      reasoningOutputKind: combinedReasoningOutputKind(reasoningParts),
       toolCalls,
       finishReason: typeof choice.finish_reason === "string" ? choice.finish_reason : null,
       usage: tokenUsageFromOpenAi(responseBody.usage),
@@ -649,13 +1135,16 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
     this.assertProfileProvider(request.modelProfile);
     this.assertContextFits(request);
     const secret = await this.readOptionalSecret(request.modelProfile);
+    const resolvedParameters = await this.parametersForRequest(request);
     const init: RequestInit = {
       method: "POST",
       headers: this.headers(secret),
       body: JSON.stringify({
-        ...chatBody(request.modelProfile, request.prompt, request.contextBundle, request.parameters, false, {
+        ...chatBody(request.modelProfile, request.prompt, request.contextBundle, resolvedParameters, false, {
           instructionRole: this.instructionRole,
           maxOutputTokenField: this.maxOutputTokenField,
+          provider: this.provider,
+          reasoningControl: this.reasoningControl(request.modelProfile),
         }),
         response_format: { type: "json_object" },
       }),
@@ -759,12 +1248,12 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
     });
   }
 
-  private deltaFromSse(raw: string): string {
+  private eventsFromSse(raw: string): ProviderTextStreamEvent[] {
     const lines = raw
       .split(/\r?\n/u)
       .map((line) => line.trim())
       .filter((line) => line.startsWith("data:"));
-    let text = "";
+    const events: ProviderTextStreamEvent[] = [];
     for (const line of lines) {
       const data = line.slice("data:".length).trim();
       if (!data || data === "[DONE]") continue;
@@ -772,9 +1261,14 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
         const event = JSON.parse(data) as { choices?: OpenAiCompatibleChoice[] };
         const choice = event.choices?.[0];
         const delta = choice?.delta ?? choice?.message;
-        const reasoning = reasoningTextFromDelta(delta);
+        const reasoning = reasoningPartsFromDelta(delta);
         const content = textFromProviderField(delta?.content ?? choice?.text);
-        text += `${taggedReasoning(reasoning)}${content}`;
+        events.push(...reasoning.map((part) => ({
+          type: "reasoning-delta" as const,
+          text: part.text,
+          outputKind: part.outputKind,
+        })));
+        if (content) events.push({ type: "answer-delta", text: content });
       } catch (error) {
         throw new ProviderAdapterError("provider-error", "Provider 返回了无法解析的流式事件。", {
           retryable: false,
@@ -782,7 +1276,7 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
         });
       }
     }
-    return text;
+    return events;
   }
 
   private assertContextFits(request: ProviderTextRequest): void {
@@ -800,6 +1294,61 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
         retryable: false,
       });
     }
+  }
+
+  private reasoningControl(modelProfile: ModelProfile): ProviderReasoningControl {
+    return this.models.find((model) => model.id === modelProfile.model)?.reasoning ??
+      this.discoveredModels.get(this.modelCacheKey(modelProfile, modelProfile.model))?.reasoning ??
+      reasoningControlForModel(this.provider, modelProfile.model);
+  }
+
+  private modelCacheKey(modelProfile: ModelProfile, modelId: string): string {
+    const baseUrl = modelProfile.baseUrl?.trim() || this.defaultBaseUrl || "";
+    return `${baseUrl}\u0000${modelProfile.credentialRef ?? ""}\u0000${modelId}`;
+  }
+
+  private async parametersForRequest(request: ProviderTextRequest): Promise<ModelParameters> {
+    if (!request.resolvedParameters) {
+      return this.resolveParameters(request.modelProfile, request.parameters);
+    }
+    if (
+      this.provider === "openrouter" &&
+      !this.models.some((model) => model.id === request.modelProfile.model) &&
+      !this.discoveredModels.has(this.modelCacheKey(request.modelProfile, request.modelProfile.model))
+    ) {
+      await this.listModels(request.modelProfile);
+    }
+    const resolved = ModelParametersSchema.parse(request.resolvedParameters);
+    const control = this.reasoningControl(request.modelProfile);
+    const normalizedReasoning = normalizeReasoningConfigurationForModel(
+      control,
+      resolved.reasoning,
+    );
+    if (JSON.stringify(normalizedReasoning) !== JSON.stringify(resolved.reasoning ?? null)) {
+      throw new ProviderAdapterError(
+        "model-unavailable",
+        "The supplied resolved reasoning parameters do not match the exact model.",
+        { retryable: false },
+      );
+    }
+    if (
+      this.provider === "deepseek" &&
+      normalizedReasoning?.mode !== "disabled" &&
+      normalizedReasoning !== null &&
+      (
+        resolved.temperature !== undefined ||
+        resolved.topP !== undefined ||
+        resolved.presence_penalty !== undefined ||
+        resolved.frequency_penalty !== undefined
+      )
+    ) {
+      throw new ProviderAdapterError(
+        "model-unavailable",
+        "Resolved DeepSeek thinking parameters must omit temperature, topP, presence_penalty, and frequency_penalty.",
+        { retryable: false },
+      );
+    }
+    return resolved;
   }
 }
 

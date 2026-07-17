@@ -1,6 +1,7 @@
 import type {
   AgentRole,
   AbandonWorkshopAgentRunInput,
+  CancelWorkshopCallResult,
   ContextBundle,
   CreateWorkshopBranchInput,
   ExecuteWorkshopCodexCreateEntryToolInput,
@@ -245,6 +246,12 @@ export function createWorkshopApi(client: ApiClient) {
       return client.requestEventStream(
         `/series/${seriesId}/workshop/sessions/${sessionId}/calls/stream`,
         signal ? { ...options, signal } : options,
+      );
+    },
+    cancelCall(seriesId: string, sessionId: string, operationId: string) {
+      return client.requestJson<CancelWorkshopCallResult>(
+        `/series/${seriesId}/workshop/sessions/${sessionId}/calls/${operationId}/cancel`,
+        { method: "POST" },
       );
     },
   };

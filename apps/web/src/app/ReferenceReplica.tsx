@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { ReferenceCodexWorkspace } from "../features/codex/ReferenceCodexWorkspace";
 import { ReferenceOverviewWorkspace } from "../features/overview/ReferenceOverviewWorkspace";
@@ -14,14 +15,24 @@ import { useReferenceStyleSheet } from "./useReferenceStyleSheet";
 
 export interface ReferenceReplicaProps {
   connectCodex?: boolean;
+  connectWorkshop?: boolean;
   connectWrite?: boolean;
   enableRuntime?: boolean;
 }
 
-function ConnectedProjectWorkspaces({ connectCodex, connectWrite }: { connectCodex: boolean; connectWrite: boolean }) {
+function ConnectedProjectWorkspaces({
+  connectCodex,
+  connectWorkshop,
+  connectWrite,
+}: {
+  connectCodex: boolean;
+  connectWorkshop: boolean;
+  connectWrite: boolean;
+}) {
   const session = useProjectSession();
   const openingSeriesRef = useRef<string | null>(null);
   const [writeTarget, setWriteTarget] = useState<{ blockId: string | null; sceneId: string } | null>(null);
+  const [providerReturnSessionId, setProviderReturnSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (session.isLibraryLoading || session.isOpeningSeries || session.activeSeries) return;
@@ -37,18 +48,74 @@ function ConnectedProjectWorkspaces({ connectCodex, connectWrite }: { connectCod
     queueMicrotask(() => document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Write']")?.click());
   }
 
+  function openProviderSettings(sessionId: string | null) {
+    setProviderReturnSessionId(sessionId);
+    document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Settings']")?.click();
+    queueMicrotask(() => {
+      document.querySelector<HTMLButtonElement>("[data-st7-section='connections']")?.click();
+    });
+  }
+
+  function returnToWorkshop() {
+    document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Workshop']")?.click();
+    setProviderReturnSessionId(null);
+  }
+
   return (
     <>
       {connectWrite ? <ReferenceWriteWorkspace requestedBlockId={writeTarget?.blockId ?? null} session={session} /> : <ReferenceSurface selector="#write-workspace" />}
       {connectCodex ? <ReferenceCodexWorkspace onOpenWrite={openWriteTarget} session={session} /> : <ReferenceCodexWorkspace />}
+      {connectWorkshop ? (
+        <ReferenceWorkshopWorkspace
+          onOpenProviderSettings={openProviderSettings}
+          requestedSessionId={providerReturnSessionId}
+          session={session}
+        />
+      ) : <ReferenceWorkshopWorkspace />}
+      {connectWorkshop && providerReturnSessionId ? (
+        <WorkshopProviderSettingsBridge onReturn={returnToWorkshop} />
+      ) : null}
     </>
   );
 }
 
-export function ReferenceReplica({ connectCodex, connectWrite = true, enableRuntime = true }: ReferenceReplicaProps = {}) {
+export function WorkshopProviderSettingsBridge({ onReturn }: { onReturn: () => void }) {
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const page = document.querySelector<HTMLElement>("[data-st7-page='connections']");
+    const nav = document.querySelector<HTMLElement>("[data-st7-section='connections'] span");
+    if (!page || !nav) return;
+    const originalNav = nav.textContent;
+    nav.textContent = "Model connections";
+    page.classList.add("is-provider-bridge");
+    setTarget(page);
+    return () => {
+      nav.textContent = originalNav;
+      page.classList.remove("is-provider-bridge");
+      setTarget(null);
+    };
+  }, []);
+
+  if (!target) return null;
+  return createPortal(
+    <section className="workshop-provider-settings-bridge">
+      <header><div><h2>Model connections</h2><p>This phase connects Workshop navigation to this Settings location and returns to the exact Workshop conversation. Editing model-provider credentials and connection settings is not available yet.</p></div><button className="st7-button" onClick={onReturn} type="button">Return to Workshop</button></header>
+      <div className="workshop-provider-settings-disabled" role="status">Model connection controls are unavailable in this phase.</div>
+    </section>,
+    target,
+  );
+}
+
+export function ReferenceReplica({
+  connectCodex,
+  connectWorkshop = true,
+  connectWrite = true,
+  enableRuntime = true,
+}: ReferenceReplicaProps = {}) {
   const shouldConnectCodex = connectCodex ?? connectWrite;
   useReferenceStyleSheet();
-  useReferenceRuntime(enableRuntime, connectWrite, shouldConnectCodex);
+  useReferenceRuntime(enableRuntime, connectWrite, shouldConnectCodex, connectWorkshop);
 
   return (
     <>
@@ -58,16 +125,20 @@ export function ReferenceReplica({ connectCodex, connectWrite = true, enableRunt
         <ReferenceOverviewWorkspace />
         <ReferenceSettingsWorkspace />
         <ReferencePlanWorkspace />
-        {connectWrite || shouldConnectCodex ? (
-          <ConnectedProjectWorkspaces connectCodex={shouldConnectCodex} connectWrite={connectWrite} />
+        {connectWrite || shouldConnectCodex || connectWorkshop ? (
+          <ConnectedProjectWorkspaces
+            connectCodex={shouldConnectCodex}
+            connectWorkshop={connectWorkshop}
+            connectWrite={connectWrite}
+          />
         ) : (
           <>
             <ReferenceSurface selector="#write-workspace" />
             <ReferenceCodexWorkspace />
+            <ReferenceWorkshopWorkspace />
           </>
         )}
-        <ReferenceWorkshopWorkspace />
-        <ReferenceInFrameOverlays />
+        <ReferenceInFrameOverlays includeWorkshop={!connectWorkshop} />
       </main>
       <ReferenceGlobalOverlays includeCodex={!shouldConnectCodex} includeWriteStructure={!connectWrite} />
     </>

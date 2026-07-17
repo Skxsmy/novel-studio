@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   CreateModelCallInputSchema,
   ModelCallLogSchema,
+  NewModelCallLogV2Schema,
   ModelCallStreamEventSchema,
   type ContextBundle,
   type ModelCallLog,
@@ -134,6 +135,7 @@ export function registerModelCallRoutes(
       }
 
       const prompt = contextPrompt(contextBundle);
+      const resolvedParameters = await adapter.resolveParameters(modelProfile, input.parameters);
       const promptUsage = adapter.estimateTokens(prompt);
       const inputTokens = contextBundle.estimatedUsage.inputTokens + promptUsage.inputTokens;
       if (inputTokens > modelProfile.contextWindowTokens) {
@@ -143,8 +145,8 @@ export function registerModelCallRoutes(
 
       const callId = randomUUID();
       const startedAt = new Date().toISOString();
-      const baseLog = ModelCallLogSchema.parse({
-        schemaVersion: 1,
+      const baseLog = NewModelCallLogV2Schema.parse({
+        schemaVersion: 2,
         id: callId,
         seriesId: request.params.seriesId,
         sceneId: contextBundle.sceneId,
@@ -159,8 +161,9 @@ export function registerModelCallRoutes(
           modelProfile,
           contextBundle,
           prompt,
-          parameters: input.parameters,
+          parameters: resolvedParameters,
         }),
+        resolvedParameters,
         responseHash: null,
         status: "pending",
         estimatedUsage: {
@@ -185,8 +188,12 @@ export function registerModelCallRoutes(
       });
 
       const abortController = new AbortController();
-      request.raw.on("close", () => abortController.abort());
+      request.raw.on("aborted", () => abortController.abort());
+      reply.raw.on("close", () => {
+        if (!reply.raw.writableEnded) abortController.abort();
+      });
       let responseText = "";
+      let reasoningText = "";
       let latestLog: ModelCallLog = {
         ...baseLog,
         status: "streaming",
@@ -211,15 +218,24 @@ export function registerModelCallRoutes(
       });
 
       try {
-        for await (const chunk of adapter.streamText({
+        for await (const event of adapter.streamText({
           modelProfile,
           prompt,
           contextBundle,
-          parameters: input.parameters,
+          resolvedParameters,
           abortSignal: abortController.signal,
         })) {
-          responseText += chunk;
-          writeEvent(reply, { type: "delta", text: chunk });
+          if (event.type === "reasoning-delta") {
+            reasoningText += event.text;
+            writeEvent(reply, {
+              type: "reasoning-delta",
+              text: event.text,
+              outputKind: event.outputKind,
+            });
+          } else {
+            responseText += event.text;
+            writeEvent(reply, { type: "delta", text: event.text });
+          }
         }
         const actualUsage = usage(inputTokens, responseText);
         latestLog = {
@@ -243,6 +259,31 @@ export function registerModelCallRoutes(
           actualUsage,
         });
       } catch (caught) {
+        if (abortController.signal.aborted || (caught instanceof Error && caught.name === "AbortError")) {
+          const actualUsage = usage(inputTokens, `${reasoningText}${responseText}`);
+          latestLog = {
+            ...latestLog,
+            status: "cancelled",
+            responseHash: responseText || reasoningText ? hashText(`${reasoningText}\n${responseText}`) : null,
+            actualUsage,
+            errorCode: null,
+            errorMessage: null,
+            error: null,
+            completedAt: new Date().toISOString(),
+          };
+          await repository.saveModelCallLog(request.params.seriesId, latestLog);
+          if (!reply.raw.destroyed && !reply.raw.writableEnded) {
+            writeEvent(reply, {
+              type: "done",
+              callId,
+              status: "cancelled",
+              responseHash: latestLog.responseHash,
+              actualUsage,
+            });
+          }
+          reply.raw.end();
+          return reply;
+        }
         const error = adapter.classifyError(caught);
         const actualUsage = usage(inputTokens, responseText);
         latestLog = {

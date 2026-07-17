@@ -5,16 +5,12 @@ import type {
   ModelCapability,
   ModelParameters,
   ModelProfile,
+  ProviderModelDescriptor,
+  ReasoningOutputKind,
   TokenUsage,
 } from "@novel-studio/contracts";
 import type { ModelCallError } from "@novel-studio/contracts";
-
-export interface ProviderModelDescriptor {
-  id: string;
-  title: string;
-  contextWindowTokens: number;
-  capabilities: ModelCapability;
-}
+export type { ProviderModelDescriptor } from "@novel-studio/contracts";
 
 export interface ProviderDescriptor {
   provider: AiProvider;
@@ -84,17 +80,37 @@ export interface ProviderChatRequest extends ProviderTextRequest {
 export interface ProviderChatResult {
   text: string;
   reasoningContent: string;
+  reasoningOutputKind: ReasoningOutputKind;
   toolCalls: ProviderToolCall[];
   finishReason: string | null;
   usage: TokenUsage | null;
   rawResponseText: string;
 }
 
+export type ProviderTextStreamEvent =
+  | {
+    type: "reasoning-delta";
+    text: string;
+    outputKind: Exclude<ReasoningOutputKind, "none">;
+  }
+  | {
+    type: "answer-delta";
+    text: string;
+  };
+
+export type ProviderChatStreamEvent =
+  | ProviderTextStreamEvent
+  | {
+    type: "done";
+    result: ProviderChatResult;
+  };
+
 export interface ProviderTextRequest {
   modelProfile: ModelProfile;
   prompt: ProviderPrompt;
   contextBundle: ContextBundle | null;
   parameters?: ModelParameters;
+  resolvedParameters?: ModelParameters;
   abortSignal?: AbortSignal;
 }
 
@@ -118,7 +134,14 @@ export interface ProviderAdapter {
 
   listModels(modelProfile: ModelProfile): Promise<ProviderModelDescriptor[]>;
 
-  streamText(request: ProviderTextRequest): AsyncIterable<string>;
+  resolveParameters(
+    modelProfile: ModelProfile,
+    requestParameters?: ModelParameters,
+  ): Promise<ModelParameters>;
+
+  streamText(request: ProviderTextRequest): AsyncIterable<ProviderTextStreamEvent>;
+
+  streamChat(request: ProviderChatRequest): AsyncIterable<ProviderChatStreamEvent>;
 
   completeChat(request: ProviderChatRequest): Promise<ProviderChatResult>;
 

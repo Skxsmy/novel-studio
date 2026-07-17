@@ -29,7 +29,24 @@ export function omitCodexReferenceRuntime(runtime: string) {
   return `${runtime.slice(0, fixturesStart)}const body = document.body;\n    ${runtime.slice(workspaceStart, codexBehaviorStart)}${runtime.slice(workshopStart)}`;
 }
 
-export function useReferenceRuntime(enabled = true, omitWrite = false, omitCodex = false) {
+export function omitWorkshopReferenceRuntime(runtime: string) {
+  const workshopRootToken = 'const root = document.getElementById("workshop-workspace");';
+  const writeRootToken = 'const root = document.getElementById("write-workspace");';
+  const workshopRoot = runtime.indexOf(workshopRootToken);
+  const writeRoot = runtime.indexOf(writeRootToken, workshopRoot + workshopRootToken.length);
+  if (workshopRoot < 0 || writeRoot < 0) return runtime;
+  const workshopIife = runtime.lastIndexOf("(() => {", workshopRoot);
+  const writeIife = runtime.lastIndexOf("(() => {", writeRoot);
+  if (workshopIife < 0 || writeIife <= workshopIife) return runtime;
+  return `${runtime.slice(0, workshopIife)}${runtime.slice(writeIife)}`;
+}
+
+export function useReferenceRuntime(
+  enabled = true,
+  omitWrite = false,
+  omitCodex = false,
+  omitWorkshop = false,
+) {
   useEffect(() => {
     if (!enabled) return;
     if (document.getElementById(RUNTIME_ID)) return;
@@ -37,7 +54,8 @@ export function useReferenceRuntime(enabled = true, omitWrite = false, omitCodex
     script.id = RUNTIME_ID;
     const runtime = getReferenceRuntimeText();
     const withoutCodex = omitCodex ? omitCodexReferenceRuntime(runtime) : runtime;
-    script.textContent = `(() => {${omitWrite ? omitWriteReferenceRuntime(withoutCodex) : withoutCodex}\n})();`;
+    const withoutWorkshop = omitWorkshop ? omitWorkshopReferenceRuntime(withoutCodex) : withoutCodex;
+    script.textContent = `(() => {${omitWrite ? omitWriteReferenceRuntime(withoutWorkshop) : withoutWorkshop}\n})();`;
     document.body.append(script);
-  }, [enabled, omitCodex, omitWrite]);
+  }, [enabled, omitCodex, omitWorkshop, omitWrite]);
 }

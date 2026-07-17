@@ -839,7 +839,7 @@ export function WorkshopWorkspace({
   }
 
   function linkedCodexEntriesForItems(items: WorkshopContextItemRef[]) {
-    const texts = selectedScopeTexts(series, items);
+    const texts = selectedScopeTexts(series, items, "legacy-storage-hierarchy");
     if (texts.length === 0) return [];
     const combined = texts.join("\n\n");
     return activeCodexEntries.filter((entry) => (
@@ -1107,7 +1107,7 @@ export function WorkshopWorkspace({
     };
     const now = new Date().toISOString();
     const localAuthorMessage: WorkshopMessage = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: randomId(),
       seriesId,
       sessionId: callSessionId,
@@ -1116,6 +1116,7 @@ export function WorkshopWorkspace({
       status: "succeeded",
       content: requestText,
       reasoningContent: "",
+      reasoningOutputKind: "none",
       contextBundleId: null,
       modelCallId: null,
       proposalIds: [],
@@ -1144,7 +1145,7 @@ export function WorkshopWorkspace({
         const localAssistantId = randomId();
         let assistantMessageId = localAssistantId;
         const localAssistantMessage: WorkshopMessage = {
-          schemaVersion: 1,
+          schemaVersion: 2,
           id: localAssistantId,
           seriesId,
           sessionId: callSessionId,
@@ -1153,6 +1154,7 @@ export function WorkshopWorkspace({
           status: "pending",
           content: "",
           reasoningContent: "",
+          reasoningOutputKind: "none",
           contextBundleId: null,
           modelCallId: null,
           proposalIds: [],
@@ -1234,7 +1236,7 @@ export function WorkshopWorkspace({
         setError(null);
         updateSessionMessages(callSessionId, (current) => {
           const stopped = {
-            schemaVersion: 1 as const,
+            schemaVersion: 2 as const,
             id: randomId(),
             seriesId,
             sessionId: callSessionId,
@@ -1243,6 +1245,7 @@ export function WorkshopWorkspace({
             status: "failed" as const,
             content: "",
             reasoningContent: "",
+            reasoningOutputKind: "none" as const,
             contextBundleId: null,
             modelCallId: null,
             proposalIds: [],
@@ -1266,7 +1269,7 @@ export function WorkshopWorkspace({
       updateSessionMessages(callSessionId, (current) => [
         ...current,
         {
-          schemaVersion: 1,
+          schemaVersion: 2,
           id: randomId(),
           seriesId,
           sessionId: callSessionId,
@@ -1275,6 +1278,7 @@ export function WorkshopWorkspace({
           status: "failed",
           content: text.labels.assistantFailed,
           reasoningContent: "",
+          reasoningOutputKind: "none",
           contextBundleId: null,
           modelCallId: null,
           proposalIds: [],

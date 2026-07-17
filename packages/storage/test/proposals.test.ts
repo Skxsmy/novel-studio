@@ -79,7 +79,7 @@ function replacementProposalInput(input: {
 function contextBundle(seriesId: string, sceneId: string, contextBundleId = randomUUID()): ContextBundle {
   const now = "2026-07-01T00:00:00.000Z";
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: contextBundleId,
     seriesId,
     sceneId,
@@ -118,7 +118,7 @@ function modelCallLog(
 ): ModelCallLog {
   const now = "2026-07-01T00:00:00.000Z";
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: modelCallId,
     seriesId,
     sceneId,
@@ -132,6 +132,7 @@ function modelCallLog(
     requestHash: HASH,
     responseHash: HASH,
     status: "succeeded",
+    resolvedParameters: {},
     estimatedUsage: bundle.estimatedUsage,
     actualUsage: { inputTokens: 4, outputTokens: 2, totalTokens: 6 },
     errorCode: null,

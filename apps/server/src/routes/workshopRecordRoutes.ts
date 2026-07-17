@@ -15,9 +15,18 @@ import type { ProjectRepository } from "@novel-studio/storage";
 import { exportWorkshopSessionMarkdown } from "../workshop/sessionExport.js";
 import { parseWorkshopAttachmentUpload } from "./workshopAttachments.js";
 
+interface WorkshopRecordRouteOptions {
+  guardSessionLifecycle: <T>(
+    seriesId: string,
+    sessionId: string,
+    mutation: () => Promise<T>,
+  ) => Promise<T>;
+}
+
 export function registerWorkshopRecordRoutes(
   app: FastifyInstance,
   repository: ProjectRepository,
+  options: WorkshopRecordRouteOptions,
 ): void {
   app.get<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions",
@@ -79,20 +88,32 @@ export function registerWorkshopRecordRoutes(
   app.delete<{ Params: { seriesId: string; sessionId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId",
     async (request) => DeleteWorkshopSessionResultSchema.parse(
-      await repository.deleteWorkshopSession(request.params.seriesId, request.params.sessionId),
+      await options.guardSessionLifecycle(
+        request.params.seriesId,
+        request.params.sessionId,
+        () => repository.deleteWorkshopSession(request.params.seriesId, request.params.sessionId),
+      ),
     ),
   );
 
   app.post<{ Params: { seriesId: string; sessionId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/archive",
     async (request) =>
-      repository.archiveWorkshopSession(request.params.seriesId, request.params.sessionId),
+      options.guardSessionLifecycle(
+        request.params.seriesId,
+        request.params.sessionId,
+        () => repository.archiveWorkshopSession(request.params.seriesId, request.params.sessionId),
+      ),
   );
 
   app.post<{ Params: { seriesId: string; sessionId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/restore",
     async (request) =>
-      repository.restoreWorkshopSession(request.params.seriesId, request.params.sessionId),
+      options.guardSessionLifecycle(
+        request.params.seriesId,
+        request.params.sessionId,
+        () => repository.restoreWorkshopSession(request.params.seriesId, request.params.sessionId),
+      ),
   );
 
   app.get<{ Params: { seriesId: string; sessionId: string } }>(
@@ -177,10 +198,14 @@ export function registerWorkshopRecordRoutes(
   app.delete<{ Params: { seriesId: string; sessionId: string; messageId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId/messages/:messageId",
     async (request) =>
-      repository.deleteWorkshopMessage(
+      options.guardSessionLifecycle(
         request.params.seriesId,
         request.params.sessionId,
-        request.params.messageId,
+        () => repository.deleteWorkshopMessage(
+          request.params.seriesId,
+          request.params.sessionId,
+          request.params.messageId,
+        ),
       ),
   );
 }
