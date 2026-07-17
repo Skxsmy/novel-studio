@@ -612,6 +612,7 @@ describe("NS-514 A29-A34 connected Workshop workspace", () => {
     const authorArticle = container.querySelector<HTMLElement>(`[data-message-id='${author.id}']`)!;
     fireEvent.click(within(authorArticle).getByRole("button", { name: "Open message actions" }));
     const menu = authorArticle.querySelector<HTMLElement>(".wr5-message-menu")!;
+    expect(menu.classList.contains("opens-below")).toBe(true);
     expect(menu.textContent).toContain("Edit and resend");
     expect(menu.textContent).toContain("Resend");
     expect(menu.textContent).toContain("Branch");

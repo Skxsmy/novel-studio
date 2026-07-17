@@ -96,6 +96,11 @@
   bottom: 42px;
 }
 
+.wr5-message-menu.opens-below {
+  top: 42px;
+  bottom: auto;
+}
+
 .wr5-message-edit textarea {
   width: 100%;
   min-height: 110px;

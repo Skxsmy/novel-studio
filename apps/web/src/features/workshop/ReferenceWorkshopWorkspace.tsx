@@ -271,6 +271,7 @@ function ConnectedReferenceWorkshopWorkspace({
   const [runtimeOptionsOpen, setRuntimeOptionsOpen] = useState(false);
   const [useStreamingResponses, setUseStreamingResponses] = useState(true);
   const [messageMenuId, setMessageMenuId] = useState<string | null>(null);
+  const [messageMenuPlacement, setMessageMenuPlacement] = useState<"above" | "below">("above");
   const [collapsedReasoningIds, setCollapsedReasoningIds] = useState<Set<string>>(() => new Set());
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingMessageContent, setEditingMessageContent] = useState("");
@@ -2252,6 +2253,7 @@ function ConnectedReferenceWorkshopWorkspace({
       const canResend = Boolean(turn && message.role === "author" && currentSession.kind === "chat" && !archived);
       const canBranch = isEligibleWorkshopBranchSource(messages, index) && !archived;
       const hasActions = canResend || canBranch;
+      const messageActionCount = (canResend ? 3 : 0) + (canBranch ? 1 : 0);
       const historyActionsDisabled = sendState !== "idle" || backgroundSessionBusy;
       const collapsed = collapsedReasoningIds.has(message.id);
       return (
@@ -2280,8 +2282,18 @@ function ConnectedReferenceWorkshopWorkspace({
             {message.status === "failed" ? <p className="wr5-message-error">{message.errorMessage ?? text.labels.assistantFailed}</p> : null}
             {message.status === "cancelled" ? <p className="wr5-message-cancelled">{text.statusLabels.cancelled}</p> : null}
             {hasActions ? <div className="wr5-message-actions" data-wr5-floating>
-              <button aria-expanded={messageMenuId === message.id} aria-label={text.labels.messageActionsIcon} className="wr5-icon-button" onClick={() => setMessageMenuId((current) => current === message.id ? null : message.id)} type="button"><Icon><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></Icon></button>
-              {messageMenuId === message.id ? <div className="wr5-message-menu" role="menu">
+              <button aria-expanded={messageMenuId === message.id} aria-label={text.labels.messageActionsIcon} className="wr5-icon-button" onClick={(event) => {
+                if (messageMenuId === message.id) {
+                  setMessageMenuId(null);
+                  return;
+                }
+                const buttonTop = event.currentTarget.getBoundingClientRect().top;
+                const threadTop = event.currentTarget.closest(".wr5-thread-scroll")?.getBoundingClientRect().top ?? 0;
+                const estimatedMenuHeight = messageActionCount * 44 + 16;
+                setMessageMenuPlacement(buttonTop - estimatedMenuHeight < threadTop + 8 ? "below" : "above");
+                setMessageMenuId(message.id);
+              }} type="button"><Icon><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></Icon></button>
+              {messageMenuId === message.id ? <div className={`wr5-message-menu opens-${messageMenuPlacement}`} role="menu">
                 {canResend ? <><button disabled={historyActionsDisabled || reasoningPreferenceSaving} onClick={() => { setEditingMessageId(message.id); setEditingMessageContent(message.content); setMessageMenuId(null); }} role="menuitem" type="button">{text.labels.editAndResend}</button><button disabled={historyActionsDisabled || reasoningPreferenceSaving} onClick={() => void resendMessage(message)} role="menuitem" type="button">{text.labels.resendMessage}</button></> : null}
                 {canBranch ? <button disabled={historyActionsDisabled} onClick={() => void branchFromMessage(message)} role="menuitem" type="button">{text.branch}</button> : null}
                 {canResend ? <button className="danger" disabled={busyMessageId === message.id || historyActionsDisabled} onClick={() => void deleteTurn(message)} role="menuitem" type="button">{text.labels.deleteTurn}</button> : null}
