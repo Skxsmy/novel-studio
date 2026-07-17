@@ -584,7 +584,9 @@ describe("NS-514 A29-A34 connected Workshop workspace", () => {
 
     fireEvent.click(within(container).getByRole("button", { name: /Context/u }));
     fireEvent.click(within(container).getByRole("tab", { name: "Series" }));
-    expect(within(container).getByRole("dialog", { name: "Choose context" }).textContent).toContain(
+    const contextDialog = within(container).getByRole("dialog", { name: "Choose context" });
+    expect(contextDialog.classList.contains("is-open")).toBe(true);
+    expect(contextDialog.textContent).toContain(
       "Full outline of the novel, including all volumes, chapters, acts, and scenes.",
     );
   });
@@ -832,11 +834,13 @@ describe("NS-514 A29-A34 connected Workshop workspace", () => {
     await waitFor(() => expect(within(container).getByRole("button", { name: "Model options" })).toHaveProperty("disabled", false));
     fireEvent.click(within(container).getByRole("button", { name: /reasoning-model/u }));
     const modelDialog = within(container).getByRole("dialog", { name: "Choose model" });
+    expect(modelDialog.classList.contains("is-open")).toBe(true);
     expect(modelDialog.textContent).toContain("reasoning-model");
     expect(modelDialog.textContent).toContain("toggle-model");
     expect(modelDialog.textContent).not.toContain("Provider A profile");
 
     fireEvent.click(within(container).getByRole("button", { name: "Model options" }));
+    expect(within(container).getByRole("dialog", { name: "Model options" }).classList.contains("is-open")).toBe(true);
     const effort = within(container).getByLabelText("Reasoning effort") as HTMLSelectElement;
     expect(effort.value).toBe("medium");
     expect([...effort.options].map((option) => option.value)).toEqual(["disabled", "low", "medium", "high"]);
