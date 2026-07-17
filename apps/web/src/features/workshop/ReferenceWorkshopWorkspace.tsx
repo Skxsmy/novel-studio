@@ -1960,7 +1960,7 @@ function ConnectedReferenceWorkshopWorkspace({
               onClick={() => setNewMenuOpen((current) => !current)}
               type="button"
             ><Icon><path d="M12 5v14M5 12h14" /></Icon></button>
-            {newMenuOpen ? <div className="wr5-new-menu" role="menu">
+            {newMenuOpen ? <div className="wr5-new-menu is-open" role="menu">
               <button className="wr5-menu-item" disabled={creatingSession} onClick={() => void createSession("chat")} role="menuitem" type="button"><strong>{text.labels.createChatConversation}</strong></button>
               <button className="wr5-menu-item" disabled={creatingSession} onClick={() => void createSession("agent")} role="menuitem" type="button"><strong>{text.labels.createAgentConversation}</strong></button>
             </div> : null}

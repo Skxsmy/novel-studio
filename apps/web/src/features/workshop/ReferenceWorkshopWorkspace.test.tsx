@@ -329,6 +329,7 @@ describe("NS-514 A29-A34 connected Workshop workspace", () => {
     );
 
     fireEvent.click(newConversation);
+    expect(within(container).getByRole("menu").classList.contains("is-open")).toBe(true);
     fireEvent.click(within(container).getByRole("menuitem", { name: "General Chat" }));
     await waitFor(() => expect(createSession).toHaveBeenCalledWith(seriesId, {
       kind: "chat",
