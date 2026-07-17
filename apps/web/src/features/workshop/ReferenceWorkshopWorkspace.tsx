@@ -272,6 +272,7 @@ function ConnectedReferenceWorkshopWorkspace({
   const [useStreamingResponses, setUseStreamingResponses] = useState(true);
   const [messageMenuId, setMessageMenuId] = useState<string | null>(null);
   const [messageMenuPlacement, setMessageMenuPlacement] = useState<"above" | "below">("above");
+  const [mobileSessionsOpen, setMobileSessionsOpen] = useState(false);
   const [collapsedReasoningIds, setCollapsedReasoningIds] = useState<Set<string>>(() => new Set());
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingMessageContent, setEditingMessageContent] = useState("");
@@ -599,6 +600,7 @@ function ConnectedReferenceWorkshopWorkspace({
   }
 
   function activateSession(sessionId: string | null) {
+    setMobileSessionsOpen(false);
     const targetSeriesId = seriesIdRef.current;
     const previousSessionId = activeSessionIdRef.current;
     if (
@@ -1948,7 +1950,7 @@ function ConnectedReferenceWorkshopWorkspace({
   function renderSessionSidebar(selectedSessionId: string | null) {
     const sessionCreationDisabled = creatingSession || loading || !seriesId;
     return (
-      <aside aria-label={text.labels.workshopConversations} className="wr5-sessions">
+      <aside aria-label={text.labels.workshopConversations} className="wr5-sessions" id="wr5-session-sidebar">
         <header className="wr5-sessions-head">
           <h1>{text.title}</h1>
           <div className="wr5-new-wrap" data-wr5-floating>
@@ -1989,10 +1991,22 @@ function ConnectedReferenceWorkshopWorkspace({
     );
   }
 
+  function renderMobileSessionsButton() {
+    return <button
+      aria-controls="wr5-session-sidebar"
+      aria-expanded={mobileSessionsOpen}
+      aria-label={text.labels.openConversations}
+      className="wr5-icon-button wr5-mobile-sessions"
+      onClick={() => setMobileSessionsOpen((current) => !current)}
+      type="button"
+    ><Icon><path d="M4 6h16M4 12h16M4 18h16" /></Icon></button>;
+  }
+
   function renderEmptyConversation(message: string) {
     return <>
       {renderSessionSidebar(null)}
       <main className="wr5-conversation">
+        <header className="wr5-conversation-head wr5-empty-mobile-head"><div className="wr5-conversation-title"><div className="wr5-conversation-title-row">{renderMobileSessionsButton()}<h2>{text.title}</h2></div></div></header>
         <div className="wr5-thread-scroll"><div className="wr5-empty-state"><p>{message}</p></div></div>
       </main>
     </>;
@@ -2308,7 +2322,7 @@ function ConnectedReferenceWorkshopWorkspace({
     return <>
       {renderSessionSidebar(currentSession.id)}
       <main className="wr5-conversation">
-        <header className="wr5-conversation-head"><div className="wr5-conversation-title"><div className="wr5-conversation-title-row"><h2>{currentSession.title}</h2><span className={`wr5-badge ${currentSession.kind === "agent" ? "amber" : "blue"}`}>{text.sessionKinds[currentSession.kind]}</span></div><div className="wr5-conversation-meta"><span className="status-dot" /><span>{archived ? text.statusLabels.archived : text.labels.conversationSaved}</span></div></div><div className="wr5-head-actions"><button className="wr5-button" disabled={!latestBranchSource || archived || sendState !== "idle" || backgroundSessionBusy} onClick={() => latestBranchSource && void branchFromMessage(latestBranchSource)} type="button">{text.branch}</button></div></header>
+        <header className="wr5-conversation-head"><div className="wr5-conversation-title"><div className="wr5-conversation-title-row">{renderMobileSessionsButton()}<h2>{currentSession.title}</h2><span className={`wr5-badge ${currentSession.kind === "agent" ? "amber" : "blue"}`}>{text.sessionKinds[currentSession.kind]}</span></div><div className="wr5-conversation-meta"><span className="status-dot" /><span>{archived ? text.statusLabels.archived : text.labels.conversationSaved}</span></div></div><div className="wr5-head-actions"><button className="wr5-button" disabled={!latestBranchSource || archived || sendState !== "idle" || backgroundSessionBusy} onClick={() => latestBranchSource && void branchFromMessage(latestBranchSource)} type="button">{text.branch}</button></div></header>
         <div className="wr5-thread-scroll"><section className="wr5-thread">{loadingSession ? <div className="wr5-empty-state"><p>{text.labels.loadingSession}</p></div> : messages.length ? messages.map(renderMessage) : <article className="wr5-empty-state"><p>{text.labels.noMessages}</p></article>}{latestAgentRun && ["failed", "interrupted"].includes(latestAgentRun.run.status) ? <div className="wr5-run-state"><h3>{text.agentRun.status[latestAgentRun.run.status]}</h3>{!archived ? <div className="wr5-run-actions"><button className="wr5-button primary" disabled={busyMessageId === latestAgentRun.run.id || sendState !== "idle" || backgroundSessionBusy} onClick={() => void retryAgentRun(latestAgentRun)} type="button">{text.agentRun.retry}</button><button className="wr5-button danger" disabled={busyMessageId === latestAgentRun.run.id || sendState !== "idle" || backgroundSessionBusy} onClick={() => void abandonAgentRun(latestAgentRun)} type="button">{text.agentRun.abandon}</button></div> : null}</div> : null}</section></div>
         <footer className="wr5-composer-shell"><div className="wr5-composer"><div className="wr5-context-line">{basket?.items.map((item) => <span className={`wr5-context-chip${item.note === LINKED_CODEX_NOTE ? " linked" : ""}`} key={item.id}>{item.label}</span>)}</div><div className="wr5-composer-box"><div className="wr5-composer-toolbar"><div className="wr5-composer-tools">
           <button aria-expanded={contextOpen} className="wr5-composer-tool" disabled={archived || !sessionReady} onClick={() => { setContextOpen((current) => !current); setModelMenuOpen(false); setRuntimeOptionsOpen(false); }} type="button"><Icon><path d="M5 6h14M5 12h14M5 18h8" /></Icon>{text.contextTrigger} <strong>{basket?.items.length ?? 0}</strong></button>
@@ -2325,7 +2339,7 @@ function ConnectedReferenceWorkshopWorkspace({
 
   return (
     <>
-      <section aria-label="Workshop" className="wr5 workspace-view" data-workspace-view="Workshop" hidden id="workshop-workspace">
+      <section aria-label="Workshop" className={`wr5 workspace-view${mobileSessionsOpen ? " is-mobile-sessions" : ""}`} data-workspace-view="Workshop" hidden id="workshop-workspace">
         {renderPlaceholder()}
       </section>
       {sessionContextMenu && contextMenuSession ? <div className="wr5-session-context-menu" data-wr5-floating ref={sessionMenuRef} role="menu" style={{ left: sessionContextMenu.x, top: sessionContextMenu.y }}>

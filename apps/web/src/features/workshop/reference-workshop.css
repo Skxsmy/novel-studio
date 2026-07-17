@@ -101,6 +101,17 @@
   bottom: auto;
 }
 
+.wr5-conversation,
+.wr5-composer-shell,
+.wr5-composer,
+.wr5-composer-box {
+  min-width: 0;
+}
+
+.wr5-empty-mobile-head {
+  display: none;
+}
+
 .wr5-message-edit textarea {
   width: 100%;
   min-height: 110px;
@@ -351,6 +362,48 @@
   .wr5-icon-tool,
   .wr5-message-actions > .wr5-icon-button {
     min-height: 44px;
+  }
+}
+
+@media (max-width: 760px) {
+  .wr5-empty-mobile-head {
+    display: flex;
+  }
+
+  .wr5-thread-scroll {
+    overflow-x: hidden;
+  }
+
+  .wr5-message-content,
+  .wr5-prose,
+  .wr5-reasoning {
+    overflow-wrap: anywhere;
+  }
+
+  .wr5-composer-toolbar {
+    min-width: 0;
+  }
+
+  .wr5-composer-tools {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .wr5-composer-tools::-webkit-scrollbar {
+    display: none;
+  }
+
+  .wr5-composer-toolbar > .wr5-composer-tool {
+    flex: 0 0 auto;
+  }
+
+  .wr5-composer-tool span {
+    max-width: 126px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

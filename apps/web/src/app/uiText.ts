@@ -458,6 +458,7 @@ export const uiText = {
       sessionSearch: "Search conversations",
       sessionSearchEmpty: "No conversations match this search and filter.",
       newConversation: "New conversation",
+      openConversations: "Open conversations",
       noMessages: "Start a conversation.",
       messageActionsIcon: "Open message actions",
       providerSettings: "Provider settings",

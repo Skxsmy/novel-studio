@@ -327,6 +327,11 @@ describe("NS-514 A29-A34 connected Workshop workspace", () => {
     expect(container.querySelector("main.wr5-conversation")?.textContent).toContain(
       "Create or select a Workshop session before sending.",
     );
+    const mobileSessions = within(container).getByRole("button", { name: "Open conversations" });
+    fireEvent.click(mobileSessions);
+    expect(container.querySelector("#workshop-workspace")?.classList.contains("is-mobile-sessions")).toBe(true);
+    fireEvent.click(mobileSessions);
+    expect(container.querySelector("#workshop-workspace")?.classList.contains("is-mobile-sessions")).toBe(false);
 
     fireEvent.click(newConversation);
     expect(within(container).getByRole("menu").classList.contains("is-open")).toBe(true);
@@ -368,6 +373,17 @@ describe("NS-514 A29-A34 connected Workshop workspace", () => {
       sceneId: null,
       title: "New chat",
     }));
+  });
+
+  it("opens the responsive conversation drawer and closes it after selecting a session", async () => {
+    const { container } = setupConnected();
+    await waitFor(() => expect(container.textContent).toContain("Weather-door dialogue"));
+    const workspace = container.querySelector<HTMLElement>("#workshop-workspace")!;
+    const mobileSessions = within(container).getByRole("button", { name: "Open conversations" });
+    fireEvent.click(mobileSessions);
+    expect(workspace.classList.contains("is-mobile-sessions")).toBe(true);
+    fireEvent.click(within(container).getByRole("button", { name: /Weather-door dialogue/u }));
+    expect(workspace.classList.contains("is-mobile-sessions")).toBe(false);
   });
 
   it("searches active sessions and separates All, Chat, Agent, and Archived without fake counts", async () => {
