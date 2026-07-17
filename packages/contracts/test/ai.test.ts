@@ -32,6 +32,11 @@ describe("AI model profile contracts", () => {
 
     expect(CreateModelProfileInputSchema.safeParse(baseInput).success).toBe(true);
     expect(UpdateModelProfileInputSchema.safeParse({ title: "DeepSeek Updated" }).success).toBe(true);
+    expect(UpdateModelProfileInputSchema.parse({
+      reasoningPreference: { mode: "effort", effort: "high" },
+    })).toEqual({
+      reasoningPreference: { mode: "effort", effort: "high" },
+    });
     expect(CreateModelProfileInputSchema.safeParse({
       ...baseInput,
       credentialRef: "novel-studio/model-profile/profile-id",

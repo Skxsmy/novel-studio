@@ -217,7 +217,9 @@ export function registerAiRoutes(
       const updated = ModelProfileSchema.parse({
         ...current,
         ...input,
-        baseUrl: input.baseUrl ?? current.baseUrl,
+        baseUrl: Object.prototype.hasOwnProperty.call(input, "baseUrl")
+          ? input.baseUrl
+          : current.baseUrl,
         capabilities: input.capabilities ?? current.capabilities,
         credentialRef: current.credentialRef,
         defaultParameters: input.defaultParameters ?? current.defaultParameters,

@@ -582,7 +582,16 @@ const ModelProfileEditableInputSchema = z.object({
 export const CreateModelProfileInputSchema = ModelProfileEditableInputSchema;
 export type CreateModelProfileInput = z.input<typeof CreateModelProfileInputSchema>;
 
-export const UpdateModelProfileInputSchema = ModelProfileEditableInputSchema.partial().superRefine(
+export const UpdateModelProfileInputSchema = z.object({
+  title: ModelProfileEditableInputSchema.shape.title.optional(),
+  provider: ModelProfileEditableInputSchema.shape.provider.optional(),
+  baseUrl: ModelProfileEditableInputSchema.shape.baseUrl.unwrap().optional(),
+  model: ModelProfileEditableInputSchema.shape.model.optional(),
+  defaultParameters: ModelProfileEditableInputSchema.shape.defaultParameters.unwrap().optional(),
+  reasoningPreference: ModelProfileEditableInputSchema.shape.reasoningPreference.unwrap().optional(),
+  capabilities: ModelProfileEditableInputSchema.shape.capabilities.unwrap().optional(),
+  contextWindowTokens: ModelProfileEditableInputSchema.shape.contextWindowTokens.unwrap().optional(),
+}).strict().superRefine(
   (input, context) => {
     if (Object.keys(input).length === 0) {
       context.addIssue({ code: "custom", message: "至少提供一个模型配置字段" });

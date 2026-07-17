@@ -703,6 +703,11 @@ describe("M4 model settings API", () => {
     });
     expect(saved.statusCode, saved.payload).toBe(200);
     expect(saved.json().reasoningPreference).toEqual({ mode: "effort", effort: "high" });
+    expect(saved.json()).toMatchObject({
+      capabilities: created.json().capabilities,
+      contextWindowTokens: created.json().contextWindowTokens,
+      defaultParameters: created.json().defaultParameters,
+    });
 
     const unsupported = await app.inject({
       method: "PUT",
