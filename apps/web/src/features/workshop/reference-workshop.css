@@ -370,6 +370,22 @@
     display: flex;
   }
 
+  .wr5.is-mobile-sessions .wr5-session-tools {
+    display: block;
+  }
+
+  .wr5.is-mobile-sessions .wr5-session-copy,
+  .wr5.is-mobile-sessions .wr5-session time {
+    display: block;
+  }
+
+  .wr5.is-mobile-sessions .wr5-session {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    justify-items: stretch;
+    min-height: 68px;
+    padding: 9px 10px;
+  }
+
   .wr5-thread-scroll {
     overflow-x: hidden;
   }
