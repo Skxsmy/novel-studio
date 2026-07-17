@@ -48,7 +48,7 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-514-A30 | passed | Web/storage/server | Exact bottom-right icon-menu, eligibility, edit/resend, branch, and complete-turn deletion cases named in the active task plus protected-history regressions | Passed: only eligible settled boundaries expose the icon menu; General Chat edit/resend truncates later unprotected history; Agent edit/resend is absent; complete-turn Delete and Branch preserve protected tool, Proposal, attachment, child-session, and source-link invariants; concurrent resend and Branch cannot leave a dangling reference |
 | NS-514-A31 | passed | Web/server/storage | Exact merged-control, separate-cancel-command, terminal-cancelled, partial-content, no-retry/tool-side-effect, reduced-motion, and session-switch cases named in the active task | Passed: the single animated control reaches Send, Sending, Stop, and Stopping; a separate cancel command keeps the stream authoritative through terminal `cancelled`; cancellation before context or the first event, non-streaming cancellation, resend cancellation, late completion/cancel races, reduced motion, and session switching all converge without failure, interruption, retry, duplicate optimistic rows, or tool side effects |
 | NS-514-A32 | passed | Provider/server/Web | Typed Provider reasoning, attempt-scoped Agent stream, reasoning-before-answer, initial expansion, per-message chevron, and no-Show-reasoning cases named in the active task | Passed: OpenAI-compatible, Anthropic, Gemini, DeepSeek, OpenRouter, Ollama, and Mock adapters use declared exact-model controls and typed reasoning events; General Chat and Agent streams render reasoning immediately above answer text; retry/repair resets are attempt-scoped; saved reasoning starts expanded and only its own chevron changes it |
-| NS-514-A33 | passed | contract/Provider/server/Web | Exact-model capability, version 2 preference persistence, separate model/runtime/Provider entries, no-invented-options, Settings return, and credential-boundary cases named in the active task | Passed: the picker lists model names only; runtime options and Provider Settings are separate; exact-model preferences persist through the library-global profile route and restore after switching or restart; unsupported or still-loading metadata never reuses or invents controls; preference save completes before Send uses the saved value; credentials remain outside returned profiles and call authority |
+| NS-514-A33 | passed | contract/Provider/server/Web/browser | Exact-model capability, version 2 preference persistence, separate model/runtime/Provider entries, no-invented-options, Settings return, credential-boundary cases, and partial-update preservation named in the active task | Passed: the picker lists model names only; runtime options and Provider Settings are separate; exact-model preferences persist through the library-global profile route and restore after switching or restart; a reasoning-only update preserves the existing model capabilities, context-window limit, and default parameters; unsupported or still-loading metadata never reuses or invents controls; preference save completes before Send uses the saved value; credentials remain outside returned profiles and call authority. The clean-worktree browser run selected `high` for `mock-reasoning-v1`, then the real API returned the same preference with all five Mock capabilities still `true` and the context window still `32000` |
 | NS-514-A34 | passed | Web/server integration | `apps/web/src/features/workshop/ReferenceWorkshopWorkspace.test.tsx` — `keeps Not now local and reopens the unchanged pending tool request` and `reviews and confirms the exact pending tool request without bypassing server validation`; existing `apps/server/test/workshop-routes.test.ts` exact tool-execution validation cases | Passed: `Not now` closes and reopens the unchanged durable request without an API mutation; Confirm and run remains the only execution path, requires the exact server-owned payload, preserves atomic Codex validation, and holds the session activity boundary through Agent continuation |
 | NS-514-A35 | passed | contract/storage | ADR-0017 Model Profile, Model Call Log, Workshop Message, Workshop Agent Run, Workshop Context Basket, and Context Bundle version 1 compatibility; version 2 write; hierarchy-preserving projection; exact rollback backup; damaged input; and changed-target refusal cases named in the active task | Passed: version 1 reads do not invent reasoning or cancellation history; version 2 writes persist normalized parameters, output kind, cancelled state, public hierarchy kinds, and internal `book` evidence; exact rollback artifacts restore version 1 bytes; damaged sources and changed targets are rejected without partial rewrites |
 
@@ -151,6 +151,57 @@ git diff --check
 | Browser acceptance | After implementation is committed, the explicitly requested `qa` skill runs the affected Workshop paths in a clean QA worktree; its report is diagnostic evidence and does not pass A16 |
 | Visual result | A16 remains an explicit author gate; skill/browser evidence cannot pass it |
 
+## Workshop Clean-Worktree Browser Quality Assurance
+
+- The requested `qa` skill was used first. Its bundled browser daemon failed on
+  Windows in three distinct startup attempts because its executable could not
+  resolve the server script and its temporary package lacked required runtime
+  modules. Following that skill's documented fallback, the Playwright skill ran
+  the same real-browser acceptance scope. No project dependency was added.
+- The browser used the isolated worktree
+  `D:\tmp\novel-studio-ns514-qa-41d43fb` and isolated library
+  `D:\tmp\novel-studio-ns514-qa-library`. At the end of implementation
+  verification, clean-worktree commit `5184272` and branch commit `02abdde`
+  had the identical tree `e129f8bdbd117a32424eb44df3dfe1368ca29b8f`;
+  the isolated worktree had no tracked or untracked status output.
+- Browser inspection is diagnostic evidence only. It does not pass the explicit
+  author visual-acceptance gate `NS-514-A16`.
+
+### Confirmed Browser Defects And Repairs
+
+| Confirmed defect | Repair commit | Regression and browser result |
+| --- | --- | --- |
+| A Series with zero Workshop sessions hid the sidebar before the author could create the first conversation | `41d43fb` | The sidebar and enabled `New conversation` control remain present; the real API creates the first General Chat session |
+| The `New conversation` menu was mounted but hidden because the binding visibility class was absent | `3ad5d85` | The menu carries `is-open`; General Chat and Agent choices are visible and create real sessions |
+| Context selection, model selection, and model options dialogs were mounted but hidden by the same missing visibility class | `1bec4ff` | All three dialogs carry `is-open`; browser snapshots expose their real controls and the focused Web suite protects the state class |
+| The first message's bottom-right action menu opened upward behind the conversation header, which intercepted `Edit and resend` | `505d8e4` | Placement now switches below when there is insufficient space above; a normal, non-forced browser click enters the edit state |
+| At 375 pixels, the session sidebar disappeared without a replacement entry point, the opened drawer hid session titles and filters, and an implicit grid column widened the conversation to 672 pixels | `afa206a`, `ca5f95a`, `28e41c2` | `Open conversations` exposes New, Search, All, Chat, Agent, Archived, title, kind, and time; choosing a session closes the drawer; measured document and conversation widths are exactly 375 pixels and the composer is 347 pixels with no horizontal overflow |
+| Saving only a reasoning preference silently replaced the Model Profile capabilities with `false` defaults and changed its context window from 32000 to 8192 | `02abdde` | Update contracts no longer materialize omitted defaults; route and contract regressions prove untouched fields remain unchanged; the browser/API recheck preserved all five Mock capabilities and 32000 tokens while persisting `high` |
+
+### Browser Paths Verified
+
+| Area | Real-browser result |
+| --- | --- |
+| Session creation and filtering | Created General Chat and Agent sessions through `New conversation`; All, Chat, Agent, and Archived showed the correct real session kinds without fake counts |
+| Session lifecycle | Right-click exposed the approved menu; double-click did not Rename; Rename, Archive, read-only Archived state, Restore, Delete confirmation cancellation, and confirmed permanent Delete all reached real APIs |
+| General Chat session controls | Saved and reopened the per-conversation system prompt; opened Export with separate reasoning and prompt-audit choices |
+| Provider navigation | `Provider settings` opened Settings at `Model connections`; `Return to Workshop` returned to the exact originating session |
+| Context and attachments | Added Full Outline to the real context basket and observed the count change from zero to one; uploaded `PROJECT.md` to the isolated library and observed `Ready` before sending |
+| Model and reasoning | The model picker displayed the model name without the Provider-profile title; model options displayed Stream responses plus the exact model's disabled, low, medium, and high choices; `high` persisted without changing other Model Profile fields |
+| Sending and response | A real local Mock stream produced the observed control sequence `Sending` to `Stop` to `Send`; reasoning appeared immediately above the public answer and remained expanded |
+| Message actions and history | The icon-only bottom-right menu exposed Edit and resend, Resend, Branch, and Delete turn; Edit and resend was clickable after the placement repair; Branch created a real child conversation |
+| Responsive behavior | At 375 by 812 pixels the mobile conversation drawer remained usable, long prose wrapped, the input toolbar stayed inside the viewport, and no horizontal overflow remained |
+| Runtime diagnostics | Browser console errors: zero; all observed Workshop, Model Profile, context, attachment, stream, lifecycle, and delete requests returned successful status codes |
+
+### Confirmed Adjacent Finding Outside The Workshop Slice
+
+- The shared reference application shell's `New Series` dialog currently shows
+  a local `Created` result without calling the Series creation API. This is a
+  confirmed fixture-only shell behavior, not a Workshop implementation defect.
+  It was not changed without an approved shared-shell integration disposition;
+  it remains open under the broader in-progress `NS-514-A13` production-data
+  gate.
+
 ## Run Ledger
 
 | Date | Commit/worktree | Command or manual procedure | Result |
@@ -235,6 +286,12 @@ git diff --check
 | 2026-07-17 | `8fe2d44`, Workshop P6 worktree | `npm.cmd run build` | Passed complete Contracts, artificial-intelligence Provider layer, Storage, Server, and Web production build; Vite built 194 modules and emitted only the existing chunk-size advisory |
 | 2026-07-17 | `8fe2d44`, Workshop P6 worktree | `npm.cmd run docs:check`; `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs` | Documentation passed for 112 Markdown files; all 11 governance, reference-contract, and audit tests passed |
 | 2026-07-17 | `8fe2d44`, Workshop P6 Provider review | Manual comparison against every official Provider source listed in ADR-0017 | Confirmed the implemented exact-model controls and request fields for OpenAI, Anthropic, Gemini, OpenRouter, DeepSeek, and Ollama; models without exact declared metadata remain unsupported instead of inheriting a family guess |
+| 2026-07-17 | `ee1a4f3` through `02abdde`, branch implementation worktree | Skill-directed clean-worktree browser acceptance against the production build and isolated real authority | Confirmed the browser paths listed above, found six defect groups, repaired each in place, and re-ran the failing path after every repair; no author visual acceptance is claimed |
+| 2026-07-17 | `02abdde`, branch implementation worktree | `npm.cmd run test` | Passed all suites: Server 102/102, Web 160/160, artificial-intelligence Provider layer 39/39, Contracts 43/43, and Storage 121/121 |
+| 2026-07-17 | `02abdde`, branch implementation worktree | `npm.cmd run typecheck --workspaces --if-present` | Passed Server, Web, artificial-intelligence Provider layer, Contracts, and Storage typechecks |
+| 2026-07-17 | `02abdde`, branch implementation worktree | `npm.cmd run build` | Passed the complete Contracts, artificial-intelligence Provider layer, Storage, Server, and Web production build; Vite built 194 modules and emitted only the existing chunk-size advisory |
+| 2026-07-17 | branch `02abdde`, clean worktree `5184272` | `git rev-parse "HEAD^{tree}"`; `git status --short` in both worktrees | Both worktrees reported tree `e129f8bdbd117a32424eb44df3dfe1368ca29b8f`; the clean quality-assurance worktree reported no dirty paths, while the branch worktree retained only the previously inventoried unrelated paths |
+| 2026-07-17 | `02abdde`, branch documentation worktree | `npm.cmd run docs:check`; `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs`; `git diff --check -- STATUS.md CHANGELOG.md docs/testing/NS-514_ACCEPTANCE.md` | Passed for 112 Markdown files and all 11 documentation/reference-audit tests; diff check reported only the existing line-ending conversion warnings |
 
 ## P0 Recovery Evidence
 
@@ -259,11 +316,11 @@ git diff --check
 - Write implementation baseline: `e62315a NS-514 feat(ui): rebuild reference shell and connect Write`.
 - Codex implementation commit: `c4dd028 NS-514 feat(codex): connect approved reference workspace`.
 - Codex evidence commit: `8fe2d44 NS-514 docs(codex): record integration evidence`.
-- The Workshop P6 source, tests, product records, ADR-0017, status, changelog,
-  and automated A29-A35 evidence are reviewed and awaiting the required
-  task-only implementation commit. NS-514 remains in progress because Settings,
-  clean-worktree browser quality assurance, and the explicit A16 author visual
-  gate remain open.
+- Workshop P6 implementation begins at `ee1a4f3`; browser-discovered repair
+  commits end at `02abdde`. Automated A29-A35 evidence and clean-worktree
+  browser quality assurance are complete. NS-514 remains in progress because
+  Settings P6, the broader production-data gate A13, the broader safety gate
+  A14, P7, and the explicit A16 author visual gate remain open.
 - Unrelated preserved files: existing `HANDOFF.md` and
   `docs/testing/NS-507_ACCEPTANCE.md` edits; existing
   `docs/design/ui-redesign/` deletions and `README.md` edit; untracked
