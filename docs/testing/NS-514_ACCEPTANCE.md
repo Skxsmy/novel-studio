@@ -358,6 +358,7 @@ git diff --check
 | 2026-07-18 | A39 Overview worktree | focused Overview, shell, and replica tests; `npm.cmd run typecheck -w @novel-studio/web`; `npm.cmd run test -w @novel-studio/web`; `npm.cmd run build -w @novel-studio/web` | Focused files passed 17/17 tests, including cross-Series Proposal-count isolation; Web typecheck passed; all 18 Web files and 168 tests passed; the production Web build transformed 197 modules and emitted only the existing chunk-size advisory |
 | 2026-07-18 | A39 isolated browser library and production build | `npm.cmd run test:e2e:quick -- tests/e2e/ns-514-overview.spec.ts tests/e2e/ns-514-reference-structure.spec.ts --project=chrome --workers=1` | Both real-Chrome tests passed 2/2. The first proved initial Overview, real Series/Volume/Scene identity, no visible Overview or project-switch fixture claim, disabled continuity analysis, and both selected-Scene navigation paths with zero browser errors. The second preserved desktop, compact, and narrow reference geometry for the connected Overview structure. Diagnostic screenshots were visually inspected and do not claim author acceptance |
 | 2026-07-18 | A39 Overview evidence worktree | `npm.cmd run docs:check`; `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs`; scoped `git diff --check` | Documentation passed for 118 Markdown files; all 11 governance, reference-contract, and reference-audit tests passed; scoped diff check passed with only existing line-ending conversion warnings |
+| 2026-07-18 | branch `codex/ns-410-json-authority` | explicit task-only staging review; `git commit -m "NS-514 feat(overview): connect reference workspace"`; post-commit repository inspection | Created implementation commit `64b7ef0` with exactly 15 A39 implementation, test, product, task, status, changelog, and acceptance files and no deletion. Existing `HANDOFF.md`, NS-507 acceptance, design-directory deletions and README edit, `.hermes/plans/`, and `.playwright-cli/` remain outside the commit |
 
 ## P0 Recovery Evidence
 
@@ -382,6 +383,7 @@ git diff --check
 - Write implementation baseline: `e62315a NS-514 feat(ui): rebuild reference shell and connect Write`.
 - Codex implementation commit: `c4dd028 NS-514 feat(codex): connect approved reference workspace`.
 - Codex evidence commit: `8fe2d44 NS-514 docs(codex): record integration evidence`.
+- Overview implementation commit: `64b7ef0 NS-514 feat(overview): connect reference workspace`.
 - Workshop P6 implementation begins at `ee1a4f3`; browser-discovered repair
   commits end at `02abdde`. Settings recovery commit `d532e79` and Workshop
   recovery commit `1f01082` close A33, A36, and A37 with real Settings and

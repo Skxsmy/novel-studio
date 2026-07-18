@@ -29,7 +29,7 @@ Authority: current operational state only
 - Rewritten pre-GOV-001 mainline tip: `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`.
 - Numbering-repair verification tip before closure: `578a74a GOV-001 docs(governance): separate support work from product mainline`.
 - Local recovery ref: `backup/gov-001-before-numbering-rewrite-20260710` preserves the original pre-rewrite history; the rewritten and backup tips have identical tree `deae3c9fae1f797239b975c464106126df530765`.
-- NS-514 repair commits: `d532e79 NS-514 fix(settings): restore real model connections`, `1f01082 NS-514 fix(workshop): restore zero-model chat flow`, and `ae7452b NS-514 fix(workshop): isolate session message validation`.
+- NS-514 repair and integration commits: `d532e79 NS-514 fix(settings): restore real model connections`, `1f01082 NS-514 fix(workshop): restore zero-model chat flow`, `ae7452b NS-514 fix(workshop): isolate session message validation`, and `64b7ef0 NS-514 feat(overview): connect reference workspace`.
 - Unrelated worktree items preserved outside NS-514: existing `HANDOFF.md` and `docs/testing/NS-507_ACCEPTANCE.md` edits, `docs/design/ui-redesign/` deletions and README edit, and untracked `.hermes/plans/` and `.playwright-cli/`. The explicitly named `docs/design/ui-redesign/novel-studio-full-ui-redesign-reference.html` remains tracked and unchanged by this repair.
 - The unpublished range contains 29 rewritten commits including the first GOV-001 commit; no remote history was rewritten.
 
