@@ -18,6 +18,7 @@ This changelog records user-visible product changes. Task status, command logs, 
 
 ### Changed
 
+- Workshop now loads each conversation independently: a routeable legacy or schema-invalid message owned by another conversation no longer disables Context, model selection, attachments, or message editing in the current conversation. The damaged conversation still reports its own validation error, and no authority file is silently rewritten.
 - Settings now exposes the real library-global Model connections editor and credential lifecycle in the reference interface, including safe credential status, save or replacement, deletion, model discovery, connection testing, and confirmed archive without echoing stored secrets.
 - Workshop remains usable before a model is configured: authors can manage sessions, draft multiline messages, attach files, and select context, while only model-dependent send and resend actions are disabled with a direct route to Model connections.
 - Codex Relation creation no longer exposes or writes a `type`; permanent Relation deletion is blocked by live Progression, Character Knowledge, and Proposal references.

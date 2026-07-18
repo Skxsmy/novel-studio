@@ -1,4 +1,7 @@
 import { expect, test } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 interface CreatedSeries {
   manifest: { id: string; title: string };
@@ -6,6 +9,10 @@ interface CreatedSeries {
 
 interface WorkshopSession {
   id: string;
+}
+
+interface HealthResponse {
+  libraryRoot: string;
 }
 
 interface WorkshopSessionDetail {
@@ -33,11 +40,42 @@ test("selects context in Workshop and proves the sent Context Bundle contains it
   expect(seriesResponse.ok()).toBe(true);
   const series = await seriesResponse.json() as CreatedSeries;
 
+  const legacySessionResponse = await request.post(`/api/v1/series/${series.manifest.id}/workshop/sessions`, {
+    data: { title: "Legacy Codex creation conversation" },
+  });
+  expect(legacySessionResponse.ok()).toBe(true);
+  const legacySession = await legacySessionResponse.json() as WorkshopSession;
+
   const sessionResponse = await request.post(`/api/v1/series/${series.manifest.id}/workshop/sessions`, {
     data: { title: "Context chain conversation" },
   });
   expect(sessionResponse.ok()).toBe(true);
   const session = await sessionResponse.json() as WorkshopSession;
+
+  const healthResponse = await request.get("/api/v1/health");
+  expect(healthResponse.ok()).toBe(true);
+  const health = await healthResponse.json() as HealthResponse;
+  const seriesDirectory = (await readdir(health.libraryRoot, { withFileTypes: true }))
+    .find((entry) => entry.isDirectory() && entry.name.endsWith(`-${series.manifest.id.slice(0, 8)}`));
+  expect(seriesDirectory, "created Series authority directory").toBeTruthy();
+  const messageDirectory = path.join(
+    health.libraryRoot,
+    seriesDirectory!.name,
+    "workshop",
+    "messages",
+  );
+  await mkdir(messageDirectory, { recursive: true });
+  const legacyMessageId = randomUUID();
+  await writeFile(path.join(messageDirectory, `${legacyMessageId}.json`), `${JSON.stringify({
+    schemaVersion: 1,
+    id: legacyMessageId,
+    seriesId: series.manifest.id,
+    sessionId: legacySession.id,
+    role: "assistant",
+    mode: "codex-creation",
+    content: "Legacy message with a removed mode.",
+    createdAt: "2026-07-18T00:00:00.000Z",
+  }, null, 2)}\n`, "utf8");
 
   const browserErrors: string[] = [];
   page.on("console", (message) => {
@@ -50,8 +88,14 @@ test("selects context in Workshop and proves the sent Context Bundle contains it
   await expect(page.getByRole("heading", { name: "Context chain conversation" })).toBeVisible();
   const composer = page.getByLabel("Workshop message");
   await expect(composer).toBeEnabled();
+  await composer.click();
+  await expect(composer).toBeFocused();
   await expect(page.getByRole("button", { name: /Context\s+0/u })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Attach file" })).toBeEnabled();
+  const attachFile = page.getByRole("button", { name: "Attach file" });
+  await expect(attachFile).toBeEnabled();
+  const fileChooserPromise = page.waitForEvent("filechooser");
+  await attachFile.click();
+  await fileChooserPromise;
   await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Model options" })).toBeDisabled();
 

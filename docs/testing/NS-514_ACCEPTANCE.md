@@ -53,6 +53,7 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-514-A35 | passed | contract/storage | ADR-0017 Model Profile, Model Call Log, Workshop Message, Workshop Agent Run, Workshop Context Basket, and Context Bundle version 1 compatibility; version 2 write; hierarchy-preserving projection; exact rollback backup; damaged input; and changed-target refusal cases named in the active task | Passed: version 1 reads do not invent reasoning or cancellation history; version 2 writes persist normalized parameters, output kind, cancelled state, public hierarchy kinds, and internal `book` evidence; exact rollback artifacts restore version 1 bytes; damaged sources and changed targets are rejected without partial rewrites |
 | NS-514-A36 | passed | Web/browser integration | `apps/web/src/features/settings/ReferenceSettingsWorkspace.regression-1.test.tsx` — `uses real model profiles and credential controls without fixture connection data`; `apps/web/src/app/ReferenceReplica.test.tsx` — `omits fixture Settings behavior when real model connections own the page` and `keeps real Model connections visible and provides a return to the exact Workshop session`; browser Settings recovery path inside `tests/e2e/ns-514-workshop-context-regression.spec.ts` | Passed: the connected Settings page loads and mutates real model profiles, reads only credential existence, saves or replaces and deletes credentials through the credential API, discovers models, tests connections, confirms archive, omits fixture handlers, and returns to the exact originating Workshop session |
 | NS-514-A37 | passed | Web/server/browser integration | `apps/web/src/features/workshop/ReferenceWorkshopWorkspace.regression-1.test.tsx` — `keeps non-model Workshop controls usable without a configured model` and `preserves Shift Enter newlines and sends with Enter after model selection`; `tests/e2e/ns-514-workshop-context-regression.spec.ts` — `selects context in Workshop and proves the sent Context Bundle contains it` | Passed: Web regressions keep session, draft, multiline, attachment, and context controls usable with no model while disabling only model calls; real Chrome selected `Full Outline`, sent through Mock, then proved the persisted assistant-call Context Bundle contains the manually selected `full-outline` item for the same Series and that the prompt-audit export contains it |
+| NS-514-A38 | passed | storage/browser integration | `packages/storage/test/workshop.test.ts` — `isolates a routeable schema-invalid Workshop message to its owning session`; `tests/e2e/ns-514-workshop-context-regression.spec.ts` mixed-session legacy case; normal-library real-Chrome coordinate clicks | Passed: the reader validates a message's Series and session routing identity before filtering, then fully validates only messages owned by the requested session. The isolated real-Chrome test includes a separate `codex-creation` message and still clicks the composer controls through the full context chain. Against the normal library, `New chat` loaded with Context, model selection, attachment, and message editor all enabled; coordinate clicks opened both popovers and focused the editor with no Workshop 4xx response. The owning damaged session still returns `INVALID_DATA`, and the regression proves the file is not rewritten. |
 
 Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 `blocked`, `not_applicable`.
@@ -67,7 +68,7 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 | P3 isolated workspaces | passed | A07-A08 passed |
 | P4 assembled replica | passed | A09 automated evidence and explicit author gate A10 passed |
 | P5 control/capability audit | passed | A11-A12 passed; all 469 decision rows remain `pending_author` |
-| P6 approved integration | in_progress | A14 and A17-A37 pass. A13 remains open only because the shared `New Series` dialog still uses a local fixture result; final author visual review is tracked separately by A16 |
+| P6 approved integration | in_progress | A14 and A17-A38 pass. A13 remains open because the shared `New Series` dialog still uses a local fixture result; final author visual review is tracked separately by A16 |
 | P7 final verification | planned | A15 plus explicit user gate A16 |
 
 ## Required Commands
@@ -114,6 +115,7 @@ git diff --check
 | Stop races with the first stream event or a successful terminal result | The cancel command arrives before context, before the first event, or after the request settles | The operation converges to one authoritative cancelled or successful terminal result without duplicate messages, a false error, retry, or tool side effect | A31 passed |
 | Exact-model metadata or preference saves arrive late | The author changes model, Series, session, or reasoning choice while requests are pending | Stale metadata and stale session/Series responses are ignored; Send waits for the current exact-model preference write and uses its returned normalized value | A29/A33 passed |
 | Version 1 authority is damaged or its target changes before migration/rollback | One source fails validation or a post-migration file no longer matches the recorded target | Migration or rollback refuses the operation and leaves every unaffected authority file unchanged | A35 passed |
+| A legacy message in one session disables every session in the same Series | One session contains a routeable version 1 message with removed mode `codex-creation`, while a separate version 2 session is empty and valid | Listing the valid session filters by the routing identity before full message validation and remains interactive; listing the legacy message's owning session still returns the validation failure; neither file is rewritten | A38 passed |
 
 ## Write P6 Acceptance Mapping
 
@@ -227,6 +229,18 @@ git diff --check
   project JSON and are never returned to the Settings page; the Settings
   regression verifies credential existence and lifecycle API calls without
   displaying secret material.
+- The author's subsequent normal-library test invalidated the broader claim
+  that Workshop interaction was restored for existing project data. A direct
+  real-Chrome reproduction selected the version 2 `New chat` session and found
+  the Context control, model selector, attachment control, and message editor
+  disabled. The session detail request returned 422 even though that session
+  had no messages. Metadata-only inspection located the failure in twenty
+  routeable version 1 `codex-creation` messages owned by the separate
+  `Scene continuity pass` session. A37 remains evidence for the isolated
+  context-to-Context-Bundle chain; A38 now owns mixed-session compatibility and
+  normal-library interactivity. A38 passed after the reader was corrected and
+  both the isolated mixed-session regression and the normal-library coordinate
+  clicks succeeded without rewriting project authority.
 
 | Recovery path | Actual result |
 | --- | --- |
@@ -235,6 +249,8 @@ git diff --check
 | Return path | `Return to Workshop` restores the exact originating session |
 | Context selection | The visible context count changes from zero to one after the successful real context-basket `PUT` |
 | Sent context proof | The persisted assistant-call Context Bundle contains `kind: full-outline`, `manuallySelected: true`, and the exact Series source selected through the interface; the prompt-audit export contains the same item |
+| Mixed-session compatibility | A separate routeable version 1 `codex-creation` message no longer blocks the valid session. The damaged message's owning session still returns `INVALID_DATA`, and its exact source bytes remain unchanged |
+| Normal-library interaction | In `New chat`, Context, model selection, attachment, and the message editor all reported `disabled: false`; coordinate clicks opened the Context and model popovers and focused the editor; no Workshop request returned 4xx |
 | Browser diagnostics | Real Chrome completed with no captured console errors or page errors |
 
 ## Run Ledger
@@ -333,6 +349,11 @@ git diff --check
 | 2026-07-18 | `1f01082`, Workshop recovery worktree | `npm.cmd run test -w @novel-studio/web`; `npm.cmd run test` | Passed all 18 Web files and 164 tests; repository suites passed Server 102/102, Web 164/164, artificial-intelligence Provider layer 39/39, Contracts 43/43, and Storage 121/121 |
 | 2026-07-18 | `1f01082`, Workshop recovery worktree | `npm.cmd run typecheck --workspaces --if-present`; `npm.cmd run build` | All five workspace typechecks passed; the complete Contracts, artificial-intelligence Provider layer, Storage, Server, and Web production build passed with 196 Web modules and only the existing chunk-size advisory |
 | 2026-07-18 | `1f01082`, repair evidence worktree | `npm.cmd run docs:check`; `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs`; `git diff --check -- STATUS.md CHANGELOG.md docs/testing/NS-514_ACCEPTANCE.md`; branch, commit, and dirty-file inspection | Documentation passed for 118 Markdown files; all 11 governance, reference-contract, and audit tests passed; scoped diff check passed with line-ending warnings only; branch is `codex/ns-410-json-authority`; implementation tip is `1f01082`; only `STATUS.md`, `CHANGELOG.md`, and this acceptance record are task-related dirty files awaiting the evidence commit, while all inventoried unrelated changes remain unstaged |
+| 2026-07-18 | `49e28a8` plus A38 worktree | focused storage regression before the fix | Failed exactly as required: listing the valid session rejected at `listWorkshopMessageFiles` because the unrelated `codex-creation` message was fully validated before filtering |
+| 2026-07-18 | A38 implementation worktree | `npm.cmd run test -w @novel-studio/storage -- --run test/workshop.test.ts`; Contracts and Storage typechecks | Passed all 28 Workshop storage tests; both typechecks passed. The new test proves valid-session isolation, owning-session failure, and exact preservation of the damaged source bytes |
+| 2026-07-18 | A38 implementation worktree | `npm.cmd run build`; `npm.cmd run test:e2e:quick -- tests/e2e/ns-514-workshop-context-regression.spec.ts --project=chrome` | Complete production build passed with 196 Web modules and only the existing chunk-size advisory; the mixed-session real-Chrome context-to-Context-Bundle regression passed 1/1 |
+| 2026-07-18 | A38 implementation worktree, normal `data/library` | fresh real Chrome at `http://127.0.0.1:4317`; coordinate clicks on the `New chat` Context control, model selector, and message editor | Context, model selection, attachment, and editor reported `disabled: false`; the Context and model popovers opened; the editor received focus; no Workshop request returned 4xx. The first attempt was excluded because the detached service had exited before Chrome connected; the successful check used an attached healthy service |
+| 2026-07-18 | A38 implementation worktree | `npm.cmd run test`; `npm.cmd run typecheck --workspaces --if-present`; documentation checks; scoped `git diff --check` | Passed Server 102/102, Web 164/164, artificial-intelligence Provider layer 39/39, Contracts 43/43, and Storage 122/122; all five workspace typechecks passed; documentation passed for 118 Markdown files and all 11 governance/reference tests; diff check reported only existing line-ending warnings |
 
 ## P0 Recovery Evidence
 
@@ -360,9 +381,12 @@ git diff --check
 - Workshop P6 implementation begins at `ee1a4f3`; browser-discovered repair
   commits end at `02abdde`. Settings recovery commit `d532e79` and Workshop
   recovery commit `1f01082` close A33, A36, and A37 with real Settings and
-  interface-to-Context-Bundle browser evidence. NS-514 remains in progress
-  because the shared `New Series` fixture keeps A13 open, P7 remains pending,
-  and the explicit A16 author visual gate remains open.
+  interface-to-Context-Bundle browser evidence. The A38 worktree isolates
+  message validation to the requested session and closes the normal-library
+  interaction failure with storage, mixed-session browser, and coordinate-click
+  evidence. NS-514 remains in progress because the shared `New Series` fixture
+  keeps A13 open, P7 remains pending, and the explicit A16 author visual gate
+  remains open.
 - Unrelated preserved files: existing `HANDOFF.md` and
   `docs/testing/NS-507_ACCEPTANCE.md` edits; existing
   `docs/design/ui-redesign/` deletions and `README.md` edit; untracked

@@ -284,6 +284,12 @@ export const WorkshopBranchSchema = z.object({
 });
 export type WorkshopBranch = z.infer<typeof WorkshopBranchSchema>;
 
+export const WorkshopMessageRoutingEnvelopeSchema = z.object({
+  seriesId: z.string().uuid(),
+  sessionId: z.string().uuid(),
+});
+export type WorkshopMessageRoutingEnvelope = z.infer<typeof WorkshopMessageRoutingEnvelopeSchema>;
+
 const WorkshopMessageBaseShape = {
   id: z.string().uuid(),
   seriesId: z.string().uuid(),

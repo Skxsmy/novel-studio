@@ -11,6 +11,7 @@ import {
   WorkshopContextBasketAuthoritySchema,
   WorkshopMessageAttachmentSchema,
   WorkshopMessageAuthoritySchema,
+  WorkshopMessageRoutingEnvelopeSchema,
   WorkshopMessageSchema,
   RollbackWorkshopAuthorityV2MigrationResultSchema,
   WorkshopSessionSchema,
@@ -148,6 +149,16 @@ async function readMessageFile(filePath: string): Promise<WorkshopMessage> {
     filePath,
     (value) => WorkshopMessageSchema.parse(value),
     "Workshop message file",
+  );
+  return document.data;
+}
+
+async function readMessageRoutingEnvelope(filePath: string) {
+  const document = await readJsonAuthorityFile(
+    path.dirname(filePath),
+    filePath,
+    (value) => WorkshopMessageRoutingEnvelopeSchema.parse(value),
+    "Workshop message routing envelope",
   );
   return document.data;
 }
@@ -537,9 +548,18 @@ export async function listWorkshopMessageFiles(
   seriesRoot: string,
   sessionId: string,
 ): Promise<WorkshopMessage[]> {
-  const messages = await Promise.all((await listJsonFiles(messagesRoot(seriesRoot))).map(readMessageFile));
+  const routedMessageFiles = await Promise.all(
+    (await listJsonFiles(messagesRoot(seriesRoot))).map(async (filePath) => ({
+      filePath,
+      routing: await readMessageRoutingEnvelope(filePath),
+    })),
+  );
+  const messages = await Promise.all(
+    routedMessageFiles
+      .filter(({ routing }) => routing.sessionId === sessionId)
+      .map(({ filePath }) => readMessageFile(filePath)),
+  );
   return messages
-    .filter((message) => message.sessionId === sessionId)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 

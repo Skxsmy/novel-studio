@@ -150,6 +150,46 @@ afterEach(async () => {
 });
 
 describe("M5 Workshop storage", () => {
+  it("isolates a routeable schema-invalid Workshop message to its owning session", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "WorkshopMessageSessionIsolation" });
+    const validSession = await store.createWorkshopSession(series.manifest.id, {
+      title: "Valid session",
+    });
+    const damagedSession = await store.createWorkshopSession(series.manifest.id, {
+      title: "Legacy damaged session",
+    });
+    const validMessage = await store.createWorkshopMessage(
+      series.manifest.id,
+      validSession.id,
+      {
+        role: "author",
+        mode: "general-chat",
+        content: "This session remains readable.",
+      },
+    );
+    const root = seriesRoot(store, "WorkshopMessageSessionIsolation", series.manifest.id);
+    const damagedMessageId = randomUUID();
+    const damagedPath = workshopMessagePath(root, damagedMessageId);
+    const damagedRaw = `${JSON.stringify({
+      schemaVersion: 1,
+      id: damagedMessageId,
+      seriesId: series.manifest.id,
+      sessionId: damagedSession.id,
+      role: "assistant",
+      mode: "codex-creation",
+      content: "Legacy message with a removed mode.",
+      createdAt: "2026-07-18T00:00:00.000Z",
+    }, null, 2)}\n`;
+    await writeFile(damagedPath, damagedRaw, "utf8");
+
+    await expect(store.listWorkshopMessages(series.manifest.id, validSession.id))
+      .resolves.toEqual([expect.objectContaining({ id: validMessage.id })]);
+    await expect(store.listWorkshopMessages(series.manifest.id, damagedSession.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    expect(await readFile(damagedPath, "utf8")).toBe(damagedRaw);
+  });
+
   it("persists isolated General Chat prompts and rejects Agent prompt updates", async () => {
     const store = await repository();
     const series = await store.createSeries({ title: "WorkshopPromptIsolation" });
