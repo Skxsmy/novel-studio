@@ -53,12 +53,25 @@ export function omitSettingsReferenceRuntime(runtime: string) {
   return `${runtime.slice(0, settingsIife)}${runtime.slice(planIife)}`;
 }
 
+export function omitOverviewReferenceRuntime(runtime: string) {
+  const overviewRootToken = 'const root = document.getElementById("overview-workspace");';
+  const settingsRootToken = 'const root = document.getElementById("settings-workspace");';
+  const overviewRoot = runtime.indexOf(overviewRootToken);
+  const settingsRoot = runtime.indexOf(settingsRootToken, overviewRoot + overviewRootToken.length);
+  if (overviewRoot < 0 || settingsRoot < 0) return runtime;
+  const overviewIife = runtime.lastIndexOf("(() => {", overviewRoot);
+  const settingsIife = runtime.lastIndexOf("(() => {", settingsRoot);
+  if (overviewIife < 0 || settingsIife <= overviewIife) return runtime;
+  return `${runtime.slice(0, overviewIife)}${runtime.slice(settingsIife)}`;
+}
+
 export function useReferenceRuntime(
   enabled = true,
   omitWrite = false,
   omitCodex = false,
   omitWorkshop = false,
   omitSettings = false,
+  omitOverview = false,
 ) {
   useEffect(() => {
     if (!enabled) return;
@@ -68,8 +81,12 @@ export function useReferenceRuntime(
     const runtime = getReferenceRuntimeText();
     const withoutCodex = omitCodex ? omitCodexReferenceRuntime(runtime) : runtime;
     const withoutWorkshop = omitWorkshop ? omitWorkshopReferenceRuntime(withoutCodex) : withoutCodex;
-    const withoutSettings = omitSettings ? omitSettingsReferenceRuntime(withoutWorkshop) : withoutWorkshop;
-    script.textContent = `(() => {${omitWrite ? omitWriteReferenceRuntime(withoutSettings) : withoutSettings}\n})();`;
+    const withoutOverview = omitOverview ? omitOverviewReferenceRuntime(withoutWorkshop) : withoutWorkshop;
+    const withoutSettings = omitSettings ? omitSettingsReferenceRuntime(withoutOverview) : withoutOverview;
+    const withInitialWorkspace = omitOverview
+      ? withoutSettings.replace('let lastDesignedWorkspace = "Codex";', 'let lastDesignedWorkspace = "Overview";')
+      : withoutSettings;
+    script.textContent = `(() => {${omitWrite ? omitWriteReferenceRuntime(withInitialWorkspace) : withInitialWorkspace}\n})();`;
     document.body.append(script);
-  }, [enabled, omitCodex, omitSettings, omitWorkshop, omitWrite]);
+  }, [enabled, omitCodex, omitOverview, omitSettings, omitWorkshop, omitWrite]);
 }

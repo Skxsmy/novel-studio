@@ -52,7 +52,7 @@ function WorkspaceIcon({ path }: { path: string }) {
 }
 
 export function ReferenceAppShell({ renderWorkspace }: ReferenceAppShellProps = {}) {
-  const [activeWorkspace, setActiveWorkspace] = useState<ReferenceWorkspace>("Codex");
+  const [activeWorkspace, setActiveWorkspace] = useState<ReferenceWorkspace>("Overview");
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);

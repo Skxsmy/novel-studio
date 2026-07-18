@@ -71,7 +71,7 @@ describe("NS-514 P2 reference shell", () => {
     }
   });
 
-  it("preserves the reference default workspace and disabled navigation", () => {
+  it("uses Overview as the initial workspace and preserves disabled navigation", () => {
     const { container } = render(<ReferenceAppShell />);
     const navigation = within(screen.getByRole("navigation", { name: "Workspaces" }));
     expect(navigation.getAllByRole("button").map((button) => button.getAttribute("data-workspace"))).toEqual([
@@ -83,17 +83,17 @@ describe("NS-514 P2 reference shell", () => {
       "Review",
       "Research",
     ]);
-    expect(navigation.getByRole("button", { name: "Codex" }).getAttribute("aria-current")).toBe("page");
+    expect(navigation.getByRole("button", { name: "Overview" }).getAttribute("aria-current")).toBe("page");
     expect((navigation.getByRole("button", { name: "Review" }) as HTMLButtonElement).disabled).toBe(true);
     expect((navigation.getByRole("button", { name: "Research" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Settings" }) as HTMLButtonElement).disabled).toBe(false);
-    expect(container.querySelector("[data-workspace-view]")?.getAttribute("data-workspace-view")).toBe("Codex");
-    expect(screen.getByText("Story memory").id).toBe("brand-context");
-
-    fireEvent.click(navigation.getByRole("button", { name: "Overview" }));
-    expect(navigation.getByRole("button", { name: "Overview" }).getAttribute("aria-current")).toBe("page");
-    expect(navigation.getByRole("button", { name: "Codex" }).hasAttribute("aria-current")).toBe(false);
+    expect(container.querySelector("[data-workspace-view]")?.getAttribute("data-workspace-view")).toBe("Overview");
     expect(screen.getByText("Project overview").id).toBe("brand-context");
+
+    fireEvent.click(navigation.getByRole("button", { name: "Codex" }));
+    expect(navigation.getByRole("button", { name: "Codex" }).getAttribute("aria-current")).toBe("page");
+    expect(navigation.getByRole("button", { name: "Overview" }).hasAttribute("aria-current")).toBe(false);
+    expect(screen.getByText("Story memory").id).toBe("brand-context");
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("button", { name: "Settings" }).getAttribute("aria-current")).toBe("page");

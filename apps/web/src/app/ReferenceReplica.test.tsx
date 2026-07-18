@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReferenceReplica, WorkshopProviderSettingsBridge } from "./ReferenceReplica";
 import { getReferenceRuntimeText } from "./reference-source";
-import { omitCodexReferenceRuntime, omitSettingsReferenceRuntime, omitWorkshopReferenceRuntime, omitWriteReferenceRuntime } from "./useReferenceRuntime";
+import { omitCodexReferenceRuntime, omitOverviewReferenceRuntime, omitSettingsReferenceRuntime, omitWorkshopReferenceRuntime, omitWriteReferenceRuntime } from "./useReferenceRuntime";
 
 function signature(element: Element) {
   return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${[...element.classList].map((name) => `.${name}`).join("")}${element.hasAttribute("hidden") ? "[hidden]" : ""}`;
@@ -21,6 +21,17 @@ afterEach(() => {
 });
 
 describe("NS-514 P3/P4 reference replica", () => {
+  it("omits fixture Overview behavior when the connected Overview owns its interactions", () => {
+    const runtime = omitOverviewReferenceRuntime(getReferenceRuntimeText());
+    expect(runtime).not.toContain('const root = document.getElementById("overview-workspace");');
+    expect(runtime).not.toContain("function refreshOverview()");
+    expect(runtime).toContain('const root = document.getElementById("settings-workspace");');
+    expect(runtime).toContain('const workspaceButtons = [...document.querySelectorAll(".workspace-button[data-workspace]")];');
+    const composedRuntime = omitSettingsReferenceRuntime(runtime);
+    expect(composedRuntime).not.toContain("function refreshOverview()");
+    expect(composedRuntime).not.toContain('const root = document.getElementById("settings-workspace");');
+  });
+
   it("omits fixture Write behavior when the connected Write workspace owns its interactions", () => {
     const runtime = omitWriteReferenceRuntime(getReferenceRuntimeText());
     expect(runtime).not.toContain('const root = document.getElementById("write-workspace");');
@@ -73,7 +84,7 @@ describe("NS-514 P3/P4 reference replica", () => {
   });
 
   it("assembles every reference surface without non-reference controls", () => {
-    const { container } = render(<ReferenceReplica connectSettings={false} connectWorkshop={false} connectWrite={false} enableRuntime={false} />);
+    const { container } = render(<ReferenceReplica connectOverview={false} connectSettings={false} connectWorkshop={false} connectWrite={false} enableRuntime={false} />);
     const prototype = container.querySelector("main.prototype")!;
     expect([...prototype.children].map(signature)).toEqual([
       "header.appbar",
@@ -105,7 +116,7 @@ describe("NS-514 P3/P4 reference replica", () => {
     vi.useFakeTimers();
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
-    const { container } = render(<ReferenceReplica connectSettings={false} connectWorkshop={false} connectWrite={false} />);
+    const { container } = render(<ReferenceReplica connectOverview={false} connectSettings={false} connectWorkshop={false} connectWrite={false} />);
 
     const view = (name: string) => container.querySelector<HTMLElement>(`[data-workspace-view='${name}']`)!;
     const workspaceButton = (name: string) => container.querySelector<HTMLButtonElement>(`.workspace-button[data-workspace='${name}']`)!;

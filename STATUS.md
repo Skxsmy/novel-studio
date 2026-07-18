@@ -13,7 +13,7 @@ Authority: current operational state only
 - Next mainline task: `NS-514 / M5.8 Reference UI Rebuild`.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; no task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
-- Mainline state: NS-514 follows the existing reference-rebuild plan and remains in progress. P0 through P5, Write A17-A21, Codex A22-A28, and Workshop A29-A35 retain their recorded evidence. Commits `d532e79` and `1f01082` retain their Settings and isolated context-chain evidence. A38 now passes: Workshop first reads each message's Series and session routing identity, then fully validates only messages owned by the requested session. A routeable legacy `codex-creation` message in `Scene continuity pass` no longer disables the separate `New chat`; storage, isolated real-Chrome, and normal-library coordinate-click checks all pass without rewriting authority. A13 remains open because the shared `New Series` dialog still returns fixture-only success; P7 evidence closure and final author visual acceptance remain open.
+- Mainline state: NS-514 follows the existing reference-rebuild plan and remains in progress. P0 through P5, Write A17-A21, Codex A22-A28, Workshop A29-A38, and Overview A39 retain their recorded evidence. Overview now keeps the approved regions while using the current Series, Volume, selected Write Scene, hierarchy, counts, progress, planning divergence, and pending Proposal count; missing targets and continuity analysis remain honest, and Overview is the initial workspace when no valid restored workspace state exists. A13 remains open because the shared `New Series` dialog still returns fixture-only success; P7 evidence closure and final author visual acceptance remain open.
 
 ## Active Support Work
 
@@ -21,7 +21,7 @@ Authority: current operational state only
 - Last completed support task: `GOV-001 Documentation Governance And Delivery Skeleton`.
 - Task record: `docs/tasks/GOV-001.md`.
 - Acceptance record: `docs/testing/GOV-001_ACCEPTANCE.md`.
-- Next action: present the corrected Workshop interaction for author audit while keeping A16 open. Do not change the separate shared `New Series` fixture without an approved disposition.
+- Next action: present the connected Overview for author audit while keeping A16 open. Do not change the separate shared `New Series` fixture without an approved disposition.
 
 ## Repository State
 

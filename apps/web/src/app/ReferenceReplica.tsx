@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ReferenceCodexWorkspace } from "../features/codex/ReferenceCodexWorkspace";
@@ -8,25 +8,52 @@ import { ReferenceSettingsWorkspace } from "../features/settings/ReferenceSettin
 import { ReferenceWorkshopWorkspace } from "../features/workshop/ReferenceWorkshopWorkspace";
 import { ReferenceWriteWorkspace } from "../features/write/ReferenceWriteWorkspace";
 import { ReferenceSurface } from "../ui/ReferenceSurface";
-import { useProjectSession } from "./useProjectSession";
+import { useProjectSession, type ProjectSessionState } from "./useProjectSession";
 import { ReferenceGlobalOverlays, ReferenceInFrameOverlays } from "./ReferenceOverlays";
 import { useReferenceRuntime } from "./useReferenceRuntime";
 import { useReferenceStyleSheet } from "./useReferenceStyleSheet";
 
 export interface ReferenceReplicaProps {
   connectCodex?: boolean;
+  connectOverview?: boolean;
   connectSettings?: boolean;
   connectWorkshop?: boolean;
   connectWrite?: boolean;
   enableRuntime?: boolean;
 }
 
+function ProjectIdentityBridge({ session }: { session: ProjectSessionState }) {
+  const series = session.activeSeries;
+  const volume = series?.books.find((book) => book.id === (session.selectedScene?.metadata.bookId ?? session.selectedVolumeId))
+    ?? series?.books[0]
+    ?? null;
+
+  useLayoutEffect(() => {
+    const seriesTitle = series?.manifest.title ?? "No Series open";
+    const volumeTitle = volume ? `Volume · ${volume.title}` : "Open a Series from the Project Library";
+    for (const id of ["current-series-name", "library-current-series"]) {
+      const target = document.getElementById(id);
+      if (target) target.textContent = seriesTitle;
+    }
+    for (const id of ["current-volume-name", "library-current-volume"]) {
+      const target = document.getElementById(id);
+      if (target) target.textContent = volumeTitle;
+    }
+  }, [series?.manifest.title, volume?.title]);
+
+  return null;
+}
+
 function ConnectedProjectWorkspaces({
   connectCodex,
+  connectOverview,
+  connectSettings,
   connectWorkshop,
   connectWrite,
 }: {
   connectCodex: boolean;
+  connectOverview: boolean;
+  connectSettings: boolean;
   connectWorkshop: boolean;
   connectWrite: boolean;
 }) {
@@ -49,6 +76,10 @@ function ConnectedProjectWorkspaces({
     queueMicrotask(() => document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Write']")?.click());
   }
 
+  function openPlan() {
+    document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Plan']")?.click();
+  }
+
   function openProviderSettings(sessionId: string | null) {
     setProviderReturnSessionId(sessionId);
     document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Settings']")?.click();
@@ -64,6 +95,12 @@ function ConnectedProjectWorkspaces({
 
   return (
     <>
+      <ProjectIdentityBridge session={session} />
+      {connectOverview ? (
+        <ReferenceOverviewWorkspace onOpenPlan={openPlan} onOpenWrite={openWriteTarget} session={session} />
+      ) : <ReferenceOverviewWorkspace />}
+      <ReferenceSettingsWorkspace connected={connectSettings} />
+      <ReferencePlanWorkspace />
       {connectWrite ? <ReferenceWriteWorkspace requestedBlockId={writeTarget?.blockId ?? null} session={session} /> : <ReferenceSurface selector="#write-workspace" />}
       {connectCodex ? <ReferenceCodexWorkspace onOpenWrite={openWriteTarget} session={session} /> : <ReferenceCodexWorkspace />}
       {connectWorkshop ? (
@@ -109,31 +146,53 @@ export function WorkshopProviderSettingsBridge({ onReturn }: { onReturn: () => v
 
 export function ReferenceReplica({
   connectCodex,
+  connectOverview = true,
   connectSettings = true,
   connectWorkshop = true,
   connectWrite = true,
   enableRuntime = true,
 }: ReferenceReplicaProps = {}) {
   const shouldConnectCodex = connectCodex ?? connectWrite;
+  const prototypeRef = useRef<HTMLElement>(null);
   useReferenceStyleSheet();
-  useReferenceRuntime(enableRuntime, connectWrite, shouldConnectCodex, connectWorkshop, connectSettings);
+  useReferenceRuntime(enableRuntime, connectWrite, shouldConnectCodex, connectWorkshop, connectSettings, connectOverview);
+
+  useLayoutEffect(() => {
+    if (!connectOverview || !prototypeRef.current) return;
+    const root = prototypeRef.current;
+    root.querySelectorAll<HTMLButtonElement>(".workspace-button[data-workspace]").forEach((button) => {
+      const active = button.dataset.workspace === "Overview";
+      button.classList.toggle("is-active", active);
+      if (active) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
+    root.querySelectorAll<HTMLElement>("[data-workspace-view]").forEach((view) => {
+      view.hidden = view.dataset.workspaceView !== "Overview";
+    });
+    const context = root.querySelector<HTMLElement>("#brand-context");
+    if (context) context.textContent = "Project overview";
+  }, [connectOverview]);
+
+  const hasConnectedProjectWorkspace = connectOverview || connectWrite || shouldConnectCodex || connectWorkshop;
 
   return (
     <>
-      <main className="prototype">
+      <main className="prototype" ref={prototypeRef}>
         <ReferenceSurface selector=".appbar" />
         <ReferenceSurface selector="#new-series-dialog" />
-        <ReferenceOverviewWorkspace />
-        <ReferenceSettingsWorkspace connected={connectSettings} />
-        <ReferencePlanWorkspace />
-        {connectWrite || shouldConnectCodex || connectWorkshop ? (
+        {hasConnectedProjectWorkspace ? (
           <ConnectedProjectWorkspaces
             connectCodex={shouldConnectCodex}
+            connectOverview={connectOverview}
+            connectSettings={connectSettings}
             connectWorkshop={connectWorkshop}
             connectWrite={connectWrite}
           />
         ) : (
           <>
+            <ReferenceOverviewWorkspace />
+            <ReferenceSettingsWorkspace connected={connectSettings} />
+            <ReferencePlanWorkspace />
             <ReferenceSurface selector="#write-workspace" />
             <ReferenceCodexWorkspace />
             <ReferenceWorkshopWorkspace />
