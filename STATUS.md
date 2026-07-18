@@ -13,7 +13,7 @@ Authority: current operational state only
 - Next mainline task: `NS-514 / M5.8 Reference UI Rebuild`.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; no task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
-- Mainline state: NS-514 follows the existing reference-rebuild plan and remains in progress. P0 through P5, Write A17-A21, Codex A22-A28, and the server/storage portions of Workshop A29-A35 retain their recorded evidence. On 2026-07-18 the author reopened the Workshop browser result after two confirmed gaps: the production Settings route had replaced the real model-connection editor with static reference data, and no test proved that a context selected in the Workshop interface reached the sent server Context Bundle. A33 is therefore reopened, and A36-A37 now govern the explicitly authorized Settings recovery, zero-model Workshop behavior, multiline composer behavior, and complete context-selection chain. P7 and final author visual acceptance remain open.
+- Mainline state: NS-514 follows the existing reference-rebuild plan and remains in progress. P0 through P5, Write A17-A21, Codex A22-A28, and Workshop A29-A35 retain their recorded evidence. The 2026-07-18 repair is implemented and retested: commit `d532e79` restores the real Settings Model connections and credential lifecycle, while commit `1f01082` restores zero-model Workshop usability and proves the visible context-selection-to-persisted-Context-Bundle chain in real Chrome. A33, A36, and A37 now pass. A13 remains open because the shared `New Series` dialog still returns fixture-only success; P7 evidence closure and final author visual acceptance remain open.
 
 ## Active Support Work
 
@@ -21,7 +21,7 @@ Authority: current operational state only
 - Last completed support task: `GOV-001 Documentation Governance And Delivery Skeleton`.
 - Task record: `docs/tasks/GOV-001.md`.
 - Acceptance record: `docs/testing/GOV-001_ACCEPTANCE.md`.
-- Next action: restore the real `Settings -> Model connections` lifecycle in the accepted reference structure, repair Workshop behavior when no model exists, add the UI-selection-to-Context-Bundle integration proof, then repeat focused, full, and clean-worktree browser checks. Keep A16 open.
+- Next action: present the completed Settings and Workshop repair for author audit and visual review while keeping A16 open. Do not change the separate shared `New Series` fixture without an approved disposition.
 
 ## Repository State
 
@@ -29,7 +29,8 @@ Authority: current operational state only
 - Rewritten pre-GOV-001 mainline tip: `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`.
 - Numbering-repair verification tip before closure: `578a74a GOV-001 docs(governance): separate support work from product mainline`.
 - Local recovery ref: `backup/gov-001-before-numbering-rewrite-20260710` preserves the original pre-rewrite history; the rewritten and backup tips have identical tree `deae3c9fae1f797239b975c464106126df530765`.
-- Unrelated worktree items preserved outside NS-510: existing `HANDOFF.md` and `docs/testing/NS-507_ACCEPTANCE.md` edits, `docs/design/ui-redesign/` deletions and README edit, and untracked `.hermes/plans/`. The explicitly named `docs/design/ui-redesign/novel-studio-full-ui-redesign-reference.html` is included in the final NS-510 task commit.
+- NS-514 repair commits: `d532e79 NS-514 fix(settings): restore real model connections` and `1f01082 NS-514 fix(workshop): restore zero-model chat flow`.
+- Unrelated worktree items preserved outside NS-514: existing `HANDOFF.md` and `docs/testing/NS-507_ACCEPTANCE.md` edits, `docs/design/ui-redesign/` deletions and README edit, and untracked `.hermes/plans/` and `.playwright-cli/`. The explicitly named `docs/design/ui-redesign/novel-studio-full-ui-redesign-reference.html` remains tracked and unchanged by this repair.
 - The unpublished range contains 29 rewritten commits including the first GOV-001 commit; no remote history was rewritten.
 
 ## Current Product And Implementation Boundary

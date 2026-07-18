@@ -18,6 +18,8 @@ This changelog records user-visible product changes. Task status, command logs, 
 
 ### Changed
 
+- Settings now exposes the real library-global Model connections editor and credential lifecycle in the reference interface, including safe credential status, save or replacement, deletion, model discovery, connection testing, and confirmed archive without echoing stored secrets.
+- Workshop remains usable before a model is configured: authors can manage sessions, draft multiline messages, attach files, and select context, while only model-dependent send and resend actions are disabled with a direct route to Model connections.
 - Codex Relation creation no longer exposes or writes a `type`; permanent Relation deletion is blocked by live Progression, Character Knowledge, and Proposal references.
 - Detail Type Rename preserves the stable identifier and atomically converts legacy name-keyed Entry Detail data; conflicting legacy and stable values reject the rename without partial writes.
 - Workshop Codex detail drafts now rank reusable same-category detail types, let authors map each unmatched label, and require an explicit final name and NSFW choice before creating a new reusable type.
