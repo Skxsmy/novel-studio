@@ -1,0 +1,33 @@
+.st7-page.is-connected {
+  display: flex;
+  flex-direction: column;
+}
+
+.st7-page.is-connected > :not(.st7-connected-settings):not(.workshop-provider-settings-bridge) {
+  display: none !important;
+}
+
+.st7-connected-settings {
+  min-width: 0;
+  order: 0;
+}
+
+.st7-connection-empty,
+.st7-model-empty {
+  display: block;
+  padding: 14px 12px;
+  color: #66736c;
+  font-size: 13px;
+}
+
+.st7-real-status {
+  margin-top: 16px;
+}
+
+.st7-confirm-actions {
+  margin: 0;
+}
+
+.workshop-provider-settings-bridge {
+  order: -1;
+}

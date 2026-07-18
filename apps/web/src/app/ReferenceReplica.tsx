@@ -15,6 +15,7 @@ import { useReferenceStyleSheet } from "./useReferenceStyleSheet";
 
 export interface ReferenceReplicaProps {
   connectCodex?: boolean;
+  connectSettings?: boolean;
   connectWorkshop?: boolean;
   connectWrite?: boolean;
   enableRuntime?: boolean;
@@ -100,8 +101,7 @@ export function WorkshopProviderSettingsBridge({ onReturn }: { onReturn: () => v
   if (!target) return null;
   return createPortal(
     <section className="workshop-provider-settings-bridge">
-      <header><div><h2>Model connections</h2><p>This phase connects Workshop navigation to this Settings location and returns to the exact Workshop conversation. Editing model-provider credentials and connection settings is not available yet.</p></div><button className="st7-button" onClick={onReturn} type="button">Return to Workshop</button></header>
-      <div className="workshop-provider-settings-disabled" role="status">Model connection controls are unavailable in this phase.</div>
+      <header><div><strong>Opened from Workshop</strong><p>Changes apply to the library-wide model connections. Return to the same conversation when you are finished.</p></div><button className="st7-button" onClick={onReturn} type="button">Return to Workshop</button></header>
     </section>,
     target,
   );
@@ -109,13 +109,14 @@ export function WorkshopProviderSettingsBridge({ onReturn }: { onReturn: () => v
 
 export function ReferenceReplica({
   connectCodex,
+  connectSettings = true,
   connectWorkshop = true,
   connectWrite = true,
   enableRuntime = true,
 }: ReferenceReplicaProps = {}) {
   const shouldConnectCodex = connectCodex ?? connectWrite;
   useReferenceStyleSheet();
-  useReferenceRuntime(enableRuntime, connectWrite, shouldConnectCodex, connectWorkshop);
+  useReferenceRuntime(enableRuntime, connectWrite, shouldConnectCodex, connectWorkshop, connectSettings);
 
   return (
     <>
@@ -123,7 +124,7 @@ export function ReferenceReplica({
         <ReferenceSurface selector=".appbar" />
         <ReferenceSurface selector="#new-series-dialog" />
         <ReferenceOverviewWorkspace />
-        <ReferenceSettingsWorkspace />
+        <ReferenceSettingsWorkspace connected={connectSettings} />
         <ReferencePlanWorkspace />
         {connectWrite || shouldConnectCodex || connectWorkshop ? (
           <ConnectedProjectWorkspaces

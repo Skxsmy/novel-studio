@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReferenceReplica, WorkshopProviderSettingsBridge } from "./ReferenceReplica";
 import { getReferenceRuntimeText } from "./reference-source";
-import { omitCodexReferenceRuntime, omitWorkshopReferenceRuntime, omitWriteReferenceRuntime } from "./useReferenceRuntime";
+import { omitCodexReferenceRuntime, omitSettingsReferenceRuntime, omitWorkshopReferenceRuntime, omitWriteReferenceRuntime } from "./useReferenceRuntime";
 
 function signature(element: Element) {
   return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${[...element.classList].map((name) => `.${name}`).join("")}${element.hasAttribute("hidden") ? "[hidden]" : ""}`;
@@ -48,23 +48,32 @@ describe("NS-514 P3/P4 reference replica", () => {
     expect(runtime).toContain('const trigger = document.getElementById("project-library-button");');
   });
 
-  it("shows an honest disabled Model connections destination and a visible return action", async () => {
+  it("omits fixture Settings behavior when real model connections own the page", () => {
+    const runtime = omitSettingsReferenceRuntime(getReferenceRuntimeText());
+    expect(runtime).not.toContain('const root = document.getElementById("settings-workspace");');
+    expect(runtime).not.toContain('document.getElementById("st7-add-connection").addEventListener');
+    expect(runtime).toContain('const root = document.getElementById("plan-workspace");');
+    expect(runtime).toContain('const trigger = document.getElementById("project-library-button");');
+  });
+
+  it("keeps real Model connections visible and provides a return to the exact Workshop session", async () => {
     const onReturn = vi.fn();
-    const { findByRole, getByTestId } = render(<>
+    const { findByText, findByRole, getByTestId } = render(<>
       <button data-st7-section="connections" type="button"><span>Model connections</span></button>
       <section data-st7-page="connections"><div data-testid="fixture-provider-editor">Fixture provider editor</div></section>
       <WorkshopProviderSettingsBridge onReturn={onReturn} />
     </>);
-    expect(await findByRole("heading", { name: "Model connections" })).toBeTruthy();
+    expect(await findByText("Opened from Workshop")).toBeTruthy();
     expect(document.querySelector("[data-st7-page='connections']")?.classList.contains("is-provider-bridge")).toBe(true);
-    expect(document.body.textContent).toContain("Editing model-provider credentials and connection settings is not available yet.");
+    expect(document.body.textContent).toContain("Changes apply to the library-wide model connections.");
+    expect(document.body.textContent).not.toContain("Model connection controls are unavailable");
     expect(getByTestId("fixture-provider-editor").parentElement?.classList.contains("is-provider-bridge")).toBe(true);
     fireEvent.click(await findByRole("button", { name: "Return to Workshop" }));
     expect(onReturn).toHaveBeenCalledTimes(1);
   });
 
   it("assembles every reference surface without non-reference controls", () => {
-    const { container } = render(<ReferenceReplica connectWorkshop={false} connectWrite={false} enableRuntime={false} />);
+    const { container } = render(<ReferenceReplica connectSettings={false} connectWorkshop={false} connectWrite={false} enableRuntime={false} />);
     const prototype = container.querySelector("main.prototype")!;
     expect([...prototype.children].map(signature)).toEqual([
       "header.appbar",
@@ -96,7 +105,7 @@ describe("NS-514 P3/P4 reference replica", () => {
     vi.useFakeTimers();
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
-    const { container } = render(<ReferenceReplica connectWorkshop={false} connectWrite={false} />);
+    const { container } = render(<ReferenceReplica connectSettings={false} connectWorkshop={false} connectWrite={false} />);
 
     const view = (name: string) => container.querySelector<HTMLElement>(`[data-workspace-view='${name}']`)!;
     const workspaceButton = (name: string) => container.querySelector<HTMLButtonElement>(`.workspace-button[data-workspace='${name}']`)!;

@@ -1,6 +1,6 @@
 # Current Status
 
-Updated: 2026-07-17
+Updated: 2026-07-18
 Authority: current operational state only
 
 ## Project Mainline
@@ -13,7 +13,7 @@ Authority: current operational state only
 - Next mainline task: `NS-514 / M5.8 Reference UI Rebuild`.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; no task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
-- Mainline state: NS-514 follows the existing reference-rebuild plan exactly. P0 through P5 are complete, including explicit author visual acceptance of P4 and the tested control/capability audit. Write A17-A21, Codex A22-A28, and Workshop A29-A35 pass their automated evidence. The connected Workshop slice uses real session, message, context, tool, Provider, reasoning-preference, cancellation, migration, and rollback paths under ADR-0017. Its clean-worktree browser quality assurance is complete after six browser-discovered defect groups were repaired and rechecked. Settings P6, the broader A13/A14 gates, P7, and final author visual acceptance remain open. The task is a reference reproduction with explicitly approved surface-specific restoration/redesign, not a general old/new UI merge.
+- Mainline state: NS-514 follows the existing reference-rebuild plan and remains in progress. P0 through P5, Write A17-A21, Codex A22-A28, and the server/storage portions of Workshop A29-A35 retain their recorded evidence. On 2026-07-18 the author reopened the Workshop browser result after two confirmed gaps: the production Settings route had replaced the real model-connection editor with static reference data, and no test proved that a context selected in the Workshop interface reached the sent server Context Bundle. A33 is therefore reopened, and A36-A37 now govern the explicitly authorized Settings recovery, zero-model Workshop behavior, multiline composer behavior, and complete context-selection chain. P7 and final author visual acceptance remain open.
 
 ## Active Support Work
 
@@ -21,7 +21,7 @@ Authority: current operational state only
 - Last completed support task: `GOV-001 Documentation Governance And Delivery Skeleton`.
 - Task record: `docs/tasks/GOV-001.md`.
 - Acceptance record: `docs/testing/GOV-001_ACCEPTANCE.md`.
-- Next action: present the completed Workshop implementation and clean-worktree browser evidence for author review. Keep A16 open and do not start Settings P6 or unrelated mappings without explicit author direction.
+- Next action: restore the real `Settings -> Model connections` lifecycle in the accepted reference structure, repair Workshop behavior when no model exists, add the UI-selection-to-Context-Bundle integration proof, then repeat focused, full, and clean-worktree browser checks. Keep A16 open.
 
 ## Repository State
 
