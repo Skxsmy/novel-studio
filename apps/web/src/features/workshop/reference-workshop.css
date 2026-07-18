@@ -181,6 +181,31 @@
   font-weight: 750;
 }
 
+.wr5-prose p {
+  white-space: pre-wrap;
+}
+
+.wr5-model-required {
+  margin: 0;
+  padding: 8px 12px 0;
+  color: #8a5b20;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.wr5-model-empty {
+  display: grid;
+  gap: 9px;
+  padding: 14px;
+}
+
+.wr5-model-empty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .wr5-icon-tool {
   min-width: 36px;
   padding-inline: 8px;
