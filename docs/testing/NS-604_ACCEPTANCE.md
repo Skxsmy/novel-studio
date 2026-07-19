@@ -75,6 +75,7 @@ author visual acceptance remain required.
 | 2026-07-19 | post-`f6307e8` task worktree; connected preview library | Reload the current production bundle, repeat final-marker search, and inspect term marker, viewport, screenshot, and browser logs | One exact-term marker rendered in the current viewport at the end of the last Block; only the term was highlighted, full-Block yellow was removed, and browser errors/warnings were empty; diagnostic evidence only, not A14 acceptance |
 | 2026-07-19 | post-`f6307e8` task worktree | `npm.cmd run check` after exact-match navigation correction | Passed documentation check for 186 Markdown files, all workspace typechecks, 59 files/584 tests, and production build; Vite emitted only its existing non-failing chunk-size warning |
 | 2026-07-19 | post-review task worktree; isolated Chrome library | Final Web 7-test suite, Web typecheck/build, and two-workflow Chrome run after constraining case-fold fallback to ASCII | All focused commands passed; real Chrome passed in 7.4 seconds with the exact-term in-viewport assertion intact |
+| 2026-07-19 | `52b8da4` on `codex/ns-514-overview` | Exact task file staging, staged diff check, correction commit, `git show --stat`, and immediate status check | Commit `NS-604 fix(research): focus exact search evidence` created with 10 task files; staged diff check passed; worktree and `data/library/` status were clean before this evidence-only update |
 
 ## Repository Safety
 
