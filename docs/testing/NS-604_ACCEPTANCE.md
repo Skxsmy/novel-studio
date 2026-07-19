@@ -56,10 +56,11 @@ author visual acceptance remain required.
 | --- | --- | --- | --- |
 | 2026-07-19 | clean `codex/ns-514-overview` through `d78ff45`, then documentation-only worktree | Record NS-603 author A12 pass and map NS-604 A01-A14 before runtime edits | NS-603 closed; NS-604 authority, migration, parsing, indexing, UI, security, and manual gates mapped |
 | 2026-07-19 | `33a8e0f` planning commit plus task worktree | Generated real TXT/Markdown/DOCX/PDF/EPUB/HTML parser tests and adversarial URL/ZIP/parser/route suites | All focused parser, controlled-web, contract, storage, Server, and Web suites passed |
-| 2026-07-19 | task worktree | `npm.cmd run check` | Passed documentation check for 181 files, all workspace typechecks, 59 files/579 tests, and production build; Vite reported only its non-failing large-chunk warning |
-| 2026-07-19 | task worktree and temporary E2E library | `npm.cmd run test:e2e:quick -- tests/e2e/ns-602-research.spec.ts tests/e2e/ns-603-research-databases.spec.ts tests/e2e/ns-604-research-formats.spec.ts --project=chrome` | Three real-Chrome workflows passed in 6.6 seconds after the run exposed and prompted fixes for Japanese decoding and kana-context Kanji language labeling |
+| 2026-07-19 | implementation tree committed as `1017c88` | `npm.cmd run check` | Passed documentation check for 181 files, all workspace typechecks, 59 files/579 tests, and production build; Vite reported only its non-failing large-chunk warning |
+| 2026-07-19 | `1017c88` implementation tree and temporary E2E library | `npm.cmd run test:e2e:quick -- tests/e2e/ns-602-research.spec.ts tests/e2e/ns-603-research-databases.spec.ts tests/e2e/ns-604-research-formats.spec.ts --project=chrome` | Three real-Chrome workflows passed in 6.6 seconds after the run exposed and prompted fixes for Japanese decoding and kana-context Kanji language labeling |
 | 2026-07-19 | temporary library roots only | Independent Fastify/disk/network and final Storage scripts outside Vitest/Playwright | Source v3 and exact original bytes verified; local `ja` hit was one, model-context and sibling hits were zero; private target was rejected before the local server received a request |
 | 2026-07-19 | connected temporary preview library | In-app Browser diagnostic attempt | Localhost reload was rejected by Browser policy; no in-app visual inspection or A14 acceptance is claimed |
+| 2026-07-19 | clean `1017c88` on `codex/ns-514-overview`, ahead 8 | `git status --short --branch` after implementation commit | No task or unrelated worktree changes remained before this evidence-only update; `data/library/` was untouched |
 
 ## Repository Safety
 
