@@ -50,7 +50,7 @@ Purpose: resume incomplete work only
 
 ## Still Required
 
-- Commit the task-scoped NS-603 work and obtain the author's explicit A12 visual decision. A01-A11 pass; do not relabel diagnostic browser inspection as A12.
+- Obtain the author's explicit NS-603-A12 visual decision after implementation commit `d518666`. A01-A11 pass; do not relabel diagnostic browser inspection as A12.
 - Resolve the implementation-time analyzer, multilingual profile, vector engine, and resource-budget choices before the corresponding NS-604/605 runtime slices.
 - Obtain the author's explicit visual decision for NS-603-A12 after the connected multi-database page is implemented; diagnostic screenshots cannot satisfy it.
 - Obtain explicit author visual acceptance for A16. Diagnostic screenshots and the browser function pass do not satisfy that gate.

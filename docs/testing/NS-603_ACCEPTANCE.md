@@ -20,7 +20,7 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-603-A08 | passed | automated Web/browser | `apps/web/src/features/research/ReferenceResearchWorkspace.test.tsx`, `apps/web/src/app/ReferenceReplica.test.tsx`, and `tests/e2e/ns-603-research-databases.spec.ts` no-Series create, switch, edit, link, import, return, isolated shelf | 22 focused Web tests and the real-Chrome two-database workflow passed |
 | NS-603-A09 | passed | automated Web test | `apps/web/src/features/research/ReferenceResearchWorkspace.test.tsx` dirty database/source switching, link/import block, save race and conflict | Dirty source blocks import/database/source switching; source and database conflicts preserve drafts; migration requires a saved link |
 | NS-603-A10 | passed | Web and manual review | `apps/web/src/features/research/ReferenceResearchWorkspace.test.tsx`, `docs/design/ui-redesign/NS-603_RESEARCH_DATABASE_UI_CHECKLIST.md`, and manual desktop/compact inspection | Desktop diagnostic inspection found and fixed an empty-reader scrollbar; 720px geometry and compact Settings label pass without horizontal overflow |
-| NS-603-A11 | passed | commands/probes | focused/full checks, API/disk probe, repository ledger | 52 files and 540 tests, full typecheck, production build, 178-file docs check, two E2E workflows, independent probes, and diff check pass; task files are ready for one scoped commit |
+| NS-603-A11 | passed | commands/probes | focused/full checks, API/disk probe, repository ledger | 52 files and 540 tests, full typecheck, production build, 178-file docs check, two E2E workflows, independent probes, and diff check pass; implementation committed at `d518666` |
 | NS-603-A12 | manual_pending | author visual decision | connected multi-database Research workspace | Author decision not yet requested |
 
 Allowed matrix status values: `planned`, `in_progress`, `passed`,
@@ -50,6 +50,7 @@ remain required.
 | 2026-07-19 | dirty NS-603 worktree | `npm.cmd run test` | 52 files and 540 tests passed: Server 112, Web 188, AI 39, Contracts 50, Storage 151 |
 | 2026-07-19 | dirty NS-603 worktree | `npm.cmd run docs:check` | Documentation check passed for 178 Markdown files |
 | 2026-07-19 | dirty NS-603 worktree | `git diff --check` | Passed with no whitespace errors; Git reported only expected checkout line-ending notices |
+| 2026-07-19 | `d518666` | `git commit -m "NS-603 feat(research): add isolated library databases"` | 43 task-scoped files committed; A12 intentionally remains open |
 
 ## Repository Safety
 
