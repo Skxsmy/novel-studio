@@ -68,6 +68,36 @@ export const ResearchDatabaseListResultSchema = z.object({
 });
 export type ResearchDatabaseListResult = z.infer<typeof ResearchDatabaseListResultSchema>;
 
+export const ResearchDatabaseWorkshopReferenceSchema = z.object({
+  seriesId: z.string().uuid(),
+  seriesTitle: z.string().trim().min(1).max(200),
+  sessionId: z.string().uuid(),
+  sessionTitle: z.string().trim().min(1).max(160),
+  sessionStatus: z.enum(["active", "archived"]),
+}).strict();
+export type ResearchDatabaseWorkshopReference = z.infer<
+  typeof ResearchDatabaseWorkshopReferenceSchema
+>;
+
+export const ResearchDatabaseDeletionBlockersSchema = z.object({
+  researchDatabaseId: z.string().uuid(),
+  blocked: z.boolean(),
+  workshopReferences: z.array(ResearchDatabaseWorkshopReferenceSchema).max(10_000),
+  unreadableSeries: z.array(z.object({
+    seriesId: z.string().uuid(),
+    seriesTitle: z.string().trim().min(1).max(200),
+    diagnosticCount: z.number().int().positive(),
+  }).strict()).max(10_000),
+}).strict().superRefine((result, context) => {
+  const expected = result.workshopReferences.length > 0 || result.unreadableSeries.length > 0;
+  if (result.blocked !== expected) {
+    context.addIssue({ code: "custom", path: ["blocked"], message: "Research Database blocker state is inconsistent" });
+  }
+});
+export type ResearchDatabaseDeletionBlockers = z.infer<
+  typeof ResearchDatabaseDeletionBlockersSchema
+>;
+
 export const CreateResearchDatabaseInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().max(4000).optional(),

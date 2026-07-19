@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import {
   mkdir,
   readFile,
@@ -117,6 +118,7 @@ import {
   WorkshopToolExecutionSchema,
   ReorderInputSchema,
   CreateResearchDatabaseInputSchema,
+  ResearchDatabaseDeletionBlockersSchema,
   ResearchDatabaseSchema,
   UpdateResearchQueryExpansionsInputSchema,
   ResearchLegacyMigrationResultSchema,
@@ -299,6 +301,7 @@ import {
   type CreateResearchDatabaseInput,
   type LegacyResearchSourceGroup,
   type ResearchDatabaseDocument,
+  type ResearchDatabaseDeletionBlockers,
   type ResearchDatabaseListResult,
   type ResearchLegacyMigrationResult,
   type UpdateResearchDatabaseInput,
@@ -1828,6 +1831,49 @@ export class ProjectRepository {
     return readResearchDatabaseFile(this.libraryRoot, databaseId);
   }
 
+  async getResearchDatabaseDeletionBlockers(
+    databaseId: string,
+  ): Promise<ResearchDatabaseDeletionBlockers> {
+    await this.getResearchDatabase(databaseId);
+    const workshopReferences: ResearchDatabaseDeletionBlockers["workshopReferences"] = [];
+    const unreadableSeries: ResearchDatabaseDeletionBlockers["unreadableSeries"] = [];
+    for (const series of await this.listSeries()) {
+      const listed = await this.listWorkshopSessionsWithDiagnostics(series.id);
+      if (listed.diagnostics.length > 0) {
+        unreadableSeries.push({
+          seriesId: series.id,
+          seriesTitle: series.title,
+          diagnosticCount: listed.diagnostics.length,
+        });
+      }
+      for (const session of listed.sessions) {
+        if (!session.activeResearchDatabaseIds.includes(databaseId)) continue;
+        workshopReferences.push({
+          seriesId: series.id,
+          seriesTitle: series.title,
+          sessionId: session.id,
+          sessionTitle: session.title,
+          sessionStatus: session.status,
+        });
+      }
+    }
+    workshopReferences.sort((left, right) =>
+      left.seriesTitle.localeCompare(right.seriesTitle, "en")
+      || left.sessionTitle.localeCompare(right.sessionTitle, "en")
+      || left.sessionId.localeCompare(right.sessionId, "en")
+    );
+    unreadableSeries.sort((left, right) =>
+      left.seriesTitle.localeCompare(right.seriesTitle, "en")
+      || left.seriesId.localeCompare(right.seriesId, "en")
+    );
+    return ResearchDatabaseDeletionBlockersSchema.parse({
+      researchDatabaseId: databaseId,
+      blocked: workshopReferences.length > 0 || unreadableSeries.length > 0,
+      workshopReferences,
+      unreadableSeries,
+    });
+  }
+
   async createResearchDatabase(
     rawInput: CreateResearchDatabaseInput,
     transactionOptions: ResearchDatabaseTransactionOptions = {},
@@ -1960,11 +2006,28 @@ export class ProjectRepository {
     researchDatabaseId: string,
     sourceId: string,
     blockId: string,
+    expected: { sourceRevision: string; chunkId: string; chunkHash: string },
     limit = 40,
   ): Promise<ResearchSourceContentPage> {
     const detail = await this.getResearchSource(researchDatabaseId, sourceId);
     if (!("content" in detail)) {
       throw new StorageError("Upgrade this older Research source before opening a cited block", "INVALID_DATA", {
+        sourceId,
+      });
+    }
+    if (detail.revision !== expected.sourceRevision) {
+      throw new StorageError("The cited Research Source revision has changed", "CONFLICT", {
+        sourceId,
+      });
+    }
+    const chunk = detail.content.chunks.find((candidate) => candidate.id === expected.chunkId);
+    if (
+      !chunk
+      || chunk.blockId !== blockId
+      || chunk.textHash !== expected.chunkHash
+    ) {
+      throw new StorageError("The cited Research Chunk has changed", "CONFLICT", {
+        blockId,
         sourceId,
       });
     }
@@ -5818,26 +5881,9 @@ export class ProjectRepository {
         });
       }
       const auditEvents = await listResearchToolAuditEvents(seriesRoot, evidence.modelCallId);
-      const auditCitationKeys = new Set(auditEvents.flatMap((event) => event.citations.map((citation) =>
-        [
-          citation.researchDatabaseId,
-          citation.sourceId,
-          citation.sourceRevision,
-          citation.chunkId,
-          citation.chunkHash,
-          citation.relationship,
-        ].join(":"),
-      )));
+      const auditCitations = auditEvents.flatMap((event) => event.citations);
       for (const citation of evidence.citations) {
-        const key = [
-          citation.researchDatabaseId,
-          citation.sourceId,
-          citation.sourceRevision,
-          citation.chunkId,
-          citation.chunkHash,
-          citation.relationship,
-        ].join(":");
-        if (!auditCitationKeys.has(key)) {
+        if (!auditCitations.some((audited) => isDeepStrictEqual(audited, citation))) {
           throw new StorageError("Workshop Research evidence citation was not returned by its gateway audit", "INVALID_DATA", {
             assistantMessageId: evidence.assistantMessageId,
             chunkId: citation.chunkId,

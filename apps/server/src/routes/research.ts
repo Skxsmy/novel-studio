@@ -9,6 +9,7 @@ import {
   LegacyResearchSourceGroupSchema,
   MigrateResearchSourcesV2InputSchema,
   ResearchDatabaseDocumentSchema,
+  ResearchDatabaseDeletionBlockersSchema,
   ResearchDatabaseListResultSchema,
   ResearchIndexStateSchema,
   ResearchEmbeddingCapabilityDocumentSchema,
@@ -17,6 +18,7 @@ import {
   ResearchKeywordSearchResponseSchema,
   ResearchMultiSearchInputSchema,
   ResearchMultiSearchResponseSchema,
+  ResearchOpenPassageArgumentsSchema,
   ResearchQueryExpansionDocumentSchema,
   ResearchLegacyMigrationResultSchema,
   ResearchSourceContentPageQuerySchema,
@@ -76,6 +78,13 @@ export function registerResearchRoutes(
     "/api/v1/research/databases/:databaseId",
     async (request) => ResearchDatabaseDocumentSchema.parse(
       await repository.getResearchDatabase(request.params.databaseId),
+    ),
+  );
+
+  app.get<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/deletion-blockers",
+    async (request) => ResearchDatabaseDeletionBlockersSchema.parse(
+      await repository.getResearchDatabaseDeletionBlockers(request.params.databaseId),
     ),
   );
 
@@ -219,15 +228,28 @@ export function registerResearchRoutes(
     ),
   );
 
-  app.get<{ Params: { databaseId: string; sourceId: string; blockId: string } }>(
+  app.get<{
+    Params: { databaseId: string; sourceId: string; blockId: string };
+    Querystring: { sourceRevision?: string; chunkId?: string; chunkHash?: string };
+  }>(
     "/api/v1/research/databases/:databaseId/sources/:sourceId/content/blocks/:blockId",
-    async (request) => ResearchSourceContentPageSchema.parse(
-      await repository.getResearchSourceContentPageForBlock(
-        request.params.databaseId,
-        request.params.sourceId,
-        request.params.blockId,
-      ),
-    ),
+    async (request) => {
+      const citation = ResearchOpenPassageArgumentsSchema.parse({
+        databaseId: request.params.databaseId,
+        sourceId: request.params.sourceId,
+        sourceRevision: request.query.sourceRevision,
+        chunkId: request.query.chunkId,
+        chunkHash: request.query.chunkHash,
+      });
+      return ResearchSourceContentPageSchema.parse(
+        await repository.getResearchSourceContentPageForBlock(
+          request.params.databaseId,
+          request.params.sourceId,
+          request.params.blockId,
+          citation,
+        ),
+      );
+    },
   );
 
   app.post<{ Params: { databaseId: string } }>(

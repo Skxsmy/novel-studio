@@ -5,6 +5,7 @@ import type {
   LegacyResearchSourceGroup,
   MigrateResearchSourcesV2Input,
   ResearchDatabaseDocument,
+  ResearchDatabaseDeletionBlockers,
   ResearchDatabaseListResult,
   ResearchIndexState,
   ResearchKeywordSearchInput,
@@ -19,6 +20,7 @@ import type {
   ResearchSourceView,
   ResearchSourceDocument,
   ResearchSourceV2MigrationResult,
+  ResearchToolAuditCitation,
   ResearchVectorIndexState,
   UpdateResearchQueryExpansionsInput,
   UpdateResearchDatabaseInput,
@@ -34,6 +36,11 @@ export function createResearchApi(client: ApiClient) {
     },
     getDatabase(databaseId: string) {
       return client.requestJson<ResearchDatabaseDocument>(`/research/databases/${databaseId}`);
+    },
+    getDatabaseDeletionBlockers(databaseId: string) {
+      return client.requestJson<ResearchDatabaseDeletionBlockers>(
+        `/research/databases/${databaseId}/deletion-blockers`,
+      );
     },
     createDatabase(input: CreateResearchDatabaseInput) {
       return client.requestJson<ResearchDatabaseDocument>("/research/databases", {
@@ -88,9 +95,14 @@ export function createResearchApi(client: ApiClient) {
         `/research/databases/${databaseId}/sources/${sourceId}/content?${query}`,
       );
     },
-    getSourceContentPageForBlock(databaseId: string, sourceId: string, blockId: string) {
+    getSourceContentPageForCitation(citation: ResearchToolAuditCitation) {
+      const query = new URLSearchParams({
+        sourceRevision: citation.sourceRevision,
+        chunkId: citation.chunkId,
+        chunkHash: citation.chunkHash,
+      });
       return client.requestJson<ResearchSourceContentPage>(
-        `/research/databases/${databaseId}/sources/${sourceId}/content/blocks/${blockId}`,
+        `/research/databases/${citation.researchDatabaseId}/sources/${citation.sourceId}/content/blocks/${citation.blockId}?${query}`,
       );
     },
     importSource(databaseId: string, input: ImportResearchSourceInput) {
@@ -156,6 +168,7 @@ export type {
   LegacyResearchSourceGroup,
   MigrateResearchSourcesV2Input,
   ResearchDatabaseDocument,
+  ResearchDatabaseDeletionBlockers,
   ResearchDatabaseListResult,
   ResearchIndexState,
   ResearchKeywordSearchInput,
@@ -170,6 +183,7 @@ export type {
   ResearchSourceView,
   ResearchSourceDocument,
   ResearchSourceV2MigrationResult,
+  ResearchToolAuditCitation,
   ResearchVectorIndexState,
   UpdateResearchQueryExpansionsInput,
   UpdateResearchDatabaseInput,

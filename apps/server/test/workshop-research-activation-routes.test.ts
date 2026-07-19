@@ -93,6 +93,17 @@ describe("NS-607 Workshop Research activation routes", () => {
     expect(branch.json().session.activeResearchDatabaseIds)
       .toEqual(activated.json().activeResearchDatabaseIds);
 
+    const blockers = await app.inject({
+      method: "GET",
+      url: `/api/v1/research/databases/${linked.database.id}/deletion-blockers`,
+    });
+    expect(blockers.statusCode, blockers.payload).toBe(200);
+    expect(blockers.json()).toMatchObject({ blocked: true, unreadableSeries: [] });
+    expect(blockers.json().workshopReferences).toEqual(expect.arrayContaining([
+      expect.objectContaining({ seriesTitle: "WorkshopResearchRoutes", sessionTitle: "First", sessionStatus: "active" }),
+      expect.objectContaining({ seriesTitle: "WorkshopResearchRoutes", sessionTitle: "Research branch", sessionStatus: "active" }),
+    ]));
+
     const detail = await app.inject({
       method: "GET",
       url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${branch.json().session.id}`,

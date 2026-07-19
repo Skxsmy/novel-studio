@@ -675,11 +675,7 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
     ) return;
     let cancelled = false;
     setIsLoadingContentPage(true);
-    void api.research.getSourceContentPageForBlock(
-      pendingExternalCitation.researchDatabaseId,
-      pendingExternalCitation.sourceId,
-      pendingExternalCitation.blockId,
-    ).then((page) => {
+    void api.research.getSourceContentPageForCitation(pendingExternalCitation).then((page) => {
       if (cancelled) return;
       setContentPage(page);
       setHighlightedPassage({

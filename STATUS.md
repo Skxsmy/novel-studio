@@ -9,7 +9,7 @@ Authority: current operational state only
 - Active task: `NS-607 / M6.6 Workshop Research Database Integration`; session version 3 activation, bounded General Chat and Agent Research loops, persisted message evidence, exact citation navigation, and the direct-code selector/evidence UI are implemented in the current worktree.
 - Last reached mainline task: `NS-606 / M6.5 Artificial-intelligence Research Retrieval Gateway`; A01-A10 passed and implementation commit `c6f7e61` was clean immediately after commit.
 - Next mainline task: `NS-607 / M6.6 Workshop Research Database Integration`; NS-608 remains a separate unstarted successor.
-- Next mainline action: complete NS-607 lifecycle, forged/stale citation, stream/cancellation, database-deletion blocker, and independent multi-session harness evidence; then run one final repository check and browser verification.
+- Next mainline action: complete the independent NS-607 multi-session harness and connected browser verification; lifecycle, forged/stale citation, redacted stream/cancellation, and database-deletion blocker evidence now pass. Then run one final repository check and production build.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; NS-514 is paused with only A16 author visual acceptance open. No task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
 - Mainline state: GOV-002 is complete and does not consume, complete, or renumber an NS task. NS-602 author visual acceptance was supplied separately by the author.

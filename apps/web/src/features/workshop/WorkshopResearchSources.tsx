@@ -12,6 +12,7 @@ export interface WorkshopResearchSourcesProps {
   error?: string | null;
   loading?: boolean;
   onChange: (databaseIds: string[]) => void;
+  retrievalModes?: Record<string, "exact" | "hybrid">;
   saving?: boolean;
   support: WorkshopResearchSupport;
 }
@@ -39,6 +40,7 @@ export function WorkshopResearchSources({
   error = null,
   loading = false,
   onChange,
+  retrievalModes = {},
   saving = false,
   support,
 }: WorkshopResearchSourcesProps) {
@@ -83,7 +85,7 @@ export function WorkshopResearchSources({
                 type="checkbox"
               />
               <span className="wr7-research-check" aria-hidden="true">{selected ? <Check size={13} /> : null}</span>
-              <span className="wr7-research-copy"><strong>{database.name}</strong><small>{text.sourceCount(document.sourceCount)}{linked ? ` · ${text.linked}` : ""}</small></span>
+              <span className="wr7-research-copy"><strong>{database.name}</strong><small>{text.sourceCount(document.sourceCount)}{linked ? ` · ${text.linked}` : ""}{selected && retrievalModes[database.id] ? ` · ${text.retrievalMode[retrievalModes[database.id]!]}` : ""}</small></span>
             </label>
           );
         }) : null}

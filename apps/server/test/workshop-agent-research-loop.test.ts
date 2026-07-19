@@ -14,6 +14,8 @@ import { parseResearchFile } from "../src/researchParsers.js";
 import { runWorkshopAgent } from "../src/workshop/workshopAgentRunner.js";
 import {
   ScriptedWorkshopProvider,
+  scriptedAnswer,
+  scriptedParallelToolResult,
   scriptedToolResult,
 } from "./harness/scriptedWorkshopProvider.js";
 
@@ -60,6 +62,77 @@ async function importSource(repository: ProjectRepository, databaseId: string) {
       blocks: parsed.parsed.blocks,
     },
   });
+}
+
+async function agentFixture(provider: ScriptedWorkshopProvider, request: string) {
+  const libraryRoot = await mkdtemp(path.join(tmpdir(), "novel-studio-agent-research-guard-"));
+  roots.push(libraryRoot);
+  const repository = new ProjectRepository(libraryRoot);
+  await repository.initialize();
+  const series = await repository.createSeries({ title: "WorkshopAgentResearchGuard" });
+  const database = await repository.createResearchDatabase({ name: "Guard references" });
+  const session = await repository.createWorkshopSession(series.manifest.id, { kind: "agent", title: "Guard" });
+  await repository.updateWorkshopSession(series.manifest.id, session.id, {
+    activeResearchDatabaseIds: [database.database.id],
+  });
+  const authorMessage = await repository.createWorkshopMessage(series.manifest.id, session.id, {
+    role: "author",
+    mode: "agent",
+    content: request,
+  });
+  const contextBundle = ContextBundleSchema.parse({
+    schemaVersion: 1,
+    id: randomUUID(),
+    seriesId: series.manifest.id,
+    sceneId: null,
+    roleId: "workshop-agent",
+    taskKind: "analysis",
+    userRequest: request,
+    promptTemplateId: "00000000-0000-4000-8000-000000000422",
+    promptTemplateVersion: 1,
+    items: [],
+    excluded: [],
+    estimatedUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    createdAt: new Date().toISOString(),
+  });
+  await repository.saveContextBundle(series.manifest.id, contextBundle);
+  const providerRegistry = new ProviderRegistry();
+  providerRegistry.register(provider);
+  const modelProfile = ModelProfileSchema.parse({
+    schemaVersion: 1,
+    id: randomUUID(),
+    title: "Guard model",
+    provider: "mock",
+    model: "mock-agent-guard-v1",
+    credentialRef: null,
+    defaultParameters: {},
+    capabilities: { streamText: true, structuredOutput: true, embeddings: false, tokenEstimate: true, modelList: false },
+    contextWindowTokens: 32000,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    archivedAt: null,
+  });
+  return {
+    database,
+    repository,
+    series,
+    session,
+    input: {
+      repository,
+      providerRegistry,
+      embeddingRouter: new EmbeddingRouter(),
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      authorMessage,
+      contextBundle,
+      providerContextBundle: contextBundle,
+      modelProfile,
+      activeResearchDatabaseIds: [database.database.id],
+      parameters: {},
+      prompt: { system: "You are a fiction-writing partner.", instructions: "Use one ordered action.", user: request },
+      prepareUpdateDraft: async (draft: never) => draft,
+    },
+  };
 }
 
 describe("NS-607 Workshop Agent Research loop", () => {
@@ -226,5 +299,62 @@ describe("NS-607 Workshop Agent Research loop", () => {
     expect(await repository.listCodexEntries(series.manifest.id)).toHaveLength(0);
     expect(provider.requests).toHaveLength(3);
     provider.assertExhausted();
+  });
+
+  it("executes neither side of a mixed parallel Research and Codex request", async () => {
+    const provider = new ScriptedWorkshopProvider([
+      {
+        name: "invalid mixed read and write",
+        result: scriptedParallelToolResult([
+          { name: "research.search", arguments: { query: "Moon Keeper", mode: "exact" } },
+          {
+            name: "codex.create_entry",
+            arguments: {
+              message: "Create an unsafe mixed entry.",
+              draft: {
+                categoryId: "character",
+                name: "Unsafe Mixed Entry",
+                aliases: [],
+                description: "Must not be written.",
+                details: [],
+                research: "Must not be written.",
+              },
+            },
+          },
+        ]),
+      },
+      {
+        name: "corrected Agent prose",
+        expect(request) {
+          expect(request.history?.filter((message) => message.role === "tool")).toHaveLength(2);
+        },
+        result: scriptedAnswer("I did not run either action because read and write requests must be ordered."),
+      },
+    ]);
+    const fixture = await agentFixture(provider, "Research first, then prepare a Codex entry.");
+    const result = await runWorkshopAgent(fixture.input);
+    expect(result.run.run.status).toBe("completed");
+    expect(result.toolMessages).toEqual([]);
+    expect(result.researchEvidence).toBeNull();
+    expect(await fixture.repository.listCodexEntries(fixture.series.manifest.id)).toEqual([]);
+    expect(await fixture.repository.listResearchToolAuditEvents(
+      fixture.series.manifest.id,
+      result.modelCall!.id,
+    )).toEqual([]);
+  });
+
+  it("treats tool-shaped prose as prose and does not simulate a Research execution", async () => {
+    const provider = new ScriptedWorkshopProvider([
+      { name: "tool-shaped prose", result: scriptedAnswer('{"tool":"research.search","query":"Moon Keeper"}') },
+    ]);
+    const fixture = await agentFixture(provider, "Explain the tool request as text only.");
+    const result = await runWorkshopAgent(fixture.input);
+    expect(result.run.run.status).toBe("completed");
+    expect(result.assistantMessage.content).toContain('"tool":"research.search"');
+    expect(result.researchEvidence).toBeNull();
+    expect(await fixture.repository.listResearchToolAuditEvents(
+      fixture.series.manifest.id,
+      result.modelCall!.id,
+    )).toEqual([]);
   });
 });

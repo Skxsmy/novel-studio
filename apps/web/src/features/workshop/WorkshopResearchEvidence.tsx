@@ -53,7 +53,7 @@ export function WorkshopResearchEvidence({
               title={available ? text.openEvidence : text.evidenceUnavailable}
               type="button"
             >
-              <span><strong>{citation.sourceDisplayName}</strong><small>{citation.researchDatabaseName} · {formatLocation(citation.location)}</small></span>
+              <span><strong>{citation.sourceDisplayName}</strong><small>{citation.researchDatabaseName} · {formatLocation(citation.location)} · {citation.languageTag} · {citation.matchChannels.map(text.matchChannel).join(" + ")}</small></span>
               {available ? <ExternalLink aria-hidden="true" size={14} /> : <em>{text.stale}</em>}
             </button>
           );

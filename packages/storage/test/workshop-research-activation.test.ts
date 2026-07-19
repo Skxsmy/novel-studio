@@ -229,6 +229,20 @@ describe("NS-607 Workshop Research activation storage", () => {
     await expect(store.updateWorkshopSession(series.manifest.id, branched.session.id, {
       activeResearchDatabaseIds: [],
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    const blockers = await store.getResearchDatabaseDeletionBlockers(linked.database.id);
+    expect(blockers.blocked).toBe(true);
+    expect(blockers.workshopReferences.map((reference) => [reference.sessionTitle, reference.sessionStatus])).toEqual([
+      ["First", "active"],
+      ["Research branch", "archived"],
+    ]);
+    await store.deleteWorkshopSession(series.manifest.id, first.id);
+    await store.deleteWorkshopSession(series.manifest.id, branched.session.id);
+    expect(await store.getResearchDatabaseDeletionBlockers(linked.database.id)).toMatchObject({
+      blocked: false,
+      workshopReferences: [],
+      unreadableSeries: [],
+    });
   });
 
   it("persists only audited evidence, clones it without an audit link, and deletes it with history", async () => {
@@ -271,6 +285,17 @@ describe("NS-607 Workshop Research activation storage", () => {
       series.manifest.id,
       auditEvent(series.manifest.id, call.id, database.database.id),
     );
+    await expect(store.createWorkshopResearchEvidence(series.manifest.id, session.id, {
+      schemaVersion: 1,
+      id: randomUUID(),
+      seriesId: series.manifest.id,
+      sessionId: session.id,
+      assistantMessageId: assistant.id,
+      modelCallId: call.id,
+      copiedFromEvidenceId: null,
+      citations: [{ ...citation(database.database.id), sourceDisplayName: "Forged display metadata" }],
+      createdAt: "2026-07-19T00:00:02.500Z",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
     const evidence = await store.createWorkshopResearchEvidence(series.manifest.id, session.id, {
       schemaVersion: 1,
       id: randomUUID(),

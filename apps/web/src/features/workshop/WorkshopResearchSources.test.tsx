@@ -63,10 +63,12 @@ describe("NS-607 Workshop Research source selector", () => {
       currentSeriesId={seriesId}
       databases={databases}
       onChange={onChange}
+      retrievalModes={{ [linkedId]: "exact" }}
       support="supported"
     />);
     expect(screen.getByRole("checkbox", { name: /Series lore/i })).toHaveProperty("checked", true);
     expect(screen.getByRole("checkbox", { name: /Archive atlas/i })).toHaveProperty("checked", false);
+    expect(screen.getByText(/Exact only/)).toBeTruthy();
   });
 
   it("shows loading, errors, and stale selections without exposing a fake database row", () => {

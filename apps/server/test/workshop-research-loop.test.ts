@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -24,6 +25,15 @@ function lastToolResult(request: ProviderChatRequest) {
   const message = request.history?.at(-1);
   if (!message || message.role !== "tool") throw new Error("Expected the previous Research tool result");
   return JSON.parse(message.content) as Record<string, unknown>;
+}
+
+function parseSseEvents(payload: string): Array<Record<string, unknown>> {
+  return payload
+    .trim()
+    .split(/\r?\n\r?\n/u)
+    .map((block) => block.split(/\r?\n/u).find((line) => line.startsWith("data:")))
+    .filter((line): line is string => Boolean(line))
+    .map((line) => JSON.parse(line.slice(5).trimStart()) as Record<string, unknown>);
 }
 
 async function importText(repository: ProjectRepository, databaseId: string) {
@@ -201,6 +211,90 @@ describe("NS-607 General Chat Research loop", () => {
       series.manifest.id,
       response.json().modelCallId,
     )).toHaveLength(3);
+    await app.close();
+  });
+
+  it("streams bounded Research activity without exposing the query or passage text", async () => {
+    const libraryRoot = await mkdtemp(path.join(tmpdir(), "novel-studio-workshop-research-stream-"));
+    roots.push(libraryRoot);
+    const repository = new ProjectRepository(libraryRoot);
+    await repository.initialize();
+    const series = await repository.createSeries({ title: "WorkshopResearchStream" });
+    const database = await repository.createResearchDatabase({ name: "Stream references" });
+    await importText(repository, database.database.id);
+    const provider = new ScriptedWorkshopProvider([
+      {
+        name: "stream search",
+        result: scriptedToolResult({
+          name: "research.search",
+          arguments: {
+            query: "Moon Keeper western gate winter solstice",
+            databaseIds: [database.database.id],
+            mode: "exact",
+          },
+        }),
+      },
+      {
+        name: "stream open",
+        result: scriptedToolResult({
+          name: "research.open_passage",
+          arguments(request) {
+            const result = lastToolResult(request) as { results?: Array<Record<string, unknown>> };
+            const citation = result.results?.[0];
+            if (!citation) throw new Error("Expected a streamed search citation");
+            return {
+              databaseId: citation.researchDatabaseId,
+              sourceId: citation.sourceId,
+              chunkId: citation.chunkId,
+              sourceRevision: citation.sourceRevision,
+              chunkHash: citation.chunkHash,
+            };
+          },
+        }),
+      },
+      { name: "stream answer", result: scriptedAnswer("The source places the duty at the winter solstice.") },
+    ]);
+    const providerRegistry = new ProviderRegistry();
+    providerRegistry.register(provider);
+    const app = await buildApp({ libraryRoot, providerRegistry, embeddingRouter: new EmbeddingRouter() });
+    const profile = (await app.inject({
+      method: "POST",
+      url: "/api/v1/ai/model-profiles",
+      payload: { title: "Stream model", provider: "mock", model: "mock-stream-v1" },
+    })).json();
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Stream Research" },
+    })).json();
+    await app.inject({
+      method: "PUT",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}`,
+      payload: { activeResearchDatabaseIds: [database.database.id] },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls/stream`,
+      payload: {
+        operationId: randomUUID(),
+        mode: "general-chat",
+        userRequest: "Check the gate timing in the active source.",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(response.statusCode, response.payload).toBe(200);
+    const events = parseSseEvents(response.payload);
+    const activities = events.filter((event) => event.type === "research-activity");
+    expect(activities.map((event) => [event.phase, event.status])).toEqual([
+      ["searching", "started"],
+      ["searching", "completed"],
+      ["reading", "started"],
+      ["reading", "completed"],
+    ]);
+    expect(JSON.stringify(activities)).not.toContain("Moon Keeper");
+    expect(JSON.stringify(activities)).not.toContain(PRIVATE_SOURCE_TEXT);
+    expect(events.at(-1)).toMatchObject({ type: "done", result: { status: "succeeded" } });
     await app.close();
   });
 });

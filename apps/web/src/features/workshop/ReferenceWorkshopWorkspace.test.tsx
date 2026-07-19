@@ -45,7 +45,7 @@ afterEach(() => {
 function workshopSession(overrides: Partial<WorkshopSession> = {}): WorkshopSession {
   const kind = overrides.kind ?? "chat";
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: chatId,
     seriesId,
     kind,
@@ -57,6 +57,7 @@ function workshopSession(overrides: Partial<WorkshopSession> = {}): WorkshopSess
     updatedAt: timestamp,
     archivedAt: null,
     lastMessageAt: timestamp,
+    activeResearchDatabaseIds: [],
     ...overrides,
   } as WorkshopSession;
 }
@@ -217,8 +218,10 @@ function setupConnected(options: {
   descriptorLoader?: (profileId: string) => Promise<ProviderModelDescriptor[]>;
   descriptors?: Record<string, ProviderModelDescriptor[]>;
   messages?: Record<string, WorkshopMessage[]>;
+  nativeToolCalls?: boolean;
   profiles?: ModelProfile[];
   projectSession?: ProjectSessionState;
+  researchDatabases?: Awaited<ReturnType<typeof api.research.listDatabases>>["databases"];
   sessionLoader?: (targetSeriesId: string, sessionId: string) => Promise<Awaited<ReturnType<typeof api.workshop.getSession>>>;
   sessions?: WorkshopSession[];
   sessionsLoader?: (targetSeriesId: string) => Promise<WorkshopSession[]>;
@@ -261,6 +264,11 @@ function setupConnected(options: {
     return updated;
   });
   vi.spyOn(api.ai, "listModelProfiles").mockResolvedValue(profiles);
+  vi.spyOn(api.ai, "getToolCapability").mockResolvedValue({
+    nativeToolCalls: options.nativeToolCalls ?? true,
+    parallelToolCalls: false,
+    strictToolSchema: true,
+  });
   vi.spyOn(api.ai, "listProviderModels").mockImplementation((profileId) => options.descriptorLoader?.(profileId) ?? Promise.resolve(
     options.descriptors?.[profileId] ?? [descriptor("reasoning-model", {
       kind: "effort",
@@ -273,6 +281,29 @@ function setupConnected(options: {
   vi.spyOn(api.codex, "listCategories").mockResolvedValue([]);
   vi.spyOn(api.codex, "listDetailTypes").mockResolvedValue([]);
   vi.spyOn(api.codex, "listEntries").mockResolvedValue([]);
+  vi.spyOn(api.research, "listDatabases").mockResolvedValue({
+    databases: options.researchDatabases ?? [],
+    issues: [],
+  });
+  vi.spyOn(api.research, "getEmbeddingCapability").mockResolvedValue({
+    useCase: "research.multilingual",
+    bindingStatus: "unbound",
+    profileId: null,
+    profileRevision: null,
+    capability: null,
+    usable: false,
+    reason: "No validated multilingual embedding profile is bound.",
+  });
+  vi.spyOn(api.research, "getVectorIndexState").mockImplementation(async (researchDatabaseId) => ({
+    researchDatabaseId,
+    status: "missing",
+    indexedSourceCount: 0,
+    indexedChunkCount: 0,
+    dimensions: null,
+    profileId: null,
+    profileRevision: null,
+    reason: "Vector index is not built.",
+  }));
   const rendered = render(<ReferenceWorkshopWorkspace
     {...(options.componentProps?.onOpenProviderSettings
       ? { onOpenProviderSettings: options.componentProps.onOpenProviderSettings }
@@ -1694,5 +1725,36 @@ describe("NS-514 A29-A34 connected Workshop workspace", () => {
     await act(async () => automaticRename.resolve({ ...untitled, title: automaticTitle }));
     expect(container.querySelector(".wr5-conversation h2")?.textContent).toBe("Manual title wins");
     expect(within(container).getByRole("button", { name: /Manual title wins/u })).toBeTruthy();
+  });
+
+  it("opens the real Research selector, reports unsupported tools, and restores trigger focus on Escape", async () => {
+    const databaseId = "abababab-abab-4bab-8bab-abababababab";
+    const { container } = setupConnected({
+      nativeToolCalls: false,
+      researchDatabases: [{
+        database: {
+          schemaVersion: 1,
+          id: databaseId,
+          name: "Series reference shelf",
+          description: "",
+          linkedSeriesIds: [seriesId],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        revision: "a".repeat(64),
+        sourceCount: 3,
+      }],
+    });
+    const trigger = await within(container).findByRole("button", { name: /Sources 0/i }) as HTMLButtonElement;
+    await waitFor(() => expect(trigger.disabled).toBe(false));
+    fireEvent.click(trigger);
+    expect(await within(container).findByLabelText("Research Database selection")).toBeTruthy();
+    expect(within(container).getByText("Series reference shelf")).toBeTruthy();
+    expect(within(container).getByText(/cannot use native Research tools/i)).toBeTruthy();
+    expect(within(container).getByRole("checkbox", { name: /Series reference shelf/i })).toHaveProperty("checked", false);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(within(container).queryByLabelText("Research Database selection")).toBeNull();
   });
 });
