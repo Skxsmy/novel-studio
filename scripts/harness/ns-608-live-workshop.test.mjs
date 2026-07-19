@@ -7,6 +7,8 @@ import { ProjectRepository } from "@novel-studio/storage";
 import {
   NS608_TARGET_MODEL,
   assertPublicSummarySafe,
+  evaluateBalancedResearchFactCoverage,
+  evaluateConflictFactCoverage,
   evaluateCrossLanguageFactCoverage,
   exactResearchCitationPresent,
   fingerprintDirectory,
@@ -117,6 +119,48 @@ test("recognizes governed cross-language facts without forcing simplified Chines
     ringsThreeTimes: true,
     beforeOpening: true,
     noDoorTouchUntilRingingEnds: true,
+  });
+});
+
+test("grades balanced retrieval facts and conflicting-source boundaries independently", () => {
+  assert.deepEqual(evaluateBalancedResearchFactCoverage(
+    "资料记录关门钟在子时前两刻敲三声。",
+  ), { beforeMidnight: true, threeChimes: true });
+  assert.deepEqual(evaluateConflictFactCoverage([
+    "日文记录写冬至翌朝举行，北门未开门。",
+    "英文商人账簿却写冬至前一晚为盐车开门放行，两者明显冲突。",
+    "送り不是放逐，不能据此推出有人被驱逐。",
+  ].join("\n")), {
+    japaneseAfterSolsticeMorning: true,
+    japaneseGateClosed: true,
+    englishBeforeSolsticeEvening: true,
+    englishGateOpenedForSaltWagons: true,
+    conflictExplicit: true,
+    noExileInference: true,
+  });
+  assert.deepEqual(evaluateConflictFactCoverage([
+    "英文账簿把时间写成冬至前夕，并称北门对盐商车队开放一次。",
+    "日文记录则是冬至翌朝，北门不开门，因此存在分歧。",
+    "这些名称不能理解为有人被放逐。",
+  ].join("\n")), {
+    japaneseAfterSolsticeMorning: true,
+    japaneseGateClosed: true,
+    englishBeforeSolsticeEvening: true,
+    englishGateOpenedForSaltWagons: true,
+    conflictExplicit: true,
+    noExileInference: true,
+  });
+  assert.deepEqual(evaluateConflictFactCoverage([
+    "日文来源：冬至翌朝，北门未开门。两边有冲突。",
+    "English ledger: evening before the winter solstice; the north gate opened once for salt wagons.",
+    "The label does not prove that anyone was exiled.",
+  ].join("\n")), {
+    japaneseAfterSolsticeMorning: true,
+    japaneseGateClosed: true,
+    englishBeforeSolsticeEvening: true,
+    englishGateOpenedForSaltWagons: true,
+    conflictExplicit: true,
+    noExileInference: true,
   });
 });
 

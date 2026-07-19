@@ -161,7 +161,28 @@ export async function runWorkshopBehaviorSuite(input) {
   for (const task of input.tasks) {
     const trialCount = task.trials ?? input.trialsPerTask ?? 1;
     for (let trialIndex = 1; trialIndex <= trialCount; trialIndex += 1) {
-      const trial = await input.runTrial(task, trialIndex);
+      let trial;
+      try {
+        trial = await input.runTrial(task, trialIndex);
+      } catch (error) {
+        const failure = input.classifyTrialError
+          ? input.classifyTrialError(error, task, trialIndex)
+          : { code: "trial-execution-failed" };
+        trialResults.push({
+          taskId: task.id,
+          trialIndex,
+          passed: false,
+          grades: [graderResult("trial execution", [check(
+            "trial completes before grading",
+            false,
+            failure,
+          )])],
+          metrics: { executionFailure: failure.code ?? "trial-execution-failed" },
+          trace: createWorkshopTrace(task.id, trialIndex),
+          outcome: null,
+        });
+        continue;
+      }
       assert.equal(trial.trace.taskId, task.id);
       assert.equal(trial.trace.trialIndex, trialIndex);
       const grades = [];

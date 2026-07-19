@@ -26,6 +26,8 @@
     "probe:ns608:preflight": "node scripts/ns-608-real-author-harness.mjs --preflight",
     "probe:ns608:cross-language": "node scripts/ns-608-real-author-harness.mjs --scenario=cross-language",
     "probe:ns608:codex": "node scripts/ns-608-real-author-harness.mjs --scenario=codex-correction",
+    "probe:ns608:balanced": "node scripts/ns-608-real-author-harness.mjs --scenario=balanced-triggering",
+    "probe:ns608:conflict": "node scripts/ns-608-real-author-harness.mjs --scenario=conflicting-sources",
     "fixture:ns607-browser": "node scripts/ns-607-browser-fixture-server.mjs",
     "test:harness:ns607": "node --test scripts/harness/workshop-behavior-harness.test.mjs",
     "test:harness:ns608": "node --test scripts/harness/ns-608-live-workshop.test.mjs",

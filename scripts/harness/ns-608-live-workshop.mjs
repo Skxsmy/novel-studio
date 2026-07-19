@@ -123,6 +123,38 @@ export function evaluateCrossLanguageFactCoverage(text) {
   };
 }
 
+export function evaluateBalancedResearchFactCoverage(text) {
+  return {
+    beforeMidnight: /子时前两刻|子時前兩刻|two\s+quarters?\s+before\s+midnight/iu.test(text),
+    threeChimes: /三(?:次|遍|声)|3\s*(?:次|遍|声)|three\s+(?:times|chimes)/iu.test(text),
+  };
+}
+
+export function evaluateConflictFactCoverage(text) {
+  return {
+    japaneseAfterSolsticeMorning:
+      /冬至.{0,8}(?:翌朝|次日(?:清晨|早晨|早上))/iu.test(text) ||
+      /(?:翌朝|次日(?:清晨|早晨|早上)).{0,8}冬至/iu.test(text),
+    japaneseGateClosed:
+      /(?:日文|日本|北门|北門).{0,30}(?:不开门|不開門|未开门|未開門|门不开|門不開)/iu.test(text) ||
+      /(?:不开门|不開門|未开门|未開門|门不开|門不開).{0,30}(?:日文|日本|北门|北門)/iu.test(text),
+    englishBeforeSolsticeEvening:
+      /(?:英文|商人|账簿|帳簿).{0,40}(?:冬至前夕|冬至前夜|冬至前(?:的)?(?:傍晚|晚上)|冬至前一晚|冬至前一天(?:晚上|傍晚))/iu.test(text) ||
+      /(?:冬至前夕|冬至前夜|冬至前(?:的)?(?:傍晚|晚上|黄昏|晚间|夜晚)|冬至前一(?:天|日)(?:晚上|傍晚|黄昏|晚间)).{0,40}(?:英文|商人|账簿|帳簿)/iu.test(text) ||
+      /evening\s+before\s+the\s+winter\s+solstice/iu.test(text),
+    englishGateOpenedForSaltWagons:
+      /(?:盐车|鹽車|运盐|運鹽|载盐|載鹽|盐商.{0,4}(?:车|車|车队|車隊)|鹽商.{0,4}(?:車|車隊)|salt\s+wagons?).{0,30}(?:开门|開門|开启|開啟|开放|開放|放行|opened?)/iu.test(text) ||
+      /(?:开门|開門|开启|開啟|开放|開放|放行|opened?).{0,30}(?:盐车|鹽車|运盐|運鹽|载盐|載鹽|盐商.{0,4}(?:车|車|车队|車隊)|鹽商.{0,4}(?:車|車隊)|salt\s+wagons?)/iu.test(text),
+    conflictExplicit: /冲突|衝突|矛盾|不一致|分歧|无法同时成立|無法同時成立/iu.test(text),
+    noExileInference:
+      /(?:不能|不可|不足以|无法|無法).{0,30}(?:推出|证明|證明|说明|說明).{0,20}(?:放逐|驱逐|驅逐|流放)/iu.test(text) ||
+      /(?:不能|不可|不应|不應|不宜|无法|無法|不足以).{0,30}(?:理解|解读|解讀|解释|解釋|视为|視為|当作|當作|等同).{0,20}(?:放逐|驱逐|驅逐|流放)/iu.test(text) ||
+      /(?:送り|departure|两者|兩者|词义|詞義).{0,30}(?:不等于|不等於|不是|并非|並非|不能|不可).{0,20}(?:放逐|驱逐|驅逐|流放|exile)/iu.test(text) ||
+      /(?:放逐|驱逐|驅逐|流放).{0,20}(?:没有|沒有|缺乏|无|無).{0,12}(?:依据|依據|证据|證據)/iu.test(text) ||
+      /(?:does\s+not|doesn['’]t|cannot|can['’]t).{0,24}(?:prove|show|mean|imply).{0,30}(?:exile|exiled)/iu.test(text),
+  };
+}
+
 export function parseContinuationWriteRequest(message) {
   if (!message || message.role !== "tool" || typeof message.content !== "string") return null;
   try {

@@ -78,3 +78,30 @@ test("Workshop behavior harness reports over-triggering instead of hiding it in 
   assert.equal(result.passed, false);
   assert.equal(result.trials[0].grades[0].checks[0].passed, false);
 });
+
+test("Workshop behavior harness records one trial failure and continues the remaining trials", async () => {
+  const visited = [];
+  const result = await runWorkshopBehaviorSuite({
+    tasks: [{
+      id: "resilient-suite",
+      title: "Resilient trial aggregation",
+      trials: 3,
+      graders: [outcomeGrader("outcome", (outcome) => behaviorCheck("completed", outcome.completed))],
+    }],
+    classifyTrialError: () => ({ code: "provider-transport", retryable: true }),
+    async runTrial(task, trialIndex) {
+      visited.push(trialIndex);
+      if (trialIndex === 2) throw new Error("private provider detail");
+      return {
+        trace: createWorkshopTrace(task.id, trialIndex),
+        outcome: { completed: true },
+      };
+    },
+  });
+  assert.deepEqual(visited, [1, 2, 3]);
+  assert.equal(result.passed, false);
+  assert.equal(result.tasks[0].trials, 3);
+  assert.equal(result.tasks[0].passedTrials, 2);
+  assert.equal(result.trials[1].metrics.executionFailure, "provider-transport");
+  assert.equal(JSON.stringify(result).includes("private provider detail"), false);
+});

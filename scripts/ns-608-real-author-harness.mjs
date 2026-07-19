@@ -4,6 +4,8 @@ import {
   assertPublicSummarySafe,
   confirmLiveWrite,
   createLiveSession,
+  evaluateBalancedResearchFactCoverage,
+  evaluateConflictFactCoverage,
   evaluateCrossLanguageFactCoverage,
   exactResearchCitationPresent,
   harnessFailure,
@@ -203,6 +205,67 @@ const codexCorrectionTask = {
   ],
 };
 
+const balancedTriggeringTask = {
+  id: "balanced-tool-triggering",
+  title: "Ordinary writing stays tool-free until the author explicitly needs evidence",
+  graders: [
+    trajectoryGrader({
+      name: "balanced positive and negative tool triggering",
+      requiredTools: [{ name: "research.search", min: 1, max: 6 }],
+      forbiddenTools: ["codex.create_entry", "codex.update_entry"],
+      noToolsOnTurns: [1, 2, 3, 4],
+    }),
+    dialogueGrader({
+      name: "author-facing balanced workflow",
+      forbiddenAssistantPatterns: visibleProtocolPatterns,
+      maximumAuthorTurns: 5,
+    }),
+    outcomeGrader("balanced retrieval evidence and unchanged authority", (outcome) => [
+      behaviorCheck("the session contains five author turns", outcome.authorTurns === 5),
+      behaviorCheck("the requested source has an exact citation identity", outcome.citationExact),
+      behaviorCheck("the final answer preserves both requested facts",
+        Object.values(outcome.factCoverage).every(Boolean), outcome.factCoverage),
+      behaviorCheck("citation selection remains bounded", outcome.citationCount > 0 && outcome.citationCount <= 6, {
+        citationCount: outcome.citationCount,
+      }),
+      behaviorCheck("the read-only task creates no Codex authority", outcome.codexEntryCount === 0, {
+        codexEntryCount: outcome.codexEntryCount,
+      }),
+    ]),
+  ],
+};
+
+const conflictingSourcesTask = {
+  id: "conflicting-sources-false-friend",
+  title: "Conflicting originals remain separate and false friends do not become facts",
+  graders: [
+    trajectoryGrader({
+      name: "conflicting-source Research trajectory",
+      requiredTools: [{ name: "research.search", min: 2, max: 12 }],
+      forbiddenTools: ["codex.create_entry", "codex.update_entry"],
+      noToolsOnTurns: [1],
+    }),
+    dialogueGrader({
+      name: "author-facing source conflict workflow",
+      forbiddenAssistantPatterns: visibleProtocolPatterns,
+      maximumAuthorTurns: 5,
+    }),
+    outcomeGrader("source conflict, false-friend, and authority outcome", (outcome) => [
+      behaviorCheck("the session contains five author turns", outcome.authorTurns === 5),
+      behaviorCheck("the Japanese original has an exact citation identity", outcome.japaneseCitationExact),
+      behaviorCheck("the English original has an exact citation identity", outcome.englishCitationExact),
+      behaviorCheck("the final answer preserves both sides and the inference boundary",
+        Object.values(outcome.factCoverage).every(Boolean), outcome.factCoverage),
+      behaviorCheck("citation selection remains bounded", outcome.citationCount >= 2 && outcome.citationCount <= 12, {
+        citationCount: outcome.citationCount,
+      }),
+      behaviorCheck("the read-only task creates no Codex authority", outcome.codexEntryCount === 0, {
+        codexEntryCount: outcome.codexEntryCount,
+      }),
+    ]),
+  ],
+};
+
 function ephemeralProviderTools(trace) {
   return trace.flatMap((step) => step.returnedTools.map((tool) => {
     let parsed = {};
@@ -252,7 +315,14 @@ function completedCall(result, stage) {
   }
   if (result.agentRun?.run?.status !== "completed") {
     const failureMessage = result.agentRun?.run?.steps?.at(-1)?.errorMessage ?? "";
-    const failureKind = /parallel|more than one|exactly one|one tool request/iu.test(failureMessage)
+    const errorCode = result.assistantMessage?.errorCode ?? null;
+    const failureKind = errorCode === "provider-unavailable"
+      ? "provider-transport"
+      : errorCode === "provider-rate-limited"
+        ? "provider-rate-limit"
+        : errorCode === "provider-error"
+          ? "provider-response"
+      : /parallel|more than one|exactly one|one tool request/iu.test(failureMessage)
       ? "multiple-tools"
       : /contract|arguments|valid json|schema/iu.test(failureMessage)
         ? "tool-arguments"
@@ -268,7 +338,7 @@ function completedCall(result, stage) {
     throw harnessFailure("author-turn-did-not-complete", {
       stage,
       status: result.agentRun?.run?.status ?? "missing",
-      errorCode: result.assistantMessage?.errorCode ?? null,
+      errorCode,
       failureKind,
       researchAudit: result.ns608Diagnostics ?? [],
       ...(process.env.NS608_EPHEMERAL_DEBUG === "1"
@@ -425,6 +495,184 @@ async function runCrossLanguageTrial(task, trialIndex, environment) {
           ephemeralProviderTools(call.ns608ProviderTrace ?? [])
             .map((tool) => ({ turn: index + 1, ...tool }))),
       } : {}),
+    },
+  };
+}
+
+function distinctCitationCount(citations) {
+  return new Set(citations.map((citation) => [
+    citation.sourceId,
+    citation.chunkId,
+    citation.chunkHash,
+  ].join(":"))).size;
+}
+
+async function runBalancedTriggeringTrial(task, trialIndex, environment) {
+  const database = await environment.repository.createResearchDatabase({
+    name: `Qinglan crossing records ${trialIndex}`,
+  });
+  const source = await importGeneratedTextSource(environment, database.database.id, {
+    fileName: "qinglan-curfew-bell.txt",
+    displayName: "Qinglan crossing curfew record",
+    language: "zh-Hans",
+    text: [
+      "青岚渡关门钟记录",
+      "青岚渡每晚在子时前两刻敲响关门钟，共三次。",
+      "第三声落下后，守门人才关闭东门。",
+    ].join("\n"),
+  });
+  const trace = createWorkshopTrace(task.id, trialIndex);
+  const session = await createLiveSession(environment, `Balanced triggering ${trialIndex}`, [
+    database.database.id,
+  ]);
+  const calls = [];
+  calls.push(completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    1,
+    "我在写关城门前的紧张气氛。先讨论两种节奏方向，不查资料，也不要创建或更新设定。",
+  ), "turn-1"));
+  calls.push(completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    2,
+    "不要巡逻队那个方向，保留远处钟声逼近的感觉。只说怎么控制句子节奏，还是不要查。",
+  ), "turn-2"));
+  calls.push(completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    3,
+    "按这个方向写一小段试稿，不需要事实核对，也不要记入 Codex。",
+  ), "turn-3"));
+  calls.push(completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    4,
+    "简短总结刚才确定的写法，这一步不要调用任何资料或设定工具。",
+  ), "turn-4"));
+  const finalCall = completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    5,
+    "现在请查启用的资料库，确认青岚渡关门钟在什么时刻敲、总共敲几次。只给有出处的事实，不要写入 Codex。",
+  ), "turn-5");
+  calls.push(finalCall);
+
+  const citations = calls.flatMap((call) => call.researchEvidence?.citations ?? []);
+  const entries = await environment.repository.listCodexEntries(environment.series.manifest.id);
+  return {
+    trace,
+    outcome: {
+      authorTurns: 5,
+      citationExact: exactResearchCitationPresent(citations, source),
+      citationCount: distinctCitationCount(citations),
+      factCoverage: evaluateBalancedResearchFactCoverage(finalCall.responseText ?? ""),
+      codexEntryCount: entries.length,
+    },
+    metrics: {
+      authorTurns: 5,
+      researchToolCalls: trace.events.filter((event) =>
+        event.type === "tool-call" && event.effect === "read").length,
+      citationCount: citations.length,
+      codexEntryCount: entries.length,
+    },
+  };
+}
+
+async function runConflictingSourcesTrial(task, trialIndex, environment) {
+  const japaneseDatabase = await environment.repository.createResearchDatabase({
+    name: `White night Japanese record ${trialIndex}`,
+  });
+  const englishDatabase = await environment.repository.createResearchDatabase({
+    name: `White night merchant ledger ${trialIndex}`,
+  });
+  const japanese = await importGeneratedTextSource(environment, japaneseDatabase.database.id, {
+    fileName: "white-night-ja.txt",
+    displayName: "White night Japanese ritual record",
+    language: "ja",
+    text: [
+      "白夜送り記録",
+      "儀礼名「白夜送り」は冬至の翌朝に北門で行われる。儀礼中、門は開かれない。",
+      "ここで「送り」は夜を見送る呼称であり、人の追放を意味しない。",
+    ].join("\n"),
+  });
+  const english = await importGeneratedTextSource(environment, englishDatabase.database.id, {
+    fileName: "white-night-en.txt",
+    displayName: "White night English merchant ledger",
+    language: "en",
+    text: [
+      "White Night Departure Merchant Ledger",
+      "The White Night Departure was scheduled for the evening before the winter solstice.",
+      "The north gate opened once for salt wagons.",
+      "Departure is a literal ritual label and does not prove that anyone was exiled.",
+    ].join("\n"),
+  });
+  const trace = createWorkshopTrace(task.id, trialIndex);
+  const session = await createLiveSession(environment, `Conflicting sources ${trialIndex}`, [
+    japaneseDatabase.database.id,
+    englishDatabase.database.id,
+  ]);
+  const calls = [];
+  calls.push(completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    1,
+    "我在写白夜送り仪式。先告诉我核对冲突资料时应该分哪些问题，这一步不要查资料，也不要改 Codex。",
+  ), "turn-1"));
+  calls.push(completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    2,
+    "现在查日文记录：仪式日期、北门开没开，以及‘送り’在原文里是什么意思。",
+  ), "turn-2"));
+  calls.push(completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    3,
+    "再查英文商人账簿，同样核对日期、门和 departure。不要用日文结果替英文来源说话。",
+  ), "turn-3"));
+  calls.push(completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    4,
+    "把两份来源的冲突逐项并列。尤其不要因为送り或 departure 就推断有人被放逐；只在确实缺相邻原文时继续查。",
+  ), "turn-4"));
+  const finalCall = completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    5,
+    "收束成创作核对单：分别写日文记录、英文记录、明确冲突，以及词义不能推出什么。保留两边依据，不要写入 Codex。",
+  ), "turn-5");
+  calls.push(finalCall);
+
+  const citations = calls.flatMap((call) => call.researchEvidence?.citations ?? []);
+  const entries = await environment.repository.listCodexEntries(environment.series.manifest.id);
+  return {
+    trace,
+    outcome: {
+      authorTurns: 5,
+      japaneseCitationExact: exactResearchCitationPresent(citations, japanese),
+      englishCitationExact: exactResearchCitationPresent(citations, english),
+      citationCount: distinctCitationCount(citations),
+      factCoverage: evaluateConflictFactCoverage(finalCall.responseText ?? ""),
+      codexEntryCount: entries.length,
+    },
+    metrics: {
+      authorTurns: 5,
+      researchToolCalls: trace.events.filter((event) =>
+        event.type === "tool-call" && event.effect === "read").length,
+      citationCount: citations.length,
+      codexEntryCount: entries.length,
     },
   };
 }
@@ -595,7 +843,11 @@ async function runSelectedScenario() {
     ? { task: crossLanguageTask, run: runCrossLanguageTrial }
     : selectedScenario === "codex-correction"
       ? { task: codexCorrectionTask, run: runCodexCorrectionTrial }
-      : null;
+      : selectedScenario === "balanced-triggering"
+        ? { task: balancedTriggeringTask, run: runBalancedTriggeringTrial }
+        : selectedScenario === "conflicting-sources"
+          ? { task: conflictingSourcesTask, run: runConflictingSourcesTrial }
+          : null;
   if (!selected) {
     throw harnessFailure("scenario-not-implemented", { scenario: selectedScenario });
   }
@@ -603,6 +855,7 @@ async function runSelectedScenario() {
   const suite = await runWorkshopBehaviorSuite({
     tasks: [selected.task],
     trialsPerTask,
+    classifyTrialError: (error) => publicHarnessFailure(error),
     async runTrial(task, trialIndex) {
       try {
         const run = await withTemporaryRealProviderEnvironment({
@@ -612,6 +865,8 @@ async function runSelectedScenario() {
         safetyRuns.push(run.safety);
         return run.result;
       } catch (error) {
+        const failure = publicHarnessFailure(error);
+        if (failure.safety) safetyRuns.push(failure.safety);
         if (error && typeof error === "object" && typeof error.ns608Code === "string") throw error;
         throw harnessFailure("scenario-trial-failed", { scenario: selectedScenario, trialIndex });
       }

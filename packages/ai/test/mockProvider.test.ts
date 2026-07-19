@@ -361,6 +361,16 @@ describe("ProviderAdapter core and MockProvider", () => {
       providerStatus: 429,
     });
 
+    const transport = new TypeError("fetch failed", {
+      cause: Object.assign(new Error("socket closed"), { code: "ECONNRESET" }),
+    });
+    expect(classifyProviderError(transport)).toMatchObject({
+      code: "provider-unavailable",
+      message: "Provider network request failed before a response was received.",
+      retryable: true,
+      providerStatus: null,
+    });
+
     const unknown = classifyProviderError({ detail: "opaque provider payload" });
     expect(unknown).toMatchObject({
       code: "unknown",
