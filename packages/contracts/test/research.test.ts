@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ImportResearchSourceInputSchema,
+  LegacyResearchSourceSchema,
   MAX_RESEARCH_SOURCE_BYTES,
   ResearchSourceDocumentSchema,
   ResearchSourceSchema,
@@ -9,20 +10,21 @@ import {
 
 const sourceId = "11111111-1111-4111-8111-111111111111";
 const seriesId = "22222222-2222-4222-8222-222222222222";
+const researchDatabaseId = "33333333-3333-4333-8333-333333333333";
 const now = "2026-07-19T00:00:00.000Z";
 
-describe("NS-602 Research source contracts", () => {
+describe("NS-603 Research source contracts", () => {
   it("separates immutable source facts from author-editable properties", () => {
     const source = ResearchSourceSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: sourceId,
-      seriesId,
+      researchDatabaseId,
       kind: "markdown",
       mediaType: "text/markdown",
       originalFileName: "setting-notes.md",
       sizeBytes: 18,
       contentHash: "a".repeat(64),
-      originalRelativePath: `research/originals/${sourceId}.md`,
+      originalRelativePath: `originals/${sourceId}.md`,
       parseStatus: "parsed",
       parserName: "plain-text",
       parserVersion: 1,
@@ -36,6 +38,7 @@ describe("NS-602 Research source contracts", () => {
     expect(document.source.tags).toEqual([]);
     expect(document.source.author).toBe("");
     expect(document.source.originalFileName).toBe("setting-notes.md");
+    expect(document.source.researchDatabaseId).toBe(researchDatabaseId);
   });
 
   it("accepts only bounded safe TXT and Markdown import envelopes", () => {
@@ -76,5 +79,27 @@ describe("NS-602 Research source contracts", () => {
       baseRevision: "c".repeat(64),
       originalFileName: "replacement.txt",
     }).success).toBe(false);
+  });
+
+  it("keeps Series-owned version 1 authority behind an explicit legacy schema", () => {
+    const legacy = LegacyResearchSourceSchema.parse({
+      schemaVersion: 1,
+      id: sourceId,
+      seriesId,
+      kind: "txt",
+      mediaType: "text/plain",
+      originalFileName: "legacy.txt",
+      sizeBytes: 6,
+      contentHash: "d".repeat(64),
+      originalRelativePath: `research/originals/${sourceId}.txt`,
+      parseStatus: "parsed",
+      parserName: "plain-text",
+      parserVersion: 1,
+      importedAt: now,
+      updatedAt: now,
+      displayName: "Legacy source",
+    });
+    expect(legacy.seriesId).toBe(seriesId);
+    expect(ResearchSourceSchema.safeParse(legacy).success).toBe(false);
   });
 });

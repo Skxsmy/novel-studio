@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { SeriesDetail } from "@novel-studio/contracts";
+import type { ResearchDatabaseDocument } from "@novel-studio/contracts";
 import { MAX_RESEARCH_SOURCE_BYTES } from "@novel-studio/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
@@ -14,11 +14,11 @@ async function fixture() {
   const app = await buildApp({ libraryRoot });
   const created = await app.inject({
     method: "POST",
-    url: "/api/v1/series",
-    payload: { title: "Research Routes" },
+    url: "/api/v1/research/databases",
+    payload: { name: "Research Routes" },
   });
   expect(created.statusCode).toBe(201);
-  return { app, libraryRoot, series: created.json<SeriesDetail>() };
+  return { app, database: created.json<ResearchDatabaseDocument>(), libraryRoot };
 }
 
 function upload(fileName: string, mediaType: "text/plain" | "text/markdown", text: string) {
@@ -35,13 +35,14 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("NS-602 Research routes", () => {
+describe("NS-603 Research source routes", () => {
   it("imports only verified UTF-8 TXT and Markdown source bytes", async () => {
-    const { app, libraryRoot, series } = await fixture();
+    const { app, database, libraryRoot } = await fixture();
+    const sourceUrl = `/api/v1/research/databases/${database.database.id}/sources`;
     const txt = "潮汐祭的采访记录。\nA witness used the older English name.";
     const txtResponse = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/research/sources`,
+      url: sourceUrl,
       payload: { ...upload("interview.txt", "text/plain", txt), declaredLanguage: "zh-CN" },
     });
     expect(txtResponse.statusCode).toBe(201);
@@ -57,35 +58,33 @@ describe("NS-602 Research routes", () => {
     const markdown = "# 用語\n\n月守（つきもり）は英語で Moon Keeper。";
     const mdResponse = await app.inject({
       method: "POST",
-      url: `/api/v1/series/${series.manifest.id}/research/sources`,
+      url: sourceUrl,
       payload: { ...upload("terms.md", "text/markdown", markdown), tags: ["terminology"] },
     });
     expect(mdResponse.statusCode).toBe(201);
 
     const listed = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/research/sources`,
+      url: sourceUrl,
     });
     expect(listed.statusCode).toBe(200);
     expect(listed.json()).toHaveLength(2);
     const detail = await app.inject({
       method: "GET",
-      url: `/api/v1/series/${series.manifest.id}/research/sources/${mdResponse.json().source.id}`,
+      url: `${sourceUrl}/${mdResponse.json().source.id}`,
     });
     expect(detail.json().originalText).toBe(markdown);
 
-    const seriesDirectory = (await readdir(libraryRoot)).find((name) => name.endsWith(series.manifest.id.slice(0, 8)));
-    expect(seriesDirectory).toBeDefined();
-    const sourceRoot = path.join(libraryRoot, seriesDirectory!, "research");
+    const sourceRoot = path.join(libraryRoot, "research-databases", database.database.id);
     expect(await readdir(path.join(sourceRoot, "sources"))).toHaveLength(2);
-    const originalBytes = await readFile(path.join(libraryRoot, seriesDirectory!, mdResponse.json().source.originalRelativePath));
+    const originalBytes = await readFile(path.join(sourceRoot, mdResponse.json().source.originalRelativePath));
     expect(originalBytes.equals(Buffer.from(markdown, "utf8"))).toBe(true);
     await app.close();
   });
 
   it("rejects malformed, mismatched, empty, oversized, and unsafe source uploads before authority creation", async () => {
-    const { app, series } = await fixture();
-    const url = `/api/v1/series/${series.manifest.id}/research/sources`;
+    const { app, database } = await fixture();
+    const url = `/api/v1/research/databases/${database.database.id}/sources`;
     const cases = [
       { ...upload("wrong.md", "text/plain", "content") },
       { ...upload("empty.txt", "text/plain", "   \n") },
@@ -105,8 +104,8 @@ describe("NS-602 Research routes", () => {
   });
 
   it("exposes only real Research list get import and update results without logging source text", async () => {
-    const { app, series } = await fixture();
-    const url = `/api/v1/series/${series.manifest.id}/research/sources`;
+    const { app, database } = await fixture();
+    const url = `/api/v1/research/databases/${database.database.id}/sources`;
     const created = await app.inject({
       method: "POST",
       url,
@@ -125,7 +124,7 @@ describe("NS-602 Research routes", () => {
         declaredLanguage: "en",
         tags: ["interview"],
         aiPermission: "allowed",
-        useNotes: "Use only for this Series.",
+        useNotes: "Use only in this Research Database.",
       },
     });
     expect(updated.statusCode).toBe(200);

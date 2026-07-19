@@ -50,9 +50,15 @@ export type {
   ProposalRevisionInput,
 } from "./proposals";
 export type {
+  CreateResearchDatabaseInput,
   ImportResearchSourceInput,
+  LegacyResearchSourceGroup,
+  ResearchDatabaseDocument,
+  ResearchDatabaseListResult,
+  ResearchLegacyMigrationResult,
   ResearchSourceDetail,
   ResearchSourceDocument,
+  UpdateResearchDatabaseInput,
   UpdateResearchSourceInput,
 } from "./research";
 export type { CreateSeriesInput, SeriesSummary } from "./series";

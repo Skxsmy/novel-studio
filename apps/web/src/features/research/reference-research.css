@@ -8,6 +8,177 @@
 }
 .rs8[hidden] { display: none; }
 
+.rs9-toolbar {
+  height: 76px;
+  display: grid;
+  grid-template-columns: minmax(140px, auto) minmax(360px, 520px) auto;
+  gap: 18px;
+}
+
+.rs9 .rs8-layout { height: calc(100% - 76px); }
+
+.rs9-database-controls {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) 36px auto;
+  align-items: end;
+  gap: 7px;
+}
+
+.rs9-database-select { min-width: 0; }
+.rs9-database-select > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.rs9-database-select select {
+  width: 100%;
+  height: 36px;
+  min-width: 0;
+  padding: 0 30px 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 600 12px/1 var(--sans);
+}
+
+.rs9-icon-button,
+.rs9-settings-button {
+  height: 36px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+.rs9-icon-button { width: 36px; padding: 0; font-size: 20px; }
+.rs9-settings-button { padding: 0 11px; font: 600 11px/1 var(--sans); white-space: nowrap; }
+.rs9-settings-compact { display: none; }
+.rs9-icon-button:hover,
+.rs9-settings-button:hover,
+.rs9-inline-command:hover { border-color: var(--green); color: var(--green); }
+.rs9-icon-button:disabled,
+.rs9-settings-button:disabled { cursor: not-allowed; opacity: .45; }
+.rs9-icon-button:focus-visible,
+.rs9-settings-button:focus-visible,
+.rs9-database-select select:focus-visible,
+.rs9-inline-command:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+.rs9-inline-command {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 600 11px/1 var(--sans);
+  cursor: pointer;
+}
+
+.rs9-dialog-backdrop {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  padding: 24px;
+  display: grid;
+  place-items: center;
+  background: rgb(25 30 28 / .42);
+}
+
+.rs9-dialog {
+  width: min(520px, 100%);
+  max-height: min(720px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.rs9-database-dialog { width: min(620px, 100%); }
+.rs9-dialog > header {
+  min-height: 70px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+}
+.rs9-dialog > header p { margin: 0 0 3px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.rs9-dialog > header h2 { margin: 0; font: 600 20px/1.2 var(--serif); }
+.rs9-dialog > header button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+}
+.rs9-dialog form { padding: 18px; }
+.rs9-dialog form > label { display: block; margin-bottom: 15px; }
+.rs9-dialog form > label > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.rs9-dialog input[type="text"],
+.rs9-dialog input:not([type]),
+.rs9-dialog textarea {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 13px/1.45 var(--sans);
+}
+.rs9-dialog input[type="text"],
+.rs9-dialog input:not([type]) { height: 36px; padding: 0 10px; }
+.rs9-dialog textarea { padding: 9px 10px; resize: vertical; }
+.rs9-dialog input:focus,
+.rs9-dialog textarea:focus { border-color: var(--blue); outline: 2px solid color-mix(in srgb, var(--blue) 18%, transparent); }
+.rs9-dialog footer { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.rs9-dialog-error { margin-bottom: 14px; padding: 9px 11px; border-left: 3px solid var(--red); background: #fbebeb; color: #8d3333; font-size: 12px; line-height: 1.45; }
+.rs9-dialog-note { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
+.rs9-series-link {
+  padding: 12px;
+  display: grid !important;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+}
+.rs9-series-link input { margin-top: 2px; }
+.rs9-series-link > span { margin: 0 !important; color: var(--ink) !important; }
+.rs9-series-link strong { display: block; font-size: 12px; }
+.rs9-series-link small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; font-weight: 400; line-height: 1.45; }
+
+.rs9-migration {
+  margin-top: 14px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.rs9-migration strong { font-size: 12px; }
+.rs9-migration p { margin: 3px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.rs9-migration button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 600 10px/1 var(--sans);
+  cursor: pointer;
+}
+.rs9-migration button:disabled { cursor: not-allowed; opacity: .45; }
+.rs9-migration > span { color: var(--green); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+
 .rs8-toolbar {
   height: 68px;
   padding: 0 18px;
@@ -121,10 +292,10 @@
 .rs8-source-copy span { display: block; margin-top: 5px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .rs8-ready { color: var(--green); font-size: 10px; font-weight: 700; text-transform: uppercase; }
 
-.rs8-reader { min-width: 0; overflow: auto; background: var(--paper); }
+.rs8-reader { min-width: 0; display: flex; flex-direction: column; overflow: auto; background: var(--paper); }
 .rs8-banner { margin: 12px 18px 0; padding: 9px 12px; border-left: 3px solid var(--green); background: var(--green-soft); color: var(--green); font-size: 12px; line-height: 1.45; }
 .rs8-banner.is-error { border-left-color: var(--red); background: #fbebeb; color: #8d3333; }
-.rs8-empty { min-height: 100%; padding: 48px 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.rs8-empty { min-height: 0; padding: 48px 24px; display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .rs8-empty > span { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--line-strong); color: var(--green); font: 700 14px/1 var(--sans); }
 .rs8-empty h2 { margin: 17px 0 7px; font: 600 20px/1.25 var(--serif); letter-spacing: 0; }
 .rs8-empty p { max-width: 420px; margin: 0 0 18px; color: var(--muted); font-size: 13px; line-height: 1.6; }
@@ -188,6 +359,8 @@
   .rs8-inspector form > label:last-of-type,
   .rs8-actions,
   .rs8-facts { grid-column: 1 / -1; }
+  .rs9-toolbar { grid-template-columns: minmax(128px, auto) minmax(320px, 1fr) auto; gap: 12px; }
+  .rs9 .rs8-layout { min-height: calc(100% - 76px); }
 }
 
 @media (max-width: 780px) {
@@ -201,6 +374,24 @@
   .rs8-document header h2 { font-size: 22px; }
   .rs8-preview { font-size: 14px; line-height: 1.8; }
   .rs8-inspector form { display: block; }
+  .rs9-toolbar {
+    height: 116px;
+    padding: 8px 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 44px 48px;
+    gap: 6px 10px;
+  }
+  .rs9-toolbar .rs8-upload { grid-column: 2; grid-row: 1; }
+  .rs9-database-controls { grid-column: 1 / -1; grid-row: 2; grid-template-columns: minmax(0, 1fr) 36px 72px; }
+  .rs9-settings-button { width: 72px; padding: 0 8px; }
+  .rs9-settings-wide { display: none; }
+  .rs9-settings-compact { display: inline; }
+  .rs9 .rs8-layout { min-height: calc(100% - 116px); }
+  .rs9 .rs8-rail { top: calc(var(--topbar-height) + 116px); }
+  .rs9 .rs8-reader { min-height: calc(100vh - var(--topbar-height) - 116px); }
+  .rs9-dialog-backdrop { padding: 12px; align-items: end; }
+  .rs9-dialog { max-height: calc(100vh - 24px); }
+  .rs9-migration { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

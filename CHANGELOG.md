@@ -6,7 +6,7 @@ This changelog records user-visible product changes. Task status, command logs, 
 
 ### Added
 
-- Independent Research workspace with real UTF-8 TXT/Markdown import, unchanged original preview, persisted source shelf, revision-safe properties, explicit AI context permission, and honest format/lifecycle limits.
+- Library-wide Research workspace with multiple isolated Research Databases, real UTF-8 TXT/Markdown import, unchanged original preview, persisted per-database source selection, revision-safe properties, explicit AI context permission, optional links from one database to multiple Series, and honest format/lifecycle limits.
 - Versioned per-Series SQLite index kernel with fixed application identity, migration checksum and health classification, serialized writes, and validated temporary-build replacement that preserves the live index on failure.
 - Connected Codex workspace with real categories and Entries, Archived Entries, keyboard-reachable lifecycle menus, appended Detail editing, the original three-column Detail Type Library with persisted descriptions and row-context Rename/Delete, description-only Relation creation, Current Scene projection, real Write navigation, and separate Manuscript/Codex mentions with Canon previews.
 - Relation authority v2 migration with exact v1 rollback artifacts and guarded permanent deletion.
@@ -20,6 +20,7 @@ This changelog records user-visible product changes. Task status, command logs, 
 
 ### Changed
 
+- Legacy Series-owned Research sources now remain untouched until the author explicitly copies them into a linked Research Database; the copy preserves provenance and original bytes and never turns a Series into the database owner.
 - Database recovery now rejects foreign or cross-Series indexes before mutation, rebuilds missing or drifted projections from JSON authority, preserves WAL/journal bundles and rollback recovery artifacts, validates full build integrity, and prevents readers from entering replacement gaps. Research imports serialize duplicate detection, damaged originals cannot receive property writes, literal short search no longer treats SQL wildcards as author input, and unsaved Research properties cannot be lost by switching sources or importing during a save.
 - Project Library now creates real Series authority from an empty library, immediately opens the new Series, and lists other real Series for selection instead of reporting fixture-only success.
 - Overview is now the initial workspace when no previous workspace can be restored. Its approved header, Continue Scene panel, project progress, recent Scene list, attention area, and Review queue now use the open Series and current Write Scene instead of reference fixtures; unavailable continuity analysis and missing targets remain visibly honest and disabled.

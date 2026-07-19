@@ -28,9 +28,11 @@ concurrency, and corruption handling harder to reason about.
 1. Schema-versioned JSON and managed source files remain authority. SQLite is
    never the only copy of manuscript, hierarchy, Codex, Workshop, Proposal,
    Research, settings, or audit data.
-2. Each Series owns a derived `<series-root>/.studio/index.sqlite` projection.
-   A future `<library-root>/.studio/catalog.sqlite` may provide rebuildable
-   cross-Series catalog queries only when a proven Library use case needs it.
+2. Each Series owns a derived `<series-root>/.studio/index.sqlite` manuscript
+   projection. ADR-0019 separately governs author-facing Research Databases:
+   each is library-scoped, independently owned, and has its own Source authority
+   and rebuildable index. A future library catalog may provide rebuildable
+   discovery only when a proven query use case needs it.
 3. Database access moves behind one `IndexDatabase` subsystem with a migration
    registry, fixed identity, source revision/hash ledger, projector versions,
    health checks, and one serialized writer per database.

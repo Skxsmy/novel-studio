@@ -16,6 +16,7 @@ Fastify Local Host (127.0.0.1)
       |
       +---- Project/File Service ------ JSON authority files
       +---- Index Service ------------- SQLite FTS5 + optional vectors
+      +---- Research Database Service - isolated library-level source roots
       +---- Proposal/Revision Service - inbox, diff, snapshots
       +---- Context Service ----------- story-time and permission filtering
       +---- AI Orchestrator ----------- roles, council, provider adapters
@@ -69,6 +70,7 @@ packages/
 - The exact selected Provider connection and model declare whether reasoning is unsupported, switch-controlled, effort-controlled with an exact allowed set, or token-budget-controlled. Model Profile authority stores only the normalized last valid preference for that exact model. General Chat and Agent stream typed reasoning above typed answer content, persist the resolved call parameters, and record author cancellation as `cancelled`; no adapter may rewrap reasoning as answer text or invent unsupported options.
 - Workshop export is a derived read path. Reasoning, prompt audit, and attachment-body inclusion are explicit independent choices; the default is readable session history without hidden/audit content.
 - Embedding model profiles are library-global JSON settings under `.studio/embedding-profiles/`. They are separate from generation `ModelProfile` records and store Provider, endpoint, model, dimensions, batch limits, profile-level concurrency, normalization, license, and credential reference. They do not contain vectors or source text.
+- Research Databases are library-level directories under `research-databases/<database-id>/`. Each directory owns `database.json`, SourceDocument authority, managed originals, parser output, transaction journals, and its own rebuildable index. A database may link to several Series, but no Series owns or stores the database. Database selection and Source management work without an active Series.
 - Proposal、Evidence、调用审计和版本元数据：`.studio` 下可导出的结构化文件。
 - JSON authority 是 Project/File Service 的内部职责；API 层应在可行处继续提供当前前端所需的兼容投影，例如场景 `content`。
 
@@ -81,7 +83,7 @@ packages/
 
 删除全部可重建数据后，应用仍能打开和编辑作品，并可重新索引。
 
-M6 的详细数据库目标见 `docs/architecture/DATABASE_ARCHITECTURE.md` 和 accepted ADR-0018。它采用每个 Series 一个派生 `index.sqlite`、可选的 library-level `catalog.sqlite`、统一来源账本与投影器状态、外部内容 FTS5、单写者 WAL 和临时数据库校验后原子替换；向量由可替换适配器管理，SQLite 只保存可重建的来源与模型元数据。NS-602 已交付固定身份的版本 1 内核、串行写入/重建、原子替换和第一条 TXT/Markdown 来源路径；统一来源账本、文本分析、完整资料投影、catalog 和跨语言检索仍由 NS-603 至 NS-605 分阶段实现。
+M6 的详细数据库目标见 `docs/architecture/DATABASE_ARCHITECTURE.md`、ADR-0018 和 ADR-0019。每个 Series 保留一个派生 `index.sqlite` 作为小说投影；每个作品库级 Research Database 另有独立权威目录和独立可重建索引，数据库之间不共享来源、行、权限或生命周期状态。NS-602 已交付 Series 索引内核和旧的 Series-owned TXT/Markdown 来源路径；NS-603 迁移到多个隔离 Research Database，NS-604 加入完整原语言格式与关键词索引，NS-605 加入显式多库查询和跨语言检索。向量仍由可替换适配器管理，任何 SQLite 正文都不是唯一权威。
 
 小说检索投影必须保留段落、句子、对白、叙述、POV、故事时间、情节线、语言片段和原文偏移，不能把 Scene 仅作为无结构长字符串。统一 Search Service 的物理索引按 manuscript/reference/Codex/Workshop 领域和 CJK/词项分析方式分开，先在各通道内排序再确定性融合。中文查询跨语言召回日文/英文原文时，优先使用经过中/日/英 fixture 验证的同空间多语言 Embedding；作者确认别名、确定性转写和显式的版本化查询翻译只扩展召回。任何译文或语义命中都必须保留 BCP 47 语言、原文 hash/offset/SourceLocation 和命中通道，不得替代 Evidence。
 

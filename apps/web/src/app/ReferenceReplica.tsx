@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { ReferenceCodexWorkspace } from "../features/codex/ReferenceCodexWorkspace";
 import { ReferenceOverviewWorkspace } from "../features/overview/ReferenceOverviewWorkspace";
 import { ReferencePlanWorkspace } from "../features/plan/ReferencePlanWorkspace";
-import { ReferenceResearchWorkspace } from "../features/research/ReferenceResearchWorkspace";
+import { ReferenceResearchWorkspace } from "../features/research/ResearchDatabaseWorkspace";
 import { ReferenceSettingsWorkspace } from "../features/settings/ReferenceSettingsWorkspace";
 import { ReferenceWorkshopWorkspace } from "../features/workshop/ReferenceWorkshopWorkspace";
 import { ReferenceWriteWorkspace } from "../features/write/ReferenceWriteWorkspace";

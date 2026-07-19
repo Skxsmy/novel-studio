@@ -128,9 +128,16 @@ Scene JSON 的规划字段包括目标、冲突、结果、摘要、节拍、POV
 
 SQLite 保存可重建的场景定位、正文搜索、Codex 搜索、名称候选、正文提及、歧义与 FTS5 数据。它不得保存无法从权威文件或明确缓存源恢复的唯一 Canon。删除 SQLite 后必须能完整重建。
 
+Research Database 是独立于 Series 的作品库级权威对象。每个
+`research-databases/<database-id>/database.json` 保存稳定 ID、名称、说明、
+显式关联的 Series ID、创建/更新时间和 revision；同一目录下的
+`sources/`、`originals/`、解析结果和独立索引只属于该数据库。
+SourceDocument version 2 使用 `researchDatabaseId`，不再使用 `seriesId`。
+Series 关联是知识库属性，不改变 Source 路径或所有权。
+
 NS-602 起，每个 Series 的 `.studio/index.sqlite` 通过统一 `IndexDatabase` 边界打开。新数据库使用固定 `application_id = 0x4E534958`、`user_version = 1`、校验过的迁移账本、严格类型普通表、固定 WAL/连接策略和每个 Series 一个串行写入/重建队列。当前旧 `application_id=0` 且 `user_version=0` 的数据库被分类为 `legacy-v0` 派生索引，不被误认为权威或已迁移数据。
 
-全量重建在 `.studio/index-build/<build-id>.sqlite` 中投影 Scene、Codex、提及、歧义、Context Bundle 和 Model Call，完成身份、checksum、`quick_check`、外键和 build ID 验证并关闭 WAL 后才替换活动库。取消、构建失败或交换失败会恢复旧活动库并清理该 build 的有界临时文件。NS-603 才增加统一来源账本、小说文本单元、语言分析和新的外部内容 FTS；NS-604/NS-605 继续实现完整资料索引、可选 library catalog 和跨语言向量适配器。SQLite 和向量正文始终不是 Canon。
+全量重建在 `.studio/index-build/<build-id>.sqlite` 中投影 Scene、Codex、提及、歧义、Context Bundle 和 Model Call，完成身份、checksum、`quick_check`、外键和 build ID 验证并关闭 WAL 后才替换活动库。取消、构建失败或交换失败会恢复旧活动库并清理该 build 的有界临时文件。NS-603 先建立隔离 Research Database 权威与迁移边界；NS-604 为每个知识库加入 SourceLocation/Chunk、语言分析和独立外部内容 FTS；NS-605 在明确多选时联合查询多个独立索引并接入跨语言向量适配器。Series 小说文本投影的剩余规范化另行验收。SQLite 和向量正文始终不是 Canon 或 Research Source 权威。
 
 小说文字投影不能只保存 Scene 级纯文本。每个 SceneBlock 进一步派生 paragraph、sentence、dialogue、quote、heading 和 narration 等 `text_units`，并保存原文 hash、原文 start/end offset、分析器版本、BCP 47 语言和混合语言 `language_spans`。Dialogue speaker、POV、人物/地点参与、故事事件时间、情节线 setup/payoff、因果关系和文字统计均是可重建投影；AI 推断项必须带原文证据、来源和候选状态，作者接受后由对应 JSON/Proposal 成为权威，不能只存在 SQLite。
 

@@ -23,7 +23,8 @@ None.
 | NS-513 / M5.7 | todo | Council, conflict/failure states, responsive/copy review, and user visual acceptance | `docs/tasks/M5.md` |
 | NS-514 | paused | P0-P6 and automated P7 evidence complete; explicit author visual acceptance A16 remains while database planning proceeds by user direction | `docs/tasks/NS-514.md`; `docs/testing/NS-514_ACCEPTANCE.md` |
 | NS-601 | complete | M6.0 plans the rebuildable novel-text/narrative database, language-aware FTS, explainable Chinese-to-Japanese/English retrieval, atomic rebuild, Reference Library, and vector boundary without changing JSON authority | `docs/tasks/NS-601.md`; `docs/testing/NS-601_ACCEPTANCE.md` |
-| NS-602 | in_progress | M6.1 adds the versioned atomic index kernel and a real TXT/Markdown Research source upload, preview, and property-management workflow designed directly in React with the installed UI Skill; GOV-002 hardening is complete and explicit author visual acceptance remains open | `docs/tasks/NS-602.md`; `docs/testing/NS-602_ACCEPTANCE.md` |
+| NS-602 | complete | M6.1 adds the versioned atomic Series index kernel and a real TXT/Markdown Research source upload, preview, and property-management workflow; the author accepted the overall connected layout on 2026-07-19 | `docs/tasks/NS-602.md`; `docs/testing/NS-602_ACCEPTANCE.md` |
+| NS-603 | in_progress | M6.2 replaces Series-owned Research with multiple isolated library-level Research Databases, explicit multi-Series links, scoped Sources, and verified legacy migration | `docs/tasks/NS-603.md`; `docs/testing/NS-603_ACCEPTANCE.md` |
 
 ## Incomplete Existing Lines
 

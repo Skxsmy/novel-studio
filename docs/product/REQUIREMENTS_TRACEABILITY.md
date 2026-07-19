@@ -112,15 +112,15 @@
 
 ## M6 资料分析库
 
-覆盖：TXT、Markdown、DOCX、文本 PDF、EPUB、HTML；SourceLocation、FTS5、可选 Embedding、Research Note 和权限。
+覆盖：作品库级多个隔离 Research Database；TXT、Markdown、DOCX、文本 PDF、EPUB、HTML 和作者明确提交地址后的受控网页快照；SourceLocation、FTS5、可选 Embedding、Research Note 和权限。
 
-完成标准：六种 fixture 解析；中/日/英及混合语言原文检索；中文查询对无共享词项的日文和英文资料进行可验证的跨语言召回；结果公开关键词、别名、转写、查询翻译或语义命中方式并回指原文；扫描 PDF 诚实失败；危险文件隔离；资料不能越权进入模型。
+完成标准：多个知识库在目录、来源、索引、权限、损坏和生命周期上互相隔离；同一知识库可显式关联多个 Series；默认单库检索，明确多选才联合返回带库标识的结果；六种文件 fixture 与受控网页地址 fixture 解析；中/日/英及混合语言原文检索；中文查询对无共享词项的日文和英文资料进行可验证的跨语言召回；结果公开关键词、别名、转写、查询翻译或语义命中方式并回指原文；扫描 PDF 诚实失败；危险文件和危险网页目标隔离；资料不能越权进入模型。
 
 M6 语义检索必须复用产品与目标架构定义的共享 `EmbeddingModelProfile`、按用途路由和 profile 级并发基础设施，不得创建资料库私有的第二套 Embedding 配置或静默云端回退。
 
-`NS-601 / M6.0` 先完成数据库架构规划：盘点现有每个 Series 的 SQLite/FTS5 原型，确定 JSON 权威不变、派生数据库拓扑、连接与版本策略、小说文本/叙事投影、分语言搜索、跨语言查询、原子重建、损坏恢复、Reference Library 投影和向量适配边界。该规划不表示资料导入、检索或向量功能已经实现；运行时交付依次由 `NS-602` 数据库内核、原子重建与 TXT/Markdown Research 来源页面垂直切片，`NS-603` 小说文本投影与分语言统一搜索，`NS-604` 其余四种 Reference Library 格式和完整原文关键词数据库，`NS-605` Library catalog、多语言向量与跨语言查询适配器承担。
+`NS-601 / M6.0` 先完成数据库架构规划。`NS-602` 随后交付 Series 派生索引内核和第一条 TXT/Markdown Research 来源页面。作者在 NS-602 视觉通过后明确改变 Research 所有权边界，因此 ADR-0019 和 `NS-603` 先把 Research 改为作品库级多个隔离知识库，并建立显式多 Series 关联和旧来源迁移；`NS-604` 在该边界上加入 DOCX、文本 PDF、EPUB、HTML、受控网页地址、SourceLocation/Chunk 和原文关键词索引；`NS-605` 加入明确多选知识库查询、多语言向量和跨语言检索；Series 小说文字与叙事投影的剩余规范化工作由后续 M6 任务独立验收。任务顺序变化不改变 JSON 权威、原文 Evidence 或 Series 派生索引仍可重建的原则。
 
-NS-601 验收 ID：`NS-601-A01` 至 `NS-601-A10`，详见 `docs/tasks/NS-601.md`、`docs/testing/NS-601_ACCEPTANCE.md`、`docs/architecture/DATABASE_ARCHITECTURE.md` 和 ADR-0018。
+NS-601 验收 ID：`NS-601-A01` 至 `NS-601-A10`，详见 `docs/tasks/NS-601.md`、`docs/testing/NS-601_ACCEPTANCE.md`、`docs/architecture/DATABASE_ARCHITECTURE.md` 和 ADR-0018。NS-603 起的 Research Database 所有权修订由 ADR-0019 控制。
 
 ## M7 Word、版本与备份
 

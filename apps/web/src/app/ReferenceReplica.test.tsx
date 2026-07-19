@@ -121,6 +121,15 @@ describe("NS-514 P3/P4 reference replica", () => {
       if (url.endsWith("/api/v1/series")) {
         return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
       }
+      if (url.endsWith("/api/v1/research/databases")) {
+        return new Response(JSON.stringify({ databases: [], issues: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/v1/research/legacy-sources")) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
+      }
       throw new Error(`Unexpected request: ${url}`);
     }));
     const { container } = render(
@@ -141,6 +150,7 @@ describe("NS-514 P3/P4 reference replica", () => {
     await waitFor(() => expect(research.hidden).toBe(false));
     expect(researchButton.getAttribute("aria-current")).toBe("page");
     await waitFor(() => expect(container.querySelector("#brand-context")?.textContent).toBe("Reference library"));
+    await waitFor(() => expect(research.textContent).toContain("Create your first Research Database"));
     fireEvent.click(container.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Plan']")!);
     expect(research.hidden).toBe(true);
     fireEvent.click(researchButton);

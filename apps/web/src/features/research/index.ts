@@ -1,1 +1,1 @@
-export * from "./ReferenceResearchWorkspace";
+export * from "./ResearchDatabaseWorkspace";

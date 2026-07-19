@@ -2,10 +2,16 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import {
+  CreateResearchDatabaseInputSchema,
   ImportResearchSourceInputSchema,
+  LegacyResearchSourceGroupSchema,
+  ResearchDatabaseDocumentSchema,
+  ResearchDatabaseListResultSchema,
+  ResearchLegacyMigrationResultSchema,
   ResearchSourceDetailSchema,
   ResearchSourceDocumentSchema,
   ResearchSourcePropertiesSchema,
+  UpdateResearchDatabaseInputSchema,
   UpdateResearchSourceInputSchema,
   type ResearchSourceKind,
   type ResearchSourceMediaType,
@@ -51,22 +57,63 @@ function defaultDisplayName(fileName: string): string {
 }
 
 export function registerResearchRoutes(app: FastifyInstance, repository: ProjectRepository): void {
-  app.get<{ Params: { seriesId: string } }>(
-    "/api/v1/series/:seriesId/research/sources",
+  app.get(
+    "/api/v1/research/databases",
+    async () => ResearchDatabaseListResultSchema.parse(await repository.listResearchDatabases()),
+  );
+
+  app.post(
+    "/api/v1/research/databases",
+    async (request, reply) => reply.status(201).send(ResearchDatabaseDocumentSchema.parse(
+      await repository.createResearchDatabase(CreateResearchDatabaseInputSchema.parse(request.body)),
+    )),
+  );
+
+  app.get<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId",
+    async (request) => ResearchDatabaseDocumentSchema.parse(
+      await repository.getResearchDatabase(request.params.databaseId),
+    ),
+  );
+
+  app.put<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId",
+    async (request) => ResearchDatabaseDocumentSchema.parse(
+      await repository.updateResearchDatabase(
+        request.params.databaseId,
+        UpdateResearchDatabaseInputSchema.parse(request.body),
+      ),
+    ),
+  );
+
+  app.get(
+    "/api/v1/research/legacy-sources",
+    async () => LegacyResearchSourceGroupSchema.array().parse(await repository.listLegacyResearchSourceGroups()),
+  );
+
+  app.post<{ Params: { databaseId: string; seriesId: string } }>(
+    "/api/v1/research/databases/:databaseId/migrations/series/:seriesId",
+    async (request) => ResearchLegacyMigrationResultSchema.parse(
+      await repository.migrateLegacyResearchSources(request.params.databaseId, request.params.seriesId),
+    ),
+  );
+
+  app.get<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/sources",
     async (request) => ResearchSourceDocumentSchema.array().parse(
-      await repository.listResearchSources(request.params.seriesId),
+      await repository.listResearchSources(request.params.databaseId),
     ),
   );
 
-  app.get<{ Params: { seriesId: string; sourceId: string } }>(
-    "/api/v1/series/:seriesId/research/sources/:sourceId",
+  app.get<{ Params: { databaseId: string; sourceId: string } }>(
+    "/api/v1/research/databases/:databaseId/sources/:sourceId",
     async (request) => ResearchSourceDetailSchema.parse(
-      await repository.getResearchSource(request.params.seriesId, request.params.sourceId),
+      await repository.getResearchSource(request.params.databaseId, request.params.sourceId),
     ),
   );
 
-  app.post<{ Params: { seriesId: string } }>(
-    "/api/v1/series/:seriesId/research/sources",
+  app.post<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/sources",
     { bodyLimit: RESEARCH_UPLOAD_BODY_LIMIT },
     async (request, reply) => {
       const input = ImportResearchSourceInputSchema.parse(request.body);
@@ -80,7 +127,7 @@ export function registerResearchRoutes(app: FastifyInstance, repository: Project
         aiPermission: input.aiPermission,
         useNotes: input.useNotes,
       });
-      const source = await repository.importResearchSource(request.params.seriesId, {
+      const source = await repository.importResearchSource(request.params.databaseId, {
         kind,
         mediaType: input.mediaType,
         originalFileName: input.fileName,
@@ -93,11 +140,11 @@ export function registerResearchRoutes(app: FastifyInstance, repository: Project
     },
   );
 
-  app.put<{ Params: { seriesId: string; sourceId: string } }>(
-    "/api/v1/series/:seriesId/research/sources/:sourceId",
+  app.put<{ Params: { databaseId: string; sourceId: string } }>(
+    "/api/v1/research/databases/:databaseId/sources/:sourceId",
     async (request) => ResearchSourceDetailSchema.parse(
       await repository.updateResearchSource(
-        request.params.seriesId,
+        request.params.databaseId,
         request.params.sourceId,
         UpdateResearchSourceInputSchema.parse(request.body),
       ),

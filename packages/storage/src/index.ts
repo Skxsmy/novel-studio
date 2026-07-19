@@ -114,6 +114,9 @@ import {
   WorkshopSessionSchema,
   WorkshopToolExecutionSchema,
   ReorderInputSchema,
+  CreateResearchDatabaseInputSchema,
+  ResearchDatabaseSchema,
+  ResearchLegacyMigrationResultSchema,
   ResearchSourceSchema,
   RestoreSceneSectionInputSchema,
   type AgentRole,
@@ -137,6 +140,7 @@ import {
   UpdateCodexKnowledgeInputSchema,
   UpdateCodexProgressionInputSchema,
   UpdateCodexRelationInputSchema,
+  UpdateResearchDatabaseInputSchema,
   UpdateActInputSchema,
   UpdateBookInputSchema,
   UpdateChapterInputSchema,
@@ -270,6 +274,12 @@ import {
   type ResearchSourceKind,
   type ResearchSourceMediaType,
   type ResearchSourceProperties,
+  type CreateResearchDatabaseInput,
+  type LegacyResearchSourceGroup,
+  type ResearchDatabaseDocument,
+  type ResearchDatabaseListResult,
+  type ResearchLegacyMigrationResult,
+  type UpdateResearchDatabaseInput,
   type RestoreSceneSectionInput,
   type SceneBlock,
   type SceneBlockDocument,
@@ -374,13 +384,25 @@ import {
   writeProposalAuthorityFile,
 } from "./proposalFiles.js";
 import {
-  createResearchSourceFile,
-  listResearchSourceFiles,
-  readResearchSourceFile,
-  researchOriginalPath,
-  updateResearchSourceFile,
+  createResearchDatabaseSourceFile,
+  hasLegacyResearchMigrationReceipt,
+  listLegacyResearchSourceFiles,
+  listResearchDatabaseSourceFiles,
+  migrateLegacyResearchSourceFiles,
+  readLegacyResearchSourceFile,
+  readResearchDatabaseSourceFile,
+  researchDatabaseOriginalPath,
+  updateResearchDatabaseSourceFile,
   type ResearchFileTransactionOptions,
 } from "./researchFiles.js";
+import {
+  createResearchDatabaseFile,
+  listResearchDatabaseFiles,
+  readResearchDatabaseFile,
+  researchDatabaseRoot,
+  updateResearchDatabaseFile,
+  type ResearchDatabaseTransactionOptions,
+} from "./researchDatabases.js";
 
 export {
   INDEX_APPLICATION_ID,
@@ -1672,34 +1694,82 @@ export class ProjectRepository {
     return inspectIndexDatabase(await this.findSeriesRoot(seriesId), seriesId);
   }
 
-  async listResearchSources(seriesId: string): Promise<ResearchSourceDocument[]> {
-    const seriesRoot = await this.findSeriesRoot(seriesId);
-    return listResearchSourceFiles(seriesRoot, seriesId);
+  async listResearchDatabases(): Promise<ResearchDatabaseListResult> {
+    await this.initialize();
+    return listResearchDatabaseFiles(this.libraryRoot);
   }
 
-  async getResearchSource(seriesId: string, sourceId: string): Promise<ResearchSourceDetail> {
-    return readResearchSourceFile(await this.findSeriesRoot(seriesId), seriesId, sourceId);
+  async getResearchDatabase(databaseId: string): Promise<ResearchDatabaseDocument> {
+    await this.initialize();
+    return readResearchDatabaseFile(this.libraryRoot, databaseId);
+  }
+
+  async createResearchDatabase(
+    rawInput: CreateResearchDatabaseInput,
+    transactionOptions: ResearchDatabaseTransactionOptions = {},
+  ): Promise<ResearchDatabaseDocument> {
+    await this.initialize();
+    const input = CreateResearchDatabaseInputSchema.parse(rawInput);
+    const now = new Date().toISOString();
+    return createResearchDatabaseFile(this.libraryRoot, ResearchDatabaseSchema.parse({
+      schemaVersion: 1,
+      id: randomUUID(),
+      name: input.name,
+      description: input.description,
+      linkedSeriesIds: [],
+      createdAt: now,
+      updatedAt: now,
+    }), transactionOptions);
+  }
+
+  async updateResearchDatabase(
+    databaseId: string,
+    rawInput: UpdateResearchDatabaseInput,
+  ): Promise<ResearchDatabaseDocument> {
+    const input = UpdateResearchDatabaseInputSchema.parse(rawInput);
+    if (input.linkedSeriesIds) {
+      await Promise.all(input.linkedSeriesIds.map((seriesId) => this.findSeriesRoot(seriesId)));
+    }
+    return updateResearchDatabaseFile(this.libraryRoot, databaseId, input);
+  }
+
+  async listResearchSources(researchDatabaseId: string): Promise<ResearchSourceDocument[]> {
+    await this.getResearchDatabase(researchDatabaseId);
+    return listResearchDatabaseSourceFiles(
+      researchDatabaseRoot(this.libraryRoot, researchDatabaseId),
+      researchDatabaseId,
+    );
+  }
+
+  async getResearchSource(researchDatabaseId: string, sourceId: string): Promise<ResearchSourceDetail> {
+    await this.getResearchDatabase(researchDatabaseId);
+    return readResearchDatabaseSourceFile(
+      researchDatabaseRoot(this.libraryRoot, researchDatabaseId),
+      researchDatabaseId,
+      sourceId,
+    );
   }
 
   async importResearchSource(
-    seriesId: string,
+    researchDatabaseId: string,
     input: PreparedResearchSourceImport,
     transactionOptions: ResearchFileTransactionOptions = {},
   ): Promise<ResearchSourceDetail> {
-    const seriesRoot = await this.findSeriesRoot(seriesId);
+    await this.getResearchDatabase(researchDatabaseId);
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
     const id = randomUUID();
     const now = new Date().toISOString();
-    const originalPath = researchOriginalPath(seriesRoot, { id, kind: input.kind });
+    const originalPath = researchDatabaseOriginalPath(databaseRoot, { id, kind: input.kind });
     const source = ResearchSourceSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       id,
-      seriesId,
+      researchDatabaseId,
       kind: input.kind,
       mediaType: input.mediaType,
       originalFileName: input.originalFileName,
       sizeBytes: input.sizeBytes,
       contentHash: input.contentHash,
-      originalRelativePath: path.relative(seriesRoot, originalPath).split(path.sep).join("/"),
+      originalRelativePath: path.relative(databaseRoot, originalPath).split(path.sep).join("/"),
       parseStatus: "parsed",
       parserName: "plain-text",
       parserVersion: 1,
@@ -1707,15 +1777,81 @@ export class ProjectRepository {
       updatedAt: now,
       ...input.properties,
     });
-    return createResearchSourceFile(seriesRoot, source, input.originalText, transactionOptions);
+    return createResearchDatabaseSourceFile(databaseRoot, source, input.originalText, transactionOptions);
   }
 
   async updateResearchSource(
-    seriesId: string,
+    researchDatabaseId: string,
     sourceId: string,
     input: UpdateResearchSourceInput,
   ): Promise<ResearchSourceDetail> {
-    return updateResearchSourceFile(await this.findSeriesRoot(seriesId), seriesId, sourceId, input);
+    await this.getResearchDatabase(researchDatabaseId);
+    return updateResearchDatabaseSourceFile(
+      researchDatabaseRoot(this.libraryRoot, researchDatabaseId),
+      researchDatabaseId,
+      sourceId,
+      input,
+    );
+  }
+
+  async listLegacyResearchSourceGroups(): Promise<LegacyResearchSourceGroup[]> {
+    const groups: LegacyResearchSourceGroup[] = [];
+    const databases = (await this.listResearchDatabases()).databases;
+    for (const series of await this.listSeries()) {
+      const sources = await listLegacyResearchSourceFiles(await this.findSeriesRoot(series.id), series.id);
+      if (sources.length > 0) {
+        const migratedResearchDatabaseIds = [];
+        for (const database of databases) {
+          if (await hasLegacyResearchMigrationReceipt(
+            researchDatabaseRoot(this.libraryRoot, database.database.id),
+            series.id,
+          )) {
+            migratedResearchDatabaseIds.push(database.database.id);
+          }
+        }
+        groups.push({
+          seriesId: series.id,
+          seriesTitle: series.title,
+          sourceCount: sources.length,
+          migratedResearchDatabaseIds,
+        });
+      }
+    }
+    return groups.sort((left, right) =>
+      left.seriesTitle.localeCompare(right.seriesTitle, "en")
+      || left.seriesId.localeCompare(right.seriesId),
+    );
+  }
+
+  async migrateLegacyResearchSources(
+    researchDatabaseId: string,
+    seriesId: string,
+    transactionOptions: ResearchFileTransactionOptions = {},
+  ): Promise<ResearchLegacyMigrationResult> {
+    const database = await this.getResearchDatabase(researchDatabaseId);
+    if (!database.database.linkedSeriesIds.includes(seriesId)) {
+      throw new StorageError("Link this Research Database to the Series before migrating its legacy sources", "INVALID_DATA", {
+        researchDatabaseId,
+        seriesId,
+      });
+    }
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    const legacyDocuments = await listLegacyResearchSourceFiles(seriesRoot, seriesId);
+    const legacyDetails = await Promise.all(
+      legacyDocuments.map((document) => readLegacyResearchSourceFile(seriesRoot, seriesId, document.source.id)),
+    );
+    const result = await migrateLegacyResearchSourceFiles(
+      researchDatabaseRoot(this.libraryRoot, researchDatabaseId),
+      researchDatabaseId,
+      seriesId,
+      legacyDetails,
+      transactionOptions,
+    );
+    return ResearchLegacyMigrationResultSchema.parse({
+      researchDatabaseId,
+      seriesId,
+      ...result,
+    });
   }
 
   private async recoverSeriesRootOnce(seriesRoot: string): Promise<void> {

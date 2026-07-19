@@ -6,7 +6,8 @@ Purpose: resume incomplete work only
 ## Resume Point
 
 - Active support task: none; `GOV-002 Database Implementation Review And Hardening` is complete on the existing `codex/ns-514-overview` worktree.
-- Paused product task: `NS-602 / M6.1 Database Kernel And Research Source Vertical Slice`; explicit author visual acceptance remains open and GOV-002 does not claim that decision.
+- Active product task: `NS-603 / M6.2 Library-scoped Research Database Authority And Isolation`; A01-A12 are mapped before runtime edits.
+- NS-602 is complete. The author explicitly accepted the overall connected Research layout on 2026-07-19, then required Word, PDF, web-link inputs and multiple isolated Research Databases that are not owned by a Series.
 - NS-514 is paused with P0-P6 and automated A15 passed; only explicit author visual acceptance A16 remains open.
 - NS-601 changes documentation only and is complete. NS-514 follow-up work is separately committed at `b7ae1be`; preserve `data/library/` while reviewing NS-602.
 - NS-602 follows `b7ae1be` at `bb37126`; this clean commit is the GOV-002 review baseline.
@@ -30,6 +31,8 @@ Purpose: resume incomplete work only
 - Added the Skill-designed independent Research workspace with source shelf, unchanged original reader, property inspector, AI permission, stable empty/error/upload/save/conflict states, selection restoration, compact inspector flow, and narrow source drawer.
 - Added `IndexDatabase` application identity `0x4E534958`, schema checksum/version/health, fixed connection policy, per-Series serial write lane, temporary-build validation, rollback replacement, and Scene/Codex/mention/ambiguity/Context Bundle/Model Call compatibility projection.
 - Full workspace typecheck, production build, 505 tests, 130 Storage tests, 15 focused Web tests, docs check, and the focused real-Chrome Research workflow pass. Current E2E files now isolate their temporary library; the aggregate run is 5 passed and one historical Chinese-shell test failed.
+- Implemented NS-603 library-scoped ResearchDatabase v1 and database-owned SourceDocument v2 authority, isolated roots and scoped routes, multi-Series links, explicit legacy discovery/copy receipts, and the connected database selector/settings workflow.
+- Added no-Series creation, two-database isolation, same-hash cross-database import, stale/damaged/injected-failure, link/unlink, exact legacy bytes, dirty/conflict, refresh restoration, compact layout, and logger-body omission evidence. Real browser work found and fixed selection erasure, cross-database stale Source requests, and an empty-reader scrollbar.
 
 - Replaced the production reference runtime's fixture-only Project Library handler with a connected handler that uses `useProjectSession.createSeries` and `openSeries`.
 - Preserved the accepted appbar, Project Library menu, New Series dialog, focus behavior, Escape/backdrop dismissal, loading state, and real error path.
@@ -47,9 +50,9 @@ Purpose: resume incomplete work only
 
 ## Still Required
 
-- Resolve the implementation-time analyzer, multilingual profile, vector engine, and resource-budget choices recorded in the database plan before the corresponding NS-603/605 runtime slices.
-- Obtain the author's explicit Research visual decision for NS-602-A12; diagnostic screenshots do not satisfy it.
-- Keep NS-602 paused until the author explicitly accepts or rejects the connected Research page; the separate task-scoped commit satisfies the repository portion of A13.
+- Commit the task-scoped NS-603 work and obtain the author's explicit A12 visual decision. A01-A11 pass; do not relabel diagnostic browser inspection as A12.
+- Resolve the implementation-time analyzer, multilingual profile, vector engine, and resource-budget choices before the corresponding NS-604/605 runtime slices.
+- Obtain the author's explicit visual decision for NS-603-A12 after the connected multi-database page is implemented; diagnostic screenshots cannot satisfy it.
 - Obtain explicit author visual acceptance for A16. Diagnostic screenshots and the browser function pass do not satisfy that gate.
 - Keep future database review fixes in their support-task commit; do not rewrite the separate NS-514, NS-601, or NS-602 task history.
 

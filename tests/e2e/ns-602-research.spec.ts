@@ -19,6 +19,12 @@ test("imports two Research sources and restores the selected original preview", 
   await researchButton.click();
 
   const workspace = page.locator("#research-workspace");
+  await workspace.getByTitle("Create Research Database").click();
+  const databaseDialog = workspace.getByRole("dialog", { name: "Create Research Database" });
+  await databaseDialog.getByLabel("Name").fill("NS-602 Source Shelf");
+  await databaseDialog.getByLabel("Description").fill("Imported source acceptance fixture.");
+  await databaseDialog.getByRole("button", { name: "Create database" }).click();
+  await expect(workspace.getByText("This source shelf is empty")).toBeVisible();
   const fileInput = workspace.getByLabel("Choose a TXT or Markdown Research source");
   await expect(workspace).toBeVisible();
   await fileInput.setInputFiles({

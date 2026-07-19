@@ -72,12 +72,14 @@ Project authority is schema-versioned JSON inside the project directory. Current
 - Planning events, Sections, review anchors, and snapshots.
 - Codex categories, entries, research, reusable detail types, relations, Progressions, and character knowledge.
 - Prompt/model/context/call metadata, Proposals, and Workshop session/message/attachment/context records.
+- Library-scoped ResearchDatabase metadata, SourceDocument records, managed
+  originals, and explicit links to zero or more Series.
 
 Markdown and Word are import, export, mirror, preview, and migration boundary formats. Tiptap/ProseMirror, CodeMirror, browser state, localStorage, SQLite, FTS5, vectors, and caches are not the only saved project copy.
 
 SQLite/FTS5 stores rebuildable projections such as search and mention indexes. Deleting derived state must not prevent the application from opening and editing authority files; rebuilding must validate source revisions and hashes.
 
-`docs/architecture/DATABASE_ARCHITECTURE.md` and accepted ADR-0018 define the M6 implementation plan for database identity, a single-writer WAL boundary, normalized projections, external-content FTS5, temporary-build atomic replacement, Reference Library indexing, and later vector adapters. NS-602 implements the fixed-identity version 1 kernel, serialized write/rebuild lane, temporary-build replacement, and first TXT/Markdown source authority path. It does not yet implement the NS-603 source ledger/text analyzer, NS-604 complete reference projections, or NS-605 catalog/vector/cross-language retrieval.
+`docs/architecture/DATABASE_ARCHITECTURE.md`, ADR-0018, and ADR-0019 define the M6 implementation plan. A Series owns one rebuildable manuscript projection. Each author-facing Research Database is instead a library-level isolated authority root with its own Sources and future index, and may be explicitly linked to several Series. NS-602 implements the Series index kernel and first legacy Series-owned TXT/Markdown path. NS-603 replaces that Research ownership with multiple isolated database roots and an explicit migration boundary; NS-604 and NS-605 add formats, original-language indexing, explicit multi-database queries, and cross-language retrieval.
 
 The target Search Service is novel- and language-aware. It projects paragraph,
 sentence, dialogue, POV, story-time, plot-thread, language-span, entity-alias,

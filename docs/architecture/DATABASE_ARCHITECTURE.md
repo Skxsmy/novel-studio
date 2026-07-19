@@ -97,11 +97,21 @@ library-root/
 │  ├─ model-profiles/                 JSON authority
 │  ├─ embedding-profiles/             JSON authority
 │  └─ catalog.sqlite                  rebuildable library projection
+├─ research-databases/
+│  └─ <database-id>/
+│     ├─ database.json                ResearchDatabase authority
+│     ├─ sources/                     SourceDocument authority
+│     ├─ originals/                   unchanged managed originals
+│     ├─ parsed/                      versioned parser authority/cache boundary
+│     └─ .studio/
+│        ├─ index.sqlite              rebuildable isolated Reference projection
+│        ├─ index-build/              temporary rebuild output only
+│        └─ transactions/             authority recovery facility
 └─ <series-slug-id>/
    ├─ series.json                     JSON authority
    ├─ books/, codex/, workshop/, ... JSON authority
    └─ .studio/
-      ├─ index.sqlite                 rebuildable Series projection
+      ├─ index.sqlite                 rebuildable Series manuscript projection
       ├─ index.sqlite-wal             runtime SQLite state
       ├─ index.sqlite-shm             runtime SQLite state
       ├─ vectors/                     optional rebuildable sidecars
@@ -112,10 +122,14 @@ library-root/
 Rules:
 
 - `catalog.sqlite` cannot contain a unique copy of model profiles, credentials,
-  project paths, or Series metadata. It can be recreated by scanning the
-  selected library root.
+  project paths, Series metadata, ResearchDatabase metadata, Sources, or
+  links. It can be recreated by scanning the selected library root.
 - `index.sqlite` is portable with its Series only as an optimization. A copied
   or restored Series must open without it.
+- A Research Database is discovered by independently scanning its UUID-named
+  directory and validating `database.json`. One damaged database cannot block
+  listing or opening the other databases. Its `index.sqlite` contains only
+  that database's projections and can be rebuilt from its Source authority.
 - Backups exclude `catalog.sqlite`, `index.sqlite`, `-wal`, `-shm`, vector
   sidecars, and rebuild temporaries by default. If a whole-folder backup
   contains them, restore treats them as untrusted caches and validates or
@@ -130,7 +144,7 @@ Every projected row must be traceable to an authority source:
 
 | Required field | Meaning |
 | --- | --- |
-| `source_path` | POSIX-style path relative to the Series root |
+| `source_path` | POSIX-style path relative to the owning Series or Research Database root |
 | `source_revision` | Repository revision derived from canonical authority bytes |
 | `content_hash` | SHA-256 of the exact projected source or projection input |
 | `schema_version` | Authority document schema version |
@@ -711,26 +725,28 @@ Provisional acceptance targets:
 
 ### NS-603: Novel-text projections and language-aware unified search
 
-- Add source ledger, projector versions, canonical hierarchy tables, block
-  projection, paragraph/sentence/dialogue units, language spans, POV/dialogue/
-  participant projections, story-time/plot-thread projections, normalized
-  aliases/details/ambiguities, and external-content FTS shards.
-- Preserve existing API behavior and Chinese search, including short queries;
-  add Japanese CJK, English word/phrase, mixed-language, field-restricted, and
-  author-confirmed multilingual entity-alias search.
-- Move index SQL and queries out of the oversized repository module.
+- Implement ADR-0019: library-level ResearchDatabase authority, multiple
+  isolated roots, SourceDocument version 2, explicit links to several Series,
+  per-database duplicate and transaction boundaries, and verified legacy copy.
+- Keep the accepted Research reader while adding database create, switch,
+  property, link, and migration states that work without an active Series.
+- Reserve one independent rebuildable index path per Research Database without
+  presenting deferred search as available.
 
 ### NS-604: Reference Library original-language database
 
-- Extend the NS-602 SourceDocument path to DOCX, text PDF, EPUB, and HTML, and
-  complete Section/Block/Chunk authority for all six formats.
+- Extend the isolated ResearchDatabase Source path to DOCX, text PDF, EPUB,
+  HTML, and author-submitted controlled web snapshots, and complete
+  Section/Block/Chunk authority for all formats.
 - Add evidence-linked reference projections, BCP 47 source/unit/span language,
   CJK and word FTS filters, locations, permissions, import rebuild, and
   malicious/damaged/mixed-language fixture coverage.
 
 ### NS-605: Library catalog and cross-language retrieval
 
-- Add rebuildable cross-Series catalog only for proven Library query needs.
+- Add explicit multi-Research-Database queries that open isolated indexes and
+  merge labeled results without merging authority or permissions. Add a
+  rebuildable discovery catalog only for proven performance needs.
 - Select and document the vector engine after benchmark, packaging, license,
   extension-security, cancellation, and deletion tests.
 - Add multilingual capability metadata and fixture validation to Embedding
@@ -741,9 +757,13 @@ Provisional acceptance targets:
   provenance explicit. No model or translation Provider is selected silently.
 
 Each implementation task requires its own task and acceptance record. NS-602
-implements the first kernel, atomic replacement, and TXT/Markdown source slice;
-the richer source ledger, text analyzer, complete format pipeline, library
-catalog, and cross-language retrieval remain NS-603 through NS-605 work.
+implements the first Series index kernel, atomic replacement, and legacy
+Series-owned TXT/Markdown source slice. ADR-0019 changes the later Research
+topology: isolated database authority belongs to NS-603, formats/chunks and
+original-language Reference search belong to NS-604, and explicit multi-database
+plus cross-language retrieval belongs to NS-605. Remaining Series novel-text
+projection normalization is scoped separately after this author-prioritized
+Research path.
 
 ## 20. Acceptance Blueprint
 
