@@ -98,6 +98,7 @@ interface CodexDraftResolutionState {
 }
 
 export interface ReferenceWorkshopWorkspaceProps {
+  modelProfilesRevision?: number;
   onActiveSessionChange?: (sessionId: string | null) => void;
   onOpenProviderSettings?: (sessionId: string | null) => void;
   onOpenProposal?: (proposalId: string) => void;
@@ -224,6 +225,7 @@ export function ReferenceWorkshopWorkspace(props: ReferenceWorkshopWorkspaceProp
 }
 
 function ConnectedReferenceWorkshopWorkspace({
+  modelProfilesRevision = 0,
   onActiveSessionChange,
   onOpenProviderSettings,
   onOpenProposal,
@@ -749,12 +751,7 @@ function ConnectedReferenceWorkshopWorkspace({
       ]);
       if (!currentSeriesRequest(targetSeriesId, seriesGeneration)) return;
       replaceSessions(() => nextSessions);
-      setModelProfiles(profiles);
-      const currentProfile = profiles.find((profile) => profile.id === selectedModelProfileId && !profile.archivedAt) ??
-        profiles.find((profile) => !profile.archivedAt) ?? null;
-      setSelectedModelProfileId(currentProfile?.id ?? null);
-      setSelectedModelDescriptor(null);
-      setDescriptorProfileId(null);
+      applyModelProfiles(profiles);
       const preferredSession = nextSessions.find((item) => item.id === activeSessionIdRef.current) ??
         nextSessions.find((item) => item.status === "active") ?? nextSessions[0] ?? null;
       activateSession(preferredSession?.id ?? null);
@@ -763,6 +760,15 @@ function ConnectedReferenceWorkshopWorkspace({
     } finally {
       if (currentSeriesRequest(targetSeriesId, seriesGeneration)) setLoading(false);
     }
+  }
+
+  function applyModelProfiles(profiles: ModelProfile[]) {
+    setModelProfiles(profiles);
+    setSelectedModelProfileId((currentId) => profiles.find(
+      (profile) => profile.id === currentId && !profile.archivedAt,
+    )?.id ?? profiles.find((profile) => !profile.archivedAt)?.id ?? null);
+    setSelectedModelDescriptor(null);
+    setDescriptorProfileId(null);
   }
 
   useEffect(() => {
@@ -832,6 +838,28 @@ function ConnectedReferenceWorkshopWorkspace({
     if (seriesId) void loadWorkshop(seriesId, seriesGeneration);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seriesId]);
+
+  useEffect(() => {
+    if (!seriesId || modelProfilesRevision === 0) return;
+    const targetSeriesId = seriesId;
+    const seriesGeneration = seriesGenerationRef.current;
+    let cancelled = false;
+    void api.ai.listModelProfiles()
+      .then((profiles) => {
+        if (cancelled || !currentSeriesRequest(targetSeriesId, seriesGeneration)) return;
+        applyModelProfiles(profiles);
+      })
+      .catch((caught) => {
+        if (!cancelled && currentSeriesRequest(targetSeriesId, seriesGeneration)) {
+          setError(apiErrorMessage(caught));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Model Profiles are library-global and may change while Workshop remains mounted but hidden.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelProfilesRevision, seriesId]);
 
   useEffect(() => {
     if (!requestedSessionId || requestedSessionId === activeSessionIdRef.current) return;

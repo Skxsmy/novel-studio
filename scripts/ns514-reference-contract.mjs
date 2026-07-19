@@ -246,7 +246,8 @@ function extractSurface(document, definition) {
 }
 
 export function buildReferenceContract(referencePath = REFERENCE_PATH) {
-  const html = readFileSync(referencePath, "utf8");
+  // The frozen reference identity follows Git's LF content, independent of Windows checkout conversion.
+  const html = readFileSync(referencePath, "utf8").replace(/\r\n?/gu, "\n");
   const dom = new JSDOM(html);
   const { document } = dom.window;
   const prototype = document.querySelector(".prototype");

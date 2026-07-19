@@ -5,7 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReferenceReplica, WorkshopProviderSettingsBridge } from "./ReferenceReplica";
 import { getReferenceRuntimeText } from "./reference-source";
-import { omitCodexReferenceRuntime, omitOverviewReferenceRuntime, omitSettingsReferenceRuntime, omitWorkshopReferenceRuntime, omitWriteReferenceRuntime } from "./useReferenceRuntime";
+import {
+  omitCodexReferenceRuntime,
+  omitOverviewReferenceRuntime,
+  omitProjectReferenceRuntime,
+  omitSettingsReferenceRuntime,
+  omitWorkshopReferenceRuntime,
+  omitWriteReferenceRuntime,
+} from "./useReferenceRuntime";
 
 function signature(element: Element) {
   return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${[...element.classList].map((name) => `.${name}`).join("")}${element.hasAttribute("hidden") ? "[hidden]" : ""}`;
@@ -21,6 +28,14 @@ afterEach(() => {
 });
 
 describe("NS-514 P3/P4 reference replica", () => {
+  it("omits fixture project creation when the connected project library owns creation and selection", () => {
+    const runtime = omitProjectReferenceRuntime(getReferenceRuntimeText());
+    expect(runtime).not.toContain('const trigger = document.getElementById("project-library-button");');
+    expect(runtime).not.toContain("function addCreatedSeries(title, volume)");
+    expect(runtime).not.toContain('createButton.textContent = "Creating…"');
+    expect(runtime).toContain('const root = document.getElementById("overview-workspace");');
+  });
+
   it("omits fixture Overview behavior when the connected Overview owns its interactions", () => {
     const runtime = omitOverviewReferenceRuntime(getReferenceRuntimeText());
     expect(runtime).not.toContain('const root = document.getElementById("overview-workspace");');
@@ -65,6 +80,23 @@ describe("NS-514 P3/P4 reference replica", () => {
     expect(runtime).not.toContain('document.getElementById("st7-add-connection").addEventListener');
     expect(runtime).toContain('const root = document.getElementById("plan-workspace");');
     expect(runtime).toContain('const trigger = document.getElementById("project-library-button");');
+  });
+
+  it("composes connected runtime omissions without leaving fixture workspace scripts", () => {
+    const withoutCodex = omitCodexReferenceRuntime(getReferenceRuntimeText());
+    const withoutWorkshop = omitWorkshopReferenceRuntime(withoutCodex);
+    const withoutWrite = omitWriteReferenceRuntime(withoutWorkshop);
+    const withoutProject = omitProjectReferenceRuntime(withoutWrite);
+    const withoutOverview = omitOverviewReferenceRuntime(withoutProject);
+    const withoutSettings = omitSettingsReferenceRuntime(withoutOverview);
+    const withInitialWorkspace = withoutSettings.replace('let lastDesignedWorkspace = "Codex";', 'let lastDesignedWorkspace = "Overview";');
+    expect(withInitialWorkspace).not.toContain('const root = document.getElementById("write-workspace");');
+    expect(withInitialWorkspace).not.toContain('const trigger = document.getElementById("project-library-button");');
+    expect(withInitialWorkspace).not.toContain('const root = document.getElementById("overview-workspace");');
+    expect(withInitialWorkspace).not.toContain('const root = document.getElementById("settings-workspace");');
+    expect(withInitialWorkspace).not.toContain('const root = document.getElementById("workshop-workspace");');
+    expect(withInitialWorkspace).not.toContain("const entries = {");
+    expect(withInitialWorkspace).toContain('const root = document.getElementById("plan-workspace");');
   });
 
   it("keeps real Model connections visible and provides a return to the exact Workshop session", async () => {

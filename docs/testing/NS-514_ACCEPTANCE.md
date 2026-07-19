@@ -28,10 +28,10 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-514-A10 | passed | explicit user manual | `P4 author reference-replica visual review` | Passed by the author's 2026-07-15 direction to start P5 after the audit phase and gate were restated |
 | NS-514-A11 | passed | automated/source | `tests/docs/ns-514-reference-audit.test.mjs` — `accounts for every manifest control exactly once` | Passed; all 368 binding controls appear once with node, state/interaction, frontend/API candidate, proposed disposition, structural fit, and pending author decision |
 | NS-514-A12 | passed | automated/manual | `tests/docs/ns-514-reference-audit.test.mjs` — `accounts for every inventoried runtime capability exactly once` plus pre-NS-514 source review | Passed; 80 unique reachable `api.*` methods and 21 frontend-local capabilities appear once; 33 absent and 14 partial gaps are explicit; six handlerless old buttons and one disabled command placeholder are excluded with reasons |
-| NS-514-A13 | in_progress | automated test | focused approved-mapping tests plus production-fixture exclusion regression | Write, Codex, Workshop, and Settings now use real runtime data and results with their fixture handlers excluded. The shared `New Series` dialog still reports a local fixture result without calling the Series creation API, so this broader gate remains open |
+| NS-514-A13 | passed | automated/browser/API | `ConnectedProjectLibrary.test.tsx`; `ReferenceReplica.test.tsx`; full Web suite; isolated empty-library browser path | Production omits the reference project fixture handler. `New Series` calls the real Series API, selects the created authority, lists other real Series for switching, and exposes real failures. From an empty isolated library, real Chrome created two Series, switched back to the first, then created a Codex Entry, Workshop Chat session, and Ollama Model Profile; API reads and authority files confirmed every result |
 | NS-514-A14 | passed | automated test | affected existing safety tests plus exact new mapping regressions | Passed: revision, confirmation, atomic authority, Provider, cancellation, context, destructive-history, archived-read-only, and credential boundaries remain covered after the approved Write, Codex, Workshop, and Settings mappings |
-| NS-514-A15 | planned | automated/source | focused/full commands, docs/link checks, diff and repository-state ledger | Pending P7 |
-| NS-514-A16 | manual_pending | explicit user manual | `P7 final author visual acceptance` | Awaiting completed approved integration; diagnostics cannot pass this gate |
+| NS-514-A15 | passed | automated/source | focused/full commands, docs/link checks, diff and repository-state ledger | Passed: 486 repository tests, all-workspace typecheck, complete production build, 11 NS-514 documentation tests, 164-file documentation check, 2 real-Chrome E2E tests, and final repository inspection |
+| NS-514-A16 | manual_pending | explicit user manual | `P7 final author visual acceptance` | Awaiting explicit author acceptance; diagnostics and automated browser results cannot pass this gate |
 | NS-514-A17 | passed | automated test | `ReferenceWriteWorkspace.test.tsx` — `connects real Write data and the complete NovelEditor without fixture manuscript claims` | Passed with real hierarchy/Scene content/counts, effective block-aware Canon Description preview, and no binding fixture manuscript claim |
 | NS-514-A18 | passed | automated test | `useProjectSession.test.tsx` — exact retry and conflict cases; connected Write status assertion | Passed: one initial request plus three delayed retries, stable Failed, next-edit restart, no conflict retry, and one animated live status slot |
 | NS-514-A19 | passed | automated test | `ReferenceWriteWorkspace.test.tsx` — `manages Story changes from the Scene page without adding an editor insertion control` and `renders Story Change as a labeled Write surface while preserving its legacy actions`; existing `AppShell.test.tsx` — `creates edits collapses and deletes write progression blocks` | Passed: Add remains in the Scene page heading and calls the real block API; the replacement uses a labeled Write-only Story Change surface and sidebar index; edit/collapse/resize/reorder/focus/confirmed delete continue through the retained NovelEditor node path. The first visual treatment was author-rejected, and A16 remains pending for the replacement |
@@ -51,10 +51,12 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-514-A33 | passed | contract/Provider/server/Web/browser | Exact-model capability, version 2 preference persistence, separate model/runtime/Provider entries, no-invented-options, Settings return, credential-boundary cases, and partial-update preservation named in the active task | Passed: exact-model preferences and partial updates remain valid; Workshop keeps separate model, runtime-options, and Provider-settings entries; the Provider-settings path now opens the real Model connections editor and returns to the same Workshop session without exposing stored credentials |
 | NS-514-A34 | passed | Web/server integration | `apps/web/src/features/workshop/ReferenceWorkshopWorkspace.test.tsx` — `keeps Not now local and reopens the unchanged pending tool request` and `reviews and confirms the exact pending tool request without bypassing server validation`; existing `apps/server/test/workshop-routes.test.ts` exact tool-execution validation cases | Passed: `Not now` closes and reopens the unchanged durable request without an API mutation; Confirm and run remains the only execution path, requires the exact server-owned payload, preserves atomic Codex validation, and holds the session activity boundary through Agent continuation |
 | NS-514-A35 | passed | contract/storage | ADR-0017 Model Profile, Model Call Log, Workshop Message, Workshop Agent Run, Workshop Context Basket, and Context Bundle version 1 compatibility; version 2 write; hierarchy-preserving projection; exact rollback backup; damaged input; and changed-target refusal cases named in the active task | Passed: version 1 reads do not invent reasoning or cancellation history; version 2 writes persist normalized parameters, output kind, cancelled state, public hierarchy kinds, and internal `book` evidence; exact rollback artifacts restore version 1 bytes; damaged sources and changed targets are rejected without partial rewrites |
-| NS-514-A36 | passed | Web/browser integration | `apps/web/src/features/settings/ReferenceSettingsWorkspace.regression-1.test.tsx` — `uses real model profiles and credential controls without fixture connection data`; `apps/web/src/app/ReferenceReplica.test.tsx` — `omits fixture Settings behavior when real model connections own the page` and `keeps real Model connections visible and provides a return to the exact Workshop session`; browser Settings recovery path inside `tests/e2e/ns-514-workshop-context-regression.spec.ts` | Passed: the connected Settings page loads and mutates real model profiles, reads only credential existence, saves or replaces and deletes credentials through the credential API, discovers models, tests connections, confirms archive, omits fixture handlers, and returns to the exact originating Workshop session |
+| NS-514-A36 | passed | Web/browser integration | `ReferenceSettingsWorkspace.regression-1.test.tsx` distinct-create and credential cases; `ReferenceWorkshopWorkspace.regression-1.test.tsx` live-refresh and two-profile chooser cases; `ReferenceReplica.test.tsx` fixture/runtime omission and exact return cases; both real-Chrome cases in `ns-514-workshop-context-regression.spec.ts` | Passed: two Settings creates issue two profile-create calls and retain distinct IDs, names, Providers, and exact models; the compact master-detail UI separates `Add connection` from `Save changes`; create/update/key deletion/archive refresh mounted Workshop without reload while preserving a valid selection; the chooser exposes every active profile; credential secrets remain outside project files and UI responses |
 | NS-514-A37 | passed | Web/server/browser integration | `apps/web/src/features/workshop/ReferenceWorkshopWorkspace.regression-1.test.tsx` — `keeps non-model Workshop controls usable without a configured model` and `preserves Shift Enter newlines and sends with Enter after model selection`; `tests/e2e/ns-514-workshop-context-regression.spec.ts` — `selects context in Workshop and proves the sent Context Bundle contains it` | Passed: Web regressions keep session, draft, multiline, attachment, and context controls usable with no model while disabling only model calls; real Chrome selected `Full Outline`, sent through Mock, then proved the persisted assistant-call Context Bundle contains the manually selected `full-outline` item for the same Series and that the prompt-audit export contains it |
 | NS-514-A38 | passed | storage/browser integration | `packages/storage/test/workshop.test.ts` — `isolates a routeable schema-invalid Workshop message to its owning session`; `tests/e2e/ns-514-workshop-context-regression.spec.ts` mixed-session legacy case; normal-library real-Chrome coordinate clicks | Passed: the reader validates a message's Series and session routing identity before filtering, then fully validates only messages owned by the requested session. The isolated real-Chrome test includes a separate `codex-creation` message and still clicks the composer controls through the full context chain. Against the normal library, `New chat` loaded with Context, model selection, attachment, and message editor all enabled; coordinate clicks opened both popovers and focused the editor with no Workshop 4xx response. The owning damaged session still returns `INVALID_DATA`, and the regression proves the file is not rewritten. |
 | NS-514-A39 | passed | Web/browser integration | Focused connected Overview, initial-workspace, fixture-runtime exclusion, and real-Chrome navigation cases named in the active task | Passed: Overview preserves every approved region in its loaded-Series state; current Series, Volume, selected Scene, hierarchy, counts, progress, update times, planning divergence, and pending Proposal count replace the fixture claims; Continue writing, Continue Scene, and recent Scene rows open the real selected Scene; the shared project switch uses the same real Series identity; missing word targets and continuity analysis remain honest; the fixture Overview runtime is absent; and real Chrome opens on Overview with no browser error. A16 remains the separate visual-acceptance gate. |
+| NS-514-A40 | passed | server/real-provider/API | Four exact Workshop route regressions plus the saved DeepSeek profile author-session ledger below | Passed: author-only durable guidance survives 44 messages; parsed attachments persist; natural source-lock feedback removes old Assistant candidates from later provider input until the author explicitly relaxes the limit; General Chat and Agent rules preserve corrections and scope; malformed native tool quotes are repaired before Zod validation; an identical post-success tool replay is suppressed while a distinct second tool still requires confirmation. Real calls completed the premise, Scene revision, 12-round character arc, 19-round ending branch, cancellation/recovery, discard/delete, and Agent create/update workflows without exposing the credential. |
+| NS-514-A41 | passed | script/manual process | PowerShell parser, idempotent stopped-state commands, and attached-service stop under the held mutex | Passed: parser reported no errors; two consecutive `-Stop` calls returned success while stopped; a live `-Wait` service was stopped by PID while its parent held the startup mutex; repeated build/restart cycles no longer reproduced `Another Novel Studio startup is already in progress`. |
 
 Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 `blocked`, `not_applicable`.
@@ -69,8 +71,28 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 | P3 isolated workspaces | passed | A07-A08 passed |
 | P4 assembled replica | passed | A09 automated evidence and explicit author gate A10 passed |
 | P5 control/capability audit | passed | A11-A12 passed; all 469 decision rows remain `pending_author` |
-| P6 approved integration | in_progress | A14 and A17-A39 pass. A13 remains open because the shared `New Series` dialog still uses a local fixture result; final author visual review is tracked separately by A16 |
-| P7 final verification | planned | A15 plus explicit user gate A16 |
+| P6 approved integration | passed | A13-A14 and A17-A41 pass; final author visual review remains a separate P7 gate under A16 |
+| P7 final verification | in_progress | Automated A15 passed; explicit user gate A16 remains `manual_pending` |
+
+## A13 Creation Recovery Evidence
+
+- `npm.cmd run test -w @novel-studio/web -- --run src/app/ConnectedProjectLibrary.test.tsx src/app/ReferenceReplica.test.tsx --reporter=dot`: 2 files, 12 tests passed.
+- `npm.cmd run typecheck -w @novel-studio/web`: passed.
+- Latest `npm.cmd run test -w @novel-studio/web`: 19 files, 176 tests passed.
+- Latest `npm.cmd run test`: 44 files and 486 tests passed across server (106), Web (176), AI (39), contracts (43), and storage (122).
+- `npm.cmd run build`: contracts, AI, storage, server, and Web production builds passed; Vite retained its existing large-chunk warning.
+- Browser verification used `data/ns514-create-regression-fixed` as a new empty library and the built server directly on `127.0.0.1:4317`. The UI created `Browser Zero Series` and `Browser Second Series`, rendered the inactive Series as a real `Open` choice, and switched back to `Browser Zero Series`.
+- In the selected UI-created Series, the UI created Codex Entry `Zero Library Character` and Workshop session `New chat`. Settings created library-global Model Profile `Zero Library Ollama` (`ollama`, `llama3.1`). API reads returned two Series and one object in each of those three collections, while JSON authority files existed in the Series and library `.studio` roots.
+- Desktop diagnostic inspection showed the project menu, current Series, alternate Series, and New Series command without overlap. This is implementation evidence only and does not pass A16.
+
+## A40 Real Author Workshop Evidence
+
+- The saved DeepSeek profile was read through the normal credential reference and tested without reading, copying, logging, or exporting the secret. Connection discovery and the real Provider request path succeeded.
+- Seven writing problems were taken to a decision or completed artifact instead of being sampled for one or two turns: premise (5 author rounds), opening Scene (5), attached-source character arc (12), branched ending choice (19), stopped-stream recovery (7), discard/delete decision (4), and an Agent Codex create/update workflow with eight author decisions plus explicit retry and confirmation steps.
+- The workflow exercised attachment parsing, Context Basket selection, branch and rename, edit/resend, prompt-audit export, archive/restore, stream cancellation, permanent session deletion, native tool repair, mapping five new Character detail types, duplicate execution rejection, and in-place Research update of the same Entry.
+- The provider repeatedly invented details during the long character session. Natural corrections were therefore promoted to session policy: author messages and parsed attachments are collected beyond the recent 40-message display window; source-lock feedback removes prior Assistant candidates from later Provider context until the author explicitly allows free supplementation; Assistant proposals remain labeled non-canon; and accepted or rejected choices persist until the author changes them.
+- The Agent emitted invalid JSON with unescaped quotation marks, repeated a successful update after continuation, and initially supplied repeated Research content to append semantics. The parser repair, successful-tool replay guard, and append-only tool guidance were added and covered by focused regressions.
+- The in-app Browser control rejected a post-reload navigation under its URL security policy, so no post-reload visual acceptance is claimed from that tool. The isolated Playwright Chrome regression still passed both Workshop Context Bundle and compact two-profile Settings paths; A16 remains open for the author's visual decision.
 
 ## Required Commands
 
@@ -97,9 +119,9 @@ git diff --check
 | Rejected attempt leaks into restart | Tracked and untracked Web-file scans | No rejected NS-514 runtime file exists before new implementation | P0 passed |
 | Unrelated work is overwritten | Dirty worktree contains user edits/deletions and `.hermes/plans/` | Every unrelated path remains byte-for-byte outside NS-514 patches | P0 inventory captured; final proof pending |
 | Reference drift | Tracked blob and SHA-256 change without approved design update | Contract test fails and task records an explicit reference decision | P0 hash captured; P1 test planned |
-| Fixture claims appear as project truth | Reference counts/story names rendered in production mode | Production-fixture exclusion test fails; UI uses real data or honest unavailable state | A13 planned |
+| Fixture claims appear as project truth | Reference counts/story names rendered in production mode | Production-fixture exclusion test fails; UI uses real data or honest unavailable state | A13 passed |
 | Old capability is silently removed | Capability has no reference control | P5 gap inventory records impact/options and requires author disposition | A12 passed; 33 absent and 14 partial rows recorded |
-| Unsupported reference action appears real | Reference JavaScript simulates success without a backend | Production control remains disabled/local-only or is connected to a real result/error | A11 passed for classification; A13 remains planned for P6 production behavior |
+| Unsupported reference action appears real | Reference JavaScript simulates success without a backend | Production control remains disabled/local-only or is connected to a real result/error | A11 passed for classification; A13 passed for P6 production behavior |
 | Existing authority safety is bypassed | Connected semantic/destructive action | Existing Proposal/Grant/revision/snapshot/atomic confirmation path remains mandatory | A14 planned |
 | Narrow viewport hides required navigation | Declared compact breakpoints and long labels | Structure follows the reference contract, remains keyboard reachable, and does not fabricate a mobile editor | A06/A08 planned |
 | Diagnostic evidence is mistaken for acceptance | Builds, DOM checks, or visual diagnostics pass | A10/A16 remain `manual_pending` until explicit author decisions are recorded | Enforced in matrix |
@@ -220,7 +242,10 @@ git diff --check
   model state with a working Model connections route.
 - `tests/e2e/ns-514-workshop-context-regression.spec.ts` uses a unique isolated
   project library. It first proves the zero-model state and the real Settings
-  return path, then creates a local Mock profile, selects `Full Outline` through
+  return path, creates two independent Ollama profiles through Settings, and
+  proves both exact models appear in Workshop without a reload. A local Mock
+  profile then supports the deterministic context call: the test selects
+  `Full Outline` through
   the visible Workshop context control, sends with Enter, waits for the real
   stream, reads the persisted assistant-call Context Bundle, and verifies the
   same manually selected `full-outline` item and Series source in both the JSON
@@ -242,17 +267,31 @@ git diff --check
   normal-library interactivity. A38 passed after the reader was corrected and
   both the isolated mixed-session regression and the normal-library coordinate
   clicks succeeded without rewriting project authority.
+- The later multi-profile repair replaces the horizontal connection strip and
+  undifferentiated action row with a responsive connection browser and one
+  focused editor. Connection rows expose name, Provider, and exact model;
+  existing rows use `Save changes`, while a cleared editor uses `Add
+  connection`. Credential-only actions appear with the credential field. A
+  1280-pixel diagnostic pass switched `Primary Ollama / llama3.1` to
+  `Secondary Ollama / qwen2.5`; a 700-pixel real-Chrome pass retained both long
+  rows without clipping and kept the editor below the connection browser.
+- Connecting the real Project Library exposed an independent runtime-composition
+  defect: removing the Project fixture before the Write fixture left the old
+  Write script active against the connected DOM. The omission chain now follows
+  its marker dependencies (`Codex -> Workshop -> Write -> Project -> Overview ->
+  Settings`), with a focused source regression and zero page errors in the final
+  browser run.
 
 | Recovery path | Actual result |
 | --- | --- |
 | No model configured | Message drafting, Shift+Enter multiline input, context selection, attachment selection, new conversation, Branch, eligible Delete turn, and session lifecycle remain available; Send, model options, Edit and resend, and Resend are disabled with an explanation |
-| Settings recovery | `Open Model connections` reaches the real editor; connection name, Provider, model, Base URL, context window, credential status, save, test, model discovery, credential deletion, and confirmed archive use the real APIs; unsupported Settings pages retain their structure with controls disabled |
-| Return path | `Return to Workshop` restores the exact originating session |
+| Settings recovery | `Open Model connections` reaches the real editor; two creates retain two distinct profile IDs and list rows; selecting either row restores its exact Provider and model; connection name, Base URL, context window, credential status, save, test, model discovery, credential deletion, and confirmed archive use the real APIs; unsupported Settings pages retain their structure with controls disabled |
+| Return path | `Return to Workshop` restores the exact originating session and immediately exposes both newly saved models without a page reload |
 | Context selection | The visible context count changes from zero to one after the successful real context-basket `PUT` |
 | Sent context proof | The persisted assistant-call Context Bundle contains `kind: full-outline`, `manuallySelected: true`, and the exact Series source selected through the interface; the prompt-audit export contains the same item |
 | Mixed-session compatibility | A separate routeable version 1 `codex-creation` message no longer blocks the valid session. The damaged message's owning session still returns `INVALID_DATA`, and its exact source bytes remain unchanged |
 | Normal-library interaction | In `New chat`, Context, model selection, attachment, and the message editor all reported `disabled: false`; coordinate clicks opened the Context and model popovers and focused the editor; no Workshop request returned 4xx |
-| Browser diagnostics | Real Chrome completed with no captured console errors or page errors |
+| Browser diagnostics | Real Chrome completed both desktop workflow and 700-pixel compact Settings cases with no captured console errors or page errors; screenshots are diagnostic and do not pass A16 |
 
 ## Run Ledger
 
@@ -359,6 +398,15 @@ git diff --check
 | 2026-07-18 | A39 isolated browser library and production build | `npm.cmd run test:e2e:quick -- tests/e2e/ns-514-overview.spec.ts tests/e2e/ns-514-reference-structure.spec.ts --project=chrome --workers=1` | Both real-Chrome tests passed 2/2. The first proved initial Overview, real Series/Volume/Scene identity, no visible Overview or project-switch fixture claim, disabled continuity analysis, and both selected-Scene navigation paths with zero browser errors. The second preserved desktop, compact, and narrow reference geometry for the connected Overview structure. Diagnostic screenshots were visually inspected and do not claim author acceptance |
 | 2026-07-18 | A39 Overview evidence worktree | `npm.cmd run docs:check`; `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs`; scoped `git diff --check` | Documentation passed for 118 Markdown files; all 11 governance, reference-contract, and reference-audit tests passed; scoped diff check passed with only existing line-ending conversion warnings |
 | 2026-07-18 | branch `codex/ns-410-json-authority` | explicit task-only staging review; `git commit -m "NS-514 feat(overview): connect reference workspace"`; post-commit repository inspection | Created implementation commit `64b7ef0` with exactly 15 A39 implementation, test, product, task, status, changelog, and acceptance files and no deletion. Existing `HANDOFF.md`, NS-507 acceptance, design-directory deletions and README edit, `.hermes/plans/`, and `.playwright-cli/` remain outside the commit |
+| 2026-07-18 | multi-profile Settings/Workshop worktree | `npm.cmd run test -w @novel-studio/web -- src/app/ReferenceReplica.test.tsx src/features/settings/ReferenceSettingsWorkspace.regression-1.test.tsx src/features/workshop/ReferenceWorkshopWorkspace.regression-1.test.tsx`; `npm.cmd run typecheck -w @novel-studio/web` | Passed 3 files and 16 tests plus Web typecheck. Coverage proves two distinct create calls and IDs, credential mutation notification, mounted-Workshop refresh, both chooser entries, and dependency-ordered fixture-runtime omission |
+| 2026-07-18 | `data/ns514-model-sync-regression`, built app on `127.0.0.1:4327` | Real browser creation of `Primary Ollama / llama3.1` and `Secondary Ollama / qwen2.5`; Settings-to-Workshop return without reload; direct Model Profile API read | Settings retained both rows; the API returned two distinct IDs; Workshop immediately displayed both radio choices and switched to `qwen2.5`. The normal `data/library` service on port 4317 was not modified or stopped |
+| 2026-07-18 | final multi-profile browser worktree | `npm.cmd run test:e2e:quick -- tests/e2e/ns-514-workshop-context-regression.spec.ts` | Passed 2/2 in real Chrome: the desktop path created two Settings profiles, returned without reload, exposed both exact models, and completed the persisted context chain; the 700 by 900 compact path retained long connection rows, distinct selection, and the new-editor state with no captured browser errors. One earlier compact rerun had a transient Chrome target crash before navigation; the bounded rerun passed |
+| 2026-07-18 | final integrated worktree | `npm.cmd run test`; `npm.cmd run typecheck --workspaces --if-present`; `npm.cmd run build` | Passed 44 files and 486 tests across Server 106, Web 176, AI 39, Contracts 43, and Storage 122; every workspace typecheck passed; the complete production build passed with only the existing Vite chunk-size advisory |
+| 2026-07-18 | final documentation worktree | `npm.cmd run docs:check`; `node --test tests/docs/docs-check.test.mjs tests/docs/ns-514-reference-contract.test.mjs tests/docs/ns-514-reference-audit.test.mjs` | Documentation links and governance passed for 164 Markdown files; all 11 documentation, reference-contract, and audit tests passed. The first combined reference run exposed a Windows CRLF parser defect that changed the raw hash and made JSDOM script offsets invalid; `ns514-reference-contract.mjs` now canonicalizes checkout text to the frozen Git LF identity without changing the binding reference or snapshots |
+| 2026-07-18 | saved-profile author workflow | Normal Workshop HTTP and stream APIs with the saved DeepSeek profile; no credential read or export | Completed seven multi-round author problems, including a 12-round source-bound character session and 19-round ending branch. Exercised branch, edit/resend, export, archive/restore, cancellation/recovery, discard/delete, attachment, context, Agent create/update, confirmation, duplicate rejection, retry, and abandon paths. Findings and fixes are listed under A40 |
+| 2026-07-18 | focused durable-correction worktree | `npm.cmd run test -w @novel-studio/server -- workshop-routes.test.ts` | Passed 1 file and 52 tests. New regressions prove malformed native quote repair, persistent attachments and source lock, author guidance after 44 messages, and suppression of identical successful-tool replay while preserving distinct follow-up confirmation |
+| 2026-07-18 | final browser worktree | `npm.cmd run test:e2e:quick -- tests/e2e/ns-514-workshop-context-regression.spec.ts --project=chrome --workers=1` | Passed 2/2 in 5.5 seconds: the sent Context Bundle contained the selected Workshop source, and compact Settings kept two distinct Model connections. The separate in-app Browser post-reload call was URL-policy blocked and is not claimed as visual evidence |
+| 2026-07-18 | final repository review | `git status --short --branch`; `git diff --check`; temporary-library, PID, and process inspection | Branch `codex/ns-514-overview` retains the listed uncommitted NS-514 implementation, test, and record changes. Only the pre-existing `data/library/` remains under untracked `data`; the temporary attachment directory, isolated libraries, PID file, and local service were removed. A16 remains open |
 
 ## P0 Recovery Evidence
 
@@ -378,7 +426,7 @@ git diff --check
 
 ## Current Repository State
 
-- Branch: `codex/ns-410-json-authority`.
+- Branch: `codex/ns-514-overview`.
 - Starting commit: `27d0c10 NS-510 docs(workshop): record closure evidence`.
 - Write implementation baseline: `e62315a NS-514 feat(ui): rebuild reference shell and connect Write`.
 - Codex implementation commit: `c4dd028 NS-514 feat(codex): connect approved reference workspace`.
@@ -391,10 +439,8 @@ git diff --check
   `ae7452b` isolates
   message validation to the requested session and closes the normal-library
   interaction failure with storage, mixed-session browser, and coordinate-click
-  evidence. NS-514 remains in progress because the shared `New Series` fixture
-  keeps A13 open, P7 remains pending, and the explicit A16 author visual gate
-  remains open.
-- Unrelated preserved files: existing `HANDOFF.md` and
-  `docs/testing/NS-507_ACCEPTANCE.md` edits; existing
-  `docs/design/ui-redesign/` deletions and `README.md` edit; untracked
-  `.hermes/plans/`.
+  evidence. The current worktree adds the connected Project Library plus the
+  multi-profile Settings and Workshop synchronization repair. NS-514 remains in
+  progress because the explicit A16 author visual gate remains open.
+- Current task changes remain uncommitted; no unrelated tracked or untracked
+  path appears in the final status inventory.

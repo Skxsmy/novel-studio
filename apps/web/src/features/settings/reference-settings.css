@@ -12,6 +12,123 @@
   order: 0;
 }
 
+.st7-connected-settings > .st7-page-head {
+  min-height: 0;
+  margin-bottom: 24px;
+}
+
+.st7-connected-settings .st7-page-head > div,
+.st7-connected-settings .st7-section-head > div,
+.st7-connected-settings .st7-inline-status > div {
+  min-width: 0;
+}
+
+.st7-connection-workspace {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+  gap: 26px;
+}
+
+.st7-connection-browser {
+  min-width: 0;
+  padding-right: 24px;
+  border-right: 1px solid #c9d2cc;
+}
+
+.st7-connection-browser-head {
+  align-items: center;
+}
+
+.st7-connection-browser-head .st7-button {
+  min-height: 36px;
+  flex: 0 0 auto;
+  padding-inline: 10px;
+}
+
+.st7-connected-settings .st7-connection-list {
+  display: grid;
+  gap: 6px;
+  overflow: visible;
+  padding: 0;
+}
+
+.st7-connected-settings .st7-connection {
+  width: 100%;
+  min-width: 0;
+  min-height: 68px;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: start;
+  padding: 11px 12px;
+}
+
+.st7-connected-settings .st7-connection .st7-dot {
+  margin: 6px 0 0;
+}
+
+.st7-connected-settings .st7-connection-copy {
+  min-width: 0;
+  margin: 0;
+}
+
+.st7-connected-settings .st7-connection-copy strong {
+  font-size: 14px;
+}
+
+.st7-connected-settings .st7-connection-copy .st7-connection-provider {
+  margin-top: 5px;
+  color: #4f5c55;
+  font-weight: 680;
+}
+
+.st7-connected-settings .st7-connection-copy .st7-connection-model {
+  overflow: hidden;
+  margin-top: 2px;
+  color: #737e78;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st7-connection-editor {
+  min-width: 0;
+}
+
+.st7-editor-head {
+  min-height: 52px;
+}
+
+.st7-connected-settings .st7-form-grid > .wide {
+  grid-column: 1 / -1;
+}
+
+.st7-key-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -4px;
+}
+
+.st7-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #d5dcd7;
+}
+
+.st7-editor-primary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.st7-archive-confirm {
+  margin-top: 14px;
+}
+
 .st7-connection-empty,
 .st7-model-empty {
   display: block;
@@ -30,4 +147,38 @@
 
 .workshop-provider-settings-bridge {
   order: -1;
+}
+
+@media (max-width: 900px) {
+  .st7-connection-workspace {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  .st7-connection-browser {
+    padding: 0 0 22px;
+    border-right: 0;
+    border-bottom: 1px solid #c9d2cc;
+  }
+
+  .st7-connected-settings .st7-connection-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .st7-connected-settings .st7-connection-list {
+    grid-template-columns: 1fr;
+  }
+
+  .st7-editor-actions,
+  .st7-connected-settings .st7-inline-status {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .st7-editor-primary-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
 }

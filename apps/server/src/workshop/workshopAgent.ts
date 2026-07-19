@@ -39,7 +39,9 @@ export const WorkshopCodexUpdatePatchSchema = z.object({
   details: z.array(WorkshopCodexDraftDetailSchema).optional(),
   name: z.string().trim().min(1).max(200).optional(),
   progressions: z.array(WorkshopCodexProgressionDraftSchema).optional(),
-  research: z.string().trim().min(1).max(200000).optional(),
+  research: z.string().trim().min(1).max(200000).optional().describe(
+    "New Research text to append. Do not repeat or rewrite existing Research content.",
+  ),
 }).strict().refine((patch) => Object.keys(patch).length > 0, {
   message: "Codex update patch must contain at least one change",
 });
@@ -112,10 +114,58 @@ export function workshopAgentToolDefinitions(): ProviderToolDefinition[] {
   ];
 }
 
+function repairUnescapedJsonStringQuotes(value: string): string {
+  let repaired = "";
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (!inString) {
+      repaired += character;
+      if (character === '"') inString = true;
+      continue;
+    }
+    if (escaped) {
+      repaired += character;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      repaired += character;
+      escaped = true;
+      continue;
+    }
+    if (character !== '"') {
+      repaired += character;
+      continue;
+    }
+    const nextNonWhitespace = value.slice(index + 1).match(/^\s*([,:}\]])/u)?.[1];
+    if (nextNonWhitespace) {
+      repaired += character;
+      inString = false;
+    } else {
+      repaired += '\\"';
+    }
+  }
+  return repaired;
+}
+
+function parseToolArguments(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (originalError) {
+    try {
+      return JSON.parse(repairUnescapedJsonStringQuotes(value));
+    } catch {
+      throw originalError;
+    }
+  }
+}
+
 export function parseWorkshopAgentToolCall(call: ProviderToolCall): WorkshopAgentStep {
   let rawArguments: unknown;
   try {
-    rawArguments = JSON.parse(call.arguments);
+    rawArguments = parseToolArguments(call.arguments);
   } catch (error) {
     throw new Error(`Tool ${call.name} arguments are not valid JSON: ${error instanceof Error ? error.message : "parse failed"}`);
   }

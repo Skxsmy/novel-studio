@@ -27,6 +27,7 @@ import "./reference-settings.css";
 
 export interface ReferenceSettingsWorkspaceProps {
   connected?: boolean;
+  onModelProfilesChanged?: () => void;
 }
 
 function formatError(error: unknown, fallback: string) {
@@ -53,7 +54,7 @@ function replaceProfile(profiles: ModelProfile[], profile: ModelProfile) {
     : [profile, ...profiles];
 }
 
-function ReferenceModelConnections() {
+function ReferenceModelConnections({ onModelProfilesChanged }: Pick<ReferenceSettingsWorkspaceProps, "onModelProfilesChanged">) {
   const serviceKeyInputRef = useRef<HTMLInputElement | null>(null);
   const [connectionResult, setConnectionResult] = useState<ProviderConnectionResult | null>(null);
   const [credentialStatus, setCredentialStatus] = useState<ModelProfileCredentialStatus | null>(null);
@@ -182,6 +183,7 @@ function ReferenceModelConnections() {
     setSelectedProfileId(saved.id);
     setForm(formFromProfile(status.modelProfile));
     if (serviceKeyInputRef.current) serviceKeyInputRef.current.value = "";
+    onModelProfilesChanged?.();
     return status.modelProfile;
   }
 
@@ -232,6 +234,7 @@ function ReferenceModelConnections() {
       setProfiles((current) => replaceProfile(current, result.modelProfile));
       setForm(formFromProfile(result.modelProfile));
       setResultMessage(result.deleted ? "Service key removed." : "The missing service-key reference was cleared.");
+      onModelProfilesChanged?.();
     }, "Failed to remove the service key");
   }
 
@@ -278,6 +281,7 @@ function ReferenceModelConnections() {
       setModels([]);
       setIsArchiveConfirmOpen(false);
       setResultMessage("Connection archived.");
+      onModelProfilesChanged?.();
     }, "Failed to archive the model connection");
   }
 
@@ -294,73 +298,86 @@ function ReferenceModelConnections() {
 
   const credentialExists = credentialStatus?.exists ?? Boolean(credentialProfile?.credentialRef);
   const connectionReady = connectionResult?.ok ?? (!keyRequired || credentialExists);
-  const statusLabel = isLoadingProfiles ? "Loading" : connectionReady ? "Ready" : "Needs key";
+  const statusLabel = isLoadingProfiles ? "Loading" : !form.id ? "New" : connectionReady ? "Configured" : "Needs key";
 
   return <div className="st7-connected-settings">
     <header className="st7-page-head">
       <div>
         <h2>Model connections</h2>
-        <p>Configure generation providers once for every Series in this library. Service keys remain separate from project files.</p>
+        <p>Add provider connections once, then choose any configured model in Workshop. Service keys remain separate from project files.</p>
       </div>
-      <button className="st7-button" disabled={isBusy} onClick={startNewConnection} type="button">New connection</button>
     </header>
 
-    <section className="st7-section">
-      <div className="st7-section-head"><div><h3>Connections</h3><p>Select a real library connection to edit it.</p></div></div>
-      <div aria-label="Model connections" className="st7-connection-list">
-        {isLoadingProfiles ? <span className="st7-connection-empty">Loading model connections…</span> : null}
-        {!isLoadingProfiles && profiles.length === 0 ? <span className="st7-connection-empty">No model connections configured.</span> : null}
-        {profiles.map((profile) => <button
-          aria-pressed={profile.id === selectedProfileId}
-          className={`st7-connection${profile.id === selectedProfileId ? " is-active" : ""}`}
-          key={profile.id}
-          onClick={() => selectProfile(profile)}
-          type="button"
-        >
-          <span className={`st7-dot${profile.credentialRef || !requiresServiceKey(profile.provider) ? " ready" : " draft"}`} aria-hidden="true" />
-          <span><strong>{profile.title}</strong><span>{providerLabel(profile.provider)} · {profile.model}</span></span>
-        </button>)}
-      </div>
-    </section>
-
-    <section className="st7-section">
-      <div className="st7-section-head">
-        <div><h3>{form.id ? form.title : "New connection"}</h3><p>{form.id ? "Edit the selected library-global connection." : "Complete and save this connection before using it in Workshop."}</p></div>
-        <span className={`st7-status${connectionReady ? " ready" : " attention"}`}>{statusLabel}</span>
-      </div>
-      <div className="st7-form-grid">
-        <label className="st7-field"><span>Connection name</span><input aria-label="Connection name" className="st7-input" disabled={isBusy} onChange={(event) => updateForm("title", event.target.value)} value={form.title} /></label>
-        <label className="st7-field"><span>Provider</span><select aria-label="Provider" className="st7-select" disabled={isBusy} onChange={(event) => changeProvider(event.target.value as AiProvider)} value={form.provider}>{providerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-        <label className="st7-field wide"><span>Model</span><span className="st7-input-row"><input aria-label="Model" className="st7-input" disabled={isBusy} onChange={(event) => updateForm("model", event.target.value)} value={form.model} /><button aria-expanded={isModelsExpanded} className="st7-button" disabled={isBusy} onClick={fetchModels} type="button">Browse models</button></span></label>
-        <div className="st7-models wide" hidden={!isModelsExpanded}>
-          {models.length === 0 ? <span className="st7-model-empty">No provider models returned.</span> : models.map((model) => <button className="st7-model-row" key={model.id} onClick={() => selectProviderModel(model)} type="button"><strong>{model.title}</strong><span>{model.contextWindowTokens.toLocaleString()} context</span></button>)}
+    <div className="st7-connection-workspace">
+      <aside aria-label="Saved model connections" className="st7-connection-browser">
+        <div className="st7-section-head st7-connection-browser-head">
+          <div><h3>Connections</h3><p>{profiles.length === 1 ? "1 configured connection" : `${profiles.length} configured connections`}</p></div>
+          <button className="st7-button" disabled={isBusy || !form.id} onClick={startNewConnection} type="button">New connection</button>
         </div>
-        <label className="st7-field"><span>Base URL</span><input aria-label="Base URL" className="st7-input" disabled={isBusy} onChange={(event) => updateForm("baseUrl", event.target.value)} type="url" value={form.baseUrl} /></label>
-        <label className="st7-field"><span>Context window</span><input aria-label="Context window" className="st7-input" disabled={isBusy} min={1} onChange={(event) => updateForm("contextWindowTokens", Number(event.target.value) || 1)} type="number" value={form.contextWindowTokens} /></label>
-        <label className="st7-field wide"><span>Service key</span><input aria-label="Service key" className="st7-input" disabled={isBusy || !keyRequired} placeholder={credentialProfile?.credentialRef ? "Paste a new key to replace the saved key" : "Paste service key"} ref={serviceKeyInputRef} type="password" /><small>{keyRequired ? credentialSummary(credentialProfile, credentialStatus) : "This provider does not require a service key."} The key is never written into project files or returned to this page.</small></label>
-      </div>
+        <div aria-label="Model connections" className="st7-connection-list">
+          {isLoadingProfiles ? <span className="st7-connection-empty">Loading model connections…</span> : null}
+          {!isLoadingProfiles && profiles.length === 0 ? <span className="st7-connection-empty">No model connections configured.</span> : null}
+          {profiles.map((profile) => <button
+            aria-pressed={profile.id === selectedProfileId}
+            className={`st7-connection${profile.id === selectedProfileId ? " is-active" : ""}`}
+            key={profile.id}
+            onClick={() => selectProfile(profile)}
+            title={`${profile.title} · ${providerLabel(profile.provider)} · ${profile.model}`}
+            type="button"
+          >
+            <span className={`st7-dot${profile.credentialRef || !requiresServiceKey(profile.provider) ? " ready" : " draft"}`} aria-hidden="true" />
+            <span className="st7-connection-copy">
+              <strong>{profile.title}</strong>
+              <span className="st7-connection-provider">{providerLabel(profile.provider)}</span>
+              <span className="st7-connection-model">{profile.model}</span>
+            </span>
+          </button>)}
+        </div>
+      </aside>
 
-      <div className="st7-inline-status st7-real-status">
-        <div><strong>Connection check</strong><span>{errorMessage ?? resultMessage ?? (connectionResult ? (connectionResult.ok ? "The provider and model are available." : connectionResult.error?.message ?? "The connection failed.") : "Test this saved connection to verify provider access.")}</span></div>
-        <span className={`st7-status${errorMessage || connectionResult?.ok === false ? " attention" : connectionResult?.ok ? " ready" : ""}`}>{errorMessage ? "Error" : connectionResult?.ok ? "Available" : "Not tested"}</span>
-      </div>
+      <section aria-label={form.id ? `Edit ${form.title}` : "New model connection"} className="st7-connection-editor">
+        <div className="st7-section-head st7-editor-head">
+          <div><h3>{form.id ? form.title : "New connection"}</h3><p>{form.id ? `${providerLabel(form.provider)} · ${form.model}` : "Choose a provider and model, then add this connection."}</p></div>
+          <span className={`st7-status${connectionReady && form.id ? " ready" : !form.id ? "" : " attention"}`}>{statusLabel}</span>
+        </div>
+        <div className="st7-form-grid">
+          <label className="st7-field"><span>Connection name</span><input aria-label="Connection name" className="st7-input" disabled={isBusy} onChange={(event) => updateForm("title", event.target.value)} value={form.title} /></label>
+          <label className="st7-field"><span>Provider</span><select aria-label="Provider" className="st7-select" disabled={isBusy} onChange={(event) => changeProvider(event.target.value as AiProvider)} value={form.provider}>{providerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label className="st7-field wide"><span>Model</span><span className="st7-input-row"><input aria-label="Model" className="st7-input" disabled={isBusy} onChange={(event) => updateForm("model", event.target.value)} value={form.model} /><button aria-expanded={isModelsExpanded} className="st7-button" disabled={isBusy} onClick={fetchModels} type="button">Browse models</button></span></label>
+          <div className="st7-models wide" hidden={!isModelsExpanded}>
+            {models.length === 0 ? <span className="st7-model-empty">No provider models returned.</span> : models.map((model) => <button className="st7-model-row" key={model.id} onClick={() => selectProviderModel(model)} type="button"><strong>{model.title}</strong><span>{model.contextWindowTokens.toLocaleString()} context</span></button>)}
+          </div>
+          <label className="st7-field"><span>Base URL</span><input aria-label="Base URL" className="st7-input" disabled={isBusy} onChange={(event) => updateForm("baseUrl", event.target.value)} type="url" value={form.baseUrl} /></label>
+          <label className="st7-field"><span>Context window</span><input aria-label="Context window" className="st7-input" disabled={isBusy} min={1} onChange={(event) => updateForm("contextWindowTokens", Number(event.target.value) || 1)} type="number" value={form.contextWindowTokens} /></label>
+          <label className="st7-field wide"><span>Service key</span><input aria-label="Service key" className="st7-input" disabled={isBusy || !keyRequired} placeholder={credentialProfile?.credentialRef ? "Paste a new key to replace the saved key" : "Paste service key"} ref={serviceKeyInputRef} type="password" /><small>{keyRequired ? credentialSummary(credentialProfile, credentialStatus) : "This provider does not require a service key."} The key is never written into project files or returned to this page.</small></label>
+          {keyRequired && form.id ? <div className="st7-key-actions wide">
+            <button className="st7-button" disabled={isBusy} onClick={saveCredential} type="button">Save or replace key</button>
+            <button className="st7-button" disabled={isBusy || !form.id || !credentialExists} onClick={deleteCredential} type="button">Delete key</button>
+          </div> : null}
+        </div>
 
-      <div className="st7-actions">
-        <button className="st7-button" disabled={isBusy} onClick={testConnection} type="button">Test connection</button>
-        <button className="st7-button primary" disabled={isBusy} onClick={saveConnection} type="button">Save changes</button>
-        <button className="st7-button" disabled={isBusy || !keyRequired} onClick={saveCredential} type="button">Save or replace key</button>
-        <button className="st7-button" disabled={isBusy || !form.id || !credentialExists} onClick={deleteCredential} type="button">Delete key</button>
-        <button className="st7-button danger" disabled={isBusy || !form.id} onClick={() => setIsArchiveConfirmOpen(true)} type="button">Archive</button>
-      </div>
-      <div className="st7-inline-status" hidden={!isArchiveConfirmOpen}>
-        <div><strong>Archive this connection?</strong><span>It will no longer be available to Workshop or writing actions.</span></div>
-        <div className="st7-actions st7-confirm-actions"><button className="st7-button" disabled={isBusy} onClick={() => setIsArchiveConfirmOpen(false)} type="button">Cancel</button><button className="st7-button danger" disabled={isBusy} onClick={archiveConnection} type="button">Archive connection</button></div>
-      </div>
-    </section>
+        <div className="st7-inline-status st7-real-status">
+          <div><strong>Connection check</strong><span>{errorMessage ?? resultMessage ?? (connectionResult ? (connectionResult.ok ? "The provider and model are available." : connectionResult.error?.message ?? "The connection failed.") : "Test this saved connection to verify provider access.")}</span></div>
+          <span className={`st7-status${errorMessage || connectionResult?.ok === false ? " attention" : connectionResult?.ok ? " ready" : ""}`}>{errorMessage ? "Error" : connectionResult?.ok ? "Available" : "Not tested"}</span>
+        </div>
+
+        <div className="st7-editor-actions">
+          <div className="st7-editor-primary-actions">
+            <button className="st7-button primary" disabled={isBusy} onClick={saveConnection} type="button">{form.id ? "Save changes" : "Add connection"}</button>
+            <button className="st7-button" disabled={isBusy} onClick={testConnection} type="button">Test connection</button>
+          </div>
+          <button className="st7-button danger" disabled={isBusy || !form.id} onClick={() => setIsArchiveConfirmOpen(true)} type="button">Archive</button>
+        </div>
+        <div className="st7-inline-status st7-archive-confirm" hidden={!isArchiveConfirmOpen}>
+          <div><strong>Archive this connection?</strong><span>It will no longer be available to Workshop or writing actions.</span></div>
+          <div className="st7-actions st7-confirm-actions"><button className="st7-button" disabled={isBusy} onClick={() => setIsArchiveConfirmOpen(false)} type="button">Cancel</button><button className="st7-button danger" disabled={isBusy} onClick={archiveConnection} type="button">Archive connection</button></div>
+        </div>
+      </section>
+    </div>
   </div>;
 }
 
-export function ReferenceSettingsWorkspace({ connected = false }: ReferenceSettingsWorkspaceProps = {}) {
+export function ReferenceSettingsWorkspace({ connected = false, onModelProfilesChanged }: ReferenceSettingsWorkspaceProps = {}) {
   const connectedRootRef = useRef<HTMLElement | null>(null);
   const [activeSection, setActiveSection] = useState("connections");
 
@@ -400,7 +417,7 @@ export function ReferenceSettingsWorkspace({ connected = false }: ReferenceSetti
     <div className="st7-layout">
       <ReferenceSurface onClick={handleNavigation} selector="#settings-workspace .st7-nav" />
       <div className="st7-content" id="st7-content">
-        <section className="st7-page is-connected" data-st7-page="connections" hidden={activeSection !== "connections"}><ReferenceModelConnections /></section>
+        <section className="st7-page is-connected" data-st7-page="connections" hidden={activeSection !== "connections"}><ReferenceModelConnections {...(onModelProfilesChanged ? { onModelProfilesChanged } : {})} /></section>
         {unsupportedSections.map((section) => <ReferenceSurface hidden={activeSection !== section} key={section} selector={`[data-st7-page='${section}']`} />)}
       </div>
     </div>

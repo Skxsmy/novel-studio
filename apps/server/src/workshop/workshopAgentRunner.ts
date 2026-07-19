@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type {
   ProviderChatMessage,
   ProviderChatResult,
@@ -418,6 +419,18 @@ async function waitForAutomaticRetry(abortSignal?: AbortSignal): Promise<boolean
   });
 }
 
+function authorFacingAgentError(error: ModelCallError): string {
+  if (
+    error.code === "structured-output-failed" &&
+    /tool request did not match|arguments are not valid json|agent output was invalid|model output did not match/iu.test(
+      error.message,
+    )
+  ) {
+    return "模型没有生成有效的待确认草稿。Codex 未被写入，可以直接重试本轮。";
+  }
+  return error.message;
+}
+
 async function automaticTransportRetry(input: WorkshopAgentRunnerInput & {
   run: WorkshopAgentRunDocument;
   stepRecord: WorkshopAgentStepRecord;
@@ -564,6 +577,48 @@ function providerHistoryForRun(
     }
   }
   return history;
+}
+
+function isRepeatedSuccessfulToolRequest(
+  step: WorkshopAgentStep | null,
+  runMessages: WorkshopMessage[],
+  resultMessage: WorkshopMessage,
+): boolean {
+  if (!step || step.type !== "request_tool") return false;
+  const previousToolMessage = [...runMessages]
+    .filter((message) =>
+      message.role === "tool" &&
+      message.createdAt.localeCompare(resultMessage.createdAt) < 0 &&
+      message.toolExecution?.status === "succeeded"
+    )
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .at(-1);
+  if (!previousToolMessage) return false;
+  try {
+    if (step.tool === "codex.create_entry") {
+      const previous = parseCodexCreateEntryToolRequest(previousToolMessage.content);
+      return isDeepStrictEqual(previous.draft, step.draft);
+    }
+    const previous = parseCodexUpdateEntryToolRequest(previousToolMessage.content);
+    const previousTarget = previous.draft.target;
+    const nextTarget = step.draft.target;
+    const sameTarget = Boolean(
+      previousTarget.entryId && nextTarget.entryId && previousTarget.entryId === nextTarget.entryId,
+    ) || Boolean(previousTarget.name && nextTarget.name && previousTarget.name === nextTarget.name);
+    return sameTarget && isDeepStrictEqual(previous.draft.patch, step.draft.patch);
+  } catch {
+    return false;
+  }
+}
+
+function completedReplayResponse(step: Extract<WorkshopAgentStep, { type: "request_tool" }>): WorkshopAgentStep {
+  return {
+    schemaVersion: 1,
+    type: "respond",
+    message: step.tool === "codex.create_entry"
+      ? "条目已经创建完成，无需重复确认。"
+      : "条目已经更新完成，无需重复确认。",
+  };
 }
 
 function assistantMessage(input: {
@@ -765,7 +820,7 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
       contextBundleId: input.contextBundle.id,
       modelCallId: input.attempt.log?.id ?? null,
       ...(input.assistantMessageId ? { id: input.assistantMessageId } : {}),
-      content: error.message,
+      content: authorFacingAgentError(error),
       status: "failed",
       error,
       createdAt: now,
@@ -1162,6 +1217,12 @@ export async function continueWorkshopAgentAfterToolResult(input: {
   run = transportRetry.run;
   activeStep = transportRetry.stepRecord;
   attempt = transportRetry.attemptResult;
+  if (isRepeatedSuccessfulToolRequest(attempt.step, runMessages, input.resultMessage)) {
+    attempt = {
+      ...attempt,
+      step: completedReplayResponse(attempt.step as Extract<WorkshopAgentStep, { type: "request_tool" }>),
+    };
+  }
   if (attempt.step || attempt.error?.code !== "structured-output-failed") {
     return finalizeAttempt({ ...runnerInput, run, stepRecord: activeStep, attempt });
   }

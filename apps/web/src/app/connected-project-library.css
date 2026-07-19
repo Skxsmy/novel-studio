@@ -1,0 +1,29 @@
+.library-series-choice {
+  width: 100%;
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.library-series-choice:hover,
+.library-series-choice:focus-visible {
+  background: #edf3ff;
+  outline: none;
+}
+
+.library-series-choice:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.library-menu-error {
+  margin: 7px 9px 0;
+  color: #a33c3c;
+  font-size: 12px;
+  line-height: 1.4;
+}

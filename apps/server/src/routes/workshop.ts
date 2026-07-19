@@ -79,6 +79,7 @@ import { planWorkshopDetailSchema } from "../workshop/detailSchemaPlanner.js";
 import { WorkshopAgentCoordinator } from "../workshop/workshopAgentCoordinator.js";
 import { WorkshopCallRegistry } from "../workshop/workshopCallRegistry.js";
 import {
+  resolvedWorkshopGeneralChatSystemPrompt,
   workshopPromptDefinition,
   workshopProviderPrompt as workshopModeProviderPrompt,
 } from "../workshop/workshopPrompts.js";
@@ -187,7 +188,7 @@ async function workshopContextPayload(
   assertWorkshopSessionMode(session, input.mode);
   const workshopPrompt = workshopPromptDefinition(input.mode);
   const promptInstruction = input.mode === "general-chat"
-    ? session.generalChatSystemPrompt
+    ? resolvedWorkshopGeneralChatSystemPrompt(session.generalChatSystemPrompt)
     : workshopPrompt
       ? [workshopPrompt.system, workshopPrompt.instructions].filter(Boolean).join("\n\n")
       : null;

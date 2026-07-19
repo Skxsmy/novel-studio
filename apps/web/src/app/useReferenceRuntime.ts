@@ -4,6 +4,18 @@ import { getReferenceRuntimeText } from "./reference-source";
 
 const RUNTIME_ID = "ns514-binding-reference-runtime";
 
+export function omitProjectReferenceRuntime(runtime: string) {
+  const projectToken = 'const trigger = document.getElementById("project-library-button");';
+  const overviewToken = 'const root = document.getElementById("overview-workspace");';
+  const projectStart = runtime.indexOf(projectToken);
+  const overviewStart = runtime.indexOf(overviewToken, projectStart + projectToken.length);
+  if (projectStart < 0 || overviewStart < 0) return runtime;
+  const projectIife = runtime.lastIndexOf("(() => {", projectStart);
+  const overviewIife = runtime.lastIndexOf("(() => {", overviewStart);
+  if (projectIife < 0 || overviewIife <= projectIife) return runtime;
+  return `${runtime.slice(0, projectIife)}${runtime.slice(overviewIife)}`;
+}
+
 export function omitWriteReferenceRuntime(runtime: string) {
   const writeRootToken = 'const root = document.getElementById("write-workspace");';
   const followingRootToken = 'const trigger = document.getElementById("project-library-button");';
@@ -72,6 +84,7 @@ export function useReferenceRuntime(
   omitWorkshop = false,
   omitSettings = false,
   omitOverview = false,
+  omitProject = false,
 ) {
   useEffect(() => {
     if (!enabled) return;
@@ -81,12 +94,14 @@ export function useReferenceRuntime(
     const runtime = getReferenceRuntimeText();
     const withoutCodex = omitCodex ? omitCodexReferenceRuntime(runtime) : runtime;
     const withoutWorkshop = omitWorkshop ? omitWorkshopReferenceRuntime(withoutCodex) : withoutCodex;
-    const withoutOverview = omitOverview ? omitOverviewReferenceRuntime(withoutWorkshop) : withoutWorkshop;
+    const withoutWrite = omitWrite ? omitWriteReferenceRuntime(withoutWorkshop) : withoutWorkshop;
+    const withoutProject = omitProject ? omitProjectReferenceRuntime(withoutWrite) : withoutWrite;
+    const withoutOverview = omitOverview ? omitOverviewReferenceRuntime(withoutProject) : withoutProject;
     const withoutSettings = omitSettings ? omitSettingsReferenceRuntime(withoutOverview) : withoutOverview;
     const withInitialWorkspace = omitOverview
       ? withoutSettings.replace('let lastDesignedWorkspace = "Codex";', 'let lastDesignedWorkspace = "Overview";')
       : withoutSettings;
-    script.textContent = `(() => {${omitWrite ? omitWriteReferenceRuntime(withInitialWorkspace) : withInitialWorkspace}\n})();`;
+    script.textContent = `(() => {${withInitialWorkspace}\n})();`;
     document.body.append(script);
-  }, [enabled, omitCodex, omitOverview, omitSettings, omitWorkshop, omitWrite]);
+  }, [enabled, omitCodex, omitOverview, omitProject, omitSettings, omitWorkshop, omitWrite]);
 }

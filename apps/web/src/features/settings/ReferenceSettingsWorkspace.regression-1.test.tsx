@@ -46,7 +46,77 @@ afterEach(() => {
 });
 
 describe("NS-514 Settings connection recovery", () => {
+  it("keeps two newly saved model connections as distinct profiles", async () => {
+    const secondProfileId = "22222222-2222-4222-8222-222222222222";
+    const onModelProfilesChanged = vi.fn();
+    let savedProfiles: ModelProfile[] = [];
+    vi.spyOn(api.ai, "listModelProfiles").mockResolvedValue([]);
+    const create = vi.spyOn(api.ai, "createModelProfile").mockImplementation(async (input) => {
+      const id = savedProfiles.length === 0 ? profileId : secondProfileId;
+      const saved = profile({
+        id,
+        title: input.title,
+        provider: input.provider,
+        model: input.model,
+        baseUrl: input.baseUrl ?? null,
+        credentialRef: null,
+        capabilities: {
+          embeddings: input.capabilities?.embeddings ?? false,
+          modelList: input.capabilities?.modelList ?? true,
+          streamText: input.capabilities?.streamText ?? true,
+          structuredOutput: input.capabilities?.structuredOutput ?? false,
+          tokenEstimate: input.capabilities?.tokenEstimate ?? true,
+        },
+        contextWindowTokens: input.contextWindowTokens ?? 8192,
+      });
+      savedProfiles = [saved, ...savedProfiles];
+      return saved;
+    });
+    vi.spyOn(api.ai, "getModelCredentialStatus").mockImplementation(async (id) => {
+      const saved = savedProfiles.find((item) => item.id === id)!;
+      return {
+        credentialRef: saved.credentialRef,
+        exists: false,
+        modelProfile: saved,
+        storeKind: "windows-credential-manager",
+      };
+    });
+
+    const { container } = render(
+      <ReferenceSettingsWorkspace connected onModelProfilesChanged={onModelProfilesChanged} />,
+    );
+    container.querySelector<HTMLElement>("#settings-workspace")!.hidden = false;
+    const connected = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".st7-connected-settings");
+      expect(element).toBeTruthy();
+      expect(element!.textContent).toContain("No model connections configured.");
+      return element!;
+    });
+    const fillConnection = (title: string, model: string) => {
+      fireEvent.change(within(connected).getByLabelText("Provider"), { target: { value: "ollama" } });
+      fireEvent.change(within(connected).getByLabelText("Connection name"), { target: { value: title } });
+      fireEvent.change(within(connected).getByLabelText("Model"), { target: { value: model } });
+    };
+
+    fillConnection("Primary Ollama", "llama3.1");
+    fireEvent.click(within(connected).getByRole("button", { name: "Add connection" }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(connected.textContent).toContain("Primary Ollama"));
+
+    fireEvent.click(within(connected).getByRole("button", { name: "New connection" }));
+    fillConnection("Secondary Ollama", "qwen2.5");
+    fireEvent.click(within(connected).getByRole("button", { name: "Add connection" }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+
+    const connectionList = within(connected).getByLabelText("Model connections");
+    expect(within(connectionList).getByRole("button", { name: /Primary Ollama.*llama3\.1/u })).toBeTruthy();
+    expect(within(connectionList).getByRole("button", { name: /Secondary Ollama.*qwen2\.5/u })).toBeTruthy();
+    expect(savedProfiles.map((item) => item.id)).toEqual([secondProfileId, profileId]);
+    expect(onModelProfilesChanged).toHaveBeenCalledTimes(2);
+  });
+
   it("uses real model profiles and credential controls without fixture connection data", async () => {
+    const onModelProfilesChanged = vi.fn();
     let saved = profile();
     vi.spyOn(api.ai, "listModelProfiles").mockResolvedValue([saved]);
     vi.spyOn(api.ai, "getModelCredentialStatus").mockImplementation(async () => ({
@@ -88,7 +158,9 @@ describe("NS-514 Settings connection recovery", () => {
       provider: "deepseek",
     });
 
-    const { container, findByRole } = render(<ReferenceSettingsWorkspace connected />);
+    const { container, findByRole } = render(
+      <ReferenceSettingsWorkspace connected onModelProfilesChanged={onModelProfilesChanged} />,
+    );
     container.querySelector<HTMLElement>("#settings-workspace")!.hidden = false;
     const connected = await waitFor(() => {
       const element = container.querySelector<HTMLElement>(".st7-connected-settings");
@@ -108,11 +180,13 @@ describe("NS-514 Settings connection recovery", () => {
     fireEvent.change(within(connected).getByLabelText("Service key"), { target: { value: "replacement-secret" } });
     fireEvent.click(within(connected).getByRole("button", { name: "Save or replace key" }));
     await waitFor(() => expect(saveCredential).toHaveBeenCalledTimes(1));
+    expect(onModelProfilesChanged).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalled();
     expect((within(connected).getByLabelText("Service key") as HTMLInputElement).value).toBe("");
 
     fireEvent.click(within(connected).getByRole("button", { name: "Delete key" }));
     await waitFor(() => expect(deleteCredential).toHaveBeenCalledWith(profileId));
+    expect(onModelProfilesChanged).toHaveBeenCalledTimes(2);
     expect(within(connected).getByText("Service key removed.")).toBeTruthy();
 
     const embeddings = container.querySelector<HTMLElement>("[data-st7-page='embeddings']")!;

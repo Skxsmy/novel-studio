@@ -8,6 +8,7 @@ import { ReferenceSettingsWorkspace } from "../features/settings/ReferenceSettin
 import { ReferenceWorkshopWorkspace } from "../features/workshop/ReferenceWorkshopWorkspace";
 import { ReferenceWriteWorkspace } from "../features/write/ReferenceWriteWorkspace";
 import { ReferenceSurface } from "../ui/ReferenceSurface";
+import { ConnectedProjectLibrary } from "./ConnectedProjectLibrary";
 import { useProjectSession, type ProjectSessionState } from "./useProjectSession";
 import { ReferenceGlobalOverlays, ReferenceInFrameOverlays } from "./ReferenceOverlays";
 import { useReferenceRuntime } from "./useReferenceRuntime";
@@ -61,6 +62,7 @@ function ConnectedProjectWorkspaces({
   const openingSeriesRef = useRef<string | null>(null);
   const [writeTarget, setWriteTarget] = useState<{ blockId: string | null; sceneId: string } | null>(null);
   const [providerReturnSessionId, setProviderReturnSessionId] = useState<string | null>(null);
+  const [modelProfilesRevision, setModelProfilesRevision] = useState(0);
 
   useEffect(() => {
     if (session.isLibraryLoading || session.isOpeningSeries || session.activeSeries) return;
@@ -95,16 +97,21 @@ function ConnectedProjectWorkspaces({
 
   return (
     <>
+      <ConnectedProjectLibrary session={session} />
       <ProjectIdentityBridge session={session} />
       {connectOverview ? (
         <ReferenceOverviewWorkspace onOpenPlan={openPlan} onOpenWrite={openWriteTarget} session={session} />
       ) : <ReferenceOverviewWorkspace />}
-      <ReferenceSettingsWorkspace connected={connectSettings} />
+      <ReferenceSettingsWorkspace
+        connected={connectSettings}
+        onModelProfilesChanged={() => setModelProfilesRevision((current) => current + 1)}
+      />
       <ReferencePlanWorkspace />
       {connectWrite ? <ReferenceWriteWorkspace requestedBlockId={writeTarget?.blockId ?? null} session={session} /> : <ReferenceSurface selector="#write-workspace" />}
       {connectCodex ? <ReferenceCodexWorkspace onOpenWrite={openWriteTarget} session={session} /> : <ReferenceCodexWorkspace />}
       {connectWorkshop ? (
         <ReferenceWorkshopWorkspace
+          modelProfilesRevision={modelProfilesRevision}
           onOpenProviderSettings={openProviderSettings}
           requestedSessionId={providerReturnSessionId}
           session={session}
@@ -153,9 +160,18 @@ export function ReferenceReplica({
   enableRuntime = true,
 }: ReferenceReplicaProps = {}) {
   const shouldConnectCodex = connectCodex ?? connectWrite;
+  const hasConnectedProjectWorkspace = connectOverview || connectWrite || shouldConnectCodex || connectWorkshop;
   const prototypeRef = useRef<HTMLElement>(null);
   useReferenceStyleSheet();
-  useReferenceRuntime(enableRuntime, connectWrite, shouldConnectCodex, connectWorkshop, connectSettings, connectOverview);
+  useReferenceRuntime(
+    enableRuntime,
+    connectWrite,
+    shouldConnectCodex,
+    connectWorkshop,
+    connectSettings,
+    connectOverview,
+    hasConnectedProjectWorkspace,
+  );
 
   useLayoutEffect(() => {
     if (!connectOverview || !prototypeRef.current) return;
@@ -172,8 +188,6 @@ export function ReferenceReplica({
     const context = root.querySelector<HTMLElement>("#brand-context");
     if (context) context.textContent = "Project overview";
   }, [connectOverview]);
-
-  const hasConnectedProjectWorkspace = connectOverview || connectWrite || shouldConnectCodex || connectWorkshop;
 
   return (
     <>

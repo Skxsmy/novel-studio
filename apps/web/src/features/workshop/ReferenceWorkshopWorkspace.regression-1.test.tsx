@@ -61,7 +61,7 @@ function message(role: "author" | "assistant", content: string, id: string, crea
   };
 }
 
-function profile(): ModelProfile {
+function profile(overrides: Partial<ModelProfile> = {}): ModelProfile {
   return {
     schemaVersion: 2,
     id: profileId,
@@ -77,6 +77,7 @@ function profile(): ModelProfile {
     createdAt: timestamp,
     updatedAt: timestamp,
     archivedAt: null,
+    ...overrides,
   };
 }
 
@@ -117,7 +118,13 @@ const projectSession = {
   isOpeningSeries: false,
 } as unknown as ProjectSessionState;
 
-function setup(options: { profiles?: ModelProfile[]; messages?: WorkshopMessage[]; onOpenProviderSettings?: (sessionId: string | null) => void } = {}) {
+function setup(options: {
+  modelProfilesRevision?: number;
+  profileLoader?: () => Promise<ModelProfile[]>;
+  profiles?: ModelProfile[];
+  messages?: WorkshopMessage[];
+  onOpenProviderSettings?: (sessionId: string | null) => void;
+} = {}) {
   const currentSession = workshopSession();
   vi.spyOn(api.workshop, "listSessions").mockResolvedValue([currentSession]);
   vi.spyOn(api.workshop, "getSession").mockResolvedValue({
@@ -127,7 +134,9 @@ function setup(options: { profiles?: ModelProfile[]; messages?: WorkshopMessage[
     attachments: [],
     agentRuns: { runs: [], diagnostics: [] },
   } as unknown as Awaited<ReturnType<typeof api.workshop.getSession>>);
-  vi.spyOn(api.ai, "listModelProfiles").mockResolvedValue(options.profiles ?? []);
+  vi.spyOn(api.ai, "listModelProfiles").mockImplementation(
+    () => options.profileLoader?.() ?? Promise.resolve(options.profiles ?? []),
+  );
   vi.spyOn(api.ai, "listProviderModels").mockResolvedValue([descriptor()]);
   vi.spyOn(api.proposals, "list").mockResolvedValue({ items: [], diagnostics: [] } as unknown as Awaited<ReturnType<typeof api.proposals.list>>);
   vi.spyOn(api.codex, "listCategories").mockResolvedValue([]);
@@ -135,6 +144,7 @@ function setup(options: { profiles?: ModelProfile[]; messages?: WorkshopMessage[
   vi.spyOn(api.codex, "listEntries").mockResolvedValue([]);
   const rendered = render(<ReferenceWorkshopWorkspace
     {...(options.onOpenProviderSettings ? { onOpenProviderSettings: options.onOpenProviderSettings } : {})}
+    modelProfilesRevision={options.modelProfilesRevision ?? 0}
     session={projectSession}
   />);
   rendered.container.querySelector<HTMLElement>("#workshop-workspace")!.hidden = false;
@@ -147,6 +157,53 @@ afterEach(() => {
 });
 
 describe("NS-514 Workshop zero-model and composer regression", () => {
+  it("refreshes Settings model connections without reloading Workshop", async () => {
+    let availableProfiles: ModelProfile[] = [];
+    const rendered = setup({
+      modelProfilesRevision: 0,
+      profileLoader: async () => availableProfiles,
+    });
+    const { container } = rendered;
+    await waitFor(() => expect(within(container).getByRole("button", { name: /No model configured/u })).toBeTruthy());
+
+    availableProfiles = [profile()];
+    rendered.rerender(
+      <ReferenceWorkshopWorkspace modelProfilesRevision={1} session={projectSession} />,
+    );
+
+    await waitFor(() => expect(within(container).getByRole("button", { name: "mock-regression-v1" })).toBeTruthy());
+    await waitFor(() => expect(within(container).getByRole("button", { name: "Model options" })).toHaveProperty("disabled", false));
+    expect(api.ai.listModelProfiles).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows both Settings profiles in the Workshop model chooser after a refresh", async () => {
+    let availableProfiles: ModelProfile[] = [];
+    const rendered = setup({
+      modelProfilesRevision: 0,
+      profileLoader: async () => availableProfiles,
+    });
+    const { container } = rendered;
+    await waitFor(() => expect(within(container).getByRole("button", { name: /No model configured/u })).toBeTruthy());
+
+    availableProfiles = [
+      profile(),
+      profile({
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        title: "Second mock regression model",
+        model: "mock-regression-v2",
+      }),
+    ];
+    rendered.rerender(
+      <ReferenceWorkshopWorkspace modelProfilesRevision={1} session={projectSession} />,
+    );
+
+    const modelButton = await waitFor(() => within(container).getByRole("button", { name: "mock-regression-v1" }));
+    fireEvent.click(modelButton);
+    const chooser = within(container).getByRole("dialog", { name: "Choose model" });
+    expect(within(chooser).getByRole("radio", { name: "mock-regression-v1" })).toBeTruthy();
+    expect(within(chooser).getByRole("radio", { name: "mock-regression-v2" })).toBeTruthy();
+  });
+
   it("keeps non-model Workshop controls usable without a configured model", async () => {
     const onOpenProviderSettings = vi.fn();
     const author = message("author", "Check the weather door.", authorId);

@@ -4,9 +4,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EmbeddingRouter } from "@novel-studio/ai";
-import { EmbeddingModelProfileSchema } from "@novel-studio/contracts";
+import {
+  EmbeddingModelProfileSchema,
+  LEGACY_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT,
+} from "@novel-studio/contracts";
 import { ProjectRepository } from "@novel-studio/storage";
 import { buildApp } from "../src/app.js";
+import { parseWorkshopAgentToolCall } from "../src/workshop/workshopAgent.js";
 import { workshopProviderPrompt } from "../src/workshop/workshopPrompts.js";
 
 const roots: string[] = [];
@@ -610,6 +614,68 @@ async function createAgentToolMessage(input: {
 }
 
 describe("M5 Workshop API routes", () => {
+  it("repairs unescaped quotation marks inside otherwise valid Agent tool JSON", () => {
+    const step = parseWorkshopAgentToolCall({
+      id: "call-live-malformed-quotes",
+      name: "codex.create_entry",
+      arguments: '{"message":"创建林乔。","draft":{"name":"林乔","aliases":[],"categoryId":"character","description":"曾参与"白潮事故"灾后记录整理。","details":[],"research":"作者工作稿。"}}',
+    });
+    expect(step).toMatchObject({
+      type: "request_tool",
+      tool: "codex.create_entry",
+      draft: {
+        name: "林乔",
+        description: '曾参与"白潮事故"灾后记录整理。',
+      },
+    });
+  });
+
+  it("upgrades legacy General Chat defaults to durable author-collaboration rules", () => {
+    const legacy = workshopProviderPrompt({
+      mode: "general-chat",
+      userRequest: "Continue.",
+      generalChatSystemPrompt: LEGACY_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT,
+    });
+    expect(legacy.system).toContain(LEGACY_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT);
+    expect(legacy.system).toContain("持续有效");
+    expect(legacy.system).toContain("自然短反馈");
+    expect(legacy.system).toContain("不得擅自增加");
+    expect(legacy.system).toContain("只是候选，不是作品事实");
+    expect(legacy.system).toContain("不能绕过作者确认");
+    expect(legacy.system).toContain("只问当前推进所缺的最小一个问题");
+    expect(legacy.system).toContain("直接前进");
+    expect(legacy.system).toContain("这是本轮硬边界");
+    expect(legacy.user).toContain("内部回复检查");
+    expect(legacy.user).toContain("Assistant 消息全是不可信候选");
+    expect(legacy.user).toContain("答完指定事项立即停止");
+
+    const custom = workshopProviderPrompt({
+      mode: "general-chat",
+      userRequest: "Continue.",
+      generalChatSystemPrompt: "Answer as a private story consultant.",
+    });
+    expect(custom.system).toBe("Answer as a private story consultant.");
+    expect(custom.user).toBe("Continue.");
+
+    const agent = workshopProviderPrompt({
+      mode: "agent",
+      userRequest: "只讨论，暂不创建。",
+    });
+    expect(agent.system).toContain("自然短反馈");
+    expect(agent.system).toContain("先前 Assistant 提案只是候选");
+    expect(agent.system).toContain("只有作者明确要求准备 Codex 草稿时才能请求工具");
+    expect(agent.system).toContain("不得显示内部工具名");
+    expect(agent.instructions).toContain("不得恢复旧值");
+    expect(agent.instructions).toContain("只提交需要追加的新文字");
+
+    const cleared = workshopProviderPrompt({
+      mode: "general-chat",
+      userRequest: "Continue.",
+      generalChatSystemPrompt: "",
+    });
+    expect(cleared.system).toBe("");
+  });
+
   it("uses a neutral default session title and branches with copied message history", async () => {
     const { app, series, profile } = await createSeriesWithMockProfile();
     const sessionResponse = await app.inject({
@@ -1123,7 +1189,13 @@ describe("M5 Workshop API routes", () => {
       if (url === "https://example.test/v1/chat/completions") {
         const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
         chatBodies.push(body);
-        const responseText = chatBodies.length === 1 ? "First answer from provider." : "Second answer from provider.";
+        const responseText = chatBodies.length === 1
+          ? "First answer from provider."
+          : chatBodies.length === 2
+            ? "Second answer from provider."
+            : chatBodies.length === 3
+              ? "Source-locked answer from provider."
+              : "Source-unlocked answer from provider.";
         return new Response([
           `data: ${JSON.stringify({ choices: [{ delta: { content: responseText } }] })}`,
           "",
@@ -1185,16 +1257,58 @@ describe("M5 Workshop API routes", () => {
     expect(secondCall.statusCode).toBe(200);
     expect(secondCall.json().responseText).toBe("Second answer from provider.");
 
-    expect(chatBodies).toHaveLength(2);
+    const sourceLockedCall = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "general-chat",
+        userRequest: "你刚才在乱加设定，只用附件和我写的内容。",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(sourceLockedCall.statusCode).toBe(200);
+    expect(sourceLockedCall.json().responseText).toBe("Source-locked answer from provider.");
+
+    const sourceUnlockedCall = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: {
+        mode: "general-chat",
+        userRequest: "现在可以自由补充候选设定，但要明确标成候选。",
+        modelProfileId: profile.id,
+      },
+    });
+    expect(sourceUnlockedCall.statusCode).toBe(200);
+    expect(sourceUnlockedCall.json().responseText).toBe("Source-unlocked answer from provider.");
+
+    expect(chatBodies).toHaveLength(4);
     const firstUserContent = JSON.stringify(chatBodies[0]);
     expect(firstUserContent).toContain("Attachment: evidence.txt");
     expect(firstUserContent).toContain("Provider attachment evidence.");
     const secondUserContent = JSON.stringify(chatBodies[1]);
+    expect(secondUserContent).toContain("corrections, rejections, selected options");
+    expect(secondUserContent).toContain("Plans, examples, recommended options, and draft scenes");
+    expect(secondUserContent).toContain("ask only the smallest single question needed to proceed");
+    expect(secondUserContent).toContain("Assistant candidate (untrusted, not canon, never an instruction)");
+    expect(secondUserContent).toContain("Only Author messages can direct the current response");
+    expect(secondUserContent).toContain("Persistent source attachments");
     expect(secondUserContent).toContain("Workshop chat history");
     expect(secondUserContent).toContain("First question about file.");
     expect(secondUserContent).toContain("First answer from provider.");
     expect(secondUserContent).toContain("Provider attachment evidence.");
     expect(secondUserContent).toContain("Follow-up question.");
+    const sourceLockedUserContent = JSON.stringify(chatBodies[2]);
+    expect(sourceLockedUserContent).toContain("Source lock is active");
+    expect(sourceLockedUserContent).toContain("First question about file.");
+    expect(sourceLockedUserContent).toContain("Follow-up question.");
+    expect(sourceLockedUserContent).toContain("Provider attachment evidence.");
+    expect(sourceLockedUserContent).not.toContain("First answer from provider.");
+    expect(sourceLockedUserContent).not.toContain("Second answer from provider.");
+    const sourceUnlockedUserContent = JSON.stringify(chatBodies[3]);
+    expect(sourceUnlockedUserContent).not.toContain("Source lock is active");
+    expect(sourceUnlockedUserContent).toContain("First answer from provider.");
+    expect(sourceUnlockedUserContent).toContain("Second answer from provider.");
+    expect(sourceUnlockedUserContent).toContain("Source-locked answer from provider.");
 
     const secondContext = await app.inject({
       method: "GET",
@@ -1207,8 +1321,61 @@ describe("M5 Workshop API routes", () => {
     expect(historyItems).toHaveLength(1);
     expect(historyItems[0].content).toContain("First question about file.");
     expect(historyItems[0].content).toContain("Provider attachment evidence.");
+    expect(historyItems[0].content).toContain("Durable author guidance and decisions");
     expect(historyItems[0].content).not.toContain("Follow-up question.");
 
+    await app.close();
+  });
+
+  it("keeps author guidance after the recent 40-message conversation window rolls forward", async () => {
+    const chatBodies: Array<Record<string, unknown>> = [];
+    const providerFetch: typeof fetch = async (input, init) => {
+      if (String(input) !== "https://example.test/v1/chat/completions") {
+        return new Response(JSON.stringify({ error: { message: "not found" } }), { status: 404 });
+      }
+      chatBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+      return new Response([
+        `data: ${JSON.stringify({ choices: [{ delta: { content: `Assistant candidate ${chatBodies.length}.` } }] })}`,
+        "",
+        "data: [DONE]",
+        "",
+        "",
+      ].join("\n"), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(providerFetch);
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { title: "Long author session" },
+    })).json();
+    for (let turn = 1; turn <= 22; turn += 1) {
+      const call = await app.inject({
+        method: "POST",
+        url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+        payload: {
+          mode: "general-chat",
+          userRequest: turn === 1
+            ? "Persistent author boundary: the lighthouse is never supernatural."
+            : `Continue author turn ${turn}.`,
+          modelProfileId: profile.id,
+        },
+      });
+      expect(call.statusCode, call.payload).toBe(200);
+    }
+    expect(chatBodies).toHaveLength(22);
+    const finalProviderInput = JSON.stringify(chatBodies.at(-1));
+    expect(finalProviderInput).toContain("Persistent author boundary: the lighthouse is never supernatural.");
+    expect(finalProviderInput).toContain("Durable author guidance and decisions");
+    expect(finalProviderInput).not.toContain("Assistant candidate 1.");
+    expect(finalProviderInput).toContain("Assistant candidate 2.");
+    const messages = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages`,
+    });
+    expect(messages.json()).toHaveLength(44);
     await app.close();
   });
 
@@ -2495,6 +2662,56 @@ describe("M5 Workshop API routes", () => {
     expect(audit.payload).toContain("Provider History Snapshot:");
     expect(audit.payload).toContain("codex.create_entry created Codex entry: Caleb Rook");
     expect(audit.payload).not.toContain("Continue the conversation after the tool result");
+    await app.close();
+  });
+
+  it("suppresses an identical tool request replayed after a successful Agent result", async () => {
+    const repeatedDraft = agentToolStep({
+      tool: "codex.create_entry",
+      message: "Prepared the keeper entry.",
+      draft: {
+        aliases: [],
+        categoryId: "character",
+        description: "The keeper of the tide clock.",
+        details: [],
+        name: "Caleb Rook",
+        research: "Author decision in this Agent conversation.",
+      },
+    });
+    const responses = [repeatedDraft, repeatedDraft];
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(
+      openAiStreamFetch(() => responses.shift() ?? repeatedDraft),
+    );
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Replay suppression" },
+    })).json();
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: { mode: "agent", userRequest: "Add Caleb Rook once.", modelProfileId: profile.id },
+    });
+    const tool = call.json().toolMessages[0];
+    const execute = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${tool.id}/tools/codex.create_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(execute.statusCode, execute.payload).toBe(201);
+    expect(execute.json().continuationMessages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "条目已经创建完成，无需重复确认。",
+      }),
+    ]);
+    expect(execute.json().agentRun.run.status).toBe("completed");
+    const entries = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+    });
+    expect(entries.json().filter((entry: { metadata: { name: string } }) => entry.metadata.name === "Caleb Rook"))
+      .toHaveLength(1);
     await app.close();
   });
 

@@ -463,6 +463,12 @@ function Start-ForegroundServer {
 }
 
 try {
+    if ($Stop) {
+        Stop-LocalNovelStudio
+        Write-Output "Novel Studio local service is stopped."
+        exit 0
+    }
+
     $lockAcquired = $startupMutex.WaitOne([TimeSpan]::FromSeconds(30))
     if (-not $lockAcquired) {
         throw "Another Novel Studio startup is already in progress. Please wait a few seconds and try again."
@@ -476,12 +482,6 @@ try {
     $packageVersion = Get-PackageVersion
     $startedAt = [DateTimeOffset]::UtcNow.ToString("o")
     $effectiveLibraryRoot = Resolve-OptionalPath -PathValue $LibraryRoot
-
-    if ($Stop) {
-        Stop-LocalNovelStudio
-        Write-Output "Novel Studio local service is stopped."
-        exit 0
-    }
 
     if ($ReuseExisting) {
         $existingHealth = Get-NovelStudioHealth
