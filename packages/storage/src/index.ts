@@ -231,6 +231,7 @@ import {
   type EmbeddingUseCaseId,
   type ModelCallLog,
   type ModelProfile,
+  type ResearchToolAuditEvent,
   type PlanningBoard,
   type PlanningAct,
   type PlanningBook,
@@ -443,6 +444,10 @@ import {
   readResearchEmbeddingCapabilityFile,
   saveResearchEmbeddingCapabilityFile,
 } from "./researchEmbeddingCapabilities.js";
+import {
+  appendResearchToolAuditEvent,
+  listResearchToolAuditEvents,
+} from "./researchToolAudits.js";
 
 export {
   INDEX_APPLICATION_ID,
@@ -514,6 +519,12 @@ export {
   researchEmbeddingCapabilityPath,
   saveResearchEmbeddingCapabilityFile,
 } from "./researchEmbeddingCapabilities.js";
+export {
+  appendResearchToolAuditEvent,
+  listResearchToolAuditEvents,
+  researchToolAuditLaneRoot,
+  researchToolAuditsRoot,
+} from "./researchToolAudits.js";
 export {
   researchDatabaseAuthorityPath,
   researchDatabaseIndexPath,
@@ -5116,6 +5127,26 @@ export class ProjectRepository {
 
   async listModelCallLogs(seriesId: string): Promise<ModelCallLog[]> {
     return listModelCallLogs(await this.findSeriesRoot(seriesId));
+  }
+
+  async appendResearchToolAuditEvent(
+    seriesId: string,
+    event: ResearchToolAuditEvent,
+  ): Promise<ResearchToolAuditEvent> {
+    if (event.seriesId !== seriesId) {
+      throw new StorageError("Research tool audit Series identity does not match the request", "INVALID_DATA", {
+        seriesId,
+        eventSeriesId: event.seriesId,
+      });
+    }
+    return appendResearchToolAuditEvent(await this.findSeriesRoot(seriesId), event);
+  }
+
+  async listResearchToolAuditEvents(
+    seriesId: string,
+    modelCallId: string,
+  ): Promise<ResearchToolAuditEvent[]> {
+    return listResearchToolAuditEvents(await this.findSeriesRoot(seriesId), modelCallId);
   }
 
   async migrateModelCallLogsToV2(seriesId: string) {

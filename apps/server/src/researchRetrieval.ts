@@ -35,6 +35,17 @@ import {
 
 const RESEARCH_EMBEDDING_USE_CASE = "research.multilingual" as const;
 
+export interface ResearchSearchExecutionOptions {
+  abortSignal?: AbortSignal;
+}
+
+function assertResearchSearchNotAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  const error = new Error("Research search was cancelled");
+  error.name = "AbortError";
+  throw error;
+}
+
 async function optionalCapability(
   repository: ProjectRepository,
   profileId: string,
@@ -301,14 +312,17 @@ export async function searchResearchDatabases(
   repository: ProjectRepository,
   embeddingRouter: EmbeddingRouter,
   rawInput: ResearchMultiSearchInput,
+  options: ResearchSearchExecutionOptions = {},
 ): Promise<ResearchMultiSearchResponse> {
   const input = ResearchMultiSearchInputSchema.parse(rawInput);
+  assertResearchSearchNotAborted(options.abortSignal);
   const candidates: ResearchRetrievalCandidate[] = [];
   const issues: ResearchMultiSearchResponse["issues"] = [];
   const snapshotParts: string[] = [];
   const capabilityState = input.mode === "hybrid"
     ? await getResearchEmbeddingCapabilityState(repository, embeddingRouter)
     : null;
+  assertResearchSearchNotAborted(options.abortSignal);
   snapshotParts.push(JSON.stringify({ capabilityState }));
   let queryEmbedding: number[] | null = null;
   let queryEmbeddingFailed = false;
@@ -317,10 +331,12 @@ export async function searchResearchDatabases(
       const embedded = await embeddingRouter.embed({
         profileId: capabilityState.profileId,
         inputs: [`${capabilityState.capability.capability.queryPrefix}${input.query}`],
+        ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
       });
       queryEmbedding = embedded.vectors[0]?.vector ?? null;
       queryEmbeddingFailed = !queryEmbedding;
-    } catch {
+    } catch (error) {
+      if (options.abortSignal?.aborted) throw error;
       queryEmbeddingFailed = true;
     }
   }
@@ -328,6 +344,7 @@ export async function searchResearchDatabases(
   let semanticDatabaseCount = 0;
   for (const databaseId of input.databaseIds) {
     try {
+      assertResearchSearchNotAborted(options.abortSignal);
       const database = await repository.getResearchDatabase(databaseId);
       const sourceDocuments = await repository.listResearchSources(databaseId);
       let aliases = null;
@@ -354,6 +371,7 @@ export async function searchResearchDatabases(
         })));
       }
       for (const lexicalQuery of lexicalQueries) {
+        assertResearchSearchNotAborted(options.abortSignal);
         const response = await repository.searchResearchSources(databaseId, {
           query: lexicalQuery.query,
           purpose: input.purpose,
@@ -404,6 +422,7 @@ export async function searchResearchDatabases(
           });
         } else {
           const vectorState = await getResearchVectorIndexState(repository, embeddingRouter, databaseId);
+          assertResearchSearchNotAborted(options.abortSignal);
           snapshotParts.push(JSON.stringify({ databaseId, vectorState }));
           if (vectorState.status === "ready") {
             const vectorResults = await searchResearchVectorIndex(
@@ -443,7 +462,8 @@ export async function searchResearchDatabases(
           }
         }
       }
-    } catch {
+    } catch (error) {
+      if (options.abortSignal?.aborted) throw error;
       issues.push({
         researchDatabaseId: databaseId,
         code: "database-unavailable",
@@ -453,6 +473,7 @@ export async function searchResearchDatabases(
     }
   }
 
+  assertResearchSearchNotAborted(options.abortSignal);
   const snapshotFingerprint = createHash("sha256").update(snapshotParts.sort().join("\n"), "utf8").digest("hex");
   const page = fuseResearchRetrievalCandidates(candidates, {
     selectedDatabaseIds: input.databaseIds,
