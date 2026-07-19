@@ -16,7 +16,7 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-609-A04 | passed | `packages/storage/test/research-notes.test.ts` | exact original-language evidence passes current, Source revision changed, passage changed, Source missing, unreadable, ownership mismatch, model-use forbidden, stale capture, and cross-database rejection without note mutation |
 | NS-609-A05 | passed | `apps/server/test/research-note-routes.test.ts` | 2 connected HTTP tests pass bounded list/detail, upload-to-search-to-capture, all Note mutations, validation/conflict/not-found/cross-database/damage classification, and response scans with no Source body, private path, or `filePath` leakage |
 | NS-609-A06 | passed | `apps/web/src/features/research/ResearchDatabaseWorkspace.ns609.test.tsx`, affected NS-604/NS-605 tests, full Web suite/build, and temporary-library browser workflow | 3 files/19 affected Research cases and 25 files/214 Web tests pass exact-passage create/append, body/evidence separation, dirty/conflict preservation, isolation, import return, refresh, archive/restore, stale/forbidden states, responsive geometry, and classified language labels |
-| NS-609-A07 | planned | Proposal contract, Storage, Server, and Review tests | explicit Series, meaning, and Codex target produce one pending Proposal and zero pre-acceptance Codex writes |
+| NS-609-A07 | passed | Proposal contract, Storage, Server, Research promotion, Review, and reference-shell tests | explicit Series, one of three meanings, existing or named new Codex target, author-edited candidate, and current Note/target revisions produce one pending Proposal; direct Codex create/update spies and authority reads prove zero pre-acceptance writes |
 | NS-609-A08 | planned | `packages/storage/test/proposals.test.ts`; `apps/server/test/proposal-routes.test.ts` | dependency recheck, snapshot, exact-once apply, edited candidate, and atomic stale/failure handling pass |
 | NS-609-A09 | planned | adversarial contract/Storage/Server matrix and public-output scan | authority and permission isolation fail closed without content, path, or credential leakage |
 | NS-609-A10 | planned | identified temporary-library server and real in-app browser | desktop and narrow author workflow reaches verified Codex authority with no dead control or incoherent overflow |
@@ -28,10 +28,10 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 
 ## Pre-implementation Record
 
-- The current contracts contain `research-note` and `create-research-note`
-  Proposal enum values, but there is no Research Note schema, authority writer,
-  route, UI, or Proposal application path. Those enum values are scaffolding and
-  are not accepted as implementation evidence.
+- At task opening, the contracts contained `research-note` and
+  `create-research-note` Proposal enum values without a Research Note schema,
+  authority writer, route, UI, or Proposal application path. Those enum values
+  were scaffolding and were not accepted as implementation evidence.
 - Research Database, Source, and Research Note authority are library-scoped and
   isolated, while Proposal files and Codex targets are Series-scoped. ADR-0024
   records the read-only dependency and Series transaction boundary.
@@ -51,6 +51,7 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 | 2026-07-20 | post-`d3d2b06` A02-A04 worktree | focused Research Note tests; full Contracts and Storage suites; Contracts and Storage builds; `git diff --check` | Focused 3 Contracts and 5 Storage tests pass. Full Contracts pass 11 files/73 tests; full Storage pass 19 files/199 tests; both builds and diff check pass. Verified exact disk bytes, restart, injected rollback, damaged/duplicate isolation, all evidence freshness states, local `never` separation, and cross-database rejection without touching `data/library/` |
 | 2026-07-20 | post-`5097212` A05 worktree | `apps/server/test/research-note-routes.test.ts`; full Server suite; Server build; `git diff --check` | Focused 2 tests and full Server 26 files/171 tests pass. Real HTTP flow uploads and searches Sources before Note capture, bounds list/detail, exercises every Note mutation, and proves classified error bodies omit Source text, private paths, and internal `filePath`; build and diff check pass |
 | 2026-07-20 | post-`3bad9ed` A06 worktree | focused NS-609 and affected NS-604/NS-605 UI tests; Web typecheck, full 25-file/214-test suite, and production build; identified temporary-library in-app browser at desktop and 390 CSS pixels | Passed 3 files/19 affected Research cases covering exact result opening, create/append, isolated list/detail, edit/conflict draft preservation, import return, refresh, archive/restore, stale and `never` evidence. The browser imported a multilingual file, searched a Japanese phrase, created and edited a Chinese author Note, survived reload, changed Source metadata, and displayed the stale state. It exposed and then verified the fix for a zero-width mobile database selector; final geometry has `scrollWidth = clientWidth = 390`, full-width controls, sequential editor/evidence panels, and no browser errors. Match-language and stored passage-language labels are now explicit for mixed-language Chunks. |
+| 2026-07-20 | A07 promotion worktree | focused Proposal Contracts 1 file/8 tests, Storage 1/5, Server Research Note routes 1/3, and Web Research/Review/reference-shell 3/18; ordered package builds | Passed explicit meaning, existing/new target, current revision, active Series, archived Note, `never` Source, and target-absence cases. The connected dialog edits a candidate independently, creates one pending Proposal, and opens the exact Review item. Existing Codex content/revisions and the new-target Entry count remain unchanged; direct Web Codex create/update spies remain unused. A08 acceptance is still unsupported and not claimed. |
 
 ## Repository Safety
 

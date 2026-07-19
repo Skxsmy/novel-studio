@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type {
+  CodexCategoryDocument,
+  CodexCategoryId,
+  CodexEntryDocument,
   ResearchNoteDetail,
   ResearchNoteEvidenceFreshness,
   ResearchNoteListResult,
+  ResearchNotePromotionMeaning,
   ResearchNoteSummary,
   ResearchRetrievalResult,
   ResearchSourceLocation,
@@ -10,6 +14,8 @@ import type {
 import {
   AlertTriangle,
   Archive,
+  ArrowRight,
+  BookMarked,
   BookOpenText,
   CheckCircle2,
   Database,
@@ -17,6 +23,7 @@ import {
   Plus,
   RotateCcw,
   Save,
+  Search,
   X,
 } from "lucide-react";
 import { ApiError, api } from "../../api";
@@ -31,9 +38,12 @@ interface NoteDraft {
 interface ResearchNotesWorkspaceProps {
   databaseId: string;
   databaseName: string;
+  onOpenProposal?: (proposalId: string) => void;
   onDirtyChange: (dirty: boolean) => void;
   refreshToken: number;
   requestedNoteId: string | null;
+  seriesId?: string | null;
+  seriesTitle?: string | null;
 }
 
 interface ResearchNoteCaptureDialogProps {
@@ -227,12 +237,181 @@ export function ResearchNoteCaptureDialog({
   </div>;
 }
 
+interface ResearchNotePromotionDialogProps {
+  databaseId: string;
+  note: ResearchNoteDetail;
+  onClose: () => void;
+  onCreated: (proposalId: string) => void;
+  seriesId: string;
+  seriesTitle: string | null;
+}
+
+function promotionDestination(meaning: ResearchNotePromotionMeaning): string {
+  return meaning === "world-rule" ? "Canon Description" : "Codex Research";
+}
+
+export function ResearchNotePromotionDialog({
+  databaseId,
+  note,
+  onClose,
+  onCreated,
+  seriesId,
+  seriesTitle,
+}: ResearchNotePromotionDialogProps) {
+  const [meaning, setMeaning] = useState<ResearchNotePromotionMeaning>("real-world-reference");
+  const [targetMode, setTargetMode] = useState<"existing" | "new">("existing");
+  const [entries, setEntries] = useState<CodexEntryDocument[]>([]);
+  const [categories, setCategories] = useState<CodexCategoryDocument[]>([]);
+  const [entryQuery, setEntryQuery] = useState("");
+  const [selectedEntryId, setSelectedEntryId] = useState("");
+  const [categoryId, setCategoryId] = useState<CodexCategoryId | "">("");
+  const [newEntryName, setNewEntryName] = useState("");
+  const [candidateText, setCandidateText] = useState(
+    note.note.body.trim() || note.note.evidence[0]?.originalText || "",
+  );
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+  const candidateRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      api.codex.listEntries(seriesId),
+      api.codex.listCategories(seriesId),
+    ]).then(([loadedEntries, loadedCategories]) => {
+      if (cancelled) return;
+      const activeEntries = loadedEntries.filter((entry) => !entry.metadata.archivedAt);
+      const activeCategories = loadedCategories.filter((category) => !category.category.archivedAt);
+      setEntries(activeEntries);
+      setCategories(activeCategories);
+      setSelectedEntryId(activeEntries[0]?.metadata.id ?? "");
+      setCategoryId(activeCategories[0]?.category.id ?? "");
+      if (activeEntries.length === 0) setTargetMode("new");
+      candidateRef.current?.focus();
+    }).catch((reason) => {
+      if (!cancelled) setError(errorMessage(reason, "Codex targets could not be loaded."));
+    }).finally(() => {
+      if (!cancelled) setIsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [seriesId]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isSaving) onClose();
+    };
+    globalThis.addEventListener("keydown", onKeyDown);
+    return () => globalThis.removeEventListener("keydown", onKeyDown);
+  }, [isSaving, onClose]);
+
+  const normalizedQuery = entryQuery.trim().toLocaleLowerCase("und");
+  const filteredEntries = entries.filter((entry) => {
+    if (!normalizedQuery) return true;
+    return [entry.metadata.name, ...entry.metadata.aliases]
+      .some((value) => value.toLocaleLowerCase("und").includes(normalizedQuery));
+  }).slice(0, 30);
+  const selectedEntry = entries.find((entry) => entry.metadata.id === selectedEntryId) ?? null;
+  const canSubmit = !isLoading && !isSaving && candidateText.trim().length > 0 && (
+    targetMode === "existing" ? Boolean(selectedEntry) : Boolean(categoryId && newEntryName.trim())
+  );
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!canSubmit) return;
+    setIsSaving(true);
+    setError("");
+    try {
+      const target = targetMode === "existing" && selectedEntry
+        ? {
+            kind: "existing" as const,
+            entryId: selectedEntry.metadata.id,
+            targetRevision: meaning === "world-rule" ? selectedEntry.revision : selectedEntry.research.revision,
+          }
+        : {
+            kind: "new" as const,
+            categoryId: categoryId as CodexCategoryId,
+            name: newEntryName.trim(),
+          };
+      const created = await api.research.createNotePromotion(databaseId, note.note.id, {
+        seriesId,
+        baseRevision: note.revision,
+        meaning,
+        target,
+        candidateText: candidateText.trim(),
+      });
+      onCreated(created.proposal.id);
+    } catch (reason) {
+      setError(errorMessage(reason, "The Review Proposal could not be created."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return <div className="rs9-dialog-backdrop rn1-promotion-backdrop" onMouseDown={(event) => {
+    if (event.currentTarget === event.target && !isSaving) onClose();
+  }}>
+    <section aria-labelledby="research-note-promotion-title" aria-modal="true" className="rs9-dialog rn1-promotion-dialog" role="dialog">
+      <header>
+        <div><p>{seriesTitle ?? "Current Series"}</p><h2 id="research-note-promotion-title">Move Research Note to Codex</h2></div>
+        <button aria-label="Close" disabled={isSaving} onClick={onClose} title="Close" type="button"><X aria-hidden="true" size={17} /></button>
+      </header>
+      <form onSubmit={(event) => void submit(event)}>
+        {error ? <div className="rs9-dialog-error" role="alert">{error}</div> : null}
+        <div className="rn1-promotion-boundary"><BookMarked aria-hidden="true" size={18} /><p><strong>This Note is not Canon.</strong><span>This creates one pending Review Proposal. Codex changes only after you accept it in Review.</span></p></div>
+
+        <fieldset className="rn1-promotion-meaning">
+          <legend>What should this material mean in the story?</legend>
+          {[{
+            value: "real-world-reference" as const,
+            label: "Real-world reference",
+            detail: "Keep it as non-Canon source material.",
+          }, {
+            value: "world-rule" as const,
+            label: "World rule",
+            detail: "Propose it as a Canon Description rule.",
+          }, {
+            value: "inspiration-only" as const,
+            label: "Inspiration only",
+            detail: "Keep it as a creative prompt, not a story fact.",
+          }].map((option) => <label className={meaning === option.value ? "is-selected" : ""} key={option.value}><input checked={meaning === option.value} disabled={isSaving} name="promotion-meaning" onChange={() => setMeaning(option.value)} type="radio" value={option.value} /><span><strong>{option.label}</strong><small>{option.detail}</small></span></label>)}
+        </fieldset>
+
+        <section className="rn1-destination-summary"><span>Destination field</span><strong>{promotionDestination(meaning)}</strong><ArrowRight aria-hidden="true" size={16} /></section>
+
+        <fieldset className="rn1-target-mode">
+          <legend>Codex target</legend>
+          <div role="tablist" aria-label="Codex target">
+            <button aria-selected={targetMode === "existing"} disabled={isLoading || entries.length === 0 || isSaving} onClick={() => setTargetMode("existing")} role="tab" type="button">Existing Codex Entry</button>
+            <button aria-selected={targetMode === "new"} disabled={isLoading || categories.length === 0 || isSaving} onClick={() => setTargetMode("new")} role="tab" type="button">New Codex Entry</button>
+          </div>
+        </fieldset>
+
+        {targetMode === "existing" ? <div className="rn1-entry-picker">
+          <label><span>Find Codex Entry</span><span className="rn1-search-input"><Search aria-hidden="true" size={15} /><input disabled={isLoading || isSaving} onChange={(event) => setEntryQuery(event.target.value)} placeholder="Search names or aliases" value={entryQuery} /></span></label>
+          <div aria-label="Codex Entries" className="rn1-entry-options" role="listbox">{filteredEntries.map((entry) => <button aria-selected={entry.metadata.id === selectedEntryId} key={entry.metadata.id} onClick={() => setSelectedEntryId(entry.metadata.id)} role="option" type="button"><strong>{entry.metadata.name}</strong><span>{entry.metadata.categoryId}</span></button>)}{!isLoading && filteredEntries.length === 0 ? <p>No matching active Codex Entries.</p> : null}</div>
+        </div> : <div className="rn1-new-entry-fields">
+          <label><span>Category</span><select disabled={isLoading || isSaving} onChange={(event) => setCategoryId(event.target.value as CodexCategoryId)} required value={categoryId}>{categories.map((category) => <option key={category.category.id} value={category.category.id}>{category.category.name}</option>)}</select></label>
+          <label><span>Entry name</span><input disabled={isLoading || isSaving} maxLength={160} onChange={(event) => setNewEntryName(event.target.value)} required value={newEntryName} /></label>
+        </div>}
+
+        <label className="rn1-candidate"><span>Candidate text</span><textarea disabled={isSaving} maxLength={400000} onChange={(event) => setCandidateText(event.target.value)} ref={candidateRef} rows={8} value={candidateText} /></label>
+        <p className="rs9-dialog-note">Editing this candidate does not change the Research Note.</p>
+        <footer><button className="rs8-discard" disabled={isSaving} onClick={onClose} type="button">Cancel</button><button className="rs8-save" disabled={!canSubmit} type="submit">{isSaving ? "Creating Proposal" : "Create Review Proposal"}</button></footer>
+      </form>
+    </section>
+  </div>;
+}
+
 export function ResearchNotesWorkspace({
   databaseId,
   databaseName,
+  onOpenProposal,
   onDirtyChange,
   refreshToken,
   requestedNoteId,
+  seriesId = null,
+  seriesTitle = null,
 }: ResearchNotesWorkspaceProps) {
   const [filter, setFilter] = useState<"active" | "archived">("active");
   const [list, setList] = useState<ResearchNoteListResult | null>(null);
@@ -247,6 +426,7 @@ export function ResearchNotesWorkspace({
   const [notice, setNotice] = useState("");
   const [reloadRevision, setReloadRevision] = useState(0);
   const [detailReloadRevision, setDetailReloadRevision] = useState(0);
+  const [promotionOpen, setPromotionOpen] = useState(false);
   const dirty = !sameDraft(draft, savedDraft);
 
   useEffect(() => {
@@ -401,6 +581,7 @@ export function ResearchNotesWorkspace({
         <header>
           <div><p>{detail.note.status === "archived" ? "Archived interpretation" : "Author interpretation"}</p><span>{detail.note.evidence.length} evidence item{detail.note.evidence.length === 1 ? "" : "s"} · Updated {formatUpdatedAt(detail.note.updatedAt)}</span></div>
           <div className="rn1-editor-actions">
+            {detail.note.status === "active" ? <button className="rn1-promote-button" disabled={!seriesId || dirty || isSaving || detail.evidence.some((item) => item.freshness !== "current")} onClick={() => setPromotionOpen(true)} title={!seriesId ? "Open a Series before creating a Codex Proposal" : dirty ? "Save or discard Note changes before creating a Proposal" : detail.evidence.some((item) => item.freshness !== "current") ? "Review changed evidence before creating a Proposal" : "Create a Review Proposal for this Note"} type="button"><BookMarked aria-hidden="true" size={15} /><span>Move to Codex</span></button> : null}
             <button aria-label={detail.note.status === "active" ? "Archive Research Note" : "Restore Research Note"} disabled={dirty || isSaving} onClick={() => void changeArchiveState()} title={detail.note.status === "active" ? "Archive Research Note" : "Restore Research Note"} type="button">{detail.note.status === "active" ? <Archive aria-hidden="true" size={16} /> : <RotateCcw aria-hidden="true" size={16} />}</button>
           </div>
         </header>
@@ -427,5 +608,6 @@ export function ResearchNotesWorkspace({
         </article>;
       })}</div> : <div className="rs8-inspector-empty"><p>Select a Research Note to inspect the unchanged original-language evidence beside your interpretation.</p></div>}
     </aside>
+    {promotionOpen && detail && seriesId ? <ResearchNotePromotionDialog databaseId={databaseId} note={detail} onClose={() => setPromotionOpen(false)} onCreated={(proposalId) => { setPromotionOpen(false); onOpenProposal?.(proposalId); }} seriesId={seriesId} seriesTitle={seriesTitle} /> : null}
   </>;
 }

@@ -1,11 +1,15 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import type { ContextBundle, ModelCallLog } from "@novel-studio/contracts";
 import { afterEach, describe, expect, it } from "vitest";
-import { ProjectRepository, StorageError } from "../src/index.js";
+import {
+  ProjectRepository,
+  StorageError,
+  type PreparedResearchSourceImport,
+} from "../src/index.js";
 import { proposalSnapshotPath } from "../src/proposalFiles.js";
 
 const temporaryDirectories: string[] = [];
@@ -23,6 +27,59 @@ async function repository(): Promise<ProjectRepository> {
 
 function seriesRoot(store: ProjectRepository, title: string, seriesId: string): string {
   return path.join(store.libraryRoot, `${title}-${seriesId.slice(0, 8)}`);
+}
+
+function researchImport(originalText: string): PreparedResearchSourceImport {
+  const originalBytes = Buffer.from(originalText, "utf8");
+  return {
+    kind: "markdown",
+    mediaType: "text/markdown",
+    originalFileName: "proposal-evidence.md",
+    originalBytes,
+    sizeBytes: originalBytes.byteLength,
+    contentHash: createHash("sha256").update(originalBytes).digest("hex"),
+    properties: {
+      displayName: "Harbor archive",
+      author: "Archive editor",
+      declaredLanguage: "en",
+      tags: ["harbor"],
+      aiPermission: "never",
+      useNotes: "NS-609 Proposal fixture",
+    },
+    origin: { type: "file" },
+    content: {
+      title: "Harbor archive",
+      parserName: "ns-609-proposal-test",
+      parserVersion: 1,
+      warnings: [],
+      sections: [],
+      blocks: [{
+        order: 0,
+        sectionOrder: null,
+        kind: "paragraph",
+        text: originalText,
+        location: {
+          kind: "text",
+          startLine: 1,
+          endLine: 1,
+          startOffset: 0,
+          endOffset: originalText.length,
+        },
+      }],
+    },
+  };
+}
+
+function researchCapture(source: Awaited<ReturnType<ProjectRepository["getResearchSource"]>>) {
+  if (!("content" in source)) throw new Error("Expected a version 3 Research Source");
+  const chunk = source.content.chunks[0]!;
+  return {
+    sourceId: source.source.id,
+    sourceRevision: source.revision,
+    blockId: chunk.blockId,
+    chunkId: chunk.id,
+    chunkHash: chunk.textHash,
+  };
 }
 
 function target(scene: { metadata: { id: string; title: string }; revision: string }) {
@@ -406,5 +463,107 @@ describe("M5 Proposal storage", () => {
     expect(accepted.blocked).toEqual([]);
     expect(accepted.skipped).toEqual([]);
     expect(accepted.failed).toEqual([]);
+  });
+
+  it("creates pending Research Note promotions without changing existing or new Codex targets", async () => {
+    const store = await repository();
+    const series = await store.createSeries({ title: "ResearchPromotion" });
+    const database = await store.createResearchDatabase({ name: "Independent archive" });
+    const source = await store.importResearchSource(
+      database.database.id,
+      researchImport("The harbor bell marked the legal opening of the market."),
+    );
+    const note = await store.createResearchNote(database.database.id, {
+      title: "Harbor bell custom",
+      body: "The bell can become binding law in the fictional port.",
+      evidence: [researchCapture(source)],
+    });
+    const existing = await store.createCodexEntry(series.manifest.id, {
+      categoryId: "location",
+      name: "Salt Harbor",
+      description: "An old trading port.",
+      research: "Existing non-Canon notes.",
+    });
+
+    const existingPromotion = await store.createResearchNotePromotion(
+      database.database.id,
+      note.note.id,
+      {
+        seriesId: series.manifest.id,
+        baseRevision: note.revision,
+        meaning: "world-rule",
+        target: {
+          kind: "existing",
+          entryId: existing.metadata.id,
+          targetRevision: existing.revision,
+        },
+        candidateText: "The market may open only after the harbor bell rings.",
+      },
+    );
+    expect(existingPromotion).toMatchObject({
+      proposal: {
+        status: "pending",
+        type: "codex-update",
+        source: { kind: "research-note", sourceId: note.note.id },
+        target: { kind: "codex-entry", targetId: existing.metadata.id },
+      },
+      sourceAvailability: { available: true },
+      targetAvailability: { available: true },
+    });
+    expect((await store.getCodexEntry(series.manifest.id, existing.metadata.id))).toMatchObject({
+      description: "An old trading port.",
+      research: { content: "Existing non-Canon notes." },
+      revision: existing.revision,
+    });
+
+    const entryCountBeforeNewPromotion = (await store.listCodexEntries(series.manifest.id)).length;
+    const newPromotion = await store.createResearchNotePromotion(database.database.id, note.note.id, {
+      seriesId: series.manifest.id,
+      baseRevision: note.revision,
+      meaning: "inspiration-only",
+      target: { kind: "new", categoryId: "location", name: "Bell Market" },
+      candidateText: "Use the archive as atmosphere, not as world law.",
+    });
+    expect(newPromotion.proposal).toMatchObject({
+      status: "pending",
+      type: "codex-create",
+      target: { kind: "codex-research", baseRevision: null },
+      researchNotePromotion: { target: { kind: "new", categoryId: "location", name: "Bell Market" } },
+    });
+    expect((await store.listCodexEntries(series.manifest.id))).toHaveLength(entryCountBeforeNewPromotion);
+    await expect(store.getCodexEntry(series.manifest.id, newPromotion.proposal.target.targetId))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+    expect((await store.listProposals(series.manifest.id)).items).toHaveLength(2);
+
+    await expect(store.createResearchNotePromotion(database.database.id, note.note.id, {
+      seriesId: series.manifest.id,
+      baseRevision: note.revision,
+      meaning: "world-rule",
+      target: {
+        kind: "existing",
+        entryId: existing.metadata.id,
+        targetRevision: "a".repeat(64),
+      },
+      candidateText: "Stale target must fail.",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    await expect(store.createResearchNotePromotion(database.database.id, note.note.id, {
+      seriesId: randomUUID(),
+      baseRevision: note.revision,
+      meaning: "real-world-reference",
+      target: { kind: "new", categoryId: "location", name: "No Series" },
+      candidateText: "No active Series must fail.",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+
+    const archived = await store.archiveResearchNote(database.database.id, note.note.id, {
+      baseRevision: note.revision,
+    });
+    await expect(store.createResearchNotePromotion(database.database.id, note.note.id, {
+      seriesId: series.manifest.id,
+      baseRevision: archived.revision,
+      meaning: "real-world-reference",
+      target: { kind: "new", categoryId: "location", name: "Archived Note" },
+      candidateText: "Archived Note must fail.",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    expect((await store.listProposals(series.manifest.id)).items).toHaveLength(2);
   });
 });

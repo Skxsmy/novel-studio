@@ -63,7 +63,9 @@
 .rn1-note-editor > form > header { padding-bottom: 15px; display: flex; align-items: start; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); }
 .rn1-note-editor > form > header p { margin: 0 0 5px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
 .rn1-note-editor > form > header span { color: var(--muted); font-size: 11px; }
+.rn1-editor-actions { display: flex; align-items: center; gap: 7px; }
 .rn1-editor-actions button { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--paper); color: var(--muted); cursor: pointer; }
+.rn1-editor-actions .rn1-promote-button { width: auto; padding: 0 10px; grid-template-columns: 16px auto; gap: 6px; color: var(--ink); font-size: 11px; font-weight: 700; white-space: nowrap; }
 .rn1-editor-actions button:hover { border-color: var(--green); color: var(--green); }
 .rn1-editor-actions button:disabled { cursor: not-allowed; opacity: .4; }
 .rn1-note-editor label { display: block; }
@@ -127,6 +129,52 @@
 .rn1-target-mode > div { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line-strong); border-radius: 4px; overflow: hidden; }
 .rn1-capture-dialog footer .rs8-save { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 
+.rn1-promotion-dialog { width: min(800px, 100%); }
+.rn1-promotion-dialog form { display: grid; gap: 15px; }
+.rn1-promotion-boundary { padding: 12px 14px; display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 9px; border-left: 3px solid var(--blue); background: color-mix(in srgb, var(--blue) 7%, var(--paper)); color: var(--ink); }
+.rn1-promotion-boundary svg { margin-top: 2px; color: var(--blue); }
+.rn1-promotion-boundary p,
+.rn1-promotion-boundary strong,
+.rn1-promotion-boundary span { margin: 0; display: block; }
+.rn1-promotion-boundary strong { font-size: 12px; }
+.rn1-promotion-boundary span { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.rn1-promotion-meaning { margin: 0; padding: 0; border: 0; }
+.rn1-promotion-meaning legend,
+.rn1-promotion-dialog .rn1-target-mode legend { margin-bottom: 7px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.rn1-promotion-meaning > label { min-height: 58px; padding: 9px 11px; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 8px; border: 1px solid var(--line); border-bottom: 0; background: var(--paper); cursor: pointer; }
+.rn1-promotion-meaning > label:first-of-type { border-radius: 4px 4px 0 0; }
+.rn1-promotion-meaning > label:last-of-type { border-bottom: 1px solid var(--line); border-radius: 0 0 4px 4px; }
+.rn1-promotion-meaning > label.is-selected { border-left: 3px solid var(--green); background: var(--green-soft); }
+.rn1-promotion-meaning input { margin: 2px 0 0; }
+.rn1-promotion-meaning strong,
+.rn1-promotion-meaning small { display: block; }
+.rn1-promotion-meaning strong { font-size: 12px; }
+.rn1-promotion-meaning small { margin-top: 3px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.rn1-destination-summary { min-height: 42px; padding: 8px 11px; display: grid; grid-template-columns: auto minmax(0, 1fr) 18px; align-items: center; gap: 10px; border: 1px solid var(--line); background: var(--shell); }
+.rn1-destination-summary span { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.rn1-destination-summary strong { font-size: 12px; }
+.rn1-destination-summary svg { color: var(--green); }
+.rn1-entry-picker,
+.rn1-new-entry-fields { display: grid; gap: 10px; }
+.rn1-new-entry-fields { grid-template-columns: minmax(150px, .7fr) minmax(220px, 1.3fr); }
+.rn1-entry-picker label > span:first-child,
+.rn1-new-entry-fields label > span,
+.rn1-candidate > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.rn1-search-input { height: 36px; padding: 0 9px; display: grid !important; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 6px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--paper); }
+.rn1-search-input svg { color: var(--muted); }
+.rn1-search-input input { width: 100%; min-width: 0; height: 32px !important; padding: 0 !important; border: 0 !important; outline: 0 !important; }
+.rn1-entry-options { max-height: 156px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); }
+.rn1-entry-options > button { width: 100%; min-height: 43px; padding: 7px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.rn1-entry-options > button:last-child { border-bottom: 0; }
+.rn1-entry-options > button[aria-selected="true"] { background: var(--green-soft); color: var(--green); }
+.rn1-entry-options strong { overflow-wrap: anywhere; font-size: 12px; }
+.rn1-entry-options span { flex: 0 0 auto; color: var(--muted); font-size: 9px; text-transform: uppercase; }
+.rn1-entry-options > p { margin: 0; padding: 12px; color: var(--muted); font-size: 11px; }
+.rn1-new-entry-fields select { width: 100%; height: 36px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--paper); color: var(--ink); }
+.rn1-candidate { margin: 0 !important; }
+.rn1-candidate textarea { min-height: 142px; font-family: var(--serif); line-height: 1.65; letter-spacing: 0; }
+.rn1-review-view { overflow: auto; padding: 20px; background: var(--shell); }
+
 @media (max-width: 1120px) {
   .rn1-evidence-inspector { grid-column: 2; }
 }
@@ -140,4 +188,10 @@
   .rn1-evidence-inspector { border-top: 1px solid var(--line); border-left: 0; }
   .rn1-capture-dialog { max-height: calc(100vh - 24px); }
   .rn1-capture-dialog form { padding-bottom: max(18px, env(safe-area-inset-bottom)); }
+  .rn1-promotion-backdrop { padding: 0; align-items: end; }
+  .rn1-promotion-dialog { width: 100%; max-height: 100vh; border-width: 1px 0 0; border-radius: 0; }
+  .rn1-promotion-dialog form { padding-bottom: max(18px, env(safe-area-inset-bottom)); }
+  .rn1-new-entry-fields { grid-template-columns: 1fr; }
+  .rn1-editor-actions .rn1-promote-button span { display: none; }
+  .rn1-editor-actions .rn1-promote-button { width: 34px; padding: 0; grid-template-columns: 1fr; }
 }

@@ -6,6 +6,7 @@ import { ReferenceCodexWorkspace } from "../features/codex/ReferenceCodexWorkspa
 import { ReferenceOverviewWorkspace } from "../features/overview/ReferenceOverviewWorkspace";
 import { ReferencePlanWorkspace } from "../features/plan/ReferencePlanWorkspace";
 import { ReferenceResearchWorkspace } from "../features/research/ResearchDatabaseWorkspace";
+import { ReviewWorkspace } from "../features/review";
 import { ReferenceSettingsWorkspace } from "../features/settings/ReferenceSettingsWorkspace";
 import { ReferenceWorkshopWorkspace } from "../features/workshop/ReferenceWorkshopWorkspace";
 import { ReferenceWriteWorkspace } from "../features/write/ReferenceWriteWorkspace";
@@ -67,6 +68,8 @@ function ConnectedProjectWorkspaces({
   const openingSeriesRef = useRef<string | null>(null);
   const [writeTarget, setWriteTarget] = useState<{ blockId: string | null; sceneId: string } | null>(null);
   const [providerReturnSessionId, setProviderReturnSessionId] = useState<string | null>(null);
+  const [requestedWorkshopSessionId, setRequestedWorkshopSessionId] = useState<string | null>(null);
+  const [reviewProposalId, setReviewProposalId] = useState<string | null>(null);
   const [modelProfilesRevision, setModelProfilesRevision] = useState(0);
   const [codexAuthorityRevision, setCodexAuthorityRevision] = useState(0);
   const [researchCitation, setResearchCitation] = useState<ResearchToolAuditCitation | null>(null);
@@ -107,6 +110,16 @@ function ConnectedProjectWorkspaces({
     document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Research']")?.click();
   }
 
+  function openReviewProposal(proposalId: string) {
+    setReviewProposalId(proposalId);
+    queueMicrotask(() => document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Review']")?.click());
+  }
+
+  function openReviewWorkshopMessage(sessionId: string) {
+    setRequestedWorkshopSessionId(sessionId);
+    queueMicrotask(() => document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Workshop']")?.click());
+  }
+
   return (
     <>
       <ConnectedProjectLibrary session={session} />
@@ -119,8 +132,22 @@ function ConnectedProjectWorkspaces({
         onModelProfilesChanged={() => setModelProfilesRevision((current) => current + 1)}
       />
       <ReferencePlanWorkspace />
-      {connectResearch ? <ReferenceResearchNavigationBridge /> : null}
-      {connectResearch ? <ReferenceResearchWorkspace requestedCitation={researchCitation} seriesId={session.activeSeries?.manifest.id ?? null} /> : null}
+      {connectResearch ? <ReferenceResearchNavigationBridge enableReview={Boolean(session.activeSeries)} /> : null}
+      {connectResearch ? <ReferenceResearchWorkspace
+        onOpenProposal={openReviewProposal}
+        requestedCitation={researchCitation}
+        seriesId={session.activeSeries?.manifest.id ?? null}
+        seriesTitle={session.activeSeries?.manifest.title ?? null}
+      /> : null}
+      {connectResearch && session.activeSeries ? <section className="workspace-view rn1-review-view" data-workspace-view="Review" hidden>
+        <ReviewWorkspace
+          key={reviewProposalId ?? "proposal-inbox"}
+          onOpenProposal={setReviewProposalId}
+          onOpenWorkshopMessage={(sessionId) => openReviewWorkshopMessage(sessionId)}
+          selectedProposalId={reviewProposalId}
+          series={session.activeSeries}
+        />
+      </section> : null}
       {connectWrite ? <ReferenceWriteWorkspace requestedBlockId={writeTarget?.blockId ?? null} session={session} /> : <ReferenceSurface selector="#write-workspace" />}
       {connectCodex ? (
         <ReferenceCodexWorkspace
@@ -135,7 +162,7 @@ function ConnectedProjectWorkspaces({
           onCodexAuthorityChanged={() => setCodexAuthorityRevision((current) => current + 1)}
           onOpenProviderSettings={openProviderSettings}
           onOpenResearchCitation={openResearchCitation}
-          requestedSessionId={providerReturnSessionId}
+          requestedSessionId={providerReturnSessionId ?? requestedWorkshopSessionId}
           session={session}
         />
       ) : <ReferenceWorkshopWorkspace />}
@@ -146,12 +173,13 @@ function ConnectedProjectWorkspaces({
   );
 }
 
-function ReferenceResearchNavigationBridge() {
+function ReferenceResearchNavigationBridge({ enableReview }: { enableReview: boolean }) {
   useLayoutEffect(() => {
     const buttons = [...document.querySelectorAll<HTMLButtonElement>(".workspace-button[data-workspace]")];
-    const researchButton = buttons.find((button) => button.dataset.workspace === "Research");
-    if (!researchButton) return;
-    const wasDisabled = researchButton.disabled;
+    const connectedWorkspaces = enableReview ? ["Research", "Review"] : ["Research"];
+    const connectedButtons = buttons.filter((button) => connectedWorkspaces.includes(button.dataset.workspace ?? ""));
+    if (connectedButtons.length === 0) return;
+    const disabledStates = new Map(connectedButtons.map((button) => [button, button.disabled]));
     const workspaceContexts: Record<string, string> = {
       Codex: "Story memory",
       Overview: "Project overview",
@@ -177,7 +205,7 @@ function ReferenceResearchNavigationBridge() {
       if (context) context.textContent = workspaceContexts[workspace] ?? "Novel Studio";
     }
 
-    researchButton.disabled = false;
+    connectedButtons.forEach((button) => { button.disabled = false; });
     buttons.forEach((button) => {
       if (button.disabled) return;
       const listener = () => {
@@ -189,9 +217,9 @@ function ReferenceResearchNavigationBridge() {
     });
     return () => {
       listeners.forEach((listener, button) => button.removeEventListener("click", listener));
-      researchButton.disabled = wasDisabled;
+      disabledStates.forEach((wasDisabled, button) => { button.disabled = wasDisabled; });
     };
-  }, []);
+  }, [enableReview]);
   return null;
 }
 

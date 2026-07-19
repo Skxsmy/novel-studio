@@ -5,6 +5,7 @@ import type { EmbeddingRouter } from "@novel-studio/ai";
 import {
   CreateResearchDatabaseInputSchema,
   CreateResearchNoteInputSchema,
+  CreateResearchNotePromotionInputSchema,
   AppendResearchNoteEvidenceInputSchema,
   ImportResearchSourceInputSchema,
   ImportResearchWebSourceInputSchema,
@@ -27,6 +28,7 @@ import {
   ResearchNoteListQuerySchema,
   ResearchNoteListResultSchema,
   ResearchNoteRevisionInputSchema,
+  ProposalDocumentSchema,
   RemoveResearchNoteEvidenceInputSchema,
   ResearchSourceContentPageQuerySchema,
   ResearchSourceContentPageSchema,
@@ -200,6 +202,17 @@ export function registerResearchRoutes(
         request.params.noteId,
         ResearchNoteRevisionInputSchema.parse(request.body),
       ),
+    )),
+  );
+
+  app.post<{ Params: { databaseId: string; noteId: string } }>(
+    "/api/v1/research/databases/:databaseId/notes/:noteId/promotions",
+    async (request, reply) => researchNoteRoute(async () => reply.status(201).send(
+      ProposalDocumentSchema.parse(await repository.createResearchNotePromotion(
+        request.params.databaseId,
+        request.params.noteId,
+        CreateResearchNotePromotionInputSchema.parse(request.body),
+      )),
     )),
   );
 

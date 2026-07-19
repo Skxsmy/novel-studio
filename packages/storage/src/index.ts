@@ -94,6 +94,7 @@ import {
   ProposalInboxSchema,
   ProposalSchema,
   ProposalSnapshotSchema,
+  CreateResearchNotePromotionInputSchema,
   CreateProposalInputSchema,
   EditAndAcceptProposalInputSchema,
   MarkProposalStaleInputSchema,
@@ -261,6 +262,10 @@ import {
   type ProposalPatch,
   type ProposalRevisionInput,
   type ProposalSnapshot,
+  type CreateResearchNotePromotionInput,
+  type ResearchNoteEvidence,
+  type ResearchNotePromotionEvidenceBaseline,
+  type ResearchNotePromotionTargetBaseline,
   type SupersedeProposalInput,
   type CreateWorkshopBranchInput,
   type CreateWorkshopMessageInput,
@@ -1694,6 +1699,31 @@ export interface WorkshopToolExecutionClaimResult {
   message: WorkshopMessage;
 }
 
+function researchNotePromotionEvidenceBaseline(
+  evidence: ResearchNoteEvidence,
+): ResearchNotePromotionEvidenceBaseline {
+  return {
+    id: evidence.id,
+    researchDatabaseId: evidence.researchDatabaseId,
+    sourceId: evidence.sourceId,
+    sourceRevision: evidence.sourceRevision,
+    sourceContentHash: evidence.sourceContentHash,
+    sourceKind: evidence.sourceKind,
+    blockId: evidence.blockId,
+    chunkId: evidence.chunkId,
+    chunkHash: evidence.chunkHash,
+    quoteHash: evidence.quoteHash,
+    languageTag: evidence.languageTag,
+    location: evidence.location,
+  };
+}
+
+function appendPromotedCodexText(current: string, candidate: string): string {
+  const normalizedCandidate = candidate.trim();
+  const normalizedCurrent = current.replace(/\s+$/u, "");
+  return normalizedCurrent ? `${normalizedCurrent}\n\n${normalizedCandidate}` : normalizedCandidate;
+}
+
 export interface PreparedResearchSourceImport {
   kind: ResearchSourceKind;
   mediaType: ResearchSourceMediaType;
@@ -2011,6 +2041,142 @@ export class ProjectRepository {
       transactionOptions,
     );
     return readResearchNoteDetail(databaseRoot, researchDatabaseId, noteId);
+  }
+
+  async createResearchNotePromotion(
+    researchDatabaseId: string,
+    noteId: string,
+    rawInput: CreateResearchNotePromotionInput,
+  ): Promise<ProposalDocument> {
+    const input = CreateResearchNotePromotionInputSchema.parse(rawInput);
+    const seriesRoot = await this.findSeriesRoot(input.seriesId);
+    const note = await this.getResearchNote(researchDatabaseId, noteId);
+    if (note.revision !== input.baseRevision) {
+      throw new StorageError("Research Note changed before promotion", "CONFLICT", {
+        currentRevision: note.revision,
+        noteId,
+      });
+    }
+    if (note.note.status !== "active") {
+      throw new StorageError("Archived Research Notes cannot be moved to Codex", "INVALID_DATA", { noteId });
+    }
+    const staleEvidence = note.evidence.filter((item) => item.freshness !== "current");
+    if (staleEvidence.length > 0) {
+      throw new StorageError("Research Note evidence changed before promotion", "CONFLICT", {
+        noteId,
+        staleEvidenceIds: staleEvidence.map((item) => item.evidence.id),
+      });
+    }
+
+    const targetKind = input.meaning === "world-rule" ? "codex-entry" as const : "codex-research" as const;
+    const fieldPath = input.meaning === "world-rule" ? ["description"] : ["research"];
+    let entryId: string;
+    let targetLabel: string;
+    let targetRevision: string | null;
+    let before: string | null;
+    let after: string;
+    let promotionTarget: ResearchNotePromotionTargetBaseline;
+
+    if (input.target.kind === "existing") {
+      const entry = await this.getCodexEntry(input.seriesId, input.target.entryId);
+      if (entry.metadata.archivedAt) {
+        throw new StorageError("Archived Codex Entries cannot receive Research Note promotion", "INVALID_DATA", {
+          entryId: entry.metadata.id,
+        });
+      }
+      const currentRevision = targetKind === "codex-entry" ? entry.revision : entry.research.revision;
+      if (currentRevision !== input.target.targetRevision) {
+        throw new StorageError("Codex target changed before promotion", "CONFLICT", {
+          currentRevision,
+          entryId: entry.metadata.id,
+        });
+      }
+      entryId = entry.metadata.id;
+      targetLabel = entry.metadata.name;
+      targetRevision = currentRevision;
+      before = targetKind === "codex-entry" ? entry.description : entry.research.content;
+      after = appendPromotedCodexText(before, input.candidateText);
+      promotionTarget = { kind: "existing", entryId };
+    } else {
+      await this.assertCodexCategoryWritable(seriesRoot, input.target.categoryId);
+      const existingIds = new Set(
+        (await this.listCodexEntriesFromRoot(seriesRoot)).map((entry) => entry.metadata.id),
+      );
+      do {
+        entryId = randomUUID();
+      } while (existingIds.has(entryId));
+      targetLabel = input.target.name;
+      targetRevision = null;
+      before = null;
+      after = input.candidateText.trim();
+      promotionTarget = {
+        kind: "new",
+        entryId,
+        categoryId: input.target.categoryId,
+        name: input.target.name,
+      };
+    }
+
+    if (after.length > 400_000) {
+      throw new StorageError("Promoted Codex text is too large for one Proposal", "INVALID_DATA", {
+        characterCount: after.length,
+      });
+    }
+    const target = {
+      kind: targetKind,
+      targetId: entryId,
+      label: targetLabel,
+      baseRevision: targetRevision,
+      fieldPath,
+      blockId: null,
+      range: null,
+    };
+    const meaningLabel = input.meaning === "world-rule"
+      ? "World rule"
+      : input.meaning === "real-world-reference"
+        ? "Real-world reference"
+        : "Inspiration only";
+    return this.createProposal(input.seriesId, {
+      type: input.target.kind === "new" ? "codex-create" : "codex-update",
+      title: `Move ${note.note.title} to ${targetLabel}`,
+      summary: `${meaningLabel} from Research Note. Review is required before Codex changes.`,
+      source: {
+        kind: "research-note",
+        sourceId: note.note.id,
+        label: note.note.title,
+        detail: `Research Database ${researchDatabaseId}`,
+      },
+      target,
+      contextBundleId: null,
+      generator: { kind: "manual", actor: "user" },
+      riskLevel: input.meaning === "world-rule" ? "high" : "medium",
+      confidence: null,
+      reason: meaningLabel,
+      patches: [{
+        id: randomUUID(),
+        target,
+        action: input.target.kind === "new" ? "create-codex-entry" : "update-codex-entry",
+        before,
+        after,
+        unifiedDiff: "",
+      }],
+      evidence: note.note.evidence.map((evidence) => ({
+        sourceType: "research-note" as const,
+        sourceId: note.note.id,
+        revision: note.revision,
+        quote: evidence.originalText.slice(0, 16_000),
+        note: `${evidence.sourceDisplayName} (${evidence.location.kind})`,
+      })),
+      researchNotePromotion: {
+        schemaVersion: 1,
+        meaning: input.meaning,
+        researchDatabaseId,
+        noteId: note.note.id,
+        noteRevision: note.revision,
+        evidence: note.note.evidence.map(researchNotePromotionEvidenceBaseline),
+        target: promotionTarget,
+      },
+    });
   }
 
   async getResearchDatabaseDeletionBlockers(
@@ -7597,6 +7763,7 @@ export class ProjectRepository {
       decision: null,
       patches: input.patches,
       evidence: input.evidence,
+      researchNotePromotion: input.researchNotePromotion,
       createdAt: now,
       updatedAt: now,
     });
@@ -9490,6 +9657,23 @@ export class ProjectRepository {
           await this.getScene(seriesId, source.sourceId);
         } else if (source.kind === "codex-entry") {
           await this.getCodexEntry(seriesId, source.sourceId);
+        } else if (source.kind === "research-note") {
+          const promotion = proposal.researchNotePromotion;
+          if (!promotion) return { available: false, reason: "Research Note promotion baseline is missing" };
+          const note = await this.getResearchNote(promotion.researchDatabaseId, source.sourceId);
+          if (note.note.status !== "active") {
+            return { available: false, reason: "Source Research Note is archived" };
+          }
+          if (note.revision !== promotion.noteRevision) {
+            return { available: false, reason: "Source Research Note changed since Proposal creation" };
+          }
+          const currentEvidence = note.note.evidence.map(researchNotePromotionEvidenceBaseline);
+          if (!isDeepStrictEqual(currentEvidence, promotion.evidence)) {
+            return { available: false, reason: "Source Research Note evidence changed since Proposal creation" };
+          }
+          if (note.evidence.some((item) => item.freshness !== "current")) {
+            return { available: false, reason: "Source evidence changed since Proposal creation" };
+          }
         } else if (source.kind === "workshop-message") {
           const { session } = await this.getWorkshopMessageSource(seriesId, source.sourceId);
           if (session.status === "archived") {
@@ -9525,10 +9709,30 @@ export class ProjectRepository {
   ): Promise<{ available: boolean; reason: string }> {
     try {
       const target = proposal.target;
+      const promotion = proposal.researchNotePromotion;
+      if (promotion?.target.kind === "new") {
+        await this.assertCodexCategoryWritable(seriesRoot, promotion.target.categoryId);
+        try {
+          await this.findCodexEntry(seriesRoot, promotion.target.entryId);
+          return { available: false, reason: "New Codex target already exists" };
+        } catch (error) {
+          if (!(error instanceof StorageError) || error.code !== "NOT_FOUND") throw error;
+        }
+        return { available: true, reason: "" };
+      }
       if (target.kind === "scene-content" || target.kind === "scene-metadata") {
         await this.getScene(seriesId, target.targetId);
       } else if (target.kind === "codex-entry" || target.kind === "codex-research") {
-        await this.getCodexEntry(seriesId, target.targetId);
+        const entry = await this.getCodexEntry(seriesId, target.targetId);
+        if (entry.metadata.archivedAt) {
+          return { available: false, reason: "Target Codex Entry is archived" };
+        }
+        if (promotion) {
+          const currentRevision = target.kind === "codex-entry" ? entry.revision : entry.research.revision;
+          if (target.baseRevision !== currentRevision) {
+            return { available: false, reason: "Target changed since Proposal creation" };
+          }
+        }
       } else if (target.kind === "codex-relation") {
         await this.readCodexRelation(seriesRoot, target.targetId);
       } else if (target.kind === "codex-progression") {

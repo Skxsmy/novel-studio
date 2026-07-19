@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { AiProviderSchema } from "./ai.js";
+import { CodexCategoryIdSchema } from "./codex.js";
 import { RevisionHashSchema } from "./common.js";
+import { ResearchNoteEvidenceSchema } from "./researchNotes.js";
 
 export const ProposalTypeSchema = z.enum([
   "text-insertion",
@@ -55,6 +57,7 @@ export const ProposalSourceKindSchema = z.enum([
   "tool-plan",
   "import",
   "model-call",
+  "research-note",
   "manual",
 ]);
 export type ProposalSourceKind = z.infer<typeof ProposalSourceKindSchema>;
@@ -165,6 +168,103 @@ export const ProposalEvidenceSchema = z.object({
 });
 export type ProposalEvidence = z.infer<typeof ProposalEvidenceSchema>;
 
+export const ResearchNotePromotionMeaningSchema = z.enum([
+  "real-world-reference",
+  "world-rule",
+  "inspiration-only",
+]);
+export type ResearchNotePromotionMeaning = z.infer<
+  typeof ResearchNotePromotionMeaningSchema
+>;
+
+export const ExistingResearchNotePromotionTargetInputSchema = z.object({
+  kind: z.literal("existing"),
+  entryId: z.string().uuid(),
+  targetRevision: RevisionHashSchema,
+}).strict();
+export type ExistingResearchNotePromotionTargetInput = z.infer<
+  typeof ExistingResearchNotePromotionTargetInputSchema
+>;
+
+export const NewResearchNotePromotionTargetInputSchema = z.object({
+  kind: z.literal("new"),
+  categoryId: CodexCategoryIdSchema,
+  name: z.string().trim().min(1).max(160),
+}).strict();
+export type NewResearchNotePromotionTargetInput = z.infer<
+  typeof NewResearchNotePromotionTargetInputSchema
+>;
+
+export const ResearchNotePromotionTargetInputSchema = z.discriminatedUnion("kind", [
+  ExistingResearchNotePromotionTargetInputSchema,
+  NewResearchNotePromotionTargetInputSchema,
+]);
+export type ResearchNotePromotionTargetInput = z.infer<
+  typeof ResearchNotePromotionTargetInputSchema
+>;
+
+export const CreateResearchNotePromotionInputSchema = z.object({
+  seriesId: z.string().uuid(),
+  baseRevision: RevisionHashSchema,
+  meaning: ResearchNotePromotionMeaningSchema,
+  target: ResearchNotePromotionTargetInputSchema,
+  candidateText: z.string().trim().min(1).max(400_000),
+}).strict();
+export type CreateResearchNotePromotionInput = z.infer<
+  typeof CreateResearchNotePromotionInputSchema
+>;
+
+export const ResearchNotePromotionEvidenceBaselineSchema = ResearchNoteEvidenceSchema.pick({
+  id: true,
+  researchDatabaseId: true,
+  sourceId: true,
+  sourceRevision: true,
+  sourceContentHash: true,
+  sourceKind: true,
+  blockId: true,
+  chunkId: true,
+  chunkHash: true,
+  quoteHash: true,
+  languageTag: true,
+  location: true,
+});
+export type ResearchNotePromotionEvidenceBaseline = z.infer<
+  typeof ResearchNotePromotionEvidenceBaselineSchema
+>;
+
+export const ExistingResearchNotePromotionTargetBaselineSchema = z.object({
+  kind: z.literal("existing"),
+  entryId: z.string().uuid(),
+}).strict();
+
+export const NewResearchNotePromotionTargetBaselineSchema = z.object({
+  kind: z.literal("new"),
+  entryId: z.string().uuid(),
+  categoryId: CodexCategoryIdSchema,
+  name: z.string().trim().min(1).max(160),
+}).strict();
+
+export const ResearchNotePromotionTargetBaselineSchema = z.discriminatedUnion("kind", [
+  ExistingResearchNotePromotionTargetBaselineSchema,
+  NewResearchNotePromotionTargetBaselineSchema,
+]);
+export type ResearchNotePromotionTargetBaseline = z.infer<
+  typeof ResearchNotePromotionTargetBaselineSchema
+>;
+
+export const ResearchNotePromotionBaselineSchema = z.object({
+  schemaVersion: z.literal(1),
+  meaning: ResearchNotePromotionMeaningSchema,
+  researchDatabaseId: z.string().uuid(),
+  noteId: z.string().uuid(),
+  noteRevision: RevisionHashSchema,
+  evidence: z.array(ResearchNotePromotionEvidenceBaselineSchema).min(1).max(100),
+  target: ResearchNotePromotionTargetBaselineSchema,
+}).strict();
+export type ResearchNotePromotionBaseline = z.infer<
+  typeof ResearchNotePromotionBaselineSchema
+>;
+
 const SceneContentPatchActions = new Set<z.infer<typeof ProposalPatchActionSchema>>([
   "insert-text",
   "replace-content",
@@ -260,7 +360,7 @@ export const ProposalDecisionSchema = z.object({
 });
 export type ProposalDecision = z.infer<typeof ProposalDecisionSchema>;
 
-export const ProposalSnapshotSchema = z.object({
+export const ProposalSnapshotV1Schema = z.object({
   schemaVersion: z.literal(1),
   id: z.string().uuid(),
   seriesId: z.string().uuid(),
@@ -270,6 +370,29 @@ export const ProposalSnapshotSchema = z.object({
   targetRevision: RevisionHashSchema,
   data: z.record(z.string(), z.unknown()),
 });
+export const ProposalSnapshotV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  id: z.string().uuid(),
+  seriesId: z.string().uuid(),
+  proposalId: z.string().uuid(),
+  target: ProposalTargetSchema,
+  createdAt: z.string().datetime(),
+  targetRevision: RevisionHashSchema.nullable(),
+  targetAbsent: z.boolean(),
+  data: z.record(z.string(), z.unknown()),
+}).strict().superRefine((snapshot, context) => {
+  if (snapshot.targetAbsent === (snapshot.targetRevision !== null)) {
+    context.addIssue({
+      code: "custom",
+      message: "Proposal snapshot must record either a target revision or verified target absence",
+      path: ["targetRevision"],
+    });
+  }
+});
+export const ProposalSnapshotSchema = z.union([
+  ProposalSnapshotV1Schema,
+  ProposalSnapshotV2Schema,
+]);
 export type ProposalSnapshot = z.infer<typeof ProposalSnapshotSchema>;
 
 export const ProposalSchema = z
@@ -294,6 +417,7 @@ export const ProposalSchema = z
     decision: ProposalDecisionSchema.nullable().default(null),
     patches: z.array(ProposalPatchSchema).min(1),
     evidence: z.array(ProposalEvidenceSchema).default([]),
+    researchNotePromotion: ResearchNotePromotionBaselineSchema.nullable().default(null),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -304,6 +428,79 @@ export const ProposalSchema = z
         message: "AI-generated Proposals require contextBundleId",
         path: ["contextBundleId"],
       });
+    }
+
+    const promotion = proposal.researchNotePromotion;
+    if (proposal.source.kind === "research-note" && !promotion) {
+      context.addIssue({
+        code: "custom",
+        message: "Research Note Proposal sources require a promotion baseline",
+        path: ["researchNotePromotion"],
+      });
+    }
+    if (promotion) {
+      if (proposal.source.kind !== "research-note" || proposal.source.sourceId !== promotion.noteId) {
+        context.addIssue({
+          code: "custom",
+          message: "Research Note promotion baseline must match the Proposal source",
+          path: ["source"],
+        });
+      }
+      const expectedTargetKind = promotion.meaning === "world-rule" ? "codex-entry" : "codex-research";
+      if (proposal.target.kind !== expectedTargetKind || proposal.target.targetId !== promotion.target.entryId) {
+        context.addIssue({
+          code: "custom",
+          message: "Research Note promotion target does not match its meaning and baseline",
+          path: ["target"],
+        });
+      }
+      if (proposal.patches.length !== 1) {
+        context.addIssue({
+          code: "custom",
+          message: "Research Note promotion requires exactly one Codex patch",
+          path: ["patches"],
+        });
+      } else {
+        const patch = proposal.patches[0]!;
+        const expectedFieldPath = promotion.meaning === "world-rule" ? "description" : "research";
+        const expectedAction = promotion.target.kind === "new" ? "create-codex-entry" : "update-codex-entry";
+        if (
+          patch.target.kind !== proposal.target.kind
+          || patch.target.targetId !== proposal.target.targetId
+          || patch.action !== expectedAction
+          || patch.target.fieldPath.length !== 1
+          || patch.target.fieldPath[0] !== expectedFieldPath
+          || patch.after === null
+        ) {
+          context.addIssue({
+            code: "custom",
+            message: "Research Note promotion patch is incompatible with its target",
+            path: ["patches", 0],
+          });
+        }
+        if (promotion.target.kind === "new" && (patch.target.baseRevision !== null || patch.before !== null)) {
+          context.addIssue({
+            code: "custom",
+            message: "New Codex promotion targets require an absent baseline",
+            path: ["patches", 0, "target", "baseRevision"],
+          });
+        }
+        if (promotion.target.kind === "existing" && (!patch.target.baseRevision || patch.before === null)) {
+          context.addIssue({
+            code: "custom",
+            message: "Existing Codex promotion targets require a revision and before text",
+            path: ["patches", 0, "target", "baseRevision"],
+          });
+        }
+      }
+      const expectedType = promotion.target.kind === "new" ? "codex-create" : "codex-update";
+      if (proposal.type !== expectedType) {
+        context.addIssue({
+          code: "custom",
+          message: "Research Note promotion type must match target creation state",
+          path: ["type"],
+        });
+      }
     }
 
     if (proposal.status === "pending" && proposal.decision) {
@@ -410,6 +607,7 @@ export const CreateProposalInputSchema = z.object({
   reason: z.string().max(16000).default(""),
   patches: z.array(ProposalPatchSchema).min(1),
   evidence: z.array(ProposalEvidenceSchema).default([]),
+  researchNotePromotion: ResearchNotePromotionBaselineSchema.nullable().default(null),
 });
 export type CreateProposalInput = z.input<typeof CreateProposalInputSchema>;
 

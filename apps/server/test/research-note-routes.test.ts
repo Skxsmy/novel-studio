@@ -2,6 +2,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type {
+  CodexEntryDocument,
+  ProposalDocument,
   ResearchDatabaseDocument,
   ResearchKeywordSearchResponse,
   ResearchNoteDetail,
@@ -263,6 +265,93 @@ describe("NS-609 Research Note HTTP routes", () => {
       url: `/api/v1/research/databases/${database.database.id}/notes?limit=101`,
     });
     expect(oversizedPage.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("creates one pending Codex Proposal and performs no pre-acceptance Codex write", async () => {
+    const { app } = await fixture();
+    const database = await createDatabase(app, "Promotion archive");
+    const evidence = await importAndFindPassage(
+      app,
+      database.database.id,
+      "The bell opened the harbor market by local custom.",
+      "Harbor custom",
+    );
+    const noteResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/research/databases/${database.database.id}/notes`,
+      payload: {
+        title: "Market bell",
+        body: "Turn the custom into a fictional world rule.",
+        evidence: [evidence],
+      },
+    });
+    const note = noteResponse.json<ResearchNoteDetail>();
+    const seriesResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Promotion API" },
+    });
+    expect(seriesResponse.statusCode).toBe(201);
+    const seriesId = seriesResponse.json().manifest.id as string;
+    const codexResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${seriesId}/codex/entries`,
+      payload: {
+        categoryId: "location",
+        name: "Bell Harbor",
+        description: "A working port.",
+        research: "Unconfirmed notes.",
+      },
+    });
+    expect(codexResponse.statusCode).toBe(201);
+    const codex = codexResponse.json<CodexEntryDocument>();
+
+    const promotedResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/research/databases/${database.database.id}/notes/${note.note.id}/promotions`,
+      payload: {
+        seriesId,
+        baseRevision: note.revision,
+        meaning: "world-rule",
+        target: {
+          kind: "existing",
+          entryId: codex.metadata.id,
+          targetRevision: codex.revision,
+        },
+        candidateText: "The market opens only after the bell rings.",
+      },
+    });
+    expect(promotedResponse.statusCode).toBe(201);
+    const promotion = promotedResponse.json<ProposalDocument>();
+    expect(promotion).toMatchObject({
+      proposal: {
+        status: "pending",
+        type: "codex-update",
+        source: { kind: "research-note", sourceId: note.note.id },
+        target: { kind: "codex-entry", targetId: codex.metadata.id },
+      },
+      sourceAvailability: { available: true },
+      targetAvailability: { available: true },
+    });
+
+    const inboxResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${seriesId}/review/proposals`,
+    });
+    expect(inboxResponse.statusCode).toBe(200);
+    expect(inboxResponse.json().items).toHaveLength(1);
+    const unchangedResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${seriesId}/codex/entries/${codex.metadata.id}`,
+    });
+    expect(unchangedResponse.json<CodexEntryDocument>()).toMatchObject({
+      description: "A working port.",
+      research: { content: "Unconfirmed notes." },
+      revision: codex.revision,
+    });
+    expect(promotedResponse.body).not.toContain("credentialRef");
+    expect(promotedResponse.body).not.toContain("filePath");
     await app.close();
   });
 });

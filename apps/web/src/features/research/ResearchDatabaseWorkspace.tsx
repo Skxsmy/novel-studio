@@ -47,8 +47,10 @@ import { ResearchNoteCaptureDialog, ResearchNotesWorkspace } from "./ResearchNot
 import "./reference-research.css";
 
 interface ReferenceResearchWorkspaceProps {
+  onOpenProposal?: (proposalId: string) => void;
   requestedCitation?: ResearchToolAuditCitation | null;
   seriesId: string | null;
+  seriesTitle?: string | null;
 }
 
 interface SourceDraft {
@@ -269,7 +271,12 @@ function sortDatabases(databases: ResearchDatabaseSummary[]): ResearchDatabaseSu
   );
 }
 
-export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId }: ReferenceResearchWorkspaceProps) {
+export function ReferenceResearchWorkspace({
+  onOpenProposal,
+  requestedCitation = null,
+  seriesId,
+  seriesTitle = null,
+}: ReferenceResearchWorkspaceProps) {
   const [databases, setDatabases] = useState<ResearchDatabaseSummary[]>([]);
   const [databaseIssues, setDatabaseIssues] = useState<ResearchDatabaseIssue[]>([]);
   const [databaseListResolved, setDatabaseListResolved] = useState(false);
@@ -1426,6 +1433,9 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
           onDirtyChange={setNoteIsDirty}
           refreshToken={noteRefreshToken}
           requestedNoteId={requestedNoteId}
+          seriesId={seriesId}
+          seriesTitle={seriesTitle}
+          {...(onOpenProposal ? { onOpenProposal } : {})}
         /> : null}
       </div>
 

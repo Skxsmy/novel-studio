@@ -1,6 +1,7 @@
 import type {
   CreateResearchDatabaseInput,
   CreateResearchNoteInput,
+  CreateResearchNotePromotionInput,
   AppendResearchNoteEvidenceInput,
   ImportResearchSourceInput,
   ImportResearchWebSourceInput,
@@ -21,6 +22,7 @@ import type {
   ResearchNoteDetail,
   ResearchNoteListQuery,
   ResearchNoteListResult,
+  ProposalDocument,
   ResearchNoteRevisionInput,
   RemoveResearchNoteEvidenceInput,
   ResearchSourceContentPage,
@@ -111,6 +113,12 @@ export function createResearchApi(client: ApiClient) {
     restoreNote(databaseId: string, noteId: string, input: ResearchNoteRevisionInput) {
       return client.requestJson<ResearchNoteDetail>(
         `/research/databases/${databaseId}/notes/${noteId}/restore`,
+        { body: input, method: "POST" },
+      );
+    },
+    createNotePromotion(databaseId: string, noteId: string, input: CreateResearchNotePromotionInput) {
+      return client.requestJson<ProposalDocument>(
+        `/research/databases/${databaseId}/notes/${noteId}/promotions`,
         { body: input, method: "POST" },
       );
     },
@@ -224,6 +232,7 @@ export function createResearchApi(client: ApiClient) {
 export type {
   CreateResearchDatabaseInput,
   CreateResearchNoteInput,
+  CreateResearchNotePromotionInput,
   AppendResearchNoteEvidenceInput,
   ImportResearchSourceInput,
   ImportResearchWebSourceInput,
@@ -244,6 +253,7 @@ export type {
   ResearchNoteDetail,
   ResearchNoteListQuery,
   ResearchNoteListResult,
+  ProposalDocument,
   ResearchNoteRevisionInput,
   RemoveResearchNoteEvidenceInput,
   ResearchSourceContentPage,

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   assertProposalStatusTransition,
   canTransitionProposalStatus,
+  CreateResearchNotePromotionInputSchema,
   ProposalGeneratorSchema,
+  ProposalSnapshotSchema,
   ProposalSchema,
   ProposalSourceSchema,
   ProposalStatusSchema,
@@ -224,5 +226,72 @@ describe("M5 Proposal contracts", () => {
     expect(() => assertProposalStatusTransition("accepted", "pending")).toThrow(
       /Invalid Proposal status transition/,
     );
+  });
+
+  it("validates explicit Research Note promotion choices and target absence snapshots", () => {
+    expect(CreateResearchNotePromotionInputSchema.parse({
+      seriesId: uuid("20"),
+      baseRevision: revision,
+      meaning: "world-rule",
+      target: {
+        kind: "existing",
+        entryId: uuid("21"),
+        targetRevision: revision,
+      },
+      candidateText: "The harbor bell is binding law.",
+    })).toMatchObject({ meaning: "world-rule", target: { kind: "existing" } });
+
+    expect(() => CreateResearchNotePromotionInputSchema.parse({
+      seriesId: uuid("20"),
+      baseRevision: revision,
+      meaning: "canon-ish",
+      target: { kind: "new", categoryId: "location", name: "Harbor" },
+      candidateText: "Candidate",
+    })).toThrow();
+    expect(() => CreateResearchNotePromotionInputSchema.parse({
+      seriesId: uuid("20"),
+      baseRevision: revision,
+      meaning: "inspiration-only",
+      target: { kind: "existing", entryId: uuid("21") },
+      candidateText: "Candidate",
+    })).toThrow();
+    expect(() => CreateResearchNotePromotionInputSchema.parse({
+      seriesId: uuid("20"),
+      baseRevision: revision,
+      meaning: "real-world-reference",
+      target: { kind: "new", categoryId: "location", name: "Harbor", entryId: uuid("22") },
+      candidateText: "Candidate",
+    })).toThrow();
+
+    expect(ProposalSnapshotSchema.parse({
+      schemaVersion: 2,
+      id: uuid("23"),
+      seriesId: uuid("20"),
+      proposalId: uuid("24"),
+      target: {
+        kind: "codex-research",
+        targetId: uuid("22"),
+        label: "Harbor",
+        baseRevision: null,
+        fieldPath: ["research"],
+        blockId: null,
+        range: null,
+      },
+      createdAt: "2026-07-20T00:00:00.000Z",
+      targetRevision: null,
+      targetAbsent: true,
+      data: {},
+    })).toMatchObject({ schemaVersion: 2, targetAbsent: true });
+    expect(() => ProposalSnapshotSchema.parse({
+      schemaVersion: 2,
+      id: uuid("23"),
+      seriesId: uuid("20"),
+      proposalId: uuid("24"),
+      target: baseProposal().target,
+      createdAt: "2026-07-20T00:00:00.000Z",
+      targetRevision: revision,
+      targetAbsent: true,
+      data: {},
+    })).toThrow(/target absence/);
   });
 });

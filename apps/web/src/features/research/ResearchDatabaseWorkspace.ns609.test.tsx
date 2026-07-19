@@ -19,6 +19,9 @@ const chunkId = "55555555-5555-4555-8555-555555555555";
 const noteId = "66666666-6666-4666-8666-666666666666";
 const secondNoteId = "77777777-7777-4777-8777-777777777777";
 const evidenceId = "88888888-8888-4888-8888-888888888888";
+const seriesId = "99999999-9999-4999-8999-999999999999";
+const entryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const proposalId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const now = "2026-07-20T00:00:00.000Z";
 const revision = "a".repeat(64);
 const nextRevision = "b".repeat(64);
@@ -287,5 +290,68 @@ describe("NS-609 Research Note author workflow", () => {
     await waitFor(() => expect(api.research.listNotes).toHaveBeenCalledWith(secondDatabaseId, { status: "active", limit: 100 }));
     expect(await view.findByText("No active Notes")).toBeTruthy();
     expect(view.queryByDisplayValue(first.note.body)).toBeNull();
+  });
+
+  it("creates a pending promotion from an explicit meaning and target, then opens Review", async () => {
+    const current = detail();
+    vi.spyOn(api.research, "listNotes").mockResolvedValue(listResult([current]));
+    vi.spyOn(api.research, "getNote").mockResolvedValue(current);
+    vi.spyOn(api.codex, "listEntries").mockResolvedValue([{
+      metadata: {
+        id: entryId,
+        categoryId: "location",
+        name: "Bell Harbor",
+        aliases: ["Old Port"],
+        archivedAt: null,
+      },
+      description: "Existing Canon.",
+      revision: "1".repeat(64),
+      research: { content: "Existing research.", revision: "2".repeat(64) },
+    }] as never);
+    vi.spyOn(api.codex, "listCategories").mockResolvedValue([{
+      category: { id: "location", name: "Locations", archivedAt: null },
+    }] as never);
+    const createPromotion = vi.spyOn(api.research, "createNotePromotion").mockResolvedValue({
+      proposal: { id: proposalId },
+    } as never);
+    const updateEntry = vi.spyOn(api.codex, "updateEntry");
+    const createEntry = vi.spyOn(api.codex, "createEntry");
+    const onOpenProposal = vi.fn();
+    const view = render(<ResearchNotesWorkspace
+      databaseId={databaseId}
+      databaseName="Translingual history"
+      onDirtyChange={vi.fn()}
+      onOpenProposal={onOpenProposal}
+      refreshToken={0}
+      requestedNoteId={noteId}
+      seriesId={seriesId}
+      seriesTitle="Harbor Novel"
+    />);
+
+    await view.findByDisplayValue(current.note.body);
+    fireEvent.click(view.getByRole("button", { name: "Move to Codex" }));
+    const dialog = await view.findByRole("dialog", { name: "Move Research Note to Codex" });
+    expect(within(dialog).getByText("This Note is not Canon.")).toBeTruthy();
+    await waitFor(() => expect(api.codex.listEntries).toHaveBeenCalledWith(seriesId));
+    fireEvent.click(within(dialog).getByRole("radio", { name: /World rule/u }));
+    fireEvent.change(within(dialog).getByLabelText("Candidate text"), {
+      target: { value: "The harbor market opens only after the bell rings." },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Review Proposal" }));
+
+    await waitFor(() => expect(createPromotion).toHaveBeenCalledWith(databaseId, noteId, {
+      seriesId,
+      baseRevision: revision,
+      meaning: "world-rule",
+      target: {
+        kind: "existing",
+        entryId,
+        targetRevision: "1".repeat(64),
+      },
+      candidateText: "The harbor market opens only after the bell rings.",
+    }));
+    expect(onOpenProposal).toHaveBeenCalledWith(proposalId);
+    expect(updateEntry).not.toHaveBeenCalled();
+    expect(createEntry).not.toHaveBeenCalled();
   });
 });
