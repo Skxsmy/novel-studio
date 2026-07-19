@@ -6,9 +6,9 @@ Authority: current operational state only
 ## Project Mainline
 
 - Active milestone: `M6 Reference Library And Retrieval`.
-- Active task: `NS-604 / M6.3 Durable Research Source And Original-language Lexical Index`; A01-A13 remain passed in the current task worktree after the 3 MiB, exact-match navigation, and page-failure recovery corrections, while A14 author visual acceptance remains pending.
+- Active task: `NS-604 / M6.3 Durable Research Source And Original-language Lexical Index`; A01-A13 are committed through `3d1a2cd` after the 3 MiB, exact-match navigation, and page-failure recovery corrections, while A14 author visual acceptance remains pending.
 - Last reached mainline task: `NS-603 / M6.2 Library-scoped Research Database Authority And Isolation`; A01-A11 passed in committed evidence and the author separately accepted A12 on 2026-07-19.
-- Next mainline task: `NS-604 / M6.3 Durable Research Source And Original-language Lexical Index`; it remains active until the current correction is committed and the separate A14 decision is recorded. The first unstarted successor is NS-605, followed independently by NS-606, NS-607, and NS-608.
+- Next mainline task: `NS-604 / M6.3 Durable Research Source And Original-language Lexical Index`; it remains active until the separate A14 decision is recorded. The first unstarted successor is NS-605, followed independently by NS-606, NS-607, and NS-608.
 - Next mainline action: present the connected large-source Research page for the author's A14 decision and keep NS-604 in progress until that decision is recorded. Do not begin hybrid retrieval, model tools, or Workshop integration inside NS-604.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; NS-514 is paused with only A16 author visual acceptance open. No task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
