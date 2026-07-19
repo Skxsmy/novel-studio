@@ -1,6 +1,6 @@
 # NS-603 Acceptance
 
-Status: in_progress
+Status: complete
 Task: `docs/tasks/NS-603.md`
 Updated: 2026-07-19
 
@@ -21,7 +21,7 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-603-A09 | passed | automated Web test | `apps/web/src/features/research/ReferenceResearchWorkspace.test.tsx` dirty database/source switching, link/import block, save race and conflict | Dirty source blocks import/database/source switching; source and database conflicts preserve drafts; migration requires a saved link |
 | NS-603-A10 | passed | Web and manual review | `apps/web/src/features/research/ReferenceResearchWorkspace.test.tsx`, `docs/design/ui-redesign/NS-603_RESEARCH_DATABASE_UI_CHECKLIST.md`, and manual desktop/compact inspection | Desktop diagnostic inspection found and fixed an empty-reader scrollbar; 720px geometry and compact Settings label pass without horizontal overflow |
 | NS-603-A11 | passed | commands/probes | focused/full checks, API/disk probe, repository ledger | 52 files and 540 tests, full typecheck, production build, 178-file docs check, two E2E workflows, independent probes, and diff check pass; implementation committed at `d518666` |
-| NS-603-A12 | manual_pending | author visual decision | connected multi-database Research workspace | Author decision not yet requested |
+| NS-603-A12 | passed | author visual decision | connected multi-database Research workspace at `http://127.0.0.1:4317/` | Author response on 2026-07-19: `通过。继续NS-604` |
 
 Allowed matrix status values: `planned`, `in_progress`, `passed`,
 `manual_pending`, `blocked`, `not_applicable`.
@@ -51,6 +51,7 @@ remain required.
 | 2026-07-19 | dirty NS-603 worktree | `npm.cmd run docs:check` | Documentation check passed for 178 Markdown files |
 | 2026-07-19 | dirty NS-603 worktree | `git diff --check` | Passed with no whitespace errors; Git reported only expected checkout line-ending notices |
 | 2026-07-19 | `d518666` | `git commit -m "NS-603 feat(research): add isolated library databases"` | 43 task-scoped files committed; A12 intentionally remains open |
+| 2026-07-19 | committed preview through `d78ff45` | Author separately reviewed the connected multi-database Research workspace | A12 passed with the response `通过。继续NS-604`; NS-603 may close |
 
 ## Repository Safety
 

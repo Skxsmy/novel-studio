@@ -6,7 +6,8 @@ Purpose: resume incomplete work only
 ## Resume Point
 
 - Active support task: none; `GOV-002 Database Implementation Review And Hardening` is complete on the existing `codex/ns-514-overview` worktree.
-- Active product task: `NS-603 / M6.2 Library-scoped Research Database Authority And Isolation`; A01-A12 are mapped before runtime edits.
+- Active product task: `NS-604 / M6.3 Reference Library Original-language Database`; A01-A14 are mapped before runtime edits and implementation starts with version 3 contracts and bounded parsers.
+- NS-603 is complete. A01-A11 passed in committed evidence and the author separately accepted the connected multi-database Research page as A12 on 2026-07-19.
 - NS-602 is complete. The author explicitly accepted the overall connected Research layout on 2026-07-19, then required Word, PDF, web-link inputs and multiple isolated Research Databases that are not owned by a Series.
 - NS-514 is paused with P0-P6 and automated A15 passed; only explicit author visual acceptance A16 remains open.
 - NS-601 changes documentation only and is complete. NS-514 follow-up work is separately committed at `b7ae1be`; preserve `data/library/` while reviewing NS-602.
