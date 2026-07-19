@@ -1,6 +1,6 @@
 # NS-606 Acceptance Record
 
-Status: in_progress
+Status: passed
 Task: `docs/tasks/NS-606.md`
 Decision: `docs/adr/0021-tool-driven-research-retrieval.md`
 
@@ -19,7 +19,7 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-606-A07 | passed | Provider definition test | native-tool-capable models receive exactly the three strict read-only definitions; unsupported models receive an empty tool list; search arguments expose no result limit or write operation |
 | NS-606-A08 | passed | scripted model-native gateway sequence | one adaptive sequence lists, searches, refines, opens, repeats, reaches the fixed fifth-call test budget, and stops before a sixth audit independently of Workshop presentation |
 | NS-606-A09 | passed | `scripts/ns-606-retrieval-gateway-probe.mjs` | temporary-disk probe returns one search hit, one opened passage, twelve of thirteen permitted Source rows plus cursor, three audits and restored call count; outputs measure 1,801/1,287/5,785 characters, Research authority hash is unchanged, and private/query/passage text is absent from audit |
-| NS-606-A10 | in_progress | repository commands | focused suites, package builds, the single full check, 189-file documentation check, and diff check pass; exact staging, commit, and clean state remain |
+| NS-606-A10 | passed | repository commands | focused suites, package builds, the single full check, 189-file documentation check, diff checks, exact fifteen-file staging, implementation commit `c6f7e61`, and clean post-commit state pass without touching `data/library/` |
 
 Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 `blocked`, `not_applicable`.
@@ -49,6 +49,7 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 | 2026-07-19 | NS-606 runtime worktree | `npm.cmd run test -w @novel-studio/server -- test/research-retrieval-routes.test.ts`; package builds | Three affected NS-605 retrieval regression tests and contracts/storage/server TypeScript builds pass after cancellation propagation and metadata-only listing hardening |
 | 2026-07-19 | NS-606 runtime worktree | `node scripts/ns-606-retrieval-gateway-probe.mjs` | Independent temporary-root probe passes: three tool definitions; one search result; one opened passage; twelve permitted metadata rows and a cursor; three contiguous audits; restart restores three used calls; outputs are 1,801, 1,287, and 5,785 characters; Research authority is byte-identical; no private text leaks |
 | 2026-07-19 | NS-606 runtime worktree | `npm.cmd run check`; `git diff --check` | Passed 189 Markdown files, every workspace typecheck, 70 test files with 642 tests, and production Server/Web builds. Vite emitted only its existing chunk-size advisory; diff check passed and `data/library/` remained absent from status |
+| 2026-07-19 | implementation commit `c6f7e61` | exact `git add` of the fifteen listed NS-606 files; `git commit -m "NS-606 feat(research): add permissioned retrieval gateway"`; post-commit status | Commit created with 2,509 insertions and 17 deletions; the worktree was clean immediately after commit, branch was 22 commits ahead, and `data/library/` was neither staged nor modified |
 
 ## Repository Safety
 
