@@ -197,10 +197,11 @@ Embedding profile 执行固定中日英正负夹具。每个数据库的派生�
 `.../vector-index/rebuild`。缺少通过验证的当前能力时，`Hybrid` 诚实降级为
 `Exact`；不会自动翻译查询、改用其它 Provider 或调用远程后备服务。
 
-这些端点仍不是模型工具。NS-606 才新增由服务端执行的
+这些作者页面端点与模型工具保持分离。NS-606 已新增由服务端执行的
 `research.list_sources`、`research.search` 和 `research.open_passage` 只读工具
-网关；NS-607 才把会话激活和有界迭代工具循环接入 Workshop。当前能力不得描述成
-模型已能主动搜索数据库。
+网关，NS-607 已通过会话激活和有界原生工具循环把它接入 Workshop。模型只能在
+显式激活的数据库内通过这三个服务端工具主动检索；导入、属性、重建、网页获取和
+生命周期命令仍不向模型开放。
 
 ## Workshop Agent Tools
 

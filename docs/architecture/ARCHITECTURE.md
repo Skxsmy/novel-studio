@@ -125,11 +125,14 @@ AI and imports do not receive generic file-write authority. Semantic changes ent
 
 The current Workshop Agent path persists revision-protected run/step records, uses Provider structured output when declared, bounds malformed-output repair to one attempt, continues after successful or atomically failed author-confirmed Codex create/update commands, and exposes explicit retry or abandon for eligible interruptions. Full Tool Plan/Grant records, broader tool scopes, and Proposal conversion remain target work and must not be inferred from this limited path.
 
-The current Workshop path does not call Research Database search and does not
-provide Research tools to any Provider. The implemented `model-context` search
-purpose is only a storage permission filter. ADR-0021's hybrid retrieval,
-read-only gateway, Workshop activation, and iterative model loop remain NS-605
-through NS-608 work and must not be inferred from the local Research page.
+The current Workshop path provides the NS-606 server-owned read-only Research
+gateway through NS-607 session activation and bounded iterative Provider loops.
+Initial context contains compact database metadata and tool definitions rather
+than a passage dump; persisted citations retain exact original-language anchors.
+NS-607 also governs the three Research reads and two confirmed Codex writes
+through one production policy and reusable behavior-evaluation framework. Real
+saved-key stability, adversarial/recovery/performance hardening, and final audit
+remain NS-608 and must not be inferred from deterministic trials.
 
 ## Lifecycle And Deletion
 

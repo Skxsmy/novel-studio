@@ -6,10 +6,10 @@ Authority: current operational state only
 ## Project Mainline
 
 - Active milestone: `M6 Reference Library And Retrieval`.
-- Active task: `NS-607 / M6.6 Workshop Research Database Integration And Behavior Harness`; A01-A14 and A16-A18 pass through implementation commit `80fc205`, while A15 remains the author's explicit visual/interaction acceptance decision.
-- Last reached mainline task: `NS-606 / M6.5 Artificial-intelligence Research Retrieval Gateway`; A01-A10 passed and implementation commit `c6f7e61` was clean immediately after commit.
-- Next mainline task: `NS-607 / M6.6 Workshop Research Database Integration And Behavior Harness`; NS-608 remains a separate unstarted successor until the author-only NS-607 gate is decided.
-- Next mainline action: record the author's NS-607 A15 acceptance or rejection after use, then begin NS-608 saved-key repeated multi-session trials. Deterministic NS-607 evidence does not claim unconstrained model quality.
+- Active task: `NS-608 / M6.7 Research-assisted Author Workflow Hardening`; acceptance mapping is frozen before runtime edits, and saved-key trials use only `deepseek-v4-pro` with every other existing connection setting unchanged.
+- Last reached mainline task: `NS-607 / M6.6 Workshop Research Database Integration And Behavior Harness`; A01-A14 and A16-A18 pass through `80fc205`, while author-only A15 remains open without blocking continued mainline work.
+- Next mainline task: `NS-608 / M6.7 Research-assisted Author Workflow Hardening`.
+- Next mainline action: implement the temporary-library saved-credential runner, pass live DeepSeek model/tool preflight, then run repeated multi-session author workflows before adversarial/recovery/performance and final audit closure.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; NS-514 is paused with only A16 author visual acceptance open. No task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
 - Mainline state: GOV-002 is complete and does not consume, complete, or renumber an NS task. NS-602 author visual acceptance was supplied separately by the author.
@@ -58,7 +58,7 @@ Authority: current operational state only
 - The existing internal compatibility mapping is `Series → series`, `Volume → book`, `Chapter → act`, `Act → chapter`, and `Scene → scene` until a separately approved schema migration removes it. Internal names must not appear as product labels.
 - Novel/database search is Chinese-author-first but not Chinese-corpus-only. A Chinese query must be able to retrieve relevant Japanese and English originals through an explainable multilingual path; aliases, transliteration, query translation, and semantic similarity remain disclosed derived channels, while Evidence and citations always return to the unchanged original language/hash/location.
 - Research Databases are library-scoped, may be created without an active Series, and are not owned by a Series. Multiple databases keep separate authority, Sources, originals, indexes, permissions, damage, and lifecycle state. One database may link to several Series; default search uses one database and only explicit author multi-selection may merge labeled results.
-- Current implementation includes local explicit multi-database Exact/Hybrid retrieval, database-scoped aliases/transliterations, a semantic channel that uses only the current validated `research.multilingual` Embedding profile and current per-database vector sidecar, and the NS-606 server-owned read-only model retrieval gateway. Query translation has no active binding or runtime path. Workshop database activation, Provider conversation-loop integration, and real saved-key author workflows remain NS-607 and NS-608 and must not be presented as implemented.
+- Current implementation includes local explicit multi-database Exact/Hybrid retrieval, database-scoped aliases/transliterations, a semantic channel that uses only the current validated `research.multilingual` Embedding profile and current per-database vector sidecar, the NS-606 server-owned read-only model retrieval gateway, and the NS-607 Workshop activation/tool-loop/all-tool policy. Query translation has no active binding or runtime path. Real saved-key repeated author workflows and final hardening remain NS-608 and must not be presented as complete.
 
 ## Known Risks
 
