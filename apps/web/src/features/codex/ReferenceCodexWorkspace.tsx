@@ -84,6 +84,7 @@ type DialogState =
   | null;
 
 interface ReferenceCodexWorkspaceProps {
+  authorityRevision?: number;
   onOpenWrite?: (sceneId: string, blockId?: string | null) => void;
   session?: ProjectSessionState;
 }
@@ -287,9 +288,10 @@ export function ReferenceCodexWorkspace(props: ReferenceCodexWorkspaceProps = {}
 }
 
 function ConnectedReferenceCodexWorkspace({
+  authorityRevision = 0,
   onOpenWrite,
   session,
-}: Required<Pick<ReferenceCodexWorkspaceProps, "session">> & Pick<ReferenceCodexWorkspaceProps, "onOpenWrite">) {
+}: Required<Pick<ReferenceCodexWorkspaceProps, "session">> & Pick<ReferenceCodexWorkspaceProps, "authorityRevision" | "onOpenWrite">) {
   const series = session.activeSeries;
   const [activeTab, setActiveTab] = useState<CodexTab>("canon");
   const [stateView, setStateView] = useState<StateView>("baseline");
@@ -401,7 +403,7 @@ function ConnectedReferenceCodexWorkspace({
       if (active) setIsLoading(false);
     });
     return () => { active = false; };
-  }, [series?.manifest.id]);
+  }, [authorityRevision, series?.manifest.id]);
 
   useEffect(() => {
     if (!selectedEntry) {

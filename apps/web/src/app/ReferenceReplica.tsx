@@ -68,6 +68,7 @@ function ConnectedProjectWorkspaces({
   const [writeTarget, setWriteTarget] = useState<{ blockId: string | null; sceneId: string } | null>(null);
   const [providerReturnSessionId, setProviderReturnSessionId] = useState<string | null>(null);
   const [modelProfilesRevision, setModelProfilesRevision] = useState(0);
+  const [codexAuthorityRevision, setCodexAuthorityRevision] = useState(0);
   const [researchCitation, setResearchCitation] = useState<ResearchToolAuditCitation | null>(null);
 
   useEffect(() => {
@@ -121,10 +122,17 @@ function ConnectedProjectWorkspaces({
       {connectResearch ? <ReferenceResearchNavigationBridge /> : null}
       {connectResearch ? <ReferenceResearchWorkspace requestedCitation={researchCitation} seriesId={session.activeSeries?.manifest.id ?? null} /> : null}
       {connectWrite ? <ReferenceWriteWorkspace requestedBlockId={writeTarget?.blockId ?? null} session={session} /> : <ReferenceSurface selector="#write-workspace" />}
-      {connectCodex ? <ReferenceCodexWorkspace onOpenWrite={openWriteTarget} session={session} /> : <ReferenceCodexWorkspace />}
+      {connectCodex ? (
+        <ReferenceCodexWorkspace
+          authorityRevision={codexAuthorityRevision}
+          onOpenWrite={openWriteTarget}
+          session={session}
+        />
+      ) : <ReferenceCodexWorkspace />}
       {connectWorkshop ? (
         <ReferenceWorkshopWorkspace
           modelProfilesRevision={modelProfilesRevision}
+          onCodexAuthorityChanged={() => setCodexAuthorityRevision((current) => current + 1)}
           onOpenProviderSettings={openProviderSettings}
           onOpenResearchCitation={openResearchCitation}
           requestedSessionId={providerReturnSessionId}

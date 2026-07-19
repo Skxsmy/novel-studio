@@ -62,7 +62,7 @@ await importText(
 );
 
 const firstSession = await repository.createWorkshopSession(series.manifest.id, {
-  kind: "chat",
+  kind: "agent",
   title: "Ritual continuity",
 });
 const secondSession = await repository.createWorkshopSession(series.manifest.id, {
@@ -117,8 +117,25 @@ class BrowserFixtureProvider extends MockProvider {
     }
 
     const history = request.history ?? [];
+    const latestHistory = history.at(-1);
     let result;
-    if (history.length === 0) {
+    if (latestHistory?.role === "tool" && latestHistory.content.includes("codex.create_entry")) {
+      result = answer("已确认创建雨守 Codex 条目，后续对话会沿用这个已保存设定。");
+    } else if (userRequest.includes("创建") && userRequest.includes("Codex")) {
+      result = toolResult("codex.create_entry", {
+        message: "已按作者确认的资料整理为待确认 Codex 草稿。",
+        draft: {
+          categoryId: "character",
+          name: "雨守",
+          aliases: [],
+          description: "冬至守卫西门，开门前敲响青铜铃三次。",
+          details: [],
+          research: "依据当前 Workshop 已打开的日文资料。",
+        },
+      });
+    } else if (userRequest.includes("继续说明")) {
+      result = answer("这条仪式能作为场景节拍：先写守门动作，再写三次铃声，最后让西门开启。");
+    } else if (history.length === 0) {
       result = toolResult("research.search", {
         query: "雨守は冬至に西門を守る",
         databaseIds: [japaneseDatabase.database.id],
@@ -154,6 +171,10 @@ const app = await buildApp({
   version: "0.1.0-ns607-browser",
   commit: "ns607-browser-fixture",
   workspaceRoot: path.resolve("."),
+});
+app.post("/__fixture/shutdown", async (_request, reply) => {
+  await reply.send({ ok: true });
+  setImmediate(() => void close().finally(() => process.exit(0)));
 });
 const profileResponse = await app.inject({
   method: "POST",

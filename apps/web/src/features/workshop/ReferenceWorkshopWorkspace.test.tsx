@@ -213,6 +213,7 @@ function workshopDetail(
 
 function setupConnected(options: {
   componentProps?: {
+    onCodexAuthorityChanged?: ReferenceWorkshopWorkspaceProps["onCodexAuthorityChanged"];
     onOpenProviderSettings?: ReferenceWorkshopWorkspaceProps["onOpenProviderSettings"];
     requestedSessionId?: ReferenceWorkshopWorkspaceProps["requestedSessionId"];
   };
@@ -307,6 +308,9 @@ function setupConnected(options: {
     reason: "Vector index is not built.",
   }));
   const workspace = <ReferenceWorkshopWorkspace
+    {...(options.componentProps?.onCodexAuthorityChanged
+      ? { onCodexAuthorityChanged: options.componentProps.onCodexAuthorityChanged }
+      : {})}
     {...(options.componentProps?.onOpenProviderSettings
       ? { onOpenProviderSettings: options.componentProps.onOpenProviderSettings }
       : {})}
@@ -843,8 +847,13 @@ describe("NS-514 A29-A34 connected Workshop workspace", () => {
     } as unknown as Awaited<ReturnType<typeof api.workshop.executeCodexCreateEntryTool>>);
     const executeUpdate = vi.spyOn(api.workshop, "executeCodexUpdateEntryTool");
     const nativeConfirm = vi.fn(() => true);
+    const onCodexAuthorityChanged = vi.fn();
     vi.stubGlobal("confirm", nativeConfirm);
-    const { container } = setupConnected({ sessions: [agentSession], messages: { [agentId]: [tool] } });
+    const { container } = setupConnected({
+      componentProps: { onCodexAuthorityChanged },
+      sessions: [agentSession],
+      messages: { [agentId]: [tool] },
+    });
     await waitFor(() => expect(within(container).getByRole("button", { name: "Review request" })).toBeTruthy());
     fireEvent.click(within(container).getByRole("button", { name: "Review request" }));
     expect(within(container).getByRole("dialog").textContent).toContain(tool.content);
@@ -857,6 +866,7 @@ describe("NS-514 A29-A34 connected Workshop workspace", () => {
     }));
     expect(executeCreate).toHaveBeenCalledTimes(1);
     expect(executeUpdate).not.toHaveBeenCalled();
+    expect(onCodexAuthorityChanged).toHaveBeenCalledTimes(1);
     expect(nativeConfirm).not.toHaveBeenCalled();
   });
 

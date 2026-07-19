@@ -204,6 +204,19 @@ afterEach(() => {
 });
 
 describe("NS-514 P3 Codex reference workspace", () => {
+  it("reloads Codex authority after a connected Workshop write", async () => {
+    vi.mocked(api.codex.listEntries)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([mara]);
+    const { rerender } = render(<ReferenceCodexWorkspace authorityRevision={0} session={session()} />);
+    await waitFor(() => expect(api.codex.listEntries).toHaveBeenCalledTimes(1));
+
+    rerender(<ReferenceCodexWorkspace authorityRevision={1} session={session()} />);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Mara Venn" })).toBeTruthy();
+    expect(api.codex.listEntries).toHaveBeenCalledTimes(2);
+  });
+
   it("matches the NS-514 manifest for Codex", () => {
     const { container } = render(<ReferenceCodexWorkspace />);
     const root = container.querySelector<HTMLElement>("#codex-workspace")!;

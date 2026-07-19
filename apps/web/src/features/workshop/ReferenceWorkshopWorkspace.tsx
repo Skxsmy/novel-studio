@@ -110,6 +110,7 @@ interface CodexDraftResolutionState {
 export interface ReferenceWorkshopWorkspaceProps {
   modelProfilesRevision?: number;
   onActiveSessionChange?: (sessionId: string | null) => void;
+  onCodexAuthorityChanged?: () => void;
   onOpenProviderSettings?: (sessionId: string | null) => void;
   onOpenProposal?: (proposalId: string) => void;
   onOpenResearchCitation?: (citation: ResearchToolAuditCitation) => void;
@@ -238,6 +239,7 @@ export function ReferenceWorkshopWorkspace(props: ReferenceWorkshopWorkspaceProp
 function ConnectedReferenceWorkshopWorkspace({
   modelProfilesRevision = 0,
   onActiveSessionChange,
+  onCodexAuthorityChanged,
   onOpenProviderSettings,
   onOpenProposal,
   onOpenResearchCitation,
@@ -1979,6 +1981,7 @@ function ConnectedReferenceWorkshopWorkspace({
         ),
       ]);
       setCodexEntries((current) => [result.entry, ...current.filter((entry) => entry.metadata.id !== result.entry.metadata.id)]);
+      onCodexAuthorityChanged?.();
       updateSessionMessages(targetSessionId, (current) => {
         let next = replaceMessage(current, result.message.id, result.message);
         next = replaceMessage(next, result.resultMessage.id, result.resultMessage);
