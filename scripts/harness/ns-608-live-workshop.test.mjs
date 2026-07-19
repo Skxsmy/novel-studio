@@ -11,6 +11,7 @@ import {
   exactResearchCitationPresent,
   fingerprintDirectory,
   harnessFailure,
+  parseContinuationWriteRequest,
   publicHarnessFailure,
   projectDeepseekV4ProProfile,
   selectSavedDeepseekProfile,
@@ -116,6 +117,20 @@ test("recognizes governed cross-language facts without forcing simplified Chines
     ringsThreeTimes: true,
     beforeOpening: true,
     noDoorTouchUntilRingingEnds: true,
+  });
+});
+
+test("distinguishes plain tool results from new continuation write requests", () => {
+  assert.equal(parseContinuationWriteRequest({
+    role: "tool",
+    content: "codex.create_entry created Codex entry: Shen Yao",
+  }), null);
+  assert.deepEqual(parseContinuationWriteRequest({
+    role: "tool",
+    content: JSON.stringify({ tool: "codex.update_entry", draft: { target: { name: "Shen Yao" } } }),
+  }), {
+    tool: "codex.update_entry",
+    draft: { target: { name: "Shen Yao" } },
   });
 });
 

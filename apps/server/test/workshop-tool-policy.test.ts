@@ -55,6 +55,18 @@ describe("NS-607 Workshop tool policy", () => {
     expect(agent.find((tool) => tool.name === "codex.create_entry")?.description).toContain(
       "only when the author explicitly asks",
     );
+    expect(agent.find((tool) => tool.name === "codex.create_entry")?.description).toContain(
+      "record this as an entry",
+    );
+    expect(agent.find((tool) => tool.name === "codex.create_entry")?.description).toContain(
+      "omit rejected alternatives entirely",
+    );
+    expect(agent.find((tool) => tool.name === "codex.update_entry")?.description).toContain(
+      "update this change in the setting",
+    );
+    expect(agent.find((tool) => tool.name === "codex.update_entry")?.description).toContain(
+      "full replacement value, not a delta",
+    );
 
     expect(workshopToolDefinitionsForStep({
       mode: "agent",

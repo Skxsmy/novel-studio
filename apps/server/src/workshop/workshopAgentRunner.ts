@@ -594,43 +594,85 @@ function providerHistoryForRun(
   return history;
 }
 
-function isRepeatedSuccessfulToolRequest(
-  step: WorkshopAgentStep | null,
-  runMessages: WorkshopMessage[],
-  resultMessage: WorkshopMessage,
-): boolean {
-  if (!step || step.type !== "request_tool") return false;
-  const previousToolMessage = [...runMessages]
-    .filter((message) =>
-      message.role === "tool" &&
-      message.createdAt.localeCompare(resultMessage.createdAt) < 0 &&
-      message.toolExecution?.status === "succeeded"
-    )
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-    .at(-1);
-  if (!previousToolMessage) return false;
-  try {
-    if (step.tool === "codex.create_entry") {
-      const previous = parseCodexCreateEntryToolRequest(previousToolMessage.content);
-      return isDeepStrictEqual(previous.draft, step.draft);
-    }
-    const previous = parseCodexUpdateEntryToolRequest(previousToolMessage.content);
-    const previousTarget = previous.draft.target;
-    const nextTarget = step.draft.target;
-    const sameTarget = Boolean(
-      previousTarget.entryId && nextTarget.entryId && previousTarget.entryId === nextTarget.entryId,
-    ) || Boolean(previousTarget.name && nextTarget.name && previousTarget.name === nextTarget.name);
-    return sameTarget && isDeepStrictEqual(previous.draft.patch, step.draft.patch);
-  } catch {
-    return false;
-  }
+function normalizeCodexTargetName(value: string): string {
+  return value
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/gu, " ")
+    .toLocaleLowerCase("und");
 }
 
-function completedReplayResponse(step: Extract<WorkshopAgentStep, { type: "request_tool" }>): WorkshopAgentStep {
+async function repeatedSuccessfulToolOperation(input: {
+  step: WorkshopAgentStep | null;
+  runMessages: WorkshopMessage[];
+  resultMessage: WorkshopMessage;
+  repository: ProjectRepository;
+  seriesId: string;
+}): Promise<"codex.create_entry" | "codex.update_entry" | null> {
+  const { step } = input;
+  if (!step || step.type !== "request_tool") return null;
+  const previousToolMessages = input.runMessages
+    .filter((message) =>
+      message.role === "tool" &&
+      message.createdAt.localeCompare(input.resultMessage.createdAt) < 0 &&
+      message.toolExecution?.status === "succeeded"
+    )
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  for (const previousToolMessage of previousToolMessages) {
+    try {
+      const envelope = JSON.parse(previousToolMessage.content) as { tool?: unknown };
+      if (step.tool === "codex.create_entry") {
+        if (envelope.tool !== "codex.create_entry") continue;
+        const previous = parseCodexCreateEntryToolRequest(previousToolMessage.content);
+        if (
+          previous.draft.categoryId === step.draft.categoryId &&
+          normalizeCodexTargetName(previous.draft.name) === normalizeCodexTargetName(step.draft.name)
+        ) return "codex.create_entry";
+        continue;
+      }
+      if (envelope.tool === "codex.create_entry" && !step.draft.patch.progressions?.length) {
+        const previous = parseCodexCreateEntryToolRequest(previousToolMessage.content);
+        const nextTarget = step.draft.target;
+        if (
+          nextTarget.name &&
+          normalizeCodexTargetName(previous.draft.name) === normalizeCodexTargetName(nextTarget.name)
+        ) return "codex.create_entry";
+        if (nextTarget.entryId) {
+          const entry = await input.repository.getCodexEntry(input.seriesId, nextTarget.entryId);
+          if (
+            entry.metadata.categoryId === previous.draft.categoryId &&
+            normalizeCodexTargetName(entry.metadata.name) === normalizeCodexTargetName(previous.draft.name)
+          ) return "codex.create_entry";
+        }
+        continue;
+      }
+      if (envelope.tool !== "codex.update_entry") continue;
+      const previous = parseCodexUpdateEntryToolRequest(previousToolMessage.content);
+      const previousTarget = previous.draft.target;
+      const nextTarget = step.draft.target;
+      const sameTarget = Boolean(
+        previousTarget.entryId && nextTarget.entryId && previousTarget.entryId === nextTarget.entryId,
+      ) || Boolean(
+        previousTarget.name && nextTarget.name &&
+        normalizeCodexTargetName(previousTarget.name) === normalizeCodexTargetName(nextTarget.name),
+      );
+      if (sameTarget && isDeepStrictEqual(previous.draft.patch, step.draft.patch)) {
+        return "codex.update_entry";
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function completedReplayResponse(
+  completedOperation: "codex.create_entry" | "codex.update_entry",
+): WorkshopAgentStep {
   return {
     schemaVersion: 1,
     type: "respond",
-    message: step.tool === "codex.create_entry"
+    message: completedOperation === "codex.create_entry"
       ? "条目已经创建完成，无需重复确认。"
       : "条目已经更新完成，无需重复确认。",
   };
@@ -1288,10 +1330,17 @@ export async function continueWorkshopAgentAfterToolResult(input: {
   run = transportRetry.run;
   activeStep = transportRetry.stepRecord;
   attempt = transportRetry.attemptResult;
-  if (isRepeatedSuccessfulToolRequest(attempt.step, runMessages, input.resultMessage)) {
+  const repeatedOperation = await repeatedSuccessfulToolOperation({
+    step: attempt.step,
+    runMessages,
+    resultMessage: input.resultMessage,
+    repository: input.repository,
+    seriesId: input.seriesId,
+  });
+  if (repeatedOperation) {
     attempt = {
       ...attempt,
-      step: completedReplayResponse(attempt.step as Extract<WorkshopAgentStep, { type: "request_tool" }>),
+      step: completedReplayResponse(repeatedOperation),
     };
   }
   if (attempt.step || attempt.error?.code !== "structured-output-failed") {

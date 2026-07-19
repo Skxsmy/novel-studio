@@ -663,7 +663,8 @@ describe("M5 Workshop API routes", () => {
     });
     expect(agent.system).toContain("自然短反馈");
     expect(agent.system).toContain("先前 Assistant 提案只是候选");
-    expect(agent.system).toContain("只有作者明确要求准备 Codex 草稿时才能请求工具");
+    expect(agent.system).toContain("记录成条目");
+    expect(agent.system).toContain("目标和内容已经足够时必须准备对应的待确认草稿");
     expect(agent.system).toContain("作者说只讨论、先别查或暂不检索时，不得调用 Research 工具");
     expect(agent.system).toContain("跨语言检索不得假设服务端会自动翻译");
     expect(agent.system).toContain("先查看一次来源列表");
@@ -2718,6 +2719,129 @@ describe("M5 Workshop API routes", () => {
     });
     expect(entries.json().filter((entry: { metadata: { name: string } }) => entry.metadata.name === "Caleb Rook"))
       .toHaveLength(1);
+    await app.close();
+  });
+
+  it("suppresses a rewritten create request for the same Codex target after success", async () => {
+    const initialDraft = agentToolStep({
+      tool: "codex.create_entry",
+      message: "Prepared the keeper entry.",
+      draft: {
+        aliases: [],
+        categoryId: "character",
+        description: "The keeper of the tide clock.",
+        details: [],
+        name: "Caleb Rook",
+        research: "Author decision in this Agent conversation.",
+      },
+    });
+    const rewrittenDraft = agentToolStep({
+      tool: "codex.create_entry",
+      message: "I will record the keeper now.",
+      draft: {
+        aliases: ["Caleb"],
+        categoryId: "character",
+        description: "The tide clock's keeper, recorded after confirmation.",
+        details: [],
+        name: "  CALEB   ROOK ",
+        research: "Restated after the successful tool result.",
+      },
+    });
+    const responses = [initialDraft, rewrittenDraft];
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(
+      openAiStreamFetch(() => responses.shift() ?? rewrittenDraft),
+    );
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Semantic replay suppression" },
+    })).json();
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: { mode: "agent", userRequest: "Add Caleb Rook once.", modelProfileId: profile.id },
+    });
+    const tool = call.json().toolMessages[0];
+    const execute = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${tool.id}/tools/codex.create_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(execute.statusCode, execute.payload).toBe(201);
+    expect(execute.json().continuationMessages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "条目已经创建完成，无需重复确认。",
+      }),
+    ]);
+    expect(execute.json().agentRun.run.status).toBe("completed");
+    const entries = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+    });
+    expect(entries.json().filter((entry: { metadata: { name: string } }) => entry.metadata.name === "Caleb Rook"))
+      .toHaveLength(1);
+    await app.close();
+  });
+
+  it("suppresses an immediate ordinary-field update of a newly created Codex target", async () => {
+    const responses = [
+      agentToolStep({
+        tool: "codex.create_entry",
+        message: "Prepared the keeper entry.",
+        draft: {
+          aliases: [],
+          categoryId: "character",
+          description: "The keeper of the tide clock.",
+          details: [],
+          name: "Caleb Rook",
+          research: "Author decision in this Agent conversation.",
+        },
+      }),
+      agentToolStep({
+        tool: "codex.update_entry",
+        message: "I will finish recording the keeper.",
+        draft: {
+          target: { name: "caleb rook" },
+          patch: { description: "A rewritten description after creation already succeeded." },
+        },
+      }),
+    ];
+    const { app, series, profile } = await createSeriesWithOpenAiCompatibleProfile(
+      openAiStreamFetch(() => responses.shift() ?? responses.at(-1)!),
+    );
+    const session = (await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions`,
+      payload: { kind: "agent", title: "Cross-operation replay suppression" },
+    })).json();
+    const call = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/calls`,
+      payload: { mode: "agent", userRequest: "Add Caleb Rook once.", modelProfileId: profile.id },
+    });
+    const tool = call.json().toolMessages[0];
+    const execute = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${series.manifest.id}/workshop/sessions/${session.id}/messages/${tool.id}/tools/codex.create_entry/execute`,
+      payload: { confirm: true },
+    });
+    expect(execute.statusCode, execute.payload).toBe(201);
+    expect(execute.json().continuationMessages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "条目已经创建完成，无需重复确认。",
+      }),
+    ]);
+    expect(execute.json().agentRun.run.status).toBe("completed");
+    const entries = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${series.manifest.id}/codex/entries`,
+    });
+    const entry = entries.json().find((candidate: { metadata: { name: string } }) =>
+      candidate.metadata.name === "Caleb Rook"
+    );
+    expect(entry.description).toBe("The keeper of the tide clock.");
     await app.close();
   });
 

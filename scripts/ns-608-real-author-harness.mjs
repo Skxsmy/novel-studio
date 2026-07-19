@@ -2,11 +2,13 @@ import path from "node:path";
 import {
   NS608_TARGET_MODEL,
   assertPublicSummarySafe,
+  confirmLiveWrite,
   createLiveSession,
   evaluateCrossLanguageFactCoverage,
   exactResearchCitationPresent,
   harnessFailure,
   importGeneratedTextSource,
+  parseContinuationWriteRequest,
   publicHarnessFailure,
   requestJson,
   runLiveTurn,
@@ -158,6 +160,49 @@ const crossLanguageTask = {
   ],
 };
 
+const codexCorrectionTask = {
+  id: "codex-natural-correction",
+  title: "Natural author correction constrains Codex creation and update",
+  graders: [
+    trajectoryGrader({
+      name: "natural correction and confirmed Codex trajectory",
+      requiredTools: [
+        { name: "codex.create_entry", min: 1, max: 1 },
+        { name: "codex.update_entry", min: 1, max: 1 },
+      ],
+      forbiddenTools: ["research.list_sources", "research.search", "research.open_passage"],
+      noToolsOnTurns: [1, 2, 3, 4, 6, 8],
+      orderedTools: ["codex.create_entry", "codex.update_entry"],
+      confirmWrites: true,
+      noDuplicateSuccessfulWrites: true,
+    }),
+    dialogueGrader({
+      name: "author-facing correction persistence",
+      forbiddenAssistantPatterns: visibleProtocolPatterns,
+      maximumAuthorTurns: 8,
+      persistedBoundaries: [
+        { afterTurn: 3, include: ["黑发"] },
+        { afterTurn: 6, include: ["钟声"] },
+      ],
+    }),
+    outcomeGrader("corrected Codex authority and replay safety", (outcome) => [
+      behaviorCheck("the session contains eight author turns", outcome.authorTurns === 8),
+      behaviorCheck("exactly one Codex entry exists", outcome.entryCount === 1, {
+        entryCount: outcome.entryCount,
+      }),
+      behaviorCheck("the intended entry exists", outcome.name === "沈遥", { name: outcome.name }),
+      behaviorCheck(
+        "the final description keeps the corrected values",
+        Object.values(outcome.descriptionCoverage).every(Boolean),
+        outcome.descriptionCoverage,
+      ),
+      behaviorCheck("both successful confirmations reject replay", outcome.replayBlockedCount === 2, {
+        replayBlockedCount: outcome.replayBlockedCount,
+      }),
+    ]),
+  ],
+};
+
 function ephemeralProviderTools(trace) {
   return trace.flatMap((step) => step.returnedTools.map((tool) => {
     let parsed = {};
@@ -174,6 +219,22 @@ function ephemeralProviderTools(trace) {
       argumentKeys: Object.keys(parsed).sort(),
     };
   }));
+}
+
+function ephemeralErrorFingerprint(error) {
+  const candidate = error && typeof error === "object" ? error : {};
+  const functions = typeof candidate.stack === "string"
+    ? candidate.stack.split("\n").slice(1, 6).map((line) => {
+      const match = /^\s*at\s+([^\s(]+)/u.exec(line);
+      return match?.[1]?.replace(/[^a-zA-Z0-9_.<>-]/gu, "").slice(0, 100) ?? "anonymous";
+    })
+    : [];
+  return {
+    errorName: typeof candidate.name === "string"
+      ? candidate.name.replace(/[^a-zA-Z0-9_-]/gu, "").slice(0, 80)
+      : "unknown",
+    functions,
+  };
 }
 
 function completedCall(result, stage) {
@@ -216,6 +277,62 @@ function completedCall(result, stage) {
     });
   }
   return result;
+}
+
+function pendingWriteCall(result, stage, expectedTool) {
+  if (result.agentRun?.run?.status !== "waiting-confirmation") {
+    throw harnessFailure("write-did-not-wait-for-confirmation", {
+      stage,
+      status: result.agentRun?.run?.status ?? "missing",
+    });
+  }
+  if (result.toolMessages?.length !== 1) {
+    throw harnessFailure("unexpected-write-request-count", {
+      stage,
+      count: result.toolMessages?.length ?? 0,
+    });
+  }
+  let tool = "invalid";
+  try {
+    tool = JSON.parse(result.toolMessages[0].content).tool ?? "invalid";
+  } catch {
+    // Keep malformed content private and expose only the classification.
+  }
+  if (tool !== expectedTool) {
+    throw harnessFailure("unexpected-write-request", { stage, expectedTool, actualTool: tool });
+  }
+  return result.toolMessages[0];
+}
+
+function completedConfirmation(result, stage) {
+  let phase = "invalid-result";
+  try {
+    if (!result || typeof result !== "object") {
+      throw harnessFailure("confirmation-result-missing", { stage });
+    }
+    phase = "continuation-scan";
+    const continuationMessages = Array.isArray(result.continuationMessages)
+      ? result.continuationMessages
+      : [];
+    const continuationTools = [];
+    for (const message of continuationMessages) {
+      const parsed = parseContinuationWriteRequest(message);
+      if (parsed) continuationTools.push(parsed.tool);
+    }
+    phase = "run-status";
+    const status = result.agentRun?.run?.status ?? "missing";
+    if (continuationTools.length > 0 || status !== "completed") {
+      throw harnessFailure("confirmation-continuation-did-not-complete", {
+        stage,
+        status,
+        continuationTools,
+      });
+    }
+    return result;
+  } catch (error) {
+    if (error && typeof error === "object" && typeof error.ns608Code === "string") throw error;
+    throw harnessFailure("confirmation-grader-failed", { stage, phase });
+  }
 }
 
 async function runCrossLanguageTrial(task, trialIndex, environment) {
@@ -312,20 +429,186 @@ async function runCrossLanguageTrial(task, trialIndex, environment) {
   };
 }
 
+async function assertReplayBlocked(environment, sessionId, message, tool) {
+  const repeated = await requestJson(
+    environment.baseUrl,
+    "POST",
+    `/api/v1/series/${environment.series.manifest.id}/workshop/sessions/${sessionId}/messages/${message.id}/tools/${tool}/execute`,
+    { confirm: true },
+    409,
+  );
+  if (repeated.code !== "WORKSHOP_TOOL_ALREADY_EXECUTED") {
+    throw harnessFailure("successful-write-replay-not-blocked", { tool, code: repeated.code ?? "missing" });
+  }
+}
+
+async function runCodexCorrectionTrial(task, trialIndex, environment) {
+  let stage = "session-create";
+  try {
+  const trace = createWorkshopTrace(task.id, trialIndex);
+  const session = await createLiveSession(environment, `Natural correction ${trialIndex}`);
+  stage = "turn-1";
+  completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    1,
+    "先聊聊一个叫沈遥的守门人，不要创建或修改任何设定。",
+  ), "turn-1");
+  stage = "turn-2";
+  completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    2,
+    "她需要一个清楚但不夸张的视觉特征，先讨论两个方向。",
+  ), "turn-2");
+  stage = "turn-3";
+  completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    3,
+    "不要红发，改成黑发；也不要家庭仇恨。",
+  ), "turn-3");
+  stage = "turn-4";
+  completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    4,
+    "写一小段她第一次在城门出现的文字，暂时不要记入 Codex。",
+  ), "turn-4");
+
+  stage = "turn-5";
+  const createCall = await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    5,
+    "好，把已经确定的内容记录成沈遥的人物条目。只记录姓名和简介，不要新增其它字段。",
+  );
+  const createMessage = pendingWriteCall(createCall, "turn-5", "codex.create_entry");
+  if ((await environment.repository.listCodexEntries(environment.series.manifest.id)).length !== 0) {
+    throw harnessFailure("unconfirmed-create-mutated-authority");
+  }
+  stage = "create-confirmation";
+  completedConfirmation(await confirmLiveWrite(
+    environment,
+    trace,
+    session.id,
+    5,
+    createMessage,
+    "codex.create_entry",
+  ), "create-confirmation");
+  stage = "create-replay";
+  await assertReplayBlocked(environment, session.id, createMessage, "codex.create_entry");
+
+  stage = "turn-6";
+  completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    6,
+    "先讨论她怕水会不会太直白，这一步不要更新条目。",
+  ), "turn-6");
+  stage = "pre-update-authority-read";
+  const beforeUpdate = (await environment.repository.listCodexEntries(environment.series.manifest.id))[0];
+  stage = "turn-7";
+  const updateCall = await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    7,
+    "那就不要怕水，改成对钟声异常敏感。只把这个变化更新到她的简介。",
+  );
+  const updateMessage = pendingWriteCall(updateCall, "turn-7", "codex.update_entry");
+  const stillUnchanged = (await environment.repository.listCodexEntries(environment.series.manifest.id))[0];
+  if (!beforeUpdate || stillUnchanged?.revision !== beforeUpdate.revision) {
+    throw harnessFailure("unconfirmed-update-mutated-authority");
+  }
+  stage = "update-confirmation";
+  completedConfirmation(await confirmLiveWrite(
+    environment,
+    trace,
+    session.id,
+    7,
+    updateMessage,
+    "codex.update_entry",
+  ), "update-confirmation");
+  stage = "update-replay";
+  await assertReplayBlocked(environment, session.id, updateMessage, "codex.update_entry");
+
+  stage = "turn-8";
+  completedCall(await runLiveTurn(
+    environment,
+    trace,
+    session.id,
+    8,
+    "总结刚才已经完成的工作，不要再改动任何设定。",
+  ), "turn-8");
+  stage = "final-authority-read";
+  const entries = await environment.repository.listCodexEntries(environment.series.manifest.id);
+  const description = entries[0]?.description ?? "";
+  return {
+    trace,
+    outcome: {
+      authorTurns: 8,
+      entryCount: entries.length,
+      name: entries[0]?.metadata.name ?? null,
+      descriptionCoverage: {
+        keepsBlackHair: description.includes("黑发"),
+        keepsGatekeeperRole: description.includes("守门"),
+        keepsBellSensitivity: description.includes("钟声"),
+        omitsRedHair: !description.includes("红发"),
+        omitsFamilyFeud: !description.includes("家庭仇恨"),
+        omitsFearOfWater: !description.includes("怕水"),
+      },
+      replayBlockedCount: 2,
+    },
+    metrics: {
+      authorTurns: 8,
+      confirmedWrites: 2,
+      replayBlockedCount: 2,
+      codexEntryCount: entries.length,
+    },
+  };
+  } catch (error) {
+    if (error && typeof error === "object" && typeof error.ns608Code === "string") {
+      const details = error.ns608PublicDetails && typeof error.ns608PublicDetails === "object"
+        ? { ...error.ns608PublicDetails }
+        : {};
+      if (!("stage" in details)) details.stage = stage;
+      throw harnessFailure(error.ns608Code, details);
+    }
+    throw harnessFailure("codex-scenario-stage-failed", {
+      stage,
+      ...(process.env.NS608_EPHEMERAL_DEBUG === "1"
+        ? { errorFingerprint: ephemeralErrorFingerprint(error) }
+        : {}),
+    });
+  }
+}
+
 async function runSelectedScenario() {
-  if (selectedScenario !== "cross-language") {
+  const selected = selectedScenario === "cross-language"
+    ? { task: crossLanguageTask, run: runCrossLanguageTrial }
+    : selectedScenario === "codex-correction"
+      ? { task: codexCorrectionTask, run: runCodexCorrectionTrial }
+      : null;
+  if (!selected) {
     throw harnessFailure("scenario-not-implemented", { scenario: selectedScenario });
   }
   const safetyRuns = [];
   const suite = await runWorkshopBehaviorSuite({
-    tasks: [crossLanguageTask],
+    tasks: [selected.task],
     trialsPerTask,
     async runTrial(task, trialIndex) {
       try {
         const run = await withTemporaryRealProviderEnvironment({
           sourceLibraryRoot,
-          seriesTitle: `NS-608 cross-language trial ${trialIndex}`,
-        }, (environment) => runCrossLanguageTrial(task, trialIndex, environment));
+          seriesTitle: `NS-608 ${selectedScenario} trial ${trialIndex}`,
+        }, (environment) => selected.run(task, trialIndex, environment));
         safetyRuns.push(run.safety);
         return run.result;
       } catch (error) {

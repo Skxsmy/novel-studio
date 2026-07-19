@@ -123,6 +123,18 @@ export function evaluateCrossLanguageFactCoverage(text) {
   };
 }
 
+export function parseContinuationWriteRequest(message) {
+  if (!message || message.role !== "tool" || typeof message.content !== "string") return null;
+  try {
+    const parsed = JSON.parse(message.content);
+    return typeof parsed.tool === "string" && parsed.draft && typeof parsed.draft === "object"
+      ? { tool: parsed.tool, draft: parsed.draft }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function credentialReferenceLocations(root, credentialRef) {
   const matches = [];
   for (const relative of await filesUnder(root)) {
@@ -272,28 +284,55 @@ export async function runLiveTurn(environment, trace, sessionId, turn, content) 
 }
 
 export async function confirmLiveWrite(environment, trace, sessionId, turn, message, tool) {
-  trace.add({ type: "confirmation", turn, callId: message.id, name: tool, status: "approved" });
-  const result = await requestJson(
-    environment.baseUrl,
-    "POST",
-    `/api/v1/series/${environment.series.manifest.id}/workshop/sessions/${sessionId}/messages/${message.id}/tools/${tool}/execute`,
-    { confirm: true },
-    201,
-  );
-  trace.add({
-    type: "tool-result",
-    turn,
-    callId: message.id,
-    name: tool,
-    effect: "write",
-    status: "succeeded",
-  });
-  for (const continuation of result.continuationMessages ?? []) {
-    if (continuation.role === "assistant") {
-      trace.add({ type: "assistant", turn, content: continuation.content, status: continuation.status });
+  let phase = "record-confirmation";
+  try {
+    trace.add({ type: "confirmation", turn, callId: message.id, name: tool, status: "approved" });
+    phase = "execute-request";
+    const result = await requestJson(
+      environment.baseUrl,
+      "POST",
+      `/api/v1/series/${environment.series.manifest.id}/workshop/sessions/${sessionId}/messages/${message.id}/tools/${tool}/execute`,
+      { confirm: true },
+      201,
+    );
+    phase = "record-result";
+    trace.add({
+      type: "tool-result",
+      turn,
+      callId: message.id,
+      name: tool,
+      effect: "write",
+      status: "succeeded",
+    });
+    phase = "classify-continuation";
+    for (const continuation of result.continuationMessages ?? []) {
+      if (continuation.role === "assistant") {
+        trace.add({ type: "assistant", turn, content: continuation.content, status: continuation.status });
+      } else if (continuation.role === "tool") {
+        const parsed = parseContinuationWriteRequest(continuation);
+        if (parsed) {
+          trace.add({
+            type: "tool-call",
+            turn,
+            callId: continuation.id,
+            name: parsed.tool,
+            effect: "write",
+            arguments: parsed.draft,
+            requestIdentity: requestIdentity(continuation.content),
+          });
+        }
+      }
     }
+    return result;
+  } catch (error) {
+    if (error && typeof error === "object" && typeof error.ns608Code === "string") {
+      const details = error.ns608PublicDetails && typeof error.ns608PublicDetails === "object"
+        ? { ...error.ns608PublicDetails, phase, tool }
+        : { phase, tool };
+      throw harnessFailure(error.ns608Code, details);
+    }
+    throw harnessFailure("confirm-live-write-failed", { phase, tool });
   }
-  return result;
 }
 
 export async function importGeneratedTextSource(environment, databaseId, fixture) {
