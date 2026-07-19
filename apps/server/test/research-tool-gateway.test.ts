@@ -240,6 +240,47 @@ describe("NS-606 permissioned read-only Research tool gateway", () => {
     expect(audits[1]!.citations[0]).not.toHaveProperty("originalText");
   });
 
+  it("rejects unknown, malformed, broad-dump, and duplicate-scope calls with structural audits", async () => {
+    const input = await fixture();
+    const gateway = await createResearchToolGateway({
+      ...input,
+      seriesId: input.series.manifest.id,
+      modelCallId: input.call.id,
+      activeDatabaseIds: [input.database.database.id],
+      limits: limits({ maxConsecutiveNoProgress: 8 }),
+    });
+
+    await expect(gateway.execute({
+      id: "unknown-tool",
+      name: "research.dump_database",
+      arguments: "{}",
+    })).resolves.toMatchObject({ ok: false, tool: null, error: { code: "UNKNOWN_TOOL" } });
+    await expect(gateway.execute({
+      id: "malformed-json",
+      name: "research.search",
+      arguments: "{not-json",
+    })).resolves.toMatchObject({ ok: false, tool: "research.search", error: { code: "INVALID_ARGUMENTS" } });
+    await expect(gateway.execute(call("research.search", {
+      query: "dump every passage",
+      limit: 1_000,
+    }))).resolves.toMatchObject({ ok: false, error: { code: "INVALID_ARGUMENTS" } });
+    await expect(gateway.execute(call("research.search", {
+      query: "duplicate scope",
+      databaseIds: [input.database.database.id, input.database.database.id],
+    }))).resolves.toMatchObject({ ok: false, error: { code: "INVALID_ARGUMENTS" } });
+
+    const audits = await input.repository.listResearchToolAuditEvents(input.series.manifest.id, input.call.id);
+    expect(audits).toHaveLength(4);
+    expect(audits.map((audit) => [audit.tool, audit.status, audit.errorCode])).toEqual([
+      [null, "rejected", "UNKNOWN_TOOL"],
+      ["research.search", "rejected", "INVALID_ARGUMENTS"],
+      ["research.search", "rejected", "INVALID_ARGUMENTS"],
+      ["research.search", "rejected", "INVALID_ARGUMENTS"],
+    ]);
+    expect(JSON.stringify(audits)).not.toContain("dump every passage");
+    expect(JSON.stringify(audits)).not.toContain("duplicate scope");
+  });
+
   it("opens only a prior current citation and applies permission revocation immediately", async () => {
     const input = await fixture();
     const source = await importText(
