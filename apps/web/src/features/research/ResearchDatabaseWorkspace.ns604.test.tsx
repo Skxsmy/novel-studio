@@ -12,7 +12,7 @@ import type {
 } from "@novel-studio/contracts";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "../../api";
+import { ApiError, api } from "../../api";
 import { ReferenceResearchWorkspace } from "./ResearchDatabaseWorkspace";
 
 const databaseId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -285,7 +285,9 @@ describe("NS-604 original-language Research workspace", () => {
   it("keeps source authority visible when the first content page cannot be read", async () => {
     const detail = v3Detail();
     arrange(detail);
-    vi.mocked(api.research.getSourceContentPage).mockRejectedValueOnce(new Error("page read failed"));
+    vi.mocked(api.research.getSourceContentPage)
+      .mockRejectedValueOnce(new Error("page read failed"))
+      .mockResolvedValueOnce(contentPage(detail));
 
     const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
     const root = container.querySelector<HTMLElement>("#research-workspace")!;
@@ -295,6 +297,83 @@ describe("NS-604 original-language Research workspace", () => {
     expect(within(root).getByRole("alert").textContent).toContain("page read failed");
     expect(within(root).getByTitle("Harbor terminology")).toBeTruthy();
     expect((within(root).getByLabelText("Display name") as HTMLInputElement).value).toBe("Harbor terminology");
+    fireEvent.click(within(root).getByRole("button", { name: "Retry page" }));
+    await waitFor(() => expect(within(root).getByText("月守（つきもり）は夜明け前に港へ着いた。")).toBeTruthy());
+    expect(api.research.getSourceContentPage).toHaveBeenCalledTimes(2);
+    expect(within(root).queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps a transiently unavailable source selected and retries its details", async () => {
+    const detail = v3Detail();
+    arrange(detail);
+    vi.mocked(api.research.getSource)
+      .mockRejectedValueOnce(new ApiError("Unavailable", 500, {
+        code: "INTERNAL_ERROR",
+        message: "temporary detail failure",
+      }))
+      .mockResolvedValueOnce(v3View(detail));
+
+    const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
+    const root = container.querySelector<HTMLElement>("#research-workspace")!;
+    root.hidden = false;
+
+    await within(root).findByRole("heading", { name: "Source unavailable" });
+    expect((await within(root).findByRole("alert")).textContent).toContain("temporary detail failure");
+    const selectedSource = within(root).getByTitle("Harbor terminology");
+    expect(selectedSource.getAttribute("aria-current")).toBe("true");
+    expect(localStorage.getItem(`novel-studio.research.source.selected.${databaseId}`)).toBe(sourceId);
+    expect(within(root).getByRole("button", { name: "Retry source" })).toBeTruthy();
+    fireEvent.click(selectedSource);
+
+    await waitFor(() => expect(within(root).getByText("月守（つきもり）は夜明け前に港へ着いた。")).toBeTruthy());
+    expect(api.research.getSource).toHaveBeenCalledTimes(2);
+    expect((within(root).getByLabelText("Display name") as HTMLInputElement).value).toBe("Harbor terminology");
+    expect(within(root).queryByRole("alert")).toBeNull();
+  });
+
+  it("uses a result for the selected unavailable source as a detail retry", async () => {
+    const detail = v3Detail();
+    arrange(detail);
+    vi.mocked(api.research.getSource)
+      .mockRejectedValueOnce(new ApiError("Unavailable", 500, {
+        code: "INTERNAL_ERROR",
+        message: "temporary detail failure",
+      }))
+      .mockResolvedValueOnce(v3View(detail));
+    vi.spyOn(api.research, "search").mockResolvedValue({
+      researchDatabaseId: databaseId,
+      query: "月守",
+      results: [{
+        researchDatabaseId: databaseId,
+        sourceId,
+        sourceRevision: detail.revision,
+        sourceDisplayName: detail.source.displayName,
+        sourceKind: detail.source.kind,
+        chunkId,
+        blockId,
+        blockOrder: 0,
+        chunkHash: "d".repeat(64),
+        originalText: detail.content.chunks[0]!.text,
+        languageTag: "ja-JP",
+        location: detail.content.chunks[0]!.location,
+        matchChannels: ["keyword-cjk"],
+        score: 1,
+      }],
+    });
+
+    const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
+    const root = container.querySelector<HTMLElement>("#research-workspace")!;
+    root.hidden = false;
+    await within(root).findByRole("heading", { name: "Source unavailable" });
+    const input = within(root).getByLabelText("Search selected Research Database");
+    fireEvent.change(input, { target: { value: "月守" } });
+    fireEvent.click(within(root).getByRole("button", { name: "Search" }));
+    fireEvent.click(await within(root).findByRole("button", { name: /月守（つきもり）/u }));
+
+    await waitFor(() => expect(api.research.getSource).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(root.querySelector(`#research-match-${blockId}`)?.textContent).toBe("月守"));
+    expect(within(root).getByRole("status").textContent).toContain("Opened 用語 · paragraph 3");
+    expect(within(root).queryByRole("alert")).toBeNull();
   });
 
   it("searches only the selected database and opens the exact original-language location", async () => {

@@ -31,25 +31,24 @@ async function createDocxFixture(): Promise<Buffer> {
 
 test("imports structured sources, searches exact locations, and keeps databases isolated", async ({ page }) => {
   const browserErrors: string[] = [];
-  let expectedContentFailureUrl: string | null = null;
-  let expectedContentFailureResponses = 0;
-  let expectedContentFailureConsoleErrors = 0;
+  const expectedFailureUrls = new Set<string>();
+  let expectedFailureResponses = 0;
+  let expectedFailureConsoleErrors = 0;
   page.on("console", (message) => {
     if (message.type() !== "error") return;
     if (
-      expectedContentFailureUrl
-      && expectedContentFailureConsoleErrors === 0
+      expectedFailureConsoleErrors < expectedFailureUrls.size
       && message.text() === "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
     ) {
-      expectedContentFailureConsoleErrors += 1;
+      expectedFailureConsoleErrors += 1;
       return;
     }
     browserErrors.push(`console.error: ${message.text()}`);
   });
   page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.stack ?? error.message}`));
   page.on("response", (response) => {
-    if (response.status() === 500 && response.url() === expectedContentFailureUrl) {
-      expectedContentFailureResponses += 1;
+    if (response.status() === 500 && expectedFailureUrls.has(response.url())) {
+      expectedFailureResponses += 1;
       return;
     }
     if (response.status() >= 400) browserErrors.push(`http ${response.status()}: ${response.url()}`);
@@ -98,7 +97,7 @@ test("imports structured sources, searches exact locations, and keeps databases 
       return;
     }
     injectContentFailure = false;
-    expectedContentFailureUrl = route.request().url();
+    expectedFailureUrls.add(route.request().url());
     await route.fulfill({
       body: JSON.stringify({ code: "INJECTED_FAILURE", message: "Injected content page failure" }),
       contentType: "application/json",
@@ -125,6 +124,11 @@ test("imports structured sources, searches exact locations, and keeps databases 
   await expect(workspace.getByRole("status")).toContainText("Saved a snapshot of Harbor web archive");
   await expect(workspace.locator(".rs10-text-blocks")).toContainText("灯台守の記録");
   await expect(workspace.locator(".rs10-text-blocks")).not.toContainText("must not execute");
+  const primarySourceSelection = await page.evaluate(
+    (databaseId) => localStorage.getItem(`novel-studio.research.source.selected.${databaseId}`),
+    primaryDatabaseId,
+  );
+  expect(primarySourceSelection).toBeTruthy();
 
   const secondaryDatabaseId = await createDatabase("English HTML Shelf", "A second isolated source shelf.");
   expect(secondaryDatabaseId).not.toBe(primaryDatabaseId);
@@ -139,7 +143,34 @@ test("imports structured sources, searches exact locations, and keeps databases 
   await expect(workspace.getByText("No matching passage")).toBeVisible();
 
   const databaseSelect = workspace.getByLabel("Research Database", { exact: true });
+  let injectSourceDetailFailure = true;
+  await page.route("**/api/v1/research/databases/*/sources/*", async (route) => {
+    const request = route.request();
+    const isSourceDetail = request.method() === "GET"
+      && /^\/api\/v1\/research\/databases\/[^/]+\/sources\/[^/]+$/u.test(new URL(request.url()).pathname);
+    if (!injectSourceDetailFailure || !isSourceDetail) {
+      await route.continue();
+      return;
+    }
+    injectSourceDetailFailure = false;
+    expectedFailureUrls.add(request.url());
+    await route.fulfill({
+      body: JSON.stringify({ code: "INJECTED_FAILURE", message: "Injected source detail failure" }),
+      contentType: "application/json",
+      status: 500,
+    });
+  });
   await databaseSelect.selectOption(primaryDatabaseId);
+  await expect(workspace.getByRole("alert")).toContainText("Injected source detail failure");
+  await expect(workspace.getByRole("heading", { name: "Source unavailable" })).toBeVisible();
+  await expect(workspace.getByTitle("Harbor web archive")).toHaveAttribute("aria-current", "true");
+  expect(await page.evaluate(
+    (databaseId) => localStorage.getItem(`novel-studio.research.source.selected.${databaseId}`),
+    primaryDatabaseId,
+  )).toBe(primarySourceSelection);
+  await workspace.getByRole("button", { name: "Retry source" }).click();
+  await expect(workspace.locator(".rs10-text-blocks")).toContainText("灯台守の記録");
+  await expect(workspace.getByRole("alert")).toHaveCount(0);
   await search.fill("月守");
   await workspace.getByRole("button", { exact: true, name: "Search" }).click();
   await expect(workspace.getByRole("button", { name: /月守（つきもり）/u })).toBeVisible();
@@ -162,8 +193,8 @@ test("imports structured sources, searches exact locations, and keeps databases 
     toolbarFits: true,
     workspaceFits: true,
   });
-  expect(expectedContentFailureResponses).toBe(1);
-  expect(expectedContentFailureConsoleErrors).toBe(1);
+  expect(expectedFailureResponses).toBe(2);
+  expect(expectedFailureConsoleErrors).toBe(2);
   expect(browserErrors).toEqual([]);
 });
 
