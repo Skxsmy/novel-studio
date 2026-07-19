@@ -121,6 +121,9 @@ import {
   CreateResearchDatabaseInputSchema,
   ResearchDatabaseDeletionBlockersSchema,
   ResearchDatabaseSchema,
+  ResearchNoteListQuerySchema,
+  ResearchNoteListResultSchema,
+  ResearchNoteSummarySchema,
   UpdateResearchQueryExpansionsInputSchema,
   ResearchLegacyMigrationResultSchema,
   ResearchSourceContentPageQuerySchema,
@@ -305,6 +308,14 @@ import {
   type ResearchDatabaseDeletionBlockers,
   type ResearchDatabaseListResult,
   type ResearchLegacyMigrationResult,
+  type AppendResearchNoteEvidenceInput,
+  type CreateResearchNoteInput,
+  type ResearchNoteDetail,
+  type ResearchNoteListQuery,
+  type ResearchNoteListResult,
+  type ResearchNoteRevisionInput,
+  type RemoveResearchNoteEvidenceInput,
+  type UpdateResearchNoteInput,
   type UpdateResearchDatabaseInput,
   type RestoreSceneSectionInput,
   type SceneBlock,
@@ -432,6 +443,19 @@ import {
   updateResearchDatabaseFile,
   type ResearchDatabaseTransactionOptions,
 } from "./researchDatabases.js";
+import {
+  appendResearchNoteEvidenceFile,
+  archiveResearchNoteAuthorityFile,
+  createResearchNoteAuthorityFile,
+  listResearchNoteAuthorityFiles,
+  readResearchNoteDetail,
+  removeResearchNoteEvidenceFile,
+  researchNoteFreshnessCounts,
+  resolveResearchNoteEvidence,
+  restoreResearchNoteAuthorityFile,
+  updateResearchNoteAuthorityFile,
+  type ResearchNoteTransactionOptions,
+} from "./researchNotes.js";
 import {
   buildResearchSourceContent,
   type PreparedResearchContent,
@@ -1831,6 +1855,162 @@ export class ProjectRepository {
   async getResearchDatabase(databaseId: string): Promise<ResearchDatabaseDocument> {
     await this.initialize();
     return readResearchDatabaseFile(this.libraryRoot, databaseId);
+  }
+
+  async listResearchNotes(
+    researchDatabaseId: string,
+    rawQuery: ResearchNoteListQuery = {},
+  ): Promise<ResearchNoteListResult> {
+    await this.getResearchDatabase(researchDatabaseId);
+    const query = ResearchNoteListQuerySchema.parse(rawQuery);
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
+    const listed = await listResearchNoteAuthorityFiles(databaseRoot, researchDatabaseId);
+    const filtered = listed.notes.filter((document) =>
+      query.status === "all" || document.note.status === query.status
+    );
+    const selected = filtered.slice(query.offset, query.offset + query.limit);
+    const notes = await Promise.all(selected.map(async (document) => {
+      const evidence = await resolveResearchNoteEvidence(databaseRoot, researchDatabaseId, document);
+      return ResearchNoteSummarySchema.parse({
+        id: document.note.id,
+        researchDatabaseId,
+        title: document.note.title,
+        tags: document.note.tags,
+        status: document.note.status,
+        updatedAt: document.note.updatedAt,
+        archivedAt: document.note.archivedAt,
+        revision: document.revision,
+        evidenceCount: document.note.evidence.length,
+        freshness: researchNoteFreshnessCounts(evidence),
+      });
+    }));
+    return ResearchNoteListResultSchema.parse({
+      researchDatabaseId,
+      status: query.status,
+      offset: query.offset,
+      limit: query.limit,
+      total: filtered.length,
+      notes,
+      issueCount: listed.issues.length,
+      issues: listed.issues.slice(0, 100),
+    });
+  }
+
+  async getResearchNote(researchDatabaseId: string, noteId: string): Promise<ResearchNoteDetail> {
+    await this.getResearchDatabase(researchDatabaseId);
+    return readResearchNoteDetail(
+      researchDatabaseRoot(this.libraryRoot, researchDatabaseId),
+      researchDatabaseId,
+      noteId,
+    );
+  }
+
+  async createResearchNote(
+    researchDatabaseId: string,
+    input: CreateResearchNoteInput,
+    transactionOptions: ResearchNoteTransactionOptions = {},
+  ): Promise<ResearchNoteDetail> {
+    await this.getResearchDatabase(researchDatabaseId);
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
+    const created = await createResearchNoteAuthorityFile(
+      databaseRoot,
+      researchDatabaseId,
+      input,
+      transactionOptions,
+    );
+    return readResearchNoteDetail(databaseRoot, researchDatabaseId, created.note.id);
+  }
+
+  async updateResearchNote(
+    researchDatabaseId: string,
+    noteId: string,
+    input: UpdateResearchNoteInput,
+    transactionOptions: ResearchNoteTransactionOptions = {},
+  ): Promise<ResearchNoteDetail> {
+    await this.getResearchDatabase(researchDatabaseId);
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
+    await updateResearchNoteAuthorityFile(
+      databaseRoot,
+      researchDatabaseId,
+      noteId,
+      input,
+      transactionOptions,
+    );
+    return readResearchNoteDetail(databaseRoot, researchDatabaseId, noteId);
+  }
+
+  async appendResearchNoteEvidence(
+    researchDatabaseId: string,
+    noteId: string,
+    input: AppendResearchNoteEvidenceInput,
+    transactionOptions: ResearchNoteTransactionOptions = {},
+  ): Promise<ResearchNoteDetail> {
+    await this.getResearchDatabase(researchDatabaseId);
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
+    await appendResearchNoteEvidenceFile(
+      databaseRoot,
+      researchDatabaseId,
+      noteId,
+      input,
+      transactionOptions,
+    );
+    return readResearchNoteDetail(databaseRoot, researchDatabaseId, noteId);
+  }
+
+  async removeResearchNoteEvidence(
+    researchDatabaseId: string,
+    noteId: string,
+    evidenceId: string,
+    input: RemoveResearchNoteEvidenceInput,
+    transactionOptions: ResearchNoteTransactionOptions = {},
+  ): Promise<ResearchNoteDetail> {
+    await this.getResearchDatabase(researchDatabaseId);
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
+    await removeResearchNoteEvidenceFile(
+      databaseRoot,
+      researchDatabaseId,
+      noteId,
+      evidenceId,
+      input,
+      transactionOptions,
+    );
+    return readResearchNoteDetail(databaseRoot, researchDatabaseId, noteId);
+  }
+
+  async archiveResearchNote(
+    researchDatabaseId: string,
+    noteId: string,
+    input: ResearchNoteRevisionInput,
+    transactionOptions: ResearchNoteTransactionOptions = {},
+  ): Promise<ResearchNoteDetail> {
+    await this.getResearchDatabase(researchDatabaseId);
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
+    await archiveResearchNoteAuthorityFile(
+      databaseRoot,
+      researchDatabaseId,
+      noteId,
+      input,
+      transactionOptions,
+    );
+    return readResearchNoteDetail(databaseRoot, researchDatabaseId, noteId);
+  }
+
+  async restoreResearchNote(
+    researchDatabaseId: string,
+    noteId: string,
+    input: ResearchNoteRevisionInput,
+    transactionOptions: ResearchNoteTransactionOptions = {},
+  ): Promise<ResearchNoteDetail> {
+    await this.getResearchDatabase(researchDatabaseId);
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
+    await restoreResearchNoteAuthorityFile(
+      databaseRoot,
+      researchDatabaseId,
+      noteId,
+      input,
+      transactionOptions,
+    );
+    return readResearchNoteDetail(databaseRoot, researchDatabaseId, noteId);
   }
 
   async getResearchDatabaseDeletionBlockers(

@@ -19,6 +19,7 @@ export * from "./defaults.js";
 export * from "./prompts.js";
 export * from "./proposals.js";
 export * from "./research.js";
+export * from "./researchNotes.js";
 export * from "./researchTools.js";
 export * from "./workshop.js";
 export * from "./workshopPrompts.js";
