@@ -1,6 +1,6 @@
 # NS-514 Acceptance Record
 
-Status: in_progress
+Status: manual_pending
 Task: `docs/tasks/NS-514.md`
 Updated: 2026-07-18
 

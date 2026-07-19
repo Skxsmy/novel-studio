@@ -114,9 +114,13 @@
 
 覆盖：TXT、Markdown、DOCX、文本 PDF、EPUB、HTML；SourceLocation、FTS5、可选 Embedding、Research Note 和权限。
 
-完成标准：六种 fixture 解析；多语言检索；结果回指来源；扫描 PDF 诚实失败；危险文件隔离；资料不能越权进入模型。
+完成标准：六种 fixture 解析；中/日/英及混合语言原文检索；中文查询对无共享词项的日文和英文资料进行可验证的跨语言召回；结果公开关键词、别名、转写、查询翻译或语义命中方式并回指原文；扫描 PDF 诚实失败；危险文件隔离；资料不能越权进入模型。
 
 M6 语义检索必须复用产品与目标架构定义的共享 `EmbeddingModelProfile`、按用途路由和 profile 级并发基础设施，不得创建资料库私有的第二套 Embedding 配置或静默云端回退。
+
+`NS-601 / M6.0` 先完成数据库架构规划：盘点现有每个 Series 的 SQLite/FTS5 原型，确定 JSON 权威不变、派生数据库拓扑、连接与版本策略、小说文本/叙事投影、分语言搜索、跨语言查询、原子重建、损坏恢复、Reference Library 投影和向量适配边界。该规划不表示资料导入、检索或向量功能已经实现；运行时交付依次由 `NS-602` 数据库内核、原子重建与 TXT/Markdown Research 来源页面垂直切片，`NS-603` 小说文本投影与分语言统一搜索，`NS-604` 其余四种 Reference Library 格式和完整原文关键词数据库，`NS-605` Library catalog、多语言向量与跨语言查询适配器承担。
+
+NS-601 验收 ID：`NS-601-A01` 至 `NS-601-A10`，详见 `docs/tasks/NS-601.md`、`docs/testing/NS-601_ACCEPTANCE.md`、`docs/architecture/DATABASE_ARCHITECTURE.md` 和 ADR-0018。
 
 ## M7 Word、版本与备份
 

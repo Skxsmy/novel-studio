@@ -21,7 +21,8 @@ No support task is active.
 | NS-510 | complete | M5.6E Workshop capability, lifecycle, context, export, and module-boundary cleanup | `docs/tasks/NS-510.md`; `docs/testing/NS-510_ACCEPTANCE.md` |
 | NS-511-NS-512 / M5.6F-M5.6G | todo | Versioned Prompt customization and Tool Plan/Grant layer | `docs/tasks/M5.md` |
 | NS-513 / M5.7 | todo | Council, conflict/failure states, responsive/copy review, and user visual acceptance | `docs/tasks/M5.md` |
-| NS-514 | in_progress | Exact binding-reference UI reproduction followed only by the plan's gated audit and in-place wiring; no old/new UI merge | `docs/tasks/NS-514.md`; `docs/testing/NS-514_ACCEPTANCE.md` |
+| NS-514 | paused | P0-P6 and automated P7 evidence complete; explicit author visual acceptance A16 remains while database planning proceeds by user direction | `docs/tasks/NS-514.md`; `docs/testing/NS-514_ACCEPTANCE.md` |
+| NS-601 | complete | M6.0 plans the rebuildable novel-text/narrative database, language-aware FTS, explainable Chinese-to-Japanese/English retrieval, atomic rebuild, Reference Library, and vector boundary without changing JSON authority | `docs/tasks/NS-601.md`; `docs/testing/NS-601_ACCEPTANCE.md` |
 
 ## Incomplete Existing Lines
 

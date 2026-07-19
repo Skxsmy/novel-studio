@@ -212,15 +212,25 @@ export function checkMainlineMapping(root) {
   if (!milestone || !last || !next) return errors;
 
   const expectedHundred = Number(milestone);
-  for (const [label, match] of [["last completed", last], ["next", next]]) {
-    const nsNumber = Number(match[1]);
-    const sliceMilestone = Number(match[2]);
-    if (Math.floor(nsNumber / 100) !== expectedHundred || sliceMilestone !== expectedHundred) {
-      errors.push(`STATUS.md: ${label} mainline mapping ${match[0]} does not belong to M${milestone}`);
-    }
-  }
   const lastNumber = Number(last[1]);
+  const lastMilestone = Number(last[2]);
   const nextNumber = Number(next[1]);
+  const nextMilestone = Number(next[2]);
+  const isMilestoneTransition = (
+    lastMilestone === expectedHundred - 1
+    && Math.floor(lastNumber / 100) === lastMilestone
+    && nextMilestone === expectedHundred
+    && nextNumber === expectedHundred * 100 + 1
+  );
+  if (
+    !isMilestoneTransition
+    && (Math.floor(lastNumber / 100) !== expectedHundred || lastMilestone !== expectedHundred)
+  ) {
+    errors.push(`STATUS.md: last completed mainline mapping ${last[0]} does not belong to M${milestone}`);
+  }
+  if (Math.floor(nextNumber / 100) !== expectedHundred || nextMilestone !== expectedHundred) {
+    errors.push(`STATUS.md: next mainline mapping ${next[0]} does not belong to M${milestone}`);
+  }
   const deferred = status.match(
     /Deferred earlier mainline tasks:\s*`NS-(\d{3})-NS-(\d{3})`[^\r\n]*explicit user direction/u,
   );
@@ -230,7 +240,7 @@ export function checkMainlineMapping(root) {
     && Number(deferred[1]) === lastNumber + 1
     && Number(deferred[2]) === nextNumber - 1,
   );
-  if (nextNumber !== lastNumber + 1 && !hasExactUserDirectedGap) {
+  if (!isMilestoneTransition && nextNumber !== lastNumber + 1 && !hasExactUserDirectedGap) {
     errors.push(
       `STATUS.md: next mainline NS-${next[1]} must immediately follow NS-${last[1]} or declare the exact deferred range by explicit user direction`,
     );

@@ -81,6 +81,10 @@ packages/
 
 删除全部可重建数据后，应用仍能打开和编辑作品，并可重新索引。
 
+M6 的详细数据库目标见 `docs/architecture/DATABASE_ARCHITECTURE.md` 和 accepted ADR-0018。它采用每个 Series 一个派生 `index.sqlite`、可选的 library-level `catalog.sqlite`、统一来源账本与投影器状态、外部内容 FTS5、单写者 WAL 和临时数据库校验后原子替换；向量由可替换适配器管理，SQLite 只保存可重建的来源与模型元数据。该方案由 NS-602 至 NS-605 分阶段实现，不是当前原型已经具备的行为。
+
+小说检索投影必须保留段落、句子、对白、叙述、POV、故事时间、情节线、语言片段和原文偏移，不能把 Scene 仅作为无结构长字符串。统一 Search Service 的物理索引按 manuscript/reference/Codex/Workshop 领域和 CJK/词项分析方式分开，先在各通道内排序再确定性融合。中文查询跨语言召回日文/英文原文时，优先使用经过中/日/英 fixture 验证的同空间多语言 Embedding；作者确认别名、确定性转写和显式的版本化查询翻译只扩展召回。任何译文或语义命中都必须保留 BCP 47 语言、原文 hash/offset/SourceLocation 和命中通道，不得替代 Evidence。
+
 Archive is not a data-retention substitute for deletion. Every archive-capable domain object must have an explicit cleanup or permanent-delete design. Destructive cleanup must either prove there are no live references or preserve the minimum immutable snapshot needed for historical views before removing the source object. The UI must expose the cleanup path and reference-blocking reason instead of letting archived data accumulate indefinitely.
 
 ## 5. 领域投影

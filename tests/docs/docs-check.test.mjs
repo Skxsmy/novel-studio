@@ -100,6 +100,24 @@ test("keeps support work separate from the sequential M-to-NS mainline", () => {
       "",
     ].join("\n"));
     assert.deepEqual(checkMainlineMapping(root), []);
+
+    write(root, "STATUS.md", [
+      "- Active milestone: `M6 Reference Library`.",
+      "- Last reached mainline task: `NS-510 / M5.6E Workshop Cleanup`.",
+      "- Next mainline task: `NS-601 / M6.0 Database Planning`.",
+      "- Active task: `NS-601 / M6.0 Database Planning`.",
+      "",
+    ].join("\n"));
+    assert.deepEqual(checkMainlineMapping(root), []);
+
+    write(root, "STATUS.md", [
+      "- Active milestone: `M6 Reference Library`.",
+      "- Last reached mainline task: `NS-510 / M5.6E Workshop Cleanup`.",
+      "- Next mainline task: `NS-602 / M6.1 Database Kernel`.",
+      "- Active task: `NS-602 / M6.1 Database Kernel`.",
+      "",
+    ].join("\n"));
+    assert.ok(checkMainlineMapping(root).some((error) => error.includes("must immediately follow")));
   });
 });
 

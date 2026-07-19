@@ -77,6 +77,16 @@ Markdown and Word are import, export, mirror, preview, and migration boundary fo
 
 SQLite/FTS5 stores rebuildable projections such as search and mention indexes. Deleting derived state must not prevent the application from opening and editing authority files; rebuilding must validate source revisions and hashes.
 
+`docs/architecture/DATABASE_ARCHITECTURE.md` and accepted ADR-0018 define the M6 implementation plan for database identity, a single-writer WAL boundary, normalized projections, external-content FTS5, temporary-build atomic replacement, Reference Library indexing, and later vector adapters. These documents describe the target for NS-602 through NS-605; the current runtime still uses the earlier unversioned per-Series prototype and must not be reported as having those guarantees yet.
+
+The target Search Service is novel- and language-aware. It projects paragraph,
+sentence, dialogue, POV, story-time, plot-thread, language-span, entity-alias,
+and text-metric data with exact original offsets, then queries separate CJK and
+word-oriented FTS shards behind one facade. Cross-language retrieval combines
+original-language lexical matches, confirmed aliases/transliterations, a
+fixture-validated multilingual Embedding profile, and optional versioned query
+translation; every hit still cites unchanged original-language authority.
+
 ### Hierarchy Compatibility Boundary
 
 The product hierarchy and the current storage names are intentionally separated:

@@ -126,6 +126,14 @@ Scene JSON 的规划字段包括目标、冲突、结果、摘要、节拍、POV
 
 SQLite 保存可重建的场景定位、正文搜索、Codex 搜索、名称候选、正文提及、歧义与 FTS5 数据。它不得保存无法从权威文件或明确缓存源恢复的唯一 Canon。删除 SQLite 后必须能完整重建。
 
+当前实现是每个 Series 的 `.studio/index.sqlite` 原型：Schema 由多个 Storage 模块在打开数据库时创建，`user_version` 和 `application_id` 尚未设置，重建路径会先清空活动表再回填。它已经提供索引功能，但不具备原子全量重建、显式迁移账本、统一来源哈希或完整损坏恢复保证。
+
+NS-601 的拟议目标详见 `docs/architecture/DATABASE_ARCHITECTURE.md` 和 ADR-0018：每个 Series 继续使用派生 `index.sqlite`，未来可按实际跨 Series 需求增加派生 `catalog.sqlite`；所有普通表使用严格类型与外键，FTS5 从规范化搜索内容表同步，权威文件先提交、索引随后独立更新；全量重建必须在临时数据库完成校验后原子替换活动数据库。向量正文不是 SQLite Canon，向量来源 revision/hash、模型和维度等可重建元数据通过后续适配器投影。上述目标由 NS-602 至 NS-605 实现，规划本身不改变当前磁盘格式。
+
+小说文字投影不能只保存 Scene 级纯文本。每个 SceneBlock 进一步派生 paragraph、sentence、dialogue、quote、heading 和 narration 等 `text_units`，并保存原文 hash、原文 start/end offset、分析器版本、BCP 47 语言和混合语言 `language_spans`。Dialogue speaker、POV、人物/地点参与、故事事件时间、情节线 setup/payoff、因果关系和文字统计均是可重建投影；AI 推断项必须带原文证据、来源和候选状态，作者接受后由对应 JSON/Proposal 成为权威，不能只存在 SQLite。
+
+跨语言查询不生成一份中文权威副本。原文、NFC 搜索形式、兼容字符形式、作者确认别名、自动转写和机器翻译必须分栏、分来源、分版本；只有原文可作为 Evidence。多语言向量记录精确 profile/model/dimensions/normalization/input-prefix、声明语言覆盖和中/日/英 fixture 版本。没有通过验证的 profile 时，数据库继续提供原语言、别名和转写检索，并明确禁用无共享词项的跨语言语义承诺。
+
 ## Codex
 
 六个内置类别使用稳定字符串 ID 和固定目录；自定义类别元数据位于 `codex/categories/<categoryId>.json`，条目位于 `codex/custom/<categoryId>/<entryId>.json`。条目 JSON 保存 Canon Description、Research 引用和元数据；较大的研究正文可保存在 `codex/entry-research/<entryId>.json`，revision 独立。Codex 条目元数据不保存 `tags`；旧测试文件中的 `tags` 仅按迁移输入处理，并会在写入 JSON 权威文件时移除。
