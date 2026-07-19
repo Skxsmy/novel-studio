@@ -6,7 +6,13 @@ import {
   type ResearchDatabaseIssue,
   type ResearchDatabaseSummary,
   type ResearchIndexState,
-  type ResearchKeywordSearchResult,
+  type ResearchEmbeddingCapabilityState,
+  type ResearchQueryExpansion,
+  type ResearchQueryExpansionDocument,
+  type ResearchRetrievalIssue,
+  type ResearchRetrievalMatchChannel,
+  type ResearchRetrievalMode,
+  type ResearchRetrievalResult,
   type ResearchSourceAiPermission,
   type ResearchSourceBlock,
   type ResearchSourceContentPage,
@@ -15,19 +21,24 @@ import {
   type ResearchSourceLocation,
   type ResearchSourceMediaType,
   type ResearchSourceView,
+  type ResearchVectorIndexState,
 } from "@novel-studio/contracts";
 import {
   BookOpenText,
+  Check,
   ChevronDown,
   Database,
   FileText,
   FileUp,
   Globe2,
   Menu,
+  Network,
   Plus,
   RefreshCw,
   Search,
   Settings2,
+  SlidersHorizontal,
+  Trash2,
   X,
 } from "lucide-react";
 import { ApiError, api } from "../../api";
@@ -54,7 +65,7 @@ interface DatabaseDraft {
 
 interface PendingResearchResult {
   query: string;
-  result: ResearchKeywordSearchResult;
+  result: ResearchRetrievalResult;
 }
 
 interface HighlightedResearchPassage {
@@ -183,10 +194,14 @@ function formatLocation(location: ResearchSourceLocation): string {
   return `${location.sectionPath.join(" › ") || "Page"} · paragraph ${location.paragraph}`;
 }
 
-function matchChannelLabel(channel: ResearchKeywordSearchResult["matchChannels"][number]): string {
+function matchChannelLabel(channel: ResearchRetrievalMatchChannel): string {
   if (channel === "keyword-cjk") return "CJK";
   if (channel === "keyword-literal") return "Literal";
-  return "Word";
+  if (channel === "keyword-word") return "Word";
+  if (channel === "alias") return "Alias";
+  if (channel === "transliteration") return "Transliteration";
+  if (channel === "query-translation") return "Translation";
+  return "Semantic";
 }
 
 function findResearchMatchRange(
@@ -277,9 +292,27 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
   const [isLoadingIndex, setIsLoadingIndex] = useState(false);
   const [isRebuildingIndex, setIsRebuildingIndex] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<ResearchKeywordSearchResult[] | null>(null);
+  const [searchScopeIds, setSearchScopeIds] = useState<string[]>([]);
+  const [searchMode, setSearchMode] = useState<ResearchRetrievalMode>("hybrid");
+  const [searchResults, setSearchResults] = useState<ResearchRetrievalResult[] | null>(null);
+  const [searchIssues, setSearchIssues] = useState<ResearchRetrievalIssue[]>([]);
+  const [searchNextCursor, setSearchNextCursor] = useState<string | null>(null);
+  const [searchEffectiveMode, setSearchEffectiveMode] = useState<"exact" | "hybrid" | "degraded-exact">("exact");
   const [searchResultQuery, setSearchResultQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
+  const [retrievalDialogOpen, setRetrievalDialogOpen] = useState(false);
+  const [queryExpansions, setQueryExpansions] = useState<ResearchQueryExpansionDocument | null>(null);
+  const [queryExpansionDraft, setQueryExpansionDraft] = useState<ResearchQueryExpansion[]>([]);
+  const [isSavingQueryExpansions, setIsSavingQueryExpansions] = useState(false);
+  const [embeddingCapability, setEmbeddingCapability] = useState<ResearchEmbeddingCapabilityState | null>(null);
+  const [vectorIndexState, setVectorIndexState] = useState<ResearchVectorIndexState | null>(null);
+  const [isValidatingCapability, setIsValidatingCapability] = useState(false);
+  const [isRebuildingVector, setIsRebuildingVector] = useState(false);
+  const [capabilityLanguages, setCapabilityLanguages] = useState("zh-CN, ja, en");
+  const [capabilityQueryPrefix, setCapabilityQueryPrefix] = useState("");
+  const [capabilityDocumentPrefix, setCapabilityDocumentPrefix] = useState("");
+  const [sharedSpaceDeclared, setSharedSpaceDeclared] = useState(false);
   const [pendingSearchResult, setPendingSearchResult] = useState<PendingResearchResult | null>(null);
   const [highlightedPassage, setHighlightedPassage] = useState<HighlightedResearchPassage | null>(null);
   const [isCreatingDatabase, setIsCreatingDatabase] = useState(false);
@@ -301,6 +334,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
 
   const sourceIsDirty = !sameValue(sourceDraft, savedSourceDraft);
   const databaseIsDirty = !sameValue(databaseDraft, savedDatabaseDraft);
+  const queryExpansionsDirty = !sameValue(queryExpansionDraft, queryExpansions?.expansions.entries ?? []);
   const selectedDatabaseSummary = useMemo(
     () => databases.find((item) => item.database.id === selectedDatabaseId) ?? null,
     [databases, selectedDatabaseId],
@@ -376,10 +410,16 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setSavedSourceDraft(null);
     setDatabaseDocument(null);
     setIndexState(null);
+    setQueryExpansions(null);
+    setQueryExpansionDraft([]);
+    setVectorIndexState(null);
     setSearchQuery("");
     setSearchResults(null);
+    setSearchIssues([]);
+    setSearchNextCursor(null);
     setSearchResultQuery("");
-    setPendingSearchResult(null);
+    setPendingSearchResult((current) =>
+      current?.result.researchDatabaseId === selectedDatabaseId ? current : null);
     setHighlightedPassage(null);
     setSourceMenuOpen(false);
     setWebDialogOpen(false);
@@ -388,6 +428,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
       if (databaseListResolved) globalThis.localStorage?.removeItem(DATABASE_SELECTION_KEY);
       return;
     }
+    setSearchScopeIds((current) => current.length === 0 ? [selectedDatabaseId] : current);
     globalThis.localStorage?.setItem(DATABASE_SELECTION_KEY, selectedDatabaseId);
     let cancelled = false;
     setIsLoadingSources(true);
@@ -414,6 +455,38 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
       cancelled = true;
     };
   }, [databaseListResolved, selectedDatabaseId]);
+
+  useEffect(() => {
+    if (!selectedDatabaseId) return;
+    let cancelled = false;
+    void Promise.allSettled([
+      api.research.getQueryExpansions(selectedDatabaseId),
+      api.research.getEmbeddingCapability(),
+      api.research.getVectorIndexState(selectedDatabaseId),
+    ]).then(([expansionsResult, capabilityResult, vectorResult]) => {
+      if (cancelled) return;
+      if (expansionsResult.status === "fulfilled") {
+        setQueryExpansions(expansionsResult.value);
+        setQueryExpansionDraft(expansionsResult.value.expansions.entries);
+      } else {
+        setError(errorMessage(expansionsResult.reason, "Query aliases could not be loaded."));
+      }
+      if (capabilityResult.status === "fulfilled") {
+        setEmbeddingCapability(capabilityResult.value);
+        const capability = capabilityResult.value.capability?.capability;
+        if (capability) {
+          setCapabilityLanguages(capability.supportedLanguageTags.join(", "));
+          setCapabilityQueryPrefix(capability.queryPrefix);
+          setCapabilityDocumentPrefix(capability.documentPrefix);
+          setSharedSpaceDeclared(capability.sharedSpaceDeclared);
+        }
+      }
+      if (vectorResult.status === "fulfilled") setVectorIndexState(vectorResult.value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDatabaseId]);
 
   useEffect(() => {
     if (!selectedDatabaseId) return;
@@ -533,6 +606,17 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
       cancelled = true;
     };
   }, [detail, pendingSearchResult, selectedDatabaseId]);
+
+  useEffect(() => {
+    if (
+      !pendingSearchResult
+      || pendingSearchResult.result.researchDatabaseId !== selectedDatabaseId
+      || sourceShelfDatabaseId !== selectedDatabaseId
+    ) return;
+    if (sources.some((document) => document.source.id === pendingSearchResult.result.sourceId)) {
+      setSelectedSourceId(pendingSearchResult.result.sourceId);
+    }
+  }, [pendingSearchResult, selectedDatabaseId, sourceShelfDatabaseId, sources]);
 
   useEffect(() => {
     if (!highlightedPassage || !contentPage?.blocks.some((block) => block.id === highlightedPassage.blockId)) return;
@@ -839,7 +923,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
 
   async function searchDatabase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedDatabaseId || !searchQuery.trim()) return;
+    if (!selectedDatabaseId || !searchQuery.trim() || searchScopeIds.length === 0) return;
     if (sourceIsDirty || isSavingSource) {
       setError("Save or discard the open source changes before searching this database.");
       return;
@@ -849,13 +933,18 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setNotice("");
     setHighlightedPassage(null);
     try {
-      const response = await api.research.search(selectedDatabaseId, {
+      const response = await api.research.searchDatabases({
+        databaseIds: searchScopeIds,
         query: searchQuery.trim(),
         purpose: "local",
-        limit: 30,
+        mode: searchMode,
+        limit: 20,
       });
       setSearchResults(response.results);
       setSearchResultQuery(response.query);
+      setSearchIssues(response.issues);
+      setSearchNextCursor(response.nextCursor);
+      setSearchEffectiveMode(response.effectiveMode);
       await refreshIndexState(selectedDatabaseId);
     } catch (reason) {
       setError(errorMessage(reason, "This Research Database could not be searched."));
@@ -864,18 +953,172 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     }
   }
 
-  function openSearchResult(result: ResearchKeywordSearchResult) {
+  async function loadMoreSearchResults() {
+    if (!searchNextCursor || !searchQuery.trim() || isSearching) return;
+    setIsSearching(true);
+    setError("");
+    try {
+      const response = await api.research.searchDatabases({
+        databaseIds: searchScopeIds,
+        query: searchQuery.trim(),
+        purpose: "local",
+        mode: searchMode,
+        limit: 20,
+        cursor: searchNextCursor,
+      });
+      setSearchResults((current) => [...(current ?? []), ...response.results]);
+      setSearchIssues(response.issues);
+      setSearchNextCursor(response.nextCursor);
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 409) {
+        try {
+          const refreshed = await api.research.searchDatabases({
+            databaseIds: searchScopeIds,
+            query: searchQuery.trim(),
+            purpose: "local",
+            mode: searchMode,
+            limit: 20,
+          });
+          setSearchResults(refreshed.results);
+          setSearchResultQuery(refreshed.query);
+          setSearchIssues(refreshed.issues);
+          setSearchNextCursor(refreshed.nextCursor);
+          setSearchEffectiveMode(refreshed.effectiveMode);
+          setNotice("Research sources or retrieval settings changed. Results were refreshed from the beginning.");
+        } catch (refreshReason) {
+          setError(errorMessage(refreshReason, "Research results changed and could not be refreshed."));
+        }
+      } else {
+        setError(errorMessage(reason, "More Research results could not be loaded."));
+      }
+    } finally {
+      setIsSearching(false);
+    }
+  }
+
+  function openSearchResult(result: ResearchRetrievalResult) {
     if (sourceIsDirty || isSavingSource) {
       setError("Save or discard the open source changes before opening a search result.");
       return;
     }
     const retryUnavailableSource = result.sourceId === selectedSourceId && !detail && !isLoadingDetail;
     setPendingSearchResult({ query: searchResultQuery, result });
+    if (result.researchDatabaseId !== selectedDatabaseId) {
+      setSelectedDatabaseId(result.researchDatabaseId);
+    }
     setSelectedSourceId(result.sourceId);
     if (retryUnavailableSource) setSourceLoadRevision((current) => current + 1);
     setRailOpen(false);
     setError("");
     setNotice("");
+  }
+
+  function toggleSearchScope(databaseId: string) {
+    setSearchScopeIds((current) => {
+      if (current.includes(databaseId)) {
+        if (current.length === 1) return current;
+        return current.filter((id) => id !== databaseId);
+      }
+      if (current.length >= 12) {
+        setError("A search can include at most 12 Research Databases.");
+        return current;
+      }
+      return [...current, databaseId];
+    });
+    setSearchResults(null);
+    setSearchIssues([]);
+    setSearchNextCursor(null);
+  }
+
+  function addQueryExpansion() {
+    setQueryExpansionDraft((current) => [...current, {
+      id: crypto.randomUUID(),
+      queryTerm: "",
+      expansionTerm: "",
+      channel: "alias",
+      queryLanguageTag: null,
+      expansionLanguageTag: null,
+      note: "",
+    }]);
+  }
+
+  async function saveQueryExpansions() {
+    if (!selectedDatabaseId || !queryExpansions) return;
+    setIsSavingQueryExpansions(true);
+    setDialogError("");
+    try {
+      const saved = await api.research.updateQueryExpansions(selectedDatabaseId, {
+        baseRevision: queryExpansions.revision,
+        entries: queryExpansionDraft,
+      });
+      setQueryExpansions(saved);
+      setQueryExpansionDraft(saved.expansions.entries);
+      setNotice("Database query aliases saved.");
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 409) {
+        try {
+          const latest = await api.research.getQueryExpansions(selectedDatabaseId);
+          setQueryExpansions(latest);
+          setDialogError("These aliases changed elsewhere. Your draft remains here; review it and save again.");
+        } catch (refreshReason) {
+          setDialogError(errorMessage(refreshReason, "The latest aliases could not be loaded."));
+        }
+      } else {
+        setDialogError(errorMessage(reason, "Query aliases could not be saved."));
+      }
+    } finally {
+      setIsSavingQueryExpansions(false);
+    }
+  }
+
+  function openRetrievalDialog() {
+    setDialogError("");
+    setRetrievalDialogOpen(true);
+    if (!selectedDatabaseId) return;
+    void Promise.all([
+      api.research.getEmbeddingCapability(),
+      api.research.getVectorIndexState(selectedDatabaseId),
+    ]).then(([capability, vectorState]) => {
+      setEmbeddingCapability(capability);
+      setVectorIndexState(vectorState);
+    }).catch((reason) => {
+      setDialogError(errorMessage(reason, "Retrieval state could not be refreshed."));
+    });
+  }
+
+  async function validateEmbeddingCapability() {
+    setIsValidatingCapability(true);
+    setDialogError("");
+    try {
+      await api.research.validateEmbeddingCapability({
+        supportedLanguageTags: parseTags(capabilityLanguages),
+        sharedSpaceDeclared,
+        documentPrefix: capabilityDocumentPrefix,
+        queryPrefix: capabilityQueryPrefix,
+      });
+      const state = await api.research.getEmbeddingCapability();
+      setEmbeddingCapability(state);
+      setNotice(state.usable ? "Multilingual Embedding validation passed." : state.reason ?? "Validation failed.");
+    } catch (reason) {
+      setDialogError(errorMessage(reason, "Multilingual Embedding validation could not run."));
+    } finally {
+      setIsValidatingCapability(false);
+    }
+  }
+
+  async function rebuildVectorIndex() {
+    if (!selectedDatabaseId) return;
+    setIsRebuildingVector(true);
+    setDialogError("");
+    try {
+      const state = await api.research.rebuildVectorIndex(selectedDatabaseId);
+      setVectorIndexState(state);
+      setNotice(`Semantic index rebuilt for ${state.indexedChunkCount} permitted passage${state.indexedChunkCount === 1 ? "" : "s"}.`);
+    } catch (reason) {
+      setDialogError(errorMessage(reason, "The semantic index could not be rebuilt."));
+    } finally {
+      setIsRebuildingVector(false);
+    }
   }
 
   async function rebuildIndex() {
@@ -1018,9 +1261,23 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
         <main className="rs8-reader">
           {(error || notice) ? <div aria-live="polite" className={`rs8-banner${error ? " is-error" : ""}`} role={error ? "alert" : "status"}>{error || notice}</div> : null}
           {databaseIssues.length > 0 ? <div className="rs8-banner is-error" role="alert">{databaseIssues.length} Research Database {databaseIssues.length === 1 ? "directory could" : "directories could"} not be opened. Other databases remain available.</div> : null}
-          {selectedDatabaseId ? <form className="rs10-searchbar" onSubmit={(event) => void searchDatabase(event)} role="search"><Search aria-hidden="true" size={17} /><label><span className="rs10-visually-hidden">Search selected Research Database</span><input aria-label="Search selected Research Database" disabled={isSearching || sourceIsDirty} maxLength={500} onChange={(event) => setSearchQuery(event.target.value)} placeholder={`Search ${databaseDocument?.database.name ?? "this database"} in any original language`} value={searchQuery} /></label>{searchQuery || searchResults !== null ? <button aria-label="Clear search" className="rs10-search-clear" disabled={isSearching} onClick={() => { setSearchQuery(""); setSearchResults(null); setSearchResultQuery(""); setPendingSearchResult(null); setHighlightedPassage(null); setIsLoadingContentPage(false); }} title="Clear search" type="button"><X aria-hidden="true" size={15} /></button> : null}<button className="rs10-search-submit" disabled={isSearching || sourceIsDirty || !searchQuery.trim()} type="submit">{isSearching ? "Searching" : "Search"}</button></form> : null}
+          {selectedDatabaseId ? <div className="rs11-search-console">
+            <div className="rs11-search-options">
+              <div className="rs11-scope-control">
+                <button aria-expanded={scopeMenuOpen} aria-haspopup="menu" onClick={() => setScopeMenuOpen((open) => !open)} type="button"><Database aria-hidden="true" size={14} /><span>{searchScopeIds.length} database{searchScopeIds.length === 1 ? "" : "s"}</span><ChevronDown aria-hidden="true" size={13} /></button>
+                {scopeMenuOpen ? <div aria-label="Search scope" className="rs11-scope-menu" role="menu">{databases.map((item) => { const checked = searchScopeIds.includes(item.database.id); return <label key={item.database.id}><input checked={checked} disabled={!checked && searchScopeIds.length >= 12} onChange={() => toggleSearchScope(item.database.id)} type="checkbox" /><span><strong>{item.database.name}</strong><small>{item.sourceCount} source{item.sourceCount === 1 ? "" : "s"}</small></span>{checked ? <Check aria-hidden="true" size={14} /> : null}</label>; })}</div> : null}
+              </div>
+              <div aria-label="Retrieval mode" className="rs11-mode-switch" role="group"><button aria-pressed={searchMode === "exact"} onClick={() => { setSearchMode("exact"); setSearchResults(null); }} type="button">Exact</button><button aria-pressed={searchMode === "hybrid"} onClick={() => { setSearchMode("hybrid"); setSearchResults(null); }} type="button">Hybrid</button></div>
+              <button aria-label="Retrieval settings" className="rs11-retrieval-settings" onClick={openRetrievalDialog} title="Retrieval settings" type="button"><SlidersHorizontal aria-hidden="true" size={15} /></button>
+            </div>
+            <form className="rs10-searchbar" onSubmit={(event) => void searchDatabase(event)} role="search"><Search aria-hidden="true" size={17} /><label><span className="rs10-visually-hidden">Search selected Research Databases</span><input aria-label="Search selected Research Databases" disabled={isSearching || sourceIsDirty} maxLength={500} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search original-language evidence across the selected databases" value={searchQuery} /></label>{searchQuery || searchResults !== null ? <button aria-label="Clear search" className="rs10-search-clear" disabled={isSearching} onClick={() => { setSearchQuery(""); setSearchResults(null); setSearchIssues([]); setSearchNextCursor(null); setSearchResultQuery(""); setPendingSearchResult(null); setHighlightedPassage(null); setIsLoadingContentPage(false); }} title="Clear search" type="button"><X aria-hidden="true" size={15} /></button> : null}<button className="rs10-search-submit" disabled={isSearching || sourceIsDirty || !searchQuery.trim() || searchScopeIds.length === 0} type="submit">{isSearching ? "Searching" : "Search"}</button></form>
+          </div> : null}
           {indexState && indexState.status !== "ready" && sources.length > 0 ? <div className={`rs10-index-callout is-${indexState.status}`}><div><strong>{indexState.status === "damaged" ? "Search needs repair" : indexState.status === "stale" ? "Sources changed since the last index" : "Search will be built when needed"}</strong><span>{indexState.reason ?? "The original sources remain available."}</span></div>{indexState.status !== "missing" ? <button disabled={isRebuildingIndex || sourceIsDirty} onClick={() => void rebuildIndex()} type="button"><RefreshCw aria-hidden="true" size={14} />{isRebuildingIndex ? "Rebuilding" : "Rebuild"}</button> : null}</div> : null}
-          {searchResults !== null ? <section aria-label="Search results" className="rs10-search-results"><header><div><p>Selected database only</p><h2>{searchResults.length} result{searchResults.length === 1 ? "" : "s"} for “{searchResultQuery}”</h2></div><span>{databaseDocument?.database.name}</span></header>{searchResults.length === 0 ? <div className="rs10-no-results"><Search aria-hidden="true" size={22} /><strong>No matching passage</strong><p>Try the term in its original spelling or a shorter exact phrase.</p></div> : <ol>{searchResults.map((result) => <li key={`${result.sourceId}:${result.chunkId}`}><button disabled={isLoadingContentPage || isLoadingDetail} onClick={() => openSearchResult(result)} type="button"><span className="rs10-location-ribbon"><BookOpenText aria-hidden="true" size={14} /><strong>{formatLocation(result.location)}</strong><em>{result.languageTag}</em></span><span className="rs10-result-source">{result.sourceDisplayName}<small>{sourceKindLabel(result.sourceKind)}</small></span><span className="rs10-result-text">{result.originalText}</span><span className="rs10-match-channels">{result.matchChannels.map((channel) => <small key={channel}>{matchChannelLabel(channel)}</small>)}</span></button></li>)}</ol>}</section> : isLoadingDatabases ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening Research Databases</p></div> : !selectedDatabaseId ? <div className="rs8-empty"><Database aria-hidden="true" size={23} /><h2>Create your first Research Database</h2><p>Each database keeps its own sources, originals, permissions, and search index. It does not belong to a Series.</p><button onClick={openCreateDialog} type="button">Create Research Database</button></div> : isLoadingDetail ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source</p></div> : detail ? <article className="rs8-document"><header><div className="rs8-document-mark"><span aria-hidden="true" /><em>{sourceKindMark(detail.source.kind)}</em></div><div><p>{detail.source.originalFileName}</p><h2>{detail.source.displayName}</h2><span>{databaseDocument?.database.name} · Imported {formatImportedAt(detail.source.importedAt)} · {formatBytes(detail.source.sizeBytes)}</span></div></header>{detail.source.schemaVersion === 3 && detail.source.parseWarnings.length > 0 ? <div className="rs10-parse-warning"><strong>Imported with {detail.source.parseWarnings.length} warning{detail.source.parseWarnings.length === 1 ? "" : "s"}</strong><span>{detail.source.parseWarnings.join(" ")}</span></div> : null}<div className="rs8-preview-label"><strong>{"originalText" in detail ? "Original text" : "Parsed text"}</strong><span>{"originalText" in detail ? "Upgrade this source to add locations" : `${detail.contentSummary.blockCount} blocks · locations preserved from the original`}</span></div>{"originalText" in detail ? <pre className="rs8-preview">{detail.originalText}</pre> : isLoadingContentPage && !contentPage ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source page</p></div> : contentPage ? <><div className="rs10-text-blocks">{contentPage.blocks.map((block) => <ResearchTextBlock block={block} highlighted={block.id === highlightedPassage?.blockId ? highlightedPassage : null} key={block.id} />)}</div><nav aria-label="Source pages" className="rs10-source-pages"><button disabled={contentPage.previousOffset === null || isLoadingContentPage} onClick={() => void openContentPage(contentPage.previousOffset ?? 0)} type="button">Previous</button><span>Blocks {contentPage.offset + 1}-{contentPage.offset + contentPage.blocks.length} of {contentPage.totalBlocks}</span><button disabled={contentPage.nextOffset === null || isLoadingContentPage} onClick={() => void openContentPage(contentPage.nextOffset ?? 0)} type="button">Next</button></nav></> : <div className="rs8-empty"><FileText aria-hidden="true" size={20} /><h2>Source page unavailable</h2><p>The Source and its properties remain available.</p><button disabled={isLoadingContentPage} onClick={() => void openContentPage(0)} type="button"><RefreshCw aria-hidden="true" size={14} />Retry page</button></div>}</article> : selectedListDocument ? <div className="rs8-empty"><FileText aria-hidden="true" size={23} /><h2>Source unavailable</h2><p>The Source remains in this database. Try opening its details again.</p><button disabled={isLoadingDetail} onClick={retrySelectedSource} type="button"><RefreshCw aria-hidden="true" size={14} />Retry source</button></div> : <div className="rs8-empty"><FileText aria-hidden="true" size={23} /><h2>Add a source to {databaseDocument?.database.name ?? "this database"}</h2><p>Import text, Markdown, Word (.docx), text PDF, EPUB, HTML, XHTML, or a controlled web-page snapshot.</p><button disabled={isUploading || isImportingWeb} onClick={openFilePicker} type="button">Choose file</button></div>}
+          {searchResults !== null ? <section aria-label="Search results" className="rs10-search-results rs11-search-results">
+            <header><div><p>{searchScopeIds.length} database{searchScopeIds.length === 1 ? "" : "s"} · {searchEffectiveMode === "degraded-exact" ? "Hybrid degraded to Exact" : `${searchEffectiveMode[0]?.toUpperCase()}${searchEffectiveMode.slice(1)}`}</p><h2>{searchResults.length} result{searchResults.length === 1 ? "" : "s"} for “{searchResultQuery}”</h2></div><span>Original-language evidence</span></header>
+            {searchIssues.length > 0 ? <div className="rs11-retrieval-issues">{searchIssues.map((issue) => <p key={`${issue.researchDatabaseId}:${issue.code}`}><strong>{databases.find((item) => item.database.id === issue.researchDatabaseId)?.database.name ?? "Unavailable database"}</strong><span>{issue.message}</span></p>)}</div> : null}
+            {searchResults.length === 0 ? <div className="rs10-no-results"><Search aria-hidden="true" size={22} /><strong>No matching passage</strong><p>Try another spelling, add an alias, or review the selected databases and retrieval mode.</p></div> : <><ol>{searchResults.map((result) => <li key={`${result.researchDatabaseId}:${result.sourceId}:${result.chunkId}`}><button disabled={isLoadingContentPage || isLoadingDetail} onClick={() => openSearchResult(result)} type="button"><span className="rs11-result-database"><Database aria-hidden="true" size={13} />{result.researchDatabaseName}</span><span className="rs10-location-ribbon"><BookOpenText aria-hidden="true" size={14} /><strong>{formatLocation(result.location)}</strong><em>{result.languageTag}</em></span><span className="rs10-result-source">{result.sourceDisplayName}<small>{sourceKindLabel(result.sourceKind)}</small></span><span className="rs10-result-text">{result.originalText}</span><span className="rs10-match-channels">{result.channelContributions.map((contribution) => <small key={contribution.channel} title={`Rank ${contribution.rank} for ${contribution.matchedQuery}`}>{matchChannelLabel(contribution.channel)}</small>)}</span></button></li>)}</ol>{searchNextCursor ? <button className="rs11-load-more" disabled={isSearching} onClick={() => void loadMoreSearchResults()} type="button">{isSearching ? "Loading" : "Load more"}</button> : null}</>}
+          </section> : isLoadingDatabases ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening Research Databases</p></div> : !selectedDatabaseId ? <div className="rs8-empty"><Database aria-hidden="true" size={23} /><h2>Create your first Research Database</h2><p>Each database keeps its own sources, originals, permissions, and search index. It does not belong to a Series.</p><button onClick={openCreateDialog} type="button">Create Research Database</button></div> : isLoadingDetail ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source</p></div> : detail ? <article className="rs8-document"><header><div className="rs8-document-mark"><span aria-hidden="true" /><em>{sourceKindMark(detail.source.kind)}</em></div><div><p>{detail.source.originalFileName}</p><h2>{detail.source.displayName}</h2><span>{databaseDocument?.database.name} · Imported {formatImportedAt(detail.source.importedAt)} · {formatBytes(detail.source.sizeBytes)}</span></div></header>{detail.source.schemaVersion === 3 && detail.source.parseWarnings.length > 0 ? <div className="rs10-parse-warning"><strong>Imported with {detail.source.parseWarnings.length} warning{detail.source.parseWarnings.length === 1 ? "" : "s"}</strong><span>{detail.source.parseWarnings.join(" ")}</span></div> : null}<div className="rs8-preview-label"><strong>{"originalText" in detail ? "Original text" : "Parsed text"}</strong><span>{"originalText" in detail ? "Upgrade this source to add locations" : `${detail.contentSummary.blockCount} blocks · locations preserved from the original`}</span></div>{"originalText" in detail ? <pre className="rs8-preview">{detail.originalText}</pre> : isLoadingContentPage && !contentPage ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source page</p></div> : contentPage ? <><div className="rs10-text-blocks">{contentPage.blocks.map((block) => <ResearchTextBlock block={block} highlighted={block.id === highlightedPassage?.blockId ? highlightedPassage : null} key={block.id} />)}</div><nav aria-label="Source pages" className="rs10-source-pages"><button disabled={contentPage.previousOffset === null || isLoadingContentPage} onClick={() => void openContentPage(contentPage.previousOffset ?? 0)} type="button">Previous</button><span>Blocks {contentPage.offset + 1}-{contentPage.offset + contentPage.blocks.length} of {contentPage.totalBlocks}</span><button disabled={contentPage.nextOffset === null || isLoadingContentPage} onClick={() => void openContentPage(contentPage.nextOffset ?? 0)} type="button">Next</button></nav></> : <div className="rs8-empty"><FileText aria-hidden="true" size={20} /><h2>Source page unavailable</h2><p>The Source and its properties remain available.</p><button disabled={isLoadingContentPage} onClick={() => void openContentPage(0)} type="button"><RefreshCw aria-hidden="true" size={14} />Retry page</button></div>}</article> : selectedListDocument ? <div className="rs8-empty"><FileText aria-hidden="true" size={23} /><h2>Source unavailable</h2><p>The Source remains in this database. Try opening its details again.</p><button disabled={isLoadingDetail} onClick={retrySelectedSource} type="button"><RefreshCw aria-hidden="true" size={14} />Retry source</button></div> : <div className="rs8-empty"><FileText aria-hidden="true" size={23} /><h2>Add a source to {databaseDocument?.database.name ?? "this database"}</h2><p>Import text, Markdown, Word (.docx), text PDF, EPUB, HTML, XHTML, or a controlled web-page snapshot.</p><button disabled={isUploading || isImportingWeb} onClick={openFilePicker} type="button">Choose file</button></div>}
         </main>
 
         <aside aria-label="Source properties" className="rs8-inspector">
@@ -1028,6 +1285,13 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
           {detail && sourceDraft ? <form onSubmit={(event) => void saveSourceProperties(event)}><label><span>Display name</span><input disabled={isSavingSource} maxLength={240} onChange={(event) => setSourceDraft({ ...sourceDraft, displayName: event.target.value })} required value={sourceDraft.displayName} /></label><label><span>Author</span><input disabled={isSavingSource} maxLength={240} onChange={(event) => setSourceDraft({ ...sourceDraft, author: event.target.value })} value={sourceDraft.author} /></label><label><span>Declared language</span><input disabled={isSavingSource} maxLength={64} onChange={(event) => setSourceDraft({ ...sourceDraft, declaredLanguage: event.target.value })} placeholder="zh-CN, ja-JP, en" value={sourceDraft.declaredLanguage} /></label><label><span>Tags</span><input disabled={isSavingSource} maxLength={1200} onChange={(event) => setSourceDraft({ ...sourceDraft, tags: event.target.value })} placeholder="history, folklore" value={sourceDraft.tags} /></label><fieldset><legend>AI context permission</legend><div className="rs8-permission"><label><input checked={sourceDraft.aiPermission === "never"} disabled={isSavingSource} name="research-ai-permission" onChange={() => setSourceDraft({ ...sourceDraft, aiPermission: "never" })} type="radio" /><span>Never send</span></label><label><input checked={sourceDraft.aiPermission === "allowed"} disabled={isSavingSource} name="research-ai-permission" onChange={() => setSourceDraft({ ...sourceDraft, aiPermission: "allowed" })} type="radio" /><span>Allow when selected</span></label></div></fieldset><label><span>Copyright / use notes</span><textarea disabled={isSavingSource} maxLength={8000} onChange={(event) => setSourceDraft({ ...sourceDraft, useNotes: event.target.value })} rows={4} value={sourceDraft.useNotes} /></label><div className="rs8-actions"><button className="rs8-discard" disabled={!sourceIsDirty || isSavingSource} onClick={discardSourceDraft} type="button">Discard changes</button><button className="rs8-save" disabled={!sourceIsDirty || isSavingSource || !sourceDraft.displayName.trim()} type="submit">{isSavingSource ? "Saving" : "Save properties"}</button></div><details className="rs8-facts"><summary>Import facts</summary><dl><div><dt>Database</dt><dd>{databaseDocument?.database.name}</dd></div><div><dt>Type</dt><dd>{sourceKindLabel(detail.source.kind)} · {detail.source.mediaType}</dd></div><div><dt>Original file</dt><dd>{detail.source.originalFileName}</dd></div>{detail.source.schemaVersion === 3 && detail.source.origin.type === "web" ? <div><dt>Page URL</dt><dd title={detail.source.origin.finalUrl}>{detail.source.origin.finalUrl}</dd></div> : null}<div><dt>Size</dt><dd>{formatBytes(detail.source.sizeBytes)}</dd></div><div><dt>Parser</dt><dd>{detail.source.parserName} v{detail.source.parserVersion}</dd></div><div><dt>SHA-256</dt><dd title={detail.source.contentHash}>{detail.source.contentHash}</dd></div></dl></details></form> : <div className="rs8-inspector-empty">{selectedListDocument ? <p>{isLoadingDetail ? "Opening source properties." : "Source properties are temporarily unavailable."}</p> : databaseDocument ? <><strong>{databaseDocument.database.name}</strong><p>{databaseDocument.database.description || "No database description."}</p><p>{databaseDocument.database.linkedSeriesIds.length} linked Series · {selectedDatabaseSummary?.sourceCount ?? 0} sources</p><button className="rs9-inline-command" onClick={openDatabaseDialog} type="button">Open database settings</button></> : <p>Create or select a Research Database.</p>}</div>}
         </aside>
       </div>
+
+      {retrievalDialogOpen ? <div className="rs9-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !queryExpansionsDirty && !isSavingQueryExpansions && !isValidatingCapability && !isRebuildingVector) setRetrievalDialogOpen(false); }}><section aria-labelledby="research-retrieval-settings-title" aria-modal="true" className="rs9-dialog rs11-retrieval-dialog" role="dialog"><header><div><p>{databaseDocument?.database.name ?? "Research Database"}</p><h2 id="research-retrieval-settings-title">Retrieval settings</h2></div><button aria-label="Close" disabled={isSavingQueryExpansions || isValidatingCapability || isRebuildingVector} onClick={() => { if (queryExpansionsDirty) setDialogError("Save or discard alias changes before closing."); else setRetrievalDialogOpen(false); }} title="Close" type="button"><X aria-hidden="true" size={17} /></button></header><div className="rs11-retrieval-body">
+        {dialogError ? <div className="rs9-dialog-error" role="alert">{dialogError}</div> : null}
+        <section aria-labelledby="semantic-capability-title" className="rs11-retrieval-section"><div className="rs11-section-heading"><div><Network aria-hidden="true" size={17} /><span><strong id="semantic-capability-title">Multilingual semantic retrieval</strong><small>{embeddingCapability?.usable ? "Validated for the current profile revision" : embeddingCapability?.reason ?? "Checking the research.multilingual binding"}</small></span></div><span className={`rs11-state is-${embeddingCapability?.usable ? "ready" : "attention"}`}>{embeddingCapability?.usable ? "Ready" : "Unavailable"}</span></div><div className="rs11-capability-grid"><label><span>Language coverage</span><input disabled={isValidatingCapability} onChange={(event) => setCapabilityLanguages(event.target.value)} placeholder="zh-CN, ja, en" value={capabilityLanguages} /></label><label><span>Query prefix</span><input disabled={isValidatingCapability} onChange={(event) => setCapabilityQueryPrefix(event.target.value)} placeholder="query: " value={capabilityQueryPrefix} /></label><label><span>Document prefix</span><input disabled={isValidatingCapability} onChange={(event) => setCapabilityDocumentPrefix(event.target.value)} placeholder="passage: " value={capabilityDocumentPrefix} /></label><label className="rs11-shared-space"><input checked={sharedSpaceDeclared} disabled={isValidatingCapability} onChange={(event) => setSharedSpaceDeclared(event.target.checked)} type="checkbox" /><span><strong>Shared multilingual vector space</strong><small>The selected profile places Chinese, Japanese, and English in one comparable space.</small></span></label></div><div className="rs11-section-actions"><button disabled={isValidatingCapability || embeddingCapability?.bindingStatus !== "bound" || !sharedSpaceDeclared} onClick={() => void validateEmbeddingCapability()} type="button"><Check aria-hidden="true" size={14} />{isValidatingCapability ? "Validating" : "Run validation"}</button></div></section>
+        <section aria-labelledby="semantic-index-title" className="rs11-retrieval-section"><div className="rs11-section-heading"><div><Database aria-hidden="true" size={17} /><span><strong id="semantic-index-title">Current database vector index</strong><small>{vectorIndexState?.reason ?? `${vectorIndexState?.indexedChunkCount ?? 0} permitted passages indexed`}</small></span></div><span className={`rs11-state is-${vectorIndexState?.status === "ready" ? "ready" : "attention"}`}>{vectorIndexState?.status ?? "Unknown"}</span></div><div className="rs11-section-actions"><button disabled={!embeddingCapability?.usable || isRebuildingVector || sourceIsDirty} onClick={() => void rebuildVectorIndex()} type="button"><RefreshCw aria-hidden="true" className={isRebuildingVector ? "is-spinning" : ""} size={14} />{isRebuildingVector ? "Building" : "Rebuild semantic index"}</button></div></section>
+        <section aria-labelledby="query-aliases-title" className="rs11-retrieval-section"><div className="rs11-section-heading"><div><SlidersHorizontal aria-hidden="true" size={17} /><span><strong id="query-aliases-title">Aliases and transliterations</strong><small>Stored only in this database and searched in either direction.</small></span></div><button aria-label="Add query alias" onClick={addQueryExpansion} title="Add query alias" type="button"><Plus aria-hidden="true" size={15} /></button></div>{queryExpansionDraft.length === 0 ? <div className="rs11-alias-empty">No aliases in this database.</div> : <div className="rs11-alias-list">{queryExpansionDraft.map((entry, index) => <div className="rs11-alias-row" key={entry.id}><input aria-label={`Query term ${index + 1}`} maxLength={200} onChange={(event) => setQueryExpansionDraft((current) => current.map((item) => item.id === entry.id ? { ...item, queryTerm: event.target.value } : item))} placeholder="Term used in a query" value={entry.queryTerm} /><span aria-hidden="true">↔</span><input aria-label={`Expansion term ${index + 1}`} maxLength={200} onChange={(event) => setQueryExpansionDraft((current) => current.map((item) => item.id === entry.id ? { ...item, expansionTerm: event.target.value } : item))} placeholder="Alternate spelling or language" value={entry.expansionTerm} /><select aria-label={`Expansion channel ${index + 1}`} onChange={(event) => setQueryExpansionDraft((current) => current.map((item) => item.id === entry.id ? { ...item, channel: event.target.value as "alias" | "transliteration" } : item))} value={entry.channel}><option value="alias">Alias</option><option value="transliteration">Transliteration</option></select><button aria-label={`Remove expansion ${index + 1}`} onClick={() => setQueryExpansionDraft((current) => current.filter((item) => item.id !== entry.id))} title="Remove expansion" type="button"><Trash2 aria-hidden="true" size={14} /></button></div>)}</div>}<div className="rs11-section-actions"><button disabled={!queryExpansionsDirty || isSavingQueryExpansions} onClick={() => setQueryExpansionDraft(queryExpansions?.expansions.entries ?? [])} type="button">Discard</button><button disabled={!queryExpansionsDirty || isSavingQueryExpansions || queryExpansionDraft.some((entry) => !entry.queryTerm.trim() || !entry.expansionTerm.trim())} onClick={() => void saveQueryExpansions()} type="button">{isSavingQueryExpansions ? "Saving" : "Save aliases"}</button></div></section>
+      </div></section></div> : null}
 
       {webDialogOpen ? <div className="rs9-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !isImportingWeb) setWebDialogOpen(false); }}><section aria-labelledby="import-research-web-title" aria-modal="true" className="rs9-dialog" role="dialog"><header><div><p>Controlled snapshot</p><h2 id="import-research-web-title">Add web page</h2></div><button aria-label="Close" disabled={isImportingWeb} onClick={() => setWebDialogOpen(false)} title="Close" type="button"><X aria-hidden="true" size={17} /></button></header><form onSubmit={(event) => void importWebSource(event)}>{dialogError ? <div className="rs9-dialog-error" role="alert">{dialogError}</div> : null}<label><span>Web address</span><input disabled={isImportingWeb} maxLength={4096} onChange={(event) => setWebUrl(event.target.value)} placeholder="https://example.com/reference" ref={webUrlRef} required type="url" value={webUrl} /></label><p className="rs9-dialog-note">Novel Studio follows a limited redirect chain, accepts only public HTML pages, removes active content, and stores a fixed local snapshot in this database.</p><footer><button className="rs8-discard" disabled={isImportingWeb} onClick={() => setWebDialogOpen(false)} type="button">Cancel</button><button className="rs8-save" disabled={isImportingWeb || !webUrl.trim()} type="submit">{isImportingWeb ? "Saving snapshot" : "Save snapshot"}</button></footer></form></section></div> : null}
 

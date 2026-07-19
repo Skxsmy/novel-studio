@@ -5,6 +5,7 @@ import type {
   ResearchDatabaseSummary,
   ResearchIndexState,
   ResearchKeywordSearchResult,
+  ResearchRetrievalResult,
   ResearchSourceDetail,
   ResearchSourceContentPage,
   ResearchSourceDocument,
@@ -205,6 +206,35 @@ function listed(detail: ResearchSourceDetail): ResearchSourceDocument {
   return { source: detail.source, revision: detail.revision };
 }
 
+function retrievalResult(result: ResearchKeywordSearchResult): ResearchRetrievalResult {
+  return {
+    ...result,
+    researchDatabaseName: databaseDocument().database.name,
+    rank: 1,
+    matchChannels: result.matchChannels,
+    channelContributions: result.matchChannels.map((channel) => ({
+      channel,
+      matchedQuery: result.originalText,
+      rank: 1,
+      rawScore: result.score,
+      reciprocalRankContribution: 1 / 61,
+    })),
+    fusedScore: result.matchChannels.length / 61,
+  };
+}
+
+function multiSearchResponse(query: string, results: ResearchKeywordSearchResult[]) {
+  return {
+    query,
+    selectedDatabaseIds: [databaseId],
+    requestedMode: "hybrid" as const,
+    effectiveMode: "degraded-exact" as const,
+    results: results.map(retrievalResult),
+    issues: [],
+    nextCursor: null,
+  };
+}
+
 function arrange(detail: ResearchSourceDetail | null = v3Detail()) {
   vi.spyOn(api.research, "listDatabases").mockResolvedValue({ databases: [databaseSummary(detail ? 1 : 0)], issues: [] });
   vi.spyOn(api.research, "listLegacySources").mockResolvedValue([]);
@@ -218,6 +248,29 @@ function arrange(detail: ResearchSourceDetail | null = v3Detail()) {
 beforeEach(() => {
   vi.spyOn(api.research, "getIndexState").mockResolvedValue(readyIndex());
   vi.spyOn(api.research, "getSourceContentPage").mockResolvedValue(contentPage());
+  vi.spyOn(api.research, "getQueryExpansions").mockResolvedValue({
+    expansions: { schemaVersion: 1, researchDatabaseId: databaseId, entries: [], updatedAt: importedAt },
+    revision: "f".repeat(64),
+  });
+  vi.spyOn(api.research, "getEmbeddingCapability").mockResolvedValue({
+    useCase: "research.multilingual",
+    bindingStatus: "unbound",
+    profileId: null,
+    profileRevision: null,
+    capability: null,
+    usable: false,
+    reason: "No profile is bound.",
+  });
+  vi.spyOn(api.research, "getVectorIndexState").mockResolvedValue({
+    researchDatabaseId: databaseId,
+    status: "missing",
+    indexedSourceCount: 0,
+    indexedChunkCount: 0,
+    dimensions: null,
+    profileId: null,
+    profileRevision: null,
+    reason: "Not built",
+  });
 });
 
 afterEach(() => {
@@ -340,10 +393,14 @@ describe("NS-604 original-language Research workspace", () => {
         message: "temporary detail failure",
       }))
       .mockResolvedValueOnce(v3View(detail));
-    vi.spyOn(api.research, "search").mockResolvedValue({
-      researchDatabaseId: databaseId,
+    vi.spyOn(api.research, "searchDatabases").mockResolvedValue({
       query: "月守",
-      results: [{
+      selectedDatabaseIds: [databaseId],
+      requestedMode: "hybrid",
+      effectiveMode: "degraded-exact",
+      issues: [],
+      nextCursor: null,
+      results: [retrievalResult({
         researchDatabaseId: databaseId,
         sourceId,
         sourceRevision: detail.revision,
@@ -358,14 +415,14 @@ describe("NS-604 original-language Research workspace", () => {
         location: detail.content.chunks[0]!.location,
         matchChannels: ["keyword-cjk"],
         score: 1,
-      }],
+      })],
     });
 
     const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
     const root = container.querySelector<HTMLElement>("#research-workspace")!;
     root.hidden = false;
     await within(root).findByRole("heading", { name: "Source unavailable" });
-    const input = within(root).getByLabelText("Search selected Research Database");
+    const input = within(root).getByLabelText("Search selected Research Databases");
     fireEvent.change(input, { target: { value: "月守" } });
     fireEvent.click(within(root).getByRole("button", { name: "Search" }));
     fireEvent.click(await within(root).findByRole("button", { name: /月守（つきもり）/u }));
@@ -395,20 +452,24 @@ describe("NS-604 original-language Research workspace", () => {
       matchChannels: ["keyword-cjk"],
       score: 1,
     };
-    const search = vi.spyOn(api.research, "search").mockResolvedValue({
-      researchDatabaseId: databaseId,
-      query: "月守",
-      results: [result],
-    });
+    const search = vi.spyOn(api.research, "searchDatabases").mockResolvedValue(
+      multiSearchResponse("月守", [result]),
+    );
 
     const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
     const root = container.querySelector<HTMLElement>("#research-workspace")!;
     root.hidden = false;
-    const input = await within(root).findByLabelText("Search selected Research Database");
+    const input = await within(root).findByLabelText("Search selected Research Databases");
     fireEvent.change(input, { target: { value: "月守" } });
     fireEvent.click(within(root).getByRole("button", { name: "Search" }));
 
-    await waitFor(() => expect(search).toHaveBeenCalledWith(databaseId, { query: "月守", purpose: "local", limit: 30 }));
+    await waitFor(() => expect(search).toHaveBeenCalledWith({
+      databaseIds: [databaseId],
+      query: "月守",
+      purpose: "local",
+      mode: "hybrid",
+      limit: 20,
+    }));
     expect(within(root).getByRole("heading", { name: "1 result for “月守”" })).toBeTruthy();
     fireEvent.change(input, { target: { value: "未提交的新查询" } });
     expect(within(root).getByRole("heading", { name: "1 result for “月守”" })).toBeTruthy();
@@ -426,10 +487,14 @@ describe("NS-604 original-language Research workspace", () => {
       .mockResolvedValueOnce(contentPage(detail))
       .mockRejectedValueOnce(new Error("matching page failed"))
       .mockResolvedValueOnce(contentPage(detail));
-    vi.spyOn(api.research, "search").mockResolvedValue({
-      researchDatabaseId: databaseId,
+    vi.spyOn(api.research, "searchDatabases").mockResolvedValue({
       query: "月守",
-      results: [{
+      selectedDatabaseIds: [databaseId],
+      requestedMode: "hybrid",
+      effectiveMode: "degraded-exact",
+      issues: [],
+      nextCursor: null,
+      results: [retrievalResult({
         researchDatabaseId: databaseId,
         sourceId,
         sourceRevision: detail.revision,
@@ -444,13 +509,13 @@ describe("NS-604 original-language Research workspace", () => {
         location: detail.content.chunks[0]!.location,
         matchChannels: ["keyword-cjk"],
         score: 1,
-      }],
+      })],
     });
 
     const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
     const root = container.querySelector<HTMLElement>("#research-workspace")!;
     root.hidden = false;
-    const input = await within(root).findByLabelText("Search selected Research Database");
+    const input = await within(root).findByLabelText("Search selected Research Databases");
     fireEvent.change(input, { target: { value: "月守" } });
     fireEvent.click(within(root).getByRole("button", { name: "Search" }));
     const result = await within(root).findByRole("button", { name: /月守（つきもり）/u });
@@ -477,10 +542,14 @@ describe("NS-604 original-language Research workspace", () => {
     vi.mocked(api.research.getSourceContentPage)
       .mockResolvedValueOnce({ ...contentPage(detail, 0), nextOffset: 40 })
       .mockReturnValueOnce(targetPage);
-    vi.spyOn(api.research, "search").mockResolvedValue({
-      researchDatabaseId: databaseId,
+    vi.spyOn(api.research, "searchDatabases").mockResolvedValue({
       query: "Reader block 81",
-      results: [{
+      selectedDatabaseIds: [databaseId],
+      requestedMode: "hybrid",
+      effectiveMode: "degraded-exact",
+      issues: [],
+      nextCursor: null,
+      results: [retrievalResult({
         researchDatabaseId: databaseId,
         sourceId,
         sourceRevision: detail.revision,
@@ -495,14 +564,14 @@ describe("NS-604 original-language Research workspace", () => {
         location: targetChunk.location,
         matchChannels: ["keyword-word"],
         score: 1,
-      }],
+      })],
     });
 
     const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
     const root = container.querySelector<HTMLElement>("#research-workspace")!;
     root.hidden = false;
     await waitFor(() => expect(within(root).getByText("Reader block 1")).toBeTruthy());
-    fireEvent.change(within(root).getByLabelText("Search selected Research Database"), {
+    fireEvent.change(within(root).getByLabelText("Search selected Research Databases"), {
       target: { value: "Reader block 81" },
     });
     fireEvent.click(within(root).getByRole("button", { name: "Search" }));

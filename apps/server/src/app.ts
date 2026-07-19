@@ -401,9 +401,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   registerModelCallRoutes(app, repository, { providerRegistry });
   registerContextRoutes(app, repository, { providerRegistry });
   registerProposalRoutes(app, repository);
-  registerResearchRoutes(app, repository, options.researchWebAcquire
-    ? { acquireWebPage: options.researchWebAcquire }
-    : {});
+  registerResearchRoutes(app, repository, {
+    embeddingRouter,
+    ...(options.researchWebAcquire ? { acquireWebPage: options.researchWebAcquire } : {}),
+  });
   registerWorkshopRoutes(app, repository, { providerRegistry, embeddingRouter });
 
   app.post<{ Params: { seriesId: string } }>(

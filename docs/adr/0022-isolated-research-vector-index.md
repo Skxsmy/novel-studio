@@ -55,6 +55,12 @@ to resolve to the unchanged Source Chunk and its current revision/hash/location.
    Results deduplicate by database and Chunk, preserve database labels and
    original citation fields, apply a relevance floor and source diversity, and
    paginate with a cursor bound to the query and selected index snapshots.
+9. Rebuilds create a complete replacement sidecar in bounded Provider batches.
+   When the live sidecar has the same database, profile, model, dimension,
+   normalization, prefix, capability, and fixture identity, unchanged Chunk
+   vectors are copied batch by batch from it. Only added, changed, or missing
+   Chunk vectors are sent to the Provider. The replacement still owns a fresh
+   Source ledger and complete current metadata before atomic swap.
 
 ## Alternatives Rejected
 
@@ -75,8 +81,11 @@ to resolve to the unchanged Source Chunk and its current revision/hash/location.
   retrieval contracts or authority.
 - Semantic search is honestly unavailable until a profile is bound, capability
   fixtures pass, and vectors are current. Lexical/alias search remains usable.
-- Updating profile identity, model, dimensions, normalization, prefixes, fixture
-  version, Source revision, permission, or text hash invalidates affected vectors.
+- Updating profile identity, model, dimensions, normalization, prefixes,
+  capability, or fixture version prevents vector reuse. Source, permission, or
+  text changes make the sidecar stale and require a replacement build; a Chunk
+  whose ID, original text, and text hash are unchanged may reuse its vector
+  while the replacement records the current Source revision and permissions.
 - The new dependency and narrow load path become security and packaging gates on
   Windows. Failure to load never enables arbitrary fallback or remote service use.
 

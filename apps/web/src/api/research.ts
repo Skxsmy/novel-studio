@@ -9,13 +9,21 @@ import type {
   ResearchIndexState,
   ResearchKeywordSearchInput,
   ResearchKeywordSearchResponse,
+  ResearchEmbeddingCapabilityDocument,
+  ResearchEmbeddingCapabilityState,
+  ResearchMultiSearchInput,
+  ResearchMultiSearchResponse,
+  ResearchQueryExpansionDocument,
   ResearchLegacyMigrationResult,
   ResearchSourceContentPage,
   ResearchSourceView,
   ResearchSourceDocument,
   ResearchSourceV2MigrationResult,
+  ResearchVectorIndexState,
+  UpdateResearchQueryExpansionsInput,
   UpdateResearchDatabaseInput,
   UpdateResearchSourceInput,
+  ValidateResearchEmbeddingCapabilityInput,
 } from "@novel-studio/contracts";
 import type { ApiClient } from "./client";
 
@@ -38,6 +46,26 @@ export function createResearchApi(client: ApiClient) {
         body: input,
         method: "PUT",
       });
+    },
+    getQueryExpansions(databaseId: string) {
+      return client.requestJson<ResearchQueryExpansionDocument>(
+        `/research/databases/${databaseId}/query-expansions`,
+      );
+    },
+    updateQueryExpansions(databaseId: string, input: UpdateResearchQueryExpansionsInput) {
+      return client.requestJson<ResearchQueryExpansionDocument>(
+        `/research/databases/${databaseId}/query-expansions`,
+        { body: input, method: "PUT" },
+      );
+    },
+    getEmbeddingCapability() {
+      return client.requestJson<ResearchEmbeddingCapabilityState>("/research/embedding-capability");
+    },
+    validateEmbeddingCapability(input: ValidateResearchEmbeddingCapabilityInput) {
+      return client.requestJson<ResearchEmbeddingCapabilityDocument>(
+        "/research/embedding-capability/validate",
+        { body: input, method: "POST" },
+      );
     },
     listLegacySources() {
       return client.requestJson<LegacyResearchSourceGroup[]>("/research/legacy-sources");
@@ -86,8 +114,23 @@ export function createResearchApi(client: ApiClient) {
         method: "POST",
       });
     },
+    getVectorIndexState(databaseId: string) {
+      return client.requestJson<ResearchVectorIndexState>(`/research/databases/${databaseId}/vector-index`);
+    },
+    rebuildVectorIndex(databaseId: string) {
+      return client.requestJson<ResearchVectorIndexState>(
+        `/research/databases/${databaseId}/vector-index/rebuild`,
+        { method: "POST" },
+      );
+    },
     search(databaseId: string, input: ResearchKeywordSearchInput) {
       return client.requestJson<ResearchKeywordSearchResponse>(`/research/databases/${databaseId}/search`, {
+        body: input,
+        method: "POST",
+      });
+    },
+    searchDatabases(input: ResearchMultiSearchInput) {
+      return client.requestJson<ResearchMultiSearchResponse>("/research/search", {
         body: input,
         method: "POST",
       });
@@ -112,11 +155,19 @@ export type {
   ResearchIndexState,
   ResearchKeywordSearchInput,
   ResearchKeywordSearchResponse,
+  ResearchEmbeddingCapabilityDocument,
+  ResearchEmbeddingCapabilityState,
+  ResearchMultiSearchInput,
+  ResearchMultiSearchResponse,
+  ResearchQueryExpansionDocument,
   ResearchLegacyMigrationResult,
   ResearchSourceContentPage,
   ResearchSourceView,
   ResearchSourceDocument,
   ResearchSourceV2MigrationResult,
+  ResearchVectorIndexState,
+  UpdateResearchQueryExpansionsInput,
   UpdateResearchDatabaseInput,
   UpdateResearchSourceInput,
+  ValidateResearchEmbeddingCapabilityInput,
 };

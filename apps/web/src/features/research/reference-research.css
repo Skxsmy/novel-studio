@@ -81,7 +81,7 @@
 
 .rs9-dialog-backdrop {
   position: fixed;
-  z-index: 80;
+  z-index: 240;
   inset: 0;
   padding: 24px;
   display: grid;
@@ -467,6 +467,80 @@
 .rs10-no-results strong { margin-top: 10px; color: var(--ink); font: 600 17px/1.2 var(--serif); }
 .rs10-no-results p { margin: 5px 0 0; font-size: 11px; }
 
+.rs11-search-console {
+  position: relative;
+  margin: 14px clamp(18px, 4vw, 46px) 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--paper) 96%, transparent);
+}
+.rs11-search-console .rs10-searchbar { margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.rs11-search-options { min-height: 38px; padding: 5px 7px; display: flex; align-items: center; gap: 7px; }
+.rs11-search-options button { height: 28px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--paper); color: var(--ink); font: 600 10px/1 var(--sans); cursor: pointer; }
+.rs11-scope-control { position: relative; }
+.rs11-scope-control > button { min-width: 116px; padding: 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.rs11-scope-menu { position: absolute; z-index: 20; top: 33px; left: 0; width: min(320px, 76vw); max-height: 310px; padding: 5px; overflow: auto; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--paper); box-shadow: var(--shadow); }
+.rs11-scope-menu label { min-height: 42px; padding: 6px 7px; display: grid; grid-template-columns: 16px minmax(0, 1fr) 16px; align-items: center; gap: 7px; border-radius: 3px; cursor: pointer; }
+.rs11-scope-menu label:hover { background: var(--green-soft); }
+.rs11-scope-menu input { width: 14px; height: 14px; accent-color: var(--green); }
+.rs11-scope-menu strong,
+.rs11-scope-menu small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs11-scope-menu strong { font-size: 11px; }
+.rs11-scope-menu small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.rs11-mode-switch { display: grid; grid-template-columns: 58px 58px; border: 1px solid var(--line-strong); border-radius: 4px; overflow: hidden; }
+.rs11-mode-switch button { border: 0; border-radius: 0; }
+.rs11-mode-switch button + button { border-left: 1px solid var(--line-strong); }
+.rs11-mode-switch button[aria-pressed="true"] { background: var(--green-soft); color: var(--green); }
+.rs11-retrieval-settings { width: 30px; margin-left: auto; padding: 0; display: grid; place-items: center; }
+.rs11-result-database { grid-column: 1 / -1; display: flex; align-items: center; gap: 5px; color: var(--blue); font-size: 10px; font-weight: 700; }
+.rs11-search-results .rs10-location-ribbon { grid-column: 1 / -1; padding-top: 6px; border-top: 1px dotted var(--line); }
+.rs11-retrieval-issues { max-width: 900px; margin: 0 auto 12px; border: 1px solid #dbc988; background: #fff9e7; }
+.rs11-retrieval-issues p { margin: 0; padding: 7px 9px; display: grid; grid-template-columns: minmax(110px, .35fr) minmax(0, 1fr); gap: 10px; color: #70591b; font-size: 10px; line-height: 1.4; }
+.rs11-retrieval-issues p + p { border-top: 1px solid #e8d99f; }
+.rs11-load-more { min-width: 112px; height: 34px; margin: 18px auto 0; padding: 0 14px; display: block; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--paper); color: var(--ink); font: 600 11px/1 var(--sans); cursor: pointer; }
+
+.rs11-retrieval-dialog {
+  width: min(900px, calc(100vw - 32px));
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.rs11-retrieval-body { min-height: 0; padding: 14px; overflow: auto; display: grid; gap: 12px; }
+.rs11-retrieval-section { border: 1px solid var(--line); background: var(--paper); }
+.rs11-section-heading { min-height: 52px; padding: 9px 11px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+.rs11-section-heading > div { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.rs11-section-heading span { min-width: 0; }
+.rs11-section-heading strong,
+.rs11-section-heading small { display: block; }
+.rs11-section-heading strong { color: var(--ink); font-size: 12px; }
+.rs11-section-heading small { margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.rs11-section-heading > button { width: 30px; height: 30px; padding: 0; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--paper); color: var(--ink); cursor: pointer; }
+.rs11-state { padding: 3px 6px; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.rs11-state.is-ready { border-color: #9bc7ae; background: var(--green-soft); color: var(--green); }
+.rs11-state.is-attention { border-color: #dbc988; background: #fff9e7; color: #70591b; }
+.rs11-capability-grid { padding: 11px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.rs11-capability-grid label > span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 10px; font-weight: 700; }
+.rs11-capability-grid input[type="text"],
+.rs11-capability-grid input:not([type]) { width: 100%; height: 33px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--paper); color: var(--ink); }
+.rs11-shared-space { grid-column: 1 / -1; display: flex; align-items: start; gap: 8px; }
+.rs11-shared-space input { width: 15px; height: 15px; margin-top: 2px; accent-color: var(--green); }
+.rs11-shared-space span { margin: 0 !important; }
+.rs11-shared-space strong,
+.rs11-shared-space small { display: block; }
+.rs11-shared-space strong { color: var(--ink); font-size: 11px; }
+.rs11-shared-space small { margin-top: 2px; color: var(--muted); font-size: 9px; font-weight: 400; }
+.rs11-section-actions { padding: 8px 11px; display: flex; justify-content: end; gap: 7px; border-top: 1px solid var(--line); }
+.rs11-section-actions button { min-height: 30px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--paper); color: var(--ink); font-size: 10px; font-weight: 700; cursor: pointer; }
+.rs11-section-actions button:last-child { border-color: var(--dark); background: var(--dark); color: #fff; }
+.rs11-section-actions button:disabled { cursor: not-allowed; opacity: .45; }
+.rs11-alias-empty { min-height: 68px; padding: 24px; display: grid; place-items: center; color: var(--muted); font-size: 11px; }
+.rs11-alias-list { padding: 8px 10px; display: grid; gap: 6px; }
+.rs11-alias-row { display: grid; grid-template-columns: minmax(120px, 1fr) 18px minmax(120px, 1fr) 116px 30px; align-items: center; gap: 6px; }
+.rs11-alias-row > span { color: var(--muted); text-align: center; }
+.rs11-alias-row input,
+.rs11-alias-row select { width: 100%; min-width: 0; height: 32px; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--paper); color: var(--ink); font-size: 11px; }
+.rs11-alias-row button { width: 30px; height: 30px; padding: 0; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--paper); color: var(--red); cursor: pointer; }
+
 .rs8-document { min-height: 100%; padding: 26px clamp(24px, 5vw, 72px) 64px; }
 .rs8-document > header { max-width: 900px; margin: 0 auto 22px; padding-bottom: 18px; display: flex; gap: 15px; border-bottom: 1px solid var(--line); }
 .rs8-document header h2 { margin: 2px 0 6px; font: 600 25px/1.24 var(--serif); letter-spacing: 0; overflow-wrap: anywhere; }
@@ -557,6 +631,13 @@
   .rs8-preview { font-size: 14px; line-height: 1.8; }
   .rs10-text-blocks { font-size: 14px; line-height: 1.8; }
   .rs10-searchbar { padding: 9px 12px; grid-template-columns: 18px minmax(0, 1fr) auto auto; }
+  .rs11-search-console { margin: 10px 12px 0; }
+  .rs11-search-options { flex-wrap: wrap; }
+  .rs11-capability-grid { grid-template-columns: 1fr; }
+  .rs11-shared-space { grid-column: 1; }
+  .rs11-alias-row { grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) 30px; }
+  .rs11-alias-row select { grid-column: 1 / -1; }
+  .rs11-retrieval-issues p { grid-template-columns: 1fr; gap: 2px; }
   .rs10-search-results { padding: 20px 16px 42px; }
   .rs10-search-results > header { align-items: start; flex-direction: column; gap: 5px; }
   .rs10-index-callout { margin-inline: 12px; }

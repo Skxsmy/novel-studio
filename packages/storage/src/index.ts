@@ -116,6 +116,7 @@ import {
   ReorderInputSchema,
   CreateResearchDatabaseInputSchema,
   ResearchDatabaseSchema,
+  UpdateResearchQueryExpansionsInputSchema,
   ResearchLegacyMigrationResultSchema,
   ResearchSourceContentPageQuerySchema,
   ResearchSourceContentPageSchema,
@@ -285,6 +286,10 @@ import {
   type ResearchIndexState,
   type ResearchKeywordSearchInput,
   type ResearchKeywordSearchResponse,
+  type ResearchQueryExpansionDocument,
+  type ResearchEmbeddingCapability,
+  type ResearchEmbeddingCapabilityDocument,
+  type UpdateResearchQueryExpansionsInput,
   type ResearchSourceV2MigrationResult,
   type CreateResearchDatabaseInput,
   type LegacyResearchSourceGroup,
@@ -429,6 +434,15 @@ import {
   searchResearchIndex,
   type ResearchIndexBuildOptions,
 } from "./researchIndex.js";
+import {
+  readResearchQueryExpansionFile,
+  updateResearchQueryExpansionFile,
+} from "./researchAliases.js";
+import {
+  embeddingModelProfileRevision,
+  readResearchEmbeddingCapabilityFile,
+  saveResearchEmbeddingCapabilityFile,
+} from "./researchEmbeddingCapabilities.js";
 
 export {
   INDEX_APPLICATION_ID,
@@ -457,6 +471,55 @@ export {
   type ResearchIndexBuildHooks,
   type ResearchIndexBuildOptions,
 } from "./researchIndex.js";
+export {
+  readResearchQueryExpansionFile,
+  researchQueryExpansionsPath,
+  resolveResearchQueryExpansions,
+  updateResearchQueryExpansionFile,
+  type ResearchQueryExpansionWriteOptions,
+  type ResolvedResearchQueryExpansion,
+} from "./researchAliases.js";
+export {
+  RESEARCH_VECTOR_EXTENSION_VERSION,
+  RESEARCH_VECTOR_INDEX_APPLICATION_ID,
+  RESEARCH_VECTOR_INDEX_SCHEMA_CHECKSUM,
+  RESEARCH_VECTOR_INDEX_SCHEMA_VERSION,
+  deleteResearchVectorChunk,
+  inspectResearchVectorIndex,
+  rebuildResearchVectorIndex,
+  rebuildResearchVectorIndexStreaming,
+  researchVectorIndexDatabasePath,
+  researchVectorSourceSnapshotHash,
+  searchResearchVectorIndex,
+  type ResearchVectorChunkInput,
+  type ResearchVectorIndexBuildHooks,
+  type ResearchVectorIndexBuildInput,
+  type ResearchVectorIndexBuildOptions,
+  type ResearchVectorIndexStreamingOptions,
+  type ResearchVectorIndexIdentity,
+  type ResearchVectorSearchResult,
+} from "./researchVectorIndex.js";
+export {
+  RESEARCH_CHANNEL_WEIGHTS,
+  RESEARCH_MINIMUM_FUSED_SCORE,
+  RESEARCH_RRF_K,
+  fuseResearchRetrievalCandidates,
+  type FusedResearchRetrievalPage,
+  type FuseResearchRetrievalOptions,
+  type ResearchRetrievalCandidate,
+} from "./researchRetrieval.js";
+export {
+  embeddingModelProfileRevision,
+  readResearchEmbeddingCapabilityFile,
+  researchEmbeddingCapabilityPath,
+  saveResearchEmbeddingCapabilityFile,
+} from "./researchEmbeddingCapabilities.js";
+export {
+  researchDatabaseAuthorityPath,
+  researchDatabaseIndexPath,
+  researchDatabaseRoot,
+  researchDatabasesRoot,
+} from "./researchDatabases.js";
 import {
   createWorkshopAgentRunFile,
   createWorkshopAttachmentFile,
@@ -1770,6 +1833,38 @@ export class ProjectRepository {
       await Promise.all(input.linkedSeriesIds.map((seriesId) => this.findSeriesRoot(seriesId)));
     }
     return updateResearchDatabaseFile(this.libraryRoot, databaseId, input);
+  }
+
+  async getResearchQueryExpansions(databaseId: string): Promise<ResearchQueryExpansionDocument> {
+    await this.getResearchDatabase(databaseId);
+    return readResearchQueryExpansionFile(this.libraryRoot, databaseId);
+  }
+
+  async updateResearchQueryExpansions(
+    databaseId: string,
+    rawInput: UpdateResearchQueryExpansionsInput,
+  ): Promise<ResearchQueryExpansionDocument> {
+    await this.getResearchDatabase(databaseId);
+    const input = UpdateResearchQueryExpansionsInputSchema.parse(rawInput);
+    return updateResearchQueryExpansionFile(this.libraryRoot, databaseId, input);
+  }
+
+  async getResearchEmbeddingCapability(profileId: string): Promise<ResearchEmbeddingCapabilityDocument> {
+    await this.getEmbeddingModelProfile(profileId);
+    return readResearchEmbeddingCapabilityFile(this.libraryRoot, profileId);
+  }
+
+  async saveResearchEmbeddingCapability(
+    capability: ResearchEmbeddingCapability,
+    expectedRevision: string | null,
+  ): Promise<ResearchEmbeddingCapabilityDocument> {
+    const profile = await this.getEmbeddingModelProfile(capability.profileId);
+    if (embeddingModelProfileRevision(profile) !== capability.profileRevision) {
+      throw new StorageError("Embedding profile changed during capability validation", "CONFLICT", {
+        profileId: profile.id,
+      });
+    }
+    return saveResearchEmbeddingCapabilityFile(this.libraryRoot, capability, expectedRevision);
   }
 
   async listResearchSources(researchDatabaseId: string): Promise<ResearchSourceDocument[]> {

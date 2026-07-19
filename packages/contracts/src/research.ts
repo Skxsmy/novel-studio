@@ -4,6 +4,10 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const SAFE_SOURCE_FILE_NAME_PATTERN = /^[^\\/\u0000-\u001f\u007f]+$/u;
 const BCP47_PATTERN = /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/u;
 
+function normalizedResearchTerm(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase("und");
+}
+
 function isCanonicalBase64Shape(value: string): boolean {
   if (value.length === 0 || value.length % 4 !== 0) return false;
   const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
@@ -517,6 +521,230 @@ export const ResearchKeywordSearchResponseSchema = z.object({
   results: z.array(ResearchKeywordSearchResultSchema),
 });
 export type ResearchKeywordSearchResponse = z.infer<typeof ResearchKeywordSearchResponseSchema>;
+
+export const ResearchQueryExpansionChannelSchema = z.enum(["alias", "transliteration"]);
+export type ResearchQueryExpansionChannel = z.infer<typeof ResearchQueryExpansionChannelSchema>;
+
+export const ResearchQueryExpansionSchema = z.object({
+  id: z.string().uuid(),
+  queryTerm: z.string().trim().min(1).max(200),
+  expansionTerm: z.string().trim().min(1).max(200),
+  channel: ResearchQueryExpansionChannelSchema,
+  queryLanguageTag: z.string().trim().regex(BCP47_PATTERN).max(64).nullable().default(null),
+  expansionLanguageTag: z.string().trim().regex(BCP47_PATTERN).max(64).nullable().default(null),
+  note: z.string().max(500).default(""),
+}).strict().superRefine((entry, context) => {
+  if (normalizedResearchTerm(entry.queryTerm) === normalizedResearchTerm(entry.expansionTerm)) {
+    context.addIssue({
+      code: "custom",
+      message: "Research query expansion must differ from its query term",
+      path: ["expansionTerm"],
+    });
+  }
+});
+export type ResearchQueryExpansion = z.infer<typeof ResearchQueryExpansionSchema>;
+
+export const ResearchQueryExpansionSetSchema = z.object({
+  schemaVersion: z.literal(1),
+  researchDatabaseId: z.string().uuid(),
+  entries: z.array(ResearchQueryExpansionSchema).max(5000),
+  updatedAt: z.string().datetime(),
+}).strict().superRefine((document, context) => {
+  const entryIds = document.entries.map((entry) => entry.id);
+  if (new Set(entryIds).size !== entryIds.length) {
+    context.addIssue({ code: "custom", message: "Research query expansion IDs must be unique", path: ["entries"] });
+  }
+  const keys = document.entries.map((entry) => [
+    entry.channel,
+    entry.queryLanguageTag ?? "",
+    entry.expansionLanguageTag ?? "",
+    normalizedResearchTerm(entry.queryTerm),
+    normalizedResearchTerm(entry.expansionTerm),
+  ].join("\u0000"));
+  if (new Set(keys).size !== keys.length) {
+    context.addIssue({ code: "custom", message: "Research query expansions must be unique", path: ["entries"] });
+  }
+});
+export type ResearchQueryExpansionSet = z.infer<typeof ResearchQueryExpansionSetSchema>;
+
+export const ResearchQueryExpansionDocumentSchema = z.object({
+  expansions: ResearchQueryExpansionSetSchema,
+  revision: z.string().regex(SHA256_PATTERN),
+}).strict();
+export type ResearchQueryExpansionDocument = z.infer<typeof ResearchQueryExpansionDocumentSchema>;
+
+export const UpdateResearchQueryExpansionsInputSchema = z.object({
+  baseRevision: z.string().regex(SHA256_PATTERN),
+  entries: z.array(ResearchQueryExpansionSchema).max(5000),
+}).strict();
+export type UpdateResearchQueryExpansionsInput = z.infer<typeof UpdateResearchQueryExpansionsInputSchema>;
+
+export const ResearchRetrievalModeSchema = z.enum(["exact", "hybrid"]);
+export type ResearchRetrievalMode = z.infer<typeof ResearchRetrievalModeSchema>;
+
+export const ResearchRetrievalMatchChannelSchema = z.enum([
+  "keyword-cjk",
+  "keyword-word",
+  "keyword-literal",
+  "alias",
+  "transliteration",
+  "query-translation",
+  "semantic",
+]);
+export type ResearchRetrievalMatchChannel = z.infer<typeof ResearchRetrievalMatchChannelSchema>;
+
+export const ResearchMultiSearchInputSchema = z.object({
+  databaseIds: z.array(z.string().uuid()).min(1).max(12),
+  query: z.string().trim().min(1).max(500),
+  purpose: z.enum(["local", "model-context"]).default("local"),
+  mode: ResearchRetrievalModeSchema.default("hybrid"),
+  sourceKinds: z.array(ResearchSourceKindSchema).max(ResearchSourceKindSchema.options.length).optional(),
+  languageTags: z.array(z.string().trim().regex(BCP47_PATTERN).max(64)).max(40).optional(),
+  tags: z.array(z.string().trim().min(1).max(80)).max(40).optional(),
+  author: z.string().trim().max(240).optional(),
+  limit: z.number().int().min(1).max(50).default(20),
+  cursor: z.string().trim().min(1).max(4096).optional(),
+}).strict().superRefine((input, context) => {
+  if (new Set(input.databaseIds).size !== input.databaseIds.length) {
+    context.addIssue({ code: "custom", message: "Selected Research Database IDs must be unique", path: ["databaseIds"] });
+  }
+  for (const field of ["sourceKinds", "languageTags", "tags"] as const) {
+    const values = input[field];
+    if (values && new Set(values.map((value) => value.toLocaleLowerCase("und"))).size !== values.length) {
+      context.addIssue({ code: "custom", message: `${field} filters must be unique`, path: [field] });
+    }
+  }
+});
+export type ResearchMultiSearchInput = z.infer<typeof ResearchMultiSearchInputSchema>;
+
+export const ResearchRetrievalChannelContributionSchema = z.object({
+  channel: ResearchRetrievalMatchChannelSchema,
+  matchedQuery: z.string().trim().min(1).max(500),
+  rank: z.number().int().positive(),
+  rawScore: z.number().finite(),
+  reciprocalRankContribution: z.number().finite().nonnegative(),
+}).strict();
+export type ResearchRetrievalChannelContribution = z.infer<typeof ResearchRetrievalChannelContributionSchema>;
+
+export const ResearchRetrievalResultSchema = ResearchKeywordSearchResultSchema.omit({
+  matchChannels: true,
+  score: true,
+}).extend({
+  researchDatabaseName: z.string().trim().min(1).max(120),
+  rank: z.number().int().positive(),
+  matchChannels: z.array(ResearchRetrievalMatchChannelSchema).min(1).max(7),
+  channelContributions: z.array(ResearchRetrievalChannelContributionSchema).min(1).max(32),
+  fusedScore: z.number().finite().nonnegative(),
+}).strict();
+export type ResearchRetrievalResult = z.infer<typeof ResearchRetrievalResultSchema>;
+
+export const ResearchRetrievalIssueSchema = z.object({
+  researchDatabaseId: z.string().uuid(),
+  code: z.enum([
+    "missing-index",
+    "stale-index",
+    "damaged-index",
+    "vector-index-unavailable",
+    "vector-index-stale",
+    "embedding-profile-unbound",
+    "embedding-profile-unvalidated",
+    "embedding-request-failed",
+    "query-translation-unavailable",
+    "database-unavailable",
+  ]),
+  message: z.string().trim().min(1).max(500),
+}).strict();
+export type ResearchRetrievalIssue = z.infer<typeof ResearchRetrievalIssueSchema>;
+
+export const ResearchMultiSearchResponseSchema = z.object({
+  query: z.string().min(1).max(500),
+  selectedDatabaseIds: z.array(z.string().uuid()).min(1).max(12),
+  requestedMode: ResearchRetrievalModeSchema,
+  effectiveMode: z.enum(["exact", "hybrid", "degraded-exact"]),
+  results: z.array(ResearchRetrievalResultSchema),
+  issues: z.array(ResearchRetrievalIssueSchema),
+  nextCursor: z.string().min(1).max(4096).nullable(),
+}).strict();
+export type ResearchMultiSearchResponse = z.infer<typeof ResearchMultiSearchResponseSchema>;
+
+export const ResearchEmbeddingCapabilitySchema = z.object({
+  schemaVersion: z.literal(1),
+  profileId: z.string().uuid(),
+  profileRevision: z.string().regex(SHA256_PATTERN),
+  useCase: z.literal("research.multilingual"),
+  dimensions: z.number().int().positive().max(65536),
+  supportedLanguageTags: z.array(z.string().trim().regex(BCP47_PATTERN).max(64)).min(2).max(100),
+  sharedSpaceDeclared: z.boolean(),
+  documentPrefix: z.string().max(200).default(""),
+  queryPrefix: z.string().max(200).default(""),
+  validationStatus: z.enum(["unvalidated", "passed", "failed"]),
+  validationFixtureVersion: z.literal(1),
+  metrics: z.object({
+    positivePairMean: z.number().min(-1).max(1),
+    positivePairMinimum: z.number().min(-1).max(1),
+    negativePairMean: z.number().min(-1).max(1),
+    separation: z.number().min(-2).max(2),
+  }).strict().nullable(),
+  validatedAt: z.string().datetime().nullable(),
+  failureReason: z.string().max(1000).nullable(),
+}).strict().superRefine((capability, context) => {
+  const normalizedLanguages = capability.supportedLanguageTags.map((tag) => tag.toLocaleLowerCase("und"));
+  if (new Set(normalizedLanguages).size !== normalizedLanguages.length) {
+    context.addIssue({ code: "custom", message: "Supported language tags must be unique", path: ["supportedLanguageTags"] });
+  }
+  if (capability.validationStatus === "passed" && !capability.validatedAt) {
+    context.addIssue({ code: "custom", message: "Passed capability validation requires validatedAt", path: ["validatedAt"] });
+  }
+  if (capability.validationStatus === "passed" && (!capability.sharedSpaceDeclared || !capability.metrics)) {
+    context.addIssue({ code: "custom", message: "Passed capability validation requires shared-space declaration and metrics" });
+  }
+  if (capability.validationStatus === "failed" && !capability.failureReason) {
+    context.addIssue({ code: "custom", message: "Failed capability validation requires failureReason", path: ["failureReason"] });
+  }
+});
+export type ResearchEmbeddingCapability = z.infer<typeof ResearchEmbeddingCapabilitySchema>;
+
+export const ResearchEmbeddingCapabilityDocumentSchema = z.object({
+  capability: ResearchEmbeddingCapabilitySchema,
+  revision: z.string().regex(SHA256_PATTERN),
+}).strict();
+export type ResearchEmbeddingCapabilityDocument = z.infer<typeof ResearchEmbeddingCapabilityDocumentSchema>;
+
+export const ValidateResearchEmbeddingCapabilityInputSchema = z.object({
+  supportedLanguageTags: z.array(z.string().trim().regex(BCP47_PATTERN).max(64)).min(3).max(100),
+  sharedSpaceDeclared: z.boolean(),
+  documentPrefix: z.string().max(200).default(""),
+  queryPrefix: z.string().max(200).default(""),
+}).strict().superRefine((input, context) => {
+  const normalized = input.supportedLanguageTags.map((tag) => tag.toLocaleLowerCase("und"));
+  if (new Set(normalized).size !== normalized.length) {
+    context.addIssue({ code: "custom", message: "Supported language tags must be unique", path: ["supportedLanguageTags"] });
+  }
+});
+export type ValidateResearchEmbeddingCapabilityInput = z.infer<typeof ValidateResearchEmbeddingCapabilityInputSchema>;
+
+export const ResearchEmbeddingCapabilityStateSchema = z.object({
+  useCase: z.literal("research.multilingual"),
+  bindingStatus: z.enum(["unbound", "bound"]),
+  profileId: z.string().uuid().nullable(),
+  profileRevision: z.string().regex(SHA256_PATTERN).nullable(),
+  capability: ResearchEmbeddingCapabilityDocumentSchema.nullable(),
+  usable: z.boolean(),
+  reason: z.string().max(1000).nullable(),
+}).strict();
+export type ResearchEmbeddingCapabilityState = z.infer<typeof ResearchEmbeddingCapabilityStateSchema>;
+
+export const ResearchVectorIndexStateSchema = z.object({
+  researchDatabaseId: z.string().uuid(),
+  status: z.enum(["missing", "ready", "stale", "damaged", "unavailable"]),
+  indexedSourceCount: z.number().int().nonnegative(),
+  indexedChunkCount: z.number().int().nonnegative(),
+  dimensions: z.number().int().positive().max(65536).nullable(),
+  profileId: z.string().uuid().nullable(),
+  profileRevision: z.string().regex(SHA256_PATTERN).nullable(),
+  reason: z.string().max(1000).nullable(),
+}).strict();
+export type ResearchVectorIndexState = z.infer<typeof ResearchVectorIndexStateSchema>;
 
 export const ResearchIndexStateSchema = z.object({
   researchDatabaseId: z.string().uuid(),

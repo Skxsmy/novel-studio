@@ -178,15 +178,29 @@ SourceLocation 与语言片段。导入请求使用 JSON `fileName`、`mediaType
 来源属性更新要求 `baseRevision`，只可修改显示名称、作者、声明语言、标签、
 人工智能权限和使用备注。冲突返回 `409` 并保留现有权威文件；原始文件名、
 媒体类型、字节数、哈希、导入时间、解析器和原文位置不可由该接口修改。
-当前不注册删除、归档、重新解析、网页重新抓取或多数据库搜索路由，客户端不得把这些命令显示为
+当前不注册删除、归档、重新解析或网页重新抓取路由，客户端不得把这些命令显示为
 可用。
 
-当前 Research API 只提供单数据库本地词法搜索。`purpose: model-context`
-会排除 `aiPermission: never` 的 Source，但不存在任何调用该路径的 Workshop
-或 Provider 工具。NS-605 才新增显式多数据库混合检索；NS-606 才新增由服务端
-执行的 `research.list_sources`、`research.search` 和
-`research.open_passage` 只读工具网关；NS-607 才把会话激活和有界迭代工具循环
-接入 Workshop。现有端点不得描述成模型已能主动搜索数据库。
+NS-605 新增 `POST /research/search`。请求必须明确提供一至十二个互不重复的
+Research Database ID、查询文字、`Exact` 或 `Hybrid` 检索方式、用途和有界页长；
+可选过滤器包含来源类型、语言、标签和作者。响应返回所属数据库、原始 Source、
+Chunk、revision、内容哈希、语言、位置、实际检索通道、确定性融合贡献、逐数据库
+问题和与查询及索引快照绑定的下一页游标。`purpose: model-context` 会排除
+`aiPermission: never` 的 Source；`purpose: local` 仍可通过本地精确通道读取该来源。
+
+每个数据库通过 `GET/PUT /research/databases/:databaseId/query-expansions`
+读取和以 `baseRevision` 更新独立别名/转写权威。全局当前绑定的多语言能力通过
+`GET /research/embedding-capability` 读取，并只可通过
+`POST /research/embedding-capability/validate` 对当前 `research.multilingual`
+Embedding profile 执行固定中日英正负夹具。每个数据库的派生向量状态与重建分别
+使用 `GET/POST /research/databases/:databaseId/vector-index` 和
+`.../vector-index/rebuild`。缺少通过验证的当前能力时，`Hybrid` 诚实降级为
+`Exact`；不会自动翻译查询、改用其它 Provider 或调用远程后备服务。
+
+这些端点仍不是模型工具。NS-606 才新增由服务端执行的
+`research.list_sources`、`research.search` 和 `research.open_passage` 只读工具
+网关；NS-607 才把会话激活和有界迭代工具循环接入 Workshop。当前能力不得描述成
+模型已能主动搜索数据库。
 
 ## Workshop Agent Tools
 

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
+import type { EmbeddingRouter } from "@novel-studio/ai";
 import {
   CreateResearchDatabaseInputSchema,
   ImportResearchSourceInputSchema,
@@ -10,8 +11,13 @@ import {
   ResearchDatabaseDocumentSchema,
   ResearchDatabaseListResultSchema,
   ResearchIndexStateSchema,
+  ResearchEmbeddingCapabilityDocumentSchema,
+  ResearchEmbeddingCapabilityStateSchema,
   ResearchKeywordSearchInputSchema,
   ResearchKeywordSearchResponseSchema,
+  ResearchMultiSearchInputSchema,
+  ResearchMultiSearchResponseSchema,
+  ResearchQueryExpansionDocumentSchema,
   ResearchLegacyMigrationResultSchema,
   ResearchSourceContentPageQuerySchema,
   ResearchSourceContentPageSchema,
@@ -19,13 +25,23 @@ import {
   ResearchSourcePropertiesSchema,
   ResearchSourceViewSchema,
   ResearchSourceV2MigrationResultSchema,
+  ResearchVectorIndexStateSchema,
+  UpdateResearchQueryExpansionsInputSchema,
   UpdateResearchDatabaseInputSchema,
   UpdateResearchSourceInputSchema,
+  ValidateResearchEmbeddingCapabilityInputSchema,
 } from "@novel-studio/contracts";
 import { ProjectRepository } from "@novel-studio/storage";
 import { parseResearchFile, parseResearchWebSnapshot } from "../researchParsers.js";
 import { acquireResearchWebPage } from "../researchWebImport.js";
 import type { AcquiredResearchWebPage } from "../researchWebImport.js";
+import {
+  getResearchEmbeddingCapabilityState,
+  getResearchVectorIndexState,
+  rebuildResearchDatabaseVectorIndex,
+  searchResearchDatabases,
+  validateBoundResearchEmbeddingCapability,
+} from "../researchRetrieval.js";
 
 const RESEARCH_UPLOAD_BODY_LIMIT = 36 * 1024 * 1024;
 
@@ -35,12 +51,13 @@ function defaultDisplayName(fileName: string): string {
 
 export interface ResearchRouteOptions {
   acquireWebPage?: (url: string) => Promise<AcquiredResearchWebPage>;
+  embeddingRouter: EmbeddingRouter;
 }
 
 export function registerResearchRoutes(
   app: FastifyInstance,
   repository: ProjectRepository,
-  options: ResearchRouteOptions = {},
+  options: ResearchRouteOptions,
 ): void {
   const acquireWebPage = options.acquireWebPage ?? acquireResearchWebPage;
   app.get(
@@ -68,6 +85,41 @@ export function registerResearchRoutes(
       await repository.updateResearchDatabase(
         request.params.databaseId,
         UpdateResearchDatabaseInputSchema.parse(request.body),
+      ),
+    ),
+  );
+
+  app.get<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/query-expansions",
+    async (request) => ResearchQueryExpansionDocumentSchema.parse(
+      await repository.getResearchQueryExpansions(request.params.databaseId),
+    ),
+  );
+
+  app.put<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/query-expansions",
+    async (request) => ResearchQueryExpansionDocumentSchema.parse(
+      await repository.updateResearchQueryExpansions(
+        request.params.databaseId,
+        UpdateResearchQueryExpansionsInputSchema.parse(request.body),
+      ),
+    ),
+  );
+
+  app.get(
+    "/api/v1/research/embedding-capability",
+    async () => ResearchEmbeddingCapabilityStateSchema.parse(
+      await getResearchEmbeddingCapabilityState(repository, options.embeddingRouter),
+    ),
+  );
+
+  app.post(
+    "/api/v1/research/embedding-capability/validate",
+    async (request) => ResearchEmbeddingCapabilityDocumentSchema.parse(
+      await validateBoundResearchEmbeddingCapability(
+        repository,
+        options.embeddingRouter,
+        ValidateResearchEmbeddingCapabilityInputSchema.parse(request.body),
       ),
     ),
   );
@@ -132,6 +184,20 @@ export function registerResearchRoutes(
     },
   );
 
+  app.get<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/vector-index",
+    async (request) => ResearchVectorIndexStateSchema.parse(
+      await getResearchVectorIndexState(repository, options.embeddingRouter, request.params.databaseId),
+    ),
+  );
+
+  app.post<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/vector-index/rebuild",
+    async (request) => ResearchVectorIndexStateSchema.parse(
+      await rebuildResearchDatabaseVectorIndex(repository, options.embeddingRouter, request.params.databaseId),
+    ),
+  );
+
   app.get<{ Params: { databaseId: string; sourceId: string } }>(
     "/api/v1/research/databases/:databaseId/sources/:sourceId",
     async (request) => ResearchSourceViewSchema.parse(
@@ -194,6 +260,17 @@ export function registerResearchRoutes(
         await repository.getResearchSourceView(request.params.databaseId, source.source.id),
       ));
     },
+  );
+
+  app.post(
+    "/api/v1/research/search",
+    async (request) => ResearchMultiSearchResponseSchema.parse(
+      await searchResearchDatabases(
+        repository,
+        options.embeddingRouter,
+        ResearchMultiSearchInputSchema.parse(request.body),
+      ),
+    ),
   );
 
   app.put<{ Params: { databaseId: string; sourceId: string } }>(

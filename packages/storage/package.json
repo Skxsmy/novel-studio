@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@novel-studio/contracts": "*",
-    "better-sqlite3": "^12.4.1"
+    "better-sqlite3": "^12.4.1",
+    "sqlite-vec": "0.1.9"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
