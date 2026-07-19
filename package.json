@@ -21,6 +21,7 @@
     "test:e2e:quick": "playwright test",
     "test:e2e:headed": "npm run build && playwright test --headed",
     "probe:ns605": "node scripts/ns-605-retrieval-probe.mjs",
+    "probe:ns607": "node scripts/ns-607-workshop-research-harness.mjs",
     "test:docs": "node --test tests/docs/docs-check.test.mjs",
     "docs:check": "node scripts/docs-check.mjs",
     "start": "npm run start -w @novel-studio/server",
