@@ -6,11 +6,11 @@ Authority: current operational state only
 ## Project Mainline
 
 - Active milestone: `M6 Reference Library And Retrieval`.
-- Active task: `NS-609 / M6.8 Evidence-bound Research Notes And Canon Promotion`; the exact acceptance map is active and runtime edits wait only for the recorded Research Note ownership and Codex field-mapping decision.
+- Active task: `NS-609 / M6.8 Evidence-bound Research Notes And Canon Promotion`; ADR-0024 and the exact acceptance map fix the database-owned Note and Proposal-gated Codex boundary before runtime implementation.
 - Last reached mainline task: `NS-608 / M6.7 Research-assisted Author Workflow Hardening`; saved-key `deepseek-v4-pro`, adversarial, recovery, performance, browser, and final source-level audit evidence passes through A12.
 - Next mainline task: `NS-609 / M6.8 Evidence-bound Research Notes And Canon Promotion`, which is now active.
 - Following mainline task: `NS-610 / M6.9 Research Database And Source Lifecycle`. Backup, job/lock, query-translation, embedding-Settings, OCR, and `.doc` recommendations remain separate work and are not packed into NS-609.
-- Next mainline action: obtain and record the author's decision on Research Note ownership and the three explicit Codex promotion meanings, then update the governing product/data/API records before any NS-609 runtime edit.
+- Next mainline action: implement Research Note contracts, database authority, evidence resolution, APIs, connected UI, and Codex Proposal application in acceptance order; the authoritative-document gate has passed.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; NS-514 is paused with only A16 author visual acceptance open. No task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
 - Mainline state: GOV-002 is complete and does not consume, complete, or renumber an NS task. NS-602 author visual acceptance was supplied separately by the author.
@@ -60,6 +60,7 @@ Authority: current operational state only
 - The existing internal compatibility mapping is `Series → series`, `Volume → book`, `Chapter → act`, `Act → chapter`, and `Scene → scene` until a separately approved schema migration removes it. Internal names must not appear as product labels.
 - Novel/database search is Chinese-author-first but not Chinese-corpus-only. A Chinese query must be able to retrieve relevant Japanese and English originals through an explainable multilingual path; aliases, transliteration, query translation, and semantic similarity remain disclosed derived channels, while Evidence and citations always return to the unchanged original language/hash/location.
 - Research Databases are library-scoped, may be created without an active Series, and are not owned by a Series. Multiple databases keep separate authority, Sources, originals, indexes, permissions, damage, and lifecycle state. One database may link to several Series; default search uses one database and only explicit author multi-selection may merge labeled results.
+- Research Notes are owned by one Research Database, begin with exact same-database Source evidence, and remain non-Canon. Promotion requires an active Series and a Review Proposal: world rules target Canon Description, while real-world references and inspiration target Codex Research; existing and named new Codex Entry targets are both allowed.
 - Current implementation includes local explicit multi-database Exact/Hybrid retrieval, database-scoped aliases/transliterations, a semantic channel that uses only the current validated `research.multilingual` Embedding profile and current per-database vector sidecar, the NS-606 server-owned read-only model retrieval gateway, and the NS-607 Workshop activation/tool-loop/all-tool policy. Query translation has no active binding or runtime path. Real saved-key repeated author workflows and final hardening remain NS-608 and must not be presented as complete.
 
 ## Known Risks

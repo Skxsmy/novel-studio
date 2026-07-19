@@ -1,6 +1,6 @@
 # NS-609 Research Notes UI Checklist
 
-Status: draft pending product decision
+Status: active implementation checklist
 Updated: 2026-07-20
 Task: `docs/tasks/NS-609.md`
 
@@ -16,10 +16,12 @@ author workflows. No Figma node or screenshot is binding. Existing product
 components are sufficient, so targeted 21st.dev component inspiration is not
 used.
 
-Two product decisions remain unresolved in `docs/tasks/NS-609.md`: Research
-Note ownership and the exact Codex field mapping for each promotion meaning.
-This checklist names every surface affected by those decisions and does not
-turn the current recommendation into accepted behavior.
+ADR-0024 fixes the two boundaries used by this checklist. A Research Note is
+owned by the current Research Database and begins with server-verified Source
+evidence. Promotion requires an active Series, creates a Review Proposal, maps
+`World rule` to Canon Description, maps `Real-world reference` and
+`Inspiration only` to Codex Research, and permits an existing or named new
+Codex Entry target.
 
 ## Direction
 
@@ -52,13 +54,14 @@ turn the current recommendation into accepted behavior.
   `Sources` or `Notes` view for that database.
 - `Add to project` appears only on an opened original passage or an exact search
   result. It opens a focused note-capture dialog containing the immutable
-  evidence preview and editable title/body fields.
-- Successful note creation switches the Research workspace to `Notes`, selects
-  the new note, and keeps the originating database selected.
-- `Move to Codex` stays unavailable until the required owner and mapping
-  decision is recorded. Under the recommended behavior it requires an active
-  Series, opens a promotion dialog, creates one pending Proposal, and navigates
-  to that Proposal in Review.
+  evidence preview and a `New note / Existing note` target control. New note
+  exposes editable title/body fields; existing note lists active Notes from the
+  current database only.
+- Successful note creation or evidence append switches the Research workspace
+  to `Notes`, selects the target note, and keeps the originating database
+  selected.
+- `Move to Codex` requires an active Series, opens a promotion dialog, creates
+  one pending Proposal, and navigates to that Proposal in Review.
 - Rejecting or archiving the Proposal returns to the originating Research Note.
   Accepting it exposes both `Open Research Note` and `Open Codex Entry` return
   actions. No route implies that opening a Note changed Canon.
@@ -101,9 +104,9 @@ turn the current recommendation into accepted behavior.
   language, location, unchanged original quote, and current/changed/missing/
   unreadable state. Engineering hashes are available only in a collapsed
   evidence-details disclosure.
-- An empty note list offers `Create standalone note` only if the approved owner
-  model permits Notes without Source evidence. Otherwise it explains that Notes
-  begin from a Source passage without presenting a dead control.
+- An empty note list explains that evidence-bound Notes begin from `Add to
+  project` on an opened Source passage. It does not present a standalone-note
+  control that schema version 1 cannot support.
 - Archived Notes are read-only until restored. A stale Note remains editable;
   staleness warns about evidence and never rewrites or deletes the author's body.
 
@@ -116,9 +119,8 @@ turn the current recommendation into accepted behavior.
 - Target uses a required segmented control: `Existing Codex Entry` or
   `New Codex Entry`, if both are approved. Existing target provides searchable
   entry selection; new target provides category and name.
-- A read-only destination summary names the exact visible Codex field that the
-  accepted Proposal would change. This summary cannot be implemented until the
-  mapping decision is approved.
+- A read-only destination summary names `Codex Research` for `Real-world
+  reference` and `Inspiration only`, or `Canon Description` for `World rule`.
 - The author can edit the candidate text independently from the Research Note.
   Editing the candidate does not mutate the Note.
 - Primary command is `Create Review Proposal`; there is no `Add to Canon`,
@@ -130,13 +132,13 @@ turn the current recommendation into accepted behavior.
 | --- | --- | --- | --- |
 | Sources/Notes tabs | `ResearchDatabaseWorkspace.tsx` plus feature CSS | local view state persisted per database | none |
 | Passage command | Research result and reader block components | exact opened `ResearchRetrievalResult` or bounded block selection | none |
-| Capture dialog | new Research feature component | create-note API after validation | Note owner path |
-| Note rail/editor | new Research feature components | list/get/update/archive/restore APIs | Note owner path |
+| Capture dialog | new Research feature component | create-note or append-evidence API after validation | none |
+| Note rail/editor | new Research feature components | list/get/update/archive/restore APIs | none |
 | Evidence inspector | new Research feature component | server-resolved evidence status and bounded original quote | none |
-| Promotion dialog | new Research feature component | Codex target list and create-Proposal API | owner plus Codex mapping |
+| Promotion dialog | new Research feature component | Codex target list and create-Proposal API | active Series |
 | Review return actions | `ReviewWorkspace.tsx` | Proposal source/target navigation | promotion contract |
 | API client | `apps/web/src/api/research.ts` and proposals API | typed server routes only | contract outcome |
-| Copy | Research feature view-model text module | centralized author-facing labels/errors | approved meanings |
+| Copy | Research feature view-model text module | centralized author-facing labels/errors | none |
 
 ## Required States
 

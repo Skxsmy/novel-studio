@@ -211,6 +211,11 @@ Codex 写工具，工具形状的普通文字不得被当作调用执行。
 - `research-note`。
 - `continuity-issue`：只报告，不直接修改。
 
+Research Note 提升使用 `research-note` Proposal 来源，但目标仍是一个明确的
+Codex 字段：现实参考和仅供灵感目标为 Codex Research，世界规则目标为 Canon
+Description。它必须由作者在 Research 工作区明确发起，不调用 Provider；Research
+Note 和全部 Source Evidence 在创建和接受时重新校验，Review 接受前不写 Codex。
+
 ### 5.2 必需字段
 
 - Proposal ID、类型、状态。

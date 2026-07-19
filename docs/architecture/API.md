@@ -154,12 +154,35 @@ Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复�
 - `POST /research/databases/:databaseId/index/rebuild`
 - `POST /research/databases/:databaseId/search`
 - `POST /research/databases/:databaseId/migrations/source-v3`
+- `GET /research/databases/:databaseId/notes`
+- `POST /research/databases/:databaseId/notes`
+- `GET /research/databases/:databaseId/notes/:noteId`
+- `PUT /research/databases/:databaseId/notes/:noteId`
+- `POST /research/databases/:databaseId/notes/:noteId/evidence`
+- `DELETE /research/databases/:databaseId/notes/:noteId/evidence/:evidenceId`
+- `POST /research/databases/:databaseId/notes/:noteId/archive`
+- `POST /research/databases/:databaseId/notes/:noteId/restore`
+- `POST /research/databases/:databaseId/notes/:noteId/promotions`
 
 Research Database 是 library 范围、互相隔离的作者权威对象，不由 Series
 拥有。数据库属性更新使用 `baseRevision`；`linkedSeriesIds` 只建立可复用
 引用关系，不移动或复制数据库。旧的 Series 所有来源只能通过明确的迁移
 命令复制到已经链接该 Series 的目标数据库；旧权威在复制成功后仍保留。
 旧 `/series/:seriesId/research/sources` 路由已退役，不再提供隐式兼容写入。
+
+Research Note 路由属于一个明确的 Research Database，不要求打开 Series。创建
+Note 或追加 Evidence 的请求只提交当前 Source、content revision、Block 和 Chunk
+身份；服务端必须从同库权威复核并填充原语言引用、hash、语言和 SourceLocation，
+拒绝客户端自报正文、私有路径和跨库引用。列表返回有界摘要；详情解析每条证据的
+当前、Source revision 已变化但段落仍可定位、段落已变化、来源缺失、不可读或
+归属不匹配状态。`aiPermission: never` 单独报告模型使用禁止，不阻止作者本地读取。
+Archive/restore 和所有写入要求 `baseRevision`；归档 Note 只读。
+
+`.../promotions` 还要求一个活动 Series、明确 meaning、现有或新 Codex target 和
+作者可编辑的候选文字。现实参考及仅供灵感目标为 Codex Research，世界规则目标为
+Canon Description。响应只创建一个 pending Proposal；不调用 Provider，也不提前
+写 Codex。接受路径重新校验 Note、Evidence 和目标 revision/absence，再在 Series
+事务中写 Codex、不可变快照与 Proposal 决定。
 
 来源列表返回目标数据库内按导入时间排序的 SourceDocument version 2 或 version 3 与 revision。
 version 2 详情保留旧的原文响应；version 3 详情、导入响应和属性更新响应只返回
@@ -431,9 +454,12 @@ NS-407 已允许两类调用：
 
 ### Proposal 边界
 
-M4 只允许保留 `Proposal` 契约和未来接口草案，不实现应用流程。
-
-正文候选可以在 NS-407 通过写作页内联确认后保存；其他 AI 输出如需影响设定、摘要、人物状态、故事进展或角色所知，必须在 M5 进入 `Proposal` 或候选事实收件箱。应用 `Proposal` 前必须比较每个 `ProposalPatch.baseRevision`；目标已变化时返回冲突，不能静默合并。
+当前 Proposal/Review 应用流程支持已连接的 Scene 目标；NS-609 的目标扩展是
+Research Note 来源到 Codex Entry 或 Codex Research 目标。正文候选仍可在写作页
+内联确认；其它 AI 或 Research 输出如需影响设定、摘要、人物状态、故事进展或
+角色所知，必须进入 Proposal 或候选事实收件箱。应用 Proposal 前必须比较每个
+目标 revision；创建目标必须验证预分配 ID 仍不存在。目标、Research Note 或
+Source Evidence 已变化时返回冲突，不能静默合并。
 
 ## 后续长任务
 

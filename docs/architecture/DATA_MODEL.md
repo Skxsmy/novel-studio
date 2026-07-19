@@ -138,6 +138,14 @@ SourceLocation 和混合语言片段位于版本化 content JSON。version 2 只
 迁移输入，迁移保留原件和精确回滚 JSON。Series 关联是知识库属性，不改变
 Source 路径或所有权。
 
+Research Note version 1 位于
+`research-databases/<database-id>/notes/<note-id>.json`，由一个 Research
+Database 拥有并至少绑定一条同库 Source 证据。笔记保存稳定 ID、标题、正文、
+标签、归档状态、时间戳和 revision；每条证据保存 Source content revision/hash、
+Block/Chunk 身份、Chunk/hash、原语言引用快照与 hash、语言、SourceLocation 和
+捕获时间。证据新鲜度在读取时从当前 Source 权威派生，不写回或改写笔记正文。
+归档笔记只读；永久删除在能够检查 Proposal 和快照引用前不可用。
+
 NS-602 起，每个 Series 的 `.studio/index.sqlite` 通过统一 `IndexDatabase` 边界打开。新数据库使用固定 `application_id = 0x4E534958`、`user_version = 1`、校验过的迁移账本、严格类型普通表、固定 WAL/连接策略和每个 Series 一个串行写入/重建队列。当前旧 `application_id=0` 且 `user_version=0` 的数据库被分类为 `legacy-v0` 派生索引，不被误认为权威或已迁移数据。
 
 全量重建在 `.studio/index-build/<build-id>.sqlite` 中投影 Scene、Codex、提及、歧义、Context Bundle 和 Model Call，完成身份、checksum、`quick_check`、外键和 build ID 验证并关闭 WAL 后才替换活动库。取消、构建失败或交换失败会恢复旧活动库并清理该 build 的有界临时文件。每个 Research Database 的 `.studio/index.sqlite` 使用独立的 `application_id = 0x4E535258`、schema checksum、数据库身份和来源 freshness ledger，投影 Section、Block、Chunk、语言片段及 CJK trigram/Unicode word FTS；缺失、过期、损坏或外来索引从当前数据库权威原子重建。NS-605 才在明确多选时联合查询多个独立索引并接入跨语言向量适配器。Series 小说文本投影的剩余规范化另行验收。SQLite 和向量正文始终不是 Canon 或 Research Source 权威。
@@ -459,3 +467,11 @@ Preset 只保存默认角色、模板版本、模型配置和输入项，不保�
 位置：`.studio/inbox/proposals/<proposal-id>.json`
 
 `Proposal` 是候选变更权威记录。AI 输出如需影响正文、设定、摘要、进展或角色所知，必须进入 Proposal/Review 流程或受限的作者明确确认命令。每个 patch 必须记录目标类型、目标 ID、基础 revision、字段路径、差异和证据；目标已变化时不得直接应用。
+
+Research Note 到 Codex 的 Proposal 属于目标 Series，并引用数据库拥有的 Note
+revision 与全部 Source Evidence。现实参考和仅供灵感使用 `codex-research`
+目标 revision；世界规则使用 `codex-entry` 的 Canon Description revision。新
+Codex Entry 使用预分配 ID 和明确的 `targetAbsent` 基线，不伪造 revision。
+接受时只把 Codex 目标、不可变快照和 Proposal 决定写入同一个 Series-root
+事务；Research Note 与 Source 是只读依赖，不声称跨 Research Database 与 Series
+根目录的原子写入。

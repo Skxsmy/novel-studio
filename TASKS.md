@@ -30,7 +30,7 @@ None.
 | NS-606 | complete | M6.5 permissioned artificial-intelligence retrieval gateway with read-only tools, budgets, citations, and durable audit | `docs/tasks/NS-606.md`; `docs/testing/NS-606_ACCEPTANCE.md` |
 | NS-607 | paused | M6.6 Workshop database activation, bounded retrieval loops, and all-tool model behavior harness are committed; author-only A15 remains open while continued mainline work proceeds by direction | `docs/tasks/NS-607.md` |
 | NS-608 | paused | M6.7 saved-key `deepseek-v4-pro` author workflow, adversarial, recovery, performance, browser, and final database audit evidence passes A01-A12; author-only A13 remains open | `docs/tasks/NS-608.md`; `docs/testing/NS-608_ACCEPTANCE.md`; `docs/testing/NS-608_DATABASE_FINAL_AUDIT.md` |
-| NS-609 | in_progress | M6.8 evidence-bound Research Note authority, stale-evidence handling, and separately confirmed Proposal-gated Codex promotion; owner and Codex field mappings await the recorded author decision before runtime edits | `docs/tasks/NS-609.md`; `docs/testing/NS-609_ACCEPTANCE.md` |
+| NS-609 | in_progress | M6.8 database-owned evidence-bound Research Note authority, stale-evidence handling, and ADR-0024 Proposal-gated promotion to Codex Research or Canon Description | `docs/tasks/NS-609.md`; `docs/testing/NS-609_ACCEPTANCE.md` |
 | NS-610 | todo | M6.9 Research Database and Source archive, restore, permanent-delete, replacement, and reparse lifecycle | task and acceptance records must be created after NS-609 reaches its implementation boundary |
 
 ## Incomplete Existing Lines

@@ -187,10 +187,12 @@ NS-602 的第一条实现切片只接受不超过 5 MiB 的 UTF-8 `.txt` 和 `.m
 ## 7. Research Note 与 Canon
 
 - 原文资料属于 Source。
-- 从资料提炼出的内容属于 Research Note。
-- Research Note 默认不是故事事实。
-- “转入 Codex”产生一个新的 Proposal，并要求作者说明它是现实参考、世界规则还是仅供灵感。
-- 来源更新后，已有 Research Note 不自动改写；系统提示证据版本已变化。
+- 从资料提炼出的内容属于当前 Research Database 内的 Research Note，不属于任何 Series。Research Note 可以在没有打开 Series 时创建和管理，也不会因为知识库关联多个 Series 而复制或移动。
+- 首个 Research Note schema 是证据绑定的笔记：创建时至少包含当前知识库内一段由服务端复核的 Source 原文证据。笔记正文与原文证据分开保存；作者或人工智能生成的总结不能冒充原文。
+- Research Note 默认不是故事事实。归档后的笔记只读，恢复后才能继续编辑；永久删除必须等到能够检查 Proposal、快照和其它审计引用的独立生命周期命令。
+- “转入 Codex”要求打开一个 Series，并产生一个新的 Series Proposal；知识库不需要归属或关联该 Series。作者必须选择现实参考、世界规则或仅供灵感，并选择现有 Codex Entry 或在现有类别中创建一个命名的新 Entry。
+- 现实参考和仅供灵感写入 Codex Research；世界规则写入 Canon Description。候选文字可在创建 Proposal 前独立编辑，不改写 Research Note；Review 接受前 Codex 不发生变化。
+- 来源更新后，已有 Research Note 不自动改写；系统保留捕获时的原语言证据并提示当前、来源 revision 已变化但原段仍可定位、段落已变化、来源缺失、权威不可读或归属不匹配。`never` 只禁止资料进入人工智能上下文，不禁止作者本地阅读、记笔记或执行不调用 Provider 的 Proposal 流程。
 
 ## 8. 外部研究报告
 

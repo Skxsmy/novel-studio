@@ -2,7 +2,7 @@
 
 Status: in_progress
 Task: `docs/tasks/NS-609.md`
-Decision: pending author confirmation of Research Note ownership and Codex field mapping
+Decision: ADR-0024 fixes database-owned evidence-bound Notes and Proposal-gated Codex field mapping
 
 Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Scene`.
 
@@ -10,7 +10,7 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 
 | Acceptance ID | Status | Verification | Required evidence |
 | --- | --- | --- | --- |
-| NS-609-A01 | in_progress | authoritative product/architecture records and `npm.cmd run docs:check` | owner and promotion mappings are explicitly approved and recorded before runtime edits; exact planned proofs remain aligned |
+| NS-609-A01 | passed | authoritative product/architecture records and `npm.cmd run docs:check` | ADR-0024 and governing product, data, API, security, UI, task, and traceability records agree before runtime edits; documentation check passed for 197 Markdown files and the contradiction scan returned no matches |
 | NS-609-A02 | planned | `packages/contracts/test/research-notes.test.ts` | valid schema round trips and malformed, oversized, duplicate, contradictory, and unsupported inputs fail closed |
 | NS-609-A03 | planned | `packages/storage/test/research-notes.test.ts` | atomic revision-checked authority lifecycle, isolation, diagnostics, and injected-failure recovery pass |
 | NS-609-A04 | planned | Research Note evidence-resolution Storage tests | exact original-language evidence identity and every current/changed/missing/forbidden/cross-database/unreadable state pass without note mutation |
@@ -32,9 +32,9 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
   Proposal enum values, but there is no Research Note schema, authority writer,
   route, UI, or Proposal application path. Those enum values are scaffolding and
   are not accepted as implementation evidence.
-- Research Database and Source authority are library-scoped and isolated, while
-  existing Proposal files are Series-scoped. The task records this ownership
-  question instead of inferring behavior from either current path.
+- Research Database, Source, and Research Note authority are library-scoped and
+  isolated, while Proposal files and Codex targets are Series-scoped. ADR-0024
+  records the read-only dependency and Series transaction boundary.
 - The author's saved Provider credential remains present and unchanged. NS-609
   does not read, copy, replace, or test that credential.
 
@@ -46,6 +46,8 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 | 2026-07-20 | clean post-`83ae262` worktree | official Zotero note/library model and official Novelcrafter Codex revision/progression research | Mature references support library-owned source-bound and standalone notes, separately versioned Canon description and non-Canon notes, and explicit story-state progression; recorded as recommendation evidence without claiming author approval |
 | 2026-07-20 | clean post-`5dca4d6` worktree | installed `ui-design` Skill, accepted Research checklists, current connected Research DOM/CSS, Story Change component, API, and state inventory | Added the named direct-to-React UI checklist covering route, entry/return, three-column Sources/Notes structure, component/data map, evidence states, promotion dialog, accessibility, responsiveness, and exact browser path while keeping both product decisions unresolved |
 | 2026-07-20 | clean post-`aad19e9` worktree | Proposal contract, source/target availability, preview, accept/edit-accept, Scene transaction, Codex dual-revision authority, create/update transaction, and Research database transaction review | Confirmed dormant Codex/Research Note enum paths cannot currently apply: create target availability requires a nonexistent entry to exist, every non-Scene patch is rejected, both accept paths are Scene-only, create snapshots cannot represent target absence, and Research Note is not a Proposal source kind. Recorded a target-family planner and same-Series-root atomic application design without claiming implementation |
+| 2026-07-20 | clean post-`610cc45` worktree | re-read ADR-0019, Research product and user-experience authority, Codex field separation, Proposal boundaries, and NS-609 checklist | Corrected the task's mistaken reopening of a settled ownership rule. Added ADR-0024 and aligned product, architecture, API, security, traceability, task, acceptance, and UI records before runtime edits |
+| 2026-07-20 | NS-609 authority-decision worktree | `npm.cmd run docs:check`; `git diff --check`; scoped contradiction scan | Passed 197 Markdown files, no diff errors, and no remaining pending-decision wording in the active NS-609 records; A01 passed before runtime edits |
 
 ## Repository Safety
 
