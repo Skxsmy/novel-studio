@@ -282,6 +282,21 @@ describe("NS-604 original-language Research workspace", () => {
     expect(within(root).getAllByText("Example reference").length).toBeGreaterThan(0);
   });
 
+  it("keeps source authority visible when the first content page cannot be read", async () => {
+    const detail = v3Detail();
+    arrange(detail);
+    vi.mocked(api.research.getSourceContentPage).mockRejectedValueOnce(new Error("page read failed"));
+
+    const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
+    const root = container.querySelector<HTMLElement>("#research-workspace")!;
+    root.hidden = false;
+
+    await within(root).findByText("Source page unavailable");
+    expect(within(root).getByRole("alert").textContent).toContain("page read failed");
+    expect(within(root).getByTitle("Harbor terminology")).toBeTruthy();
+    expect((within(root).getByLabelText("Display name") as HTMLInputElement).value).toBe("Harbor terminology");
+  });
+
   it("searches only the selected database and opens the exact original-language location", async () => {
     const detail = v3Detail();
     arrange(detail);
@@ -315,10 +330,59 @@ describe("NS-604 original-language Research workspace", () => {
     fireEvent.click(within(root).getByRole("button", { name: "Search" }));
 
     await waitFor(() => expect(search).toHaveBeenCalledWith(databaseId, { query: "月守", purpose: "local", limit: 30 }));
+    expect(within(root).getByRole("heading", { name: "1 result for “月守”" })).toBeTruthy();
+    fireEvent.change(input, { target: { value: "未提交的新查询" } });
+    expect(within(root).getByRole("heading", { name: "1 result for “月守”" })).toBeTruthy();
     expect(within(root).getByText("用語 · paragraph 3")).toBeTruthy();
     fireEvent.click(within(root).getByRole("button", { name: /月守（つきもり）/u }));
     await waitFor(() => expect(root.querySelector(`#research-block-${blockId}`)?.classList.contains("is-highlighted")).toBe(true));
     expect(root.querySelector(`#research-match-${blockId}`)?.textContent).toBe("月守");
+    expect(within(root).getByRole("status").textContent).toContain("Opened 用語 · paragraph 3");
+  });
+
+  it("keeps search results retryable until the matching page actually opens", async () => {
+    const detail = v3Detail();
+    arrange(detail);
+    vi.mocked(api.research.getSourceContentPage)
+      .mockResolvedValueOnce(contentPage(detail))
+      .mockRejectedValueOnce(new Error("matching page failed"))
+      .mockResolvedValueOnce(contentPage(detail));
+    vi.spyOn(api.research, "search").mockResolvedValue({
+      researchDatabaseId: databaseId,
+      query: "月守",
+      results: [{
+        researchDatabaseId: databaseId,
+        sourceId,
+        sourceRevision: detail.revision,
+        sourceDisplayName: detail.source.displayName,
+        sourceKind: detail.source.kind,
+        chunkId,
+        blockId,
+        blockOrder: 0,
+        chunkHash: "d".repeat(64),
+        originalText: detail.content.chunks[0]!.text,
+        languageTag: "ja-JP",
+        location: detail.content.chunks[0]!.location,
+        matchChannels: ["keyword-cjk"],
+        score: 1,
+      }],
+    });
+
+    const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
+    const root = container.querySelector<HTMLElement>("#research-workspace")!;
+    root.hidden = false;
+    const input = await within(root).findByLabelText("Search selected Research Database");
+    fireEvent.change(input, { target: { value: "月守" } });
+    fireEvent.click(within(root).getByRole("button", { name: "Search" }));
+    const result = await within(root).findByRole("button", { name: /月守（つきもり）/u });
+    fireEvent.click(result);
+
+    await waitFor(() => expect(within(root).getByRole("alert").textContent).toContain("matching page failed"));
+    expect(within(root).queryByText(/^Opened /u)).toBeNull();
+    const retry = within(root).getByRole("button", { name: /月守（つきもり）/u }) as HTMLButtonElement;
+    await waitFor(() => expect(retry.disabled).toBe(false));
+    fireEvent.click(retry);
+    await waitFor(() => expect(root.querySelector(`#research-match-${blockId}`)?.textContent).toBe("月守"));
     expect(within(root).getByRole("status").textContent).toContain("Opened 用語 · paragraph 3");
   });
 

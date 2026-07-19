@@ -31,11 +31,27 @@ async function createDocxFixture(): Promise<Buffer> {
 
 test("imports structured sources, searches exact locations, and keeps databases isolated", async ({ page }) => {
   const browserErrors: string[] = [];
+  let expectedContentFailureUrl: string | null = null;
+  let expectedContentFailureResponses = 0;
+  let expectedContentFailureConsoleErrors = 0;
   page.on("console", (message) => {
-    if (message.type() === "error") browserErrors.push(`console.error: ${message.text()}`);
+    if (message.type() !== "error") return;
+    if (
+      expectedContentFailureUrl
+      && expectedContentFailureConsoleErrors === 0
+      && message.text() === "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    ) {
+      expectedContentFailureConsoleErrors += 1;
+      return;
+    }
+    browserErrors.push(`console.error: ${message.text()}`);
   });
   page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.stack ?? error.message}`));
   page.on("response", (response) => {
+    if (response.status() === 500 && response.url() === expectedContentFailureUrl) {
+      expectedContentFailureResponses += 1;
+      return;
+    }
     if (response.status() >= 400) browserErrors.push(`http ${response.status()}: ${response.url()}`);
   });
 
@@ -62,7 +78,7 @@ test("imports structured sources, searches exact locations, and keeps databases 
   });
   await expect(workspace.getByRole("status")).toContainText("Imported harbor-terms.docx");
   await expect(workspace.locator(".rs10-text-blocks")).toContainText("月守（つきもり）");
-  await expect(workspace.getByRole("button", { name: /港湾用語.*Word/u })).toBeVisible();
+  await expect(workspace.getByTitle("港湾用語")).toBeVisible();
 
   const search = workspace.getByLabel("Search selected Research Database");
   await search.fill("月守");
@@ -71,8 +87,34 @@ test("imports structured sources, searches exact locations, and keeps databases 
   await expect(result).toBeVisible();
   await expect(result.locator(".rs10-location-ribbon")).toContainText("paragraph");
   await expect(result.locator(".rs10-location-ribbon")).toContainText("ja");
+  await expect(workspace.getByRole("heading", { name: "1 result for “月守”" })).toBeVisible();
+  await search.fill("unsubmitted query");
+  await expect(workspace.getByRole("heading", { name: "1 result for “月守”" })).toBeVisible();
+
+  let injectContentFailure = true;
+  await page.route("**/api/v1/research/databases/*/sources/*/content?*", async (route) => {
+    if (!injectContentFailure) {
+      await route.continue();
+      return;
+    }
+    injectContentFailure = false;
+    expectedContentFailureUrl = route.request().url();
+    await route.fulfill({
+      body: JSON.stringify({ code: "INJECTED_FAILURE", message: "Injected content page failure" }),
+      contentType: "application/json",
+      status: 500,
+    });
+  });
   await result.click();
+  await expect(workspace.getByRole("alert")).toContainText("Injected content page failure");
+  await expect(workspace.getByTitle("港湾用語")).toBeVisible();
+  await expect(result).toBeEnabled();
+  await expect(workspace.getByText(/^Opened /u)).toHaveCount(0);
+
+  await result.click();
+  await expect(workspace.getByRole("status")).toContainText("Opened");
   await expect(workspace.locator(".rs10-text-block.is-highlighted")).toContainText("月守（つきもり）");
+  await expect(workspace.locator(".rs10-search-match")).toHaveText("月守");
 
   const addSource = workspace.getByRole("button", { exact: true, name: "Add source" });
   await addSource.click();
@@ -120,6 +162,8 @@ test("imports structured sources, searches exact locations, and keeps databases 
     toolbarFits: true,
     workspaceFits: true,
   });
+  expect(expectedContentFailureResponses).toBe(1);
+  expect(expectedContentFailureConsoleErrors).toBe(1);
   expect(browserErrors).toEqual([]);
 });
 
