@@ -39,7 +39,6 @@ import {
 } from "./codexDraft.js";
 import {
   parseWorkshopAgentToolCall,
-  workshopAgentToolDefinitions,
   type WorkshopAgentStep,
 } from "./workshopAgent.js";
 import { runWorkshopResearchLoop } from "./workshopResearchLoop.js";
@@ -267,9 +266,8 @@ async function executeModelAttempt(input: {
       prompt: input.prompt,
       contextBundle: input.contextBundle,
       resolvedParameters,
+      mode: "agent",
       ...(input.history ? { history: input.history } : {}),
-      baseTools: adapter.chatCapabilities.nativeToolCalls ? workshopAgentToolDefinitions() : [],
-      returnUnhandledToolCalls: true,
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
       ...(input.onStreamEvent ? {
         onStreamEvent: (event) => input.onStreamEvent?.({

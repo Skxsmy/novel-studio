@@ -5,7 +5,6 @@ import type {
   ProviderChatResult,
   ProviderChatStreamEvent,
   ProviderPrompt,
-  ProviderToolDefinition,
 } from "@novel-studio/ai";
 import type {
   ContextBundle,
@@ -16,10 +15,12 @@ import type {
 } from "@novel-studio/contracts";
 import type { ProjectRepository } from "@novel-studio/storage";
 import { modelError } from "../ai/policy.js";
+import { createResearchToolGateway } from "../researchToolGateway.js";
 import {
-  createResearchToolGateway,
-  researchRetrievalToolDefinitions,
-} from "../researchToolGateway.js";
+  guardWorkshopToolCalls,
+  guardWorkshopToolResult,
+  workshopToolDefinitionsForStep,
+} from "./workshopToolPolicy.js";
 
 export const WORKSHOP_RESEARCH_MAX_PROVIDER_STEPS = 10;
 
@@ -43,9 +44,8 @@ interface WorkshopResearchLoopInput {
   prompt: ProviderPrompt;
   contextBundle: ContextBundle;
   resolvedParameters: ModelParameters;
+  mode: "general-chat" | "agent";
   history?: ProviderChatMessage[];
-  baseTools?: ProviderToolDefinition[];
-  returnUnhandledToolCalls: boolean;
   abortSignal?: AbortSignal;
   onStreamEvent?: (
     event: Exclude<ProviderChatStreamEvent, { type: "done" }>,
@@ -118,7 +118,6 @@ export async function runWorkshopResearchLoop(
 ): Promise<WorkshopResearchLoopResult> {
   const activeDatabaseIds = input.activeDatabaseIds ?? [];
   const history = [...(input.history ?? [])];
-  const baseTools = input.baseTools ?? [];
   const activeDatabases = await Promise.all(activeDatabaseIds.map(async (databaseId) => {
     const document = await input.repository.getResearchDatabase(databaseId);
     return { id: document.database.id, name: document.database.name };
@@ -134,7 +133,6 @@ export async function runWorkshopResearchLoop(
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     })
     : null;
-  const researchTools = researchRetrievalToolDefinitions(researchAvailable, activeDatabases);
   let allowResearchTools = researchAvailable;
   let repairUsed = false;
   let researchToolCalls = 0;
@@ -148,10 +146,12 @@ export async function runWorkshopResearchLoop(
     }
     const bufferedEvents: Array<Exclude<ProviderChatStreamEvent, { type: "done" }>> = [];
     let result: ProviderChatResult | null = null;
-    const tools = [
-      ...baseTools,
-      ...(allowResearchTools ? researchTools : []),
-    ];
+    const tools = workshopToolDefinitionsForStep({
+      mode: input.mode,
+      nativeToolCalls: input.adapter.chatCapabilities.nativeToolCalls,
+      activeDatabases,
+      allowResearchTools,
+    });
     for await (const event of input.adapter.streamChat({
       modelProfile: input.modelProfile,
       prompt: input.prompt,
@@ -171,11 +171,32 @@ export async function runWorkshopResearchLoop(
     if (!result) throw modelError("provider-error", "The Provider stream ended without a terminal result.", true);
     providerResults.push(result);
 
-    if (result.toolCalls.length > 1) {
+    const guard = guardWorkshopToolCalls({
+      mode: input.mode,
+      calls: result.toolCalls,
+      availableToolNames: new Set(tools.map((tool) => tool.name)),
+      unavailableToolReasons: new Map([
+        ...(!allowResearchTools && gateway ? [
+          ["research.list_sources", {
+            code: "BUDGET_EXHAUSTED",
+            message: "The Research budget for this author turn is exhausted. Answer from evidence already returned or explain that no matching evidence was found.",
+          }],
+          ["research.search", {
+            code: "BUDGET_EXHAUSTED",
+            message: "The Research budget for this author turn is exhausted. Answer from evidence already returned or explain that no matching evidence was found.",
+          }],
+          ["research.open_passage", {
+            code: "BUDGET_EXHAUSTED",
+            message: "The Research budget for this author turn is exhausted. Answer from evidence already returned or explain that no matching evidence was found.",
+          }],
+        ] as const : []),
+      ]),
+    });
+    if (guard.action === "reject") {
       if (repairUsed) {
         throw modelError(
           "structured-output-failed",
-          "The Provider repeatedly returned parallel tool calls although Workshop requires one ordered action.",
+          `The Provider repeatedly violated the Workshop tool policy: ${guard.message}`,
           true,
         );
       }
@@ -184,21 +205,17 @@ export async function runWorkshopResearchLoop(
         role: "assistant",
         content: result.text,
         reasoningContent: result.reasoningContent,
-        toolCalls: result.toolCalls,
+        toolCalls: guard.calls,
       });
-      history.push(...result.toolCalls.map((call) => ({
+      history.push(...guard.calls.map((call) => ({
         role: "tool" as const,
         toolCallId: call.id,
-        content: syntheticToolError(
-          "PARALLEL_TOOL_CALLS_REJECTED",
-          "Return exactly one ordered tool call in the next step.",
-        ),
+        content: syntheticToolError(guard.code, guard.message),
       })));
       continue;
     }
 
-    const [toolCall] = result.toolCalls;
-    if (!toolCall) {
+    if (guard.action === "none") {
       for (const event of bufferedEvents) await input.onStreamEvent?.(event);
       return {
         providerResult: mergeProviderResults(providerResults, result),
@@ -210,35 +227,19 @@ export async function runWorkshopResearchLoop(
       };
     }
 
-    if (!toolCall.name.startsWith("research.")) {
-      if (input.returnUnhandledToolCalls) {
-        for (const event of bufferedEvents) await input.onStreamEvent?.(event);
-        return {
-          providerResult: mergeProviderResults(providerResults, result),
-          citations: gateway
-            ? await collectCitations(input.repository, input.seriesId, input.modelCallId)
-            : [],
-          providerSteps: step,
-          researchToolCalls,
-        };
-      }
-      if (repairUsed) {
-        throw modelError("structured-output-failed", `The Provider requested unknown tool ${toolCall.name}.`, true);
-      }
-      repairUsed = true;
-      history.push({
-        role: "assistant",
-        content: result.text,
-        reasoningContent: result.reasoningContent,
-        toolCalls: [toolCall],
-      }, {
-        role: "tool",
-        toolCallId: toolCall.id,
-        content: syntheticToolError("UNKNOWN_TOOL", "Use one of the declared Research tools or answer directly."),
-      });
-      continue;
+    if (guard.action === "request-confirmation") {
+      for (const event of bufferedEvents) await input.onStreamEvent?.(event);
+      return {
+        providerResult: mergeProviderResults(providerResults, result),
+        citations: gateway
+          ? await collectCitations(input.repository, input.seriesId, input.modelCallId)
+          : [],
+        providerSteps: step,
+        researchToolCalls,
+      };
     }
 
+    const toolCall = guard.call;
     if (!gateway) {
       if (repairUsed) {
         throw modelError("structured-output-failed", "The selected model cannot execute Research tools.", true);
@@ -260,6 +261,10 @@ export async function runWorkshopResearchLoop(
     const phase = phaseForTool(toolCall.name);
     await input.onResearchActivity?.({ phase, status: "started", step });
     const toolResult = await gateway.execute(toolCall);
+    const resultGuard = guardWorkshopToolResult({ call: toolCall, result: toolResult });
+    if (!resultGuard.ok) {
+      throw modelError("provider-error", resultGuard.message, false);
+    }
     researchToolCalls += 1;
     await input.onResearchActivity?.({
       phase,

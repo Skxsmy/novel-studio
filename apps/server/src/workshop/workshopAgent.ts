@@ -101,13 +101,13 @@ export function workshopAgentToolDefinitions(): ProviderToolDefinition[] {
   return [
     {
       name: "codex.create_entry",
-      description: "For a latest author turn that directly asks to record a new fictional Codex entry, prepare that entry from the decisions in the conversation. The server presents the exact draft for author confirmation before any project write.",
+      description: "Prepare one new fictional Codex entry only when the author explicitly asks to create or record it. Do not call this tool for brainstorming, prose writing, discussion, a rejected suggestion, or merely because Codex was mentioned. Use only author-provided or author-confirmed decisions from the conversation; a short correction remains binding in later turns. The server validates the exact draft and presents it for author confirmation before any project write.",
       parameters: jsonSchema(WorkshopCodexCreateToolArgumentsSchema),
       strict: true,
     },
     {
       name: "codex.update_entry",
-      description: "For a latest author turn that directly asks to change an existing Codex entry, prepare those changes. Use its entry ID when available, otherwise its current unique name. The server validates the target and presents the exact draft for author confirmation before any project write. Progression creation requires its effective Scene; progression update or deletion requires an existing progression ID.",
+      description: "Prepare changes to one existing Codex entry only when the author explicitly asks to update or record those changes. Do not call this tool for brainstorming, prose writing, discussion, a rejected suggestion, or an ambiguous target. Preserve earlier author corrections and exclusions. Use the entry ID when available, otherwise its current unique name. The server validates the target and presents the exact draft for author confirmation before any project write. Progression creation requires its effective Scene; progression update or deletion requires an existing progression ID.",
       parameters: jsonSchema(WorkshopCodexUpdateToolArgumentsSchema),
       strict: true,
     },

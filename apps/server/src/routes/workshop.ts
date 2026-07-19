@@ -535,7 +535,7 @@ async function executeWorkshopCall(input: {
       prompt,
       contextBundle: providerContextBundle,
       resolvedParameters,
-      returnUnhandledToolCalls: false,
+      mode: "general-chat",
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
       ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
       ...(input.onResearchActivity ? { onResearchActivity: input.onResearchActivity } : {}),

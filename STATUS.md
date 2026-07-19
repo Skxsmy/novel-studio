@@ -6,10 +6,10 @@ Authority: current operational state only
 ## Project Mainline
 
 - Active milestone: `M6 Reference Library And Retrieval`.
-- Active task: `NS-607 / M6.6 Workshop Research Database Integration`; session version 3 activation, bounded General Chat and Agent Research loops, persisted message evidence, exact citation navigation, and the direct-code selector/evidence UI are implemented in the current worktree.
+- Active task: `NS-607 / M6.6 Workshop Research Database Integration And Behavior Harness`; session version 3 activation, bounded General Chat and Agent Research loops, persisted message evidence, exact citation navigation, direct-code selector/evidence UI, production all-tool policy, and reusable behavior-evaluation layer are implemented in the current worktree.
 - Last reached mainline task: `NS-606 / M6.5 Artificial-intelligence Research Retrieval Gateway`; A01-A10 passed and implementation commit `c6f7e61` was clean immediately after commit.
 - Next mainline task: `NS-607 / M6.6 Workshop Research Database Integration`; NS-608 remains a separate unstarted successor.
-- Next mainline action: complete connected NS-607 browser verification for source selection, session switching, branching, exact citation navigation, and compact/mobile layout. The independent multi-session harness and automated lifecycle/citation gates now pass; then run one final repository check and production build.
+- Next mainline action: complete the remaining connected browser checks and final repository verification for NS-607. The all-tool deterministic behavior reference now passes, while saved-key repeated model trials remain explicitly assigned to unstarted NS-608.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; NS-514 is paused with only A16 author visual acceptance open. No task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
 - Mainline state: GOV-002 is complete and does not consume, complete, or renumber an NS task. NS-602 author visual acceptance was supplied separately by the author.

@@ -28,7 +28,7 @@ None.
 | NS-604 | paused | M6.3 durable Source authority, large-file ingestion, bounded reading, recoverable exact-match navigation, and isolated original-language lexical index; A01-A13 are committed through `d655ad8`, while author A14 remains open without blocking the explicitly requested continuation | `docs/tasks/NS-604.md`; `docs/testing/NS-604_ACCEPTANCE.md` |
 | NS-605 | paused | M6.4 explicit multi-database hybrid retrieval and validated Chinese/Japanese/English cross-language ranking; A01-A11 are committed while author A12 remains open without blocking the requested continuation | `docs/tasks/NS-605.md`; `docs/testing/NS-605_ACCEPTANCE.md` |
 | NS-606 | complete | M6.5 permissioned artificial-intelligence retrieval gateway with read-only tools, budgets, citations, and durable audit | `docs/tasks/NS-606.md`; `docs/testing/NS-606_ACCEPTANCE.md` |
-| NS-607 | in_progress | M6.6 Workshop database activation and bounded multi-turn retrieval loops for General Chat and Agent | `docs/tasks/NS-607.md` |
+| NS-607 | in_progress | M6.6 Workshop database activation, bounded retrieval loops, and all-tool model behavior harness for Research and Codex | `docs/tasks/NS-607.md` |
 | NS-608 | todo | M6.7 real-author workflow, saved-key, adversarial, performance, recovery, and usability hardening | `docs/tasks/NS-608.md` |
 
 ## Incomplete Existing Lines

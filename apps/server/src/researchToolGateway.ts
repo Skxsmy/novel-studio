@@ -125,19 +125,19 @@ export function researchRetrievalToolDefinitions(
   return [
     {
       name: "research.list_sources",
-      description: `List a bounded page of AI-permitted source metadata from one Research Database active for this model call. This never returns source text.${activeDatabaseDescription}`,
+      description: `List a bounded page of AI-permitted source metadata from one Research Database active for this model call. Use it when the current author question requires discovering which active sources exist; database activation alone is not a reason to call it. This never returns source text.${activeDatabaseDescription}`,
       parameters: jsonSchema(ResearchListSourcesArgumentsSchema),
       strict: true,
     },
     {
       name: "research.search",
-      description: `Search the active Research Databases for a bounded set of relevant original-language passages. The server owns result limits, permissions, ranking thresholds, and cumulative budgets.${activeDatabaseDescription}`,
+      description: `Search the active Research Databases when the current author question needs evidence from those sources. Do not search merely because a database is active or when the author asks only for discussion based on supplied conversation context. Return a bounded set of relevant original-language passages; the server owns result limits, permissions, ranking thresholds, and cumulative budgets.${activeDatabaseDescription}`,
       parameters: jsonSchema(ResearchSearchArgumentsSchema),
       strict: true,
     },
     {
       name: "research.open_passage",
-      description: "Open one previously returned immutable passage citation with at most one adjacent passage on each side. Every citation identity and current revision is verified by the server.",
+      description: "Open one previously returned immutable passage only when its full text or immediate neighbors are needed to answer accurately. Do not invent citation arguments. At most one adjacent passage on each side is returned, and every citation identity and current revision is verified by the server.",
       parameters: jsonSchema(ResearchOpenPassageArgumentsSchema),
       strict: true,
     },
