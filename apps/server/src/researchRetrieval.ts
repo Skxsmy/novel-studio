@@ -430,6 +430,13 @@ export async function searchResearchDatabases(
               databaseId,
               queryEmbedding,
               100,
+              {
+                purpose: input.purpose,
+                ...(input.sourceKinds ? { sourceKinds: input.sourceKinds } : {}),
+                ...(input.languageTags ? { languageTags: input.languageTags } : {}),
+                ...(input.tags ? { tags: input.tags } : {}),
+                ...(input.author ? { author: input.author } : {}),
+              },
             );
             vectorResults.filter((result) => passesVectorFilters(result, input)).forEach((result, index) => {
               candidates.push({

@@ -600,6 +600,44 @@ function indexedLanguageSpan(row: Record<string, unknown>): IndexedLanguageSpan 
   };
 }
 
+function candidateFilter(
+  input: ResearchKeywordSearchInput,
+  chunkAlias: string,
+): { sql: string; parameters: Array<string> } {
+  const clauses: string[] = [];
+  const parameters: string[] = [];
+  if (input.purpose === "model-context") {
+    clauses.push(`${chunkAlias}.ai_permission = 'allowed'`);
+  }
+  if (input.sourceKinds?.length) {
+    clauses.push(`${chunkAlias}.source_kind IN (${input.sourceKinds.map(() => "?").join(", ")})`);
+    parameters.push(...input.sourceKinds);
+  }
+  if (input.languageTags?.length) {
+    clauses.push(`EXISTS (
+      SELECT 1 FROM reference_language_spans AS candidate_language
+      WHERE candidate_language.chunk_id = ${chunkAlias}.id
+        AND (${input.languageTags.map(() => "lower(candidate_language.language_tag) LIKE lower(? || '%')").join(" OR ")})
+    )`);
+    parameters.push(...input.languageTags);
+  }
+  for (const tag of input.tags ?? []) {
+    clauses.push(`EXISTS (
+      SELECT 1 FROM json_each(${chunkAlias}.source_tags_json) AS candidate_tag
+      WHERE candidate_tag.value = ? COLLATE NOCASE
+    )`);
+    parameters.push(tag);
+  }
+  if (input.author) {
+    clauses.push(`instr(lower(${chunkAlias}.source_author), lower(?)) > 0`);
+    parameters.push(input.author);
+  }
+  return {
+    sql: clauses.length > 0 ? ` AND ${clauses.join(" AND ")}` : "",
+    parameters,
+  };
+}
+
 export async function searchResearchIndex(
   databaseRoot: string,
   researchDatabaseId: string,
@@ -617,11 +655,18 @@ export async function searchResearchIndex(
     const database = openResearchIndex(researchIndexDatabasePath(databaseRoot), researchDatabaseId, false, "", false);
     try {
       const scores = new Map<string, { score: number; channels: Set<"keyword-cjk" | "keyword-word" | "keyword-literal"> }>();
+      const filters = candidateFilter(input, "candidate_chunk");
       for (const channel of searchChannels(input.query)) {
+        const candidateSource = filters.sql
+          ? `FROM ${channel.table}
+             JOIN reference_chunks AS candidate_chunk ON candidate_chunk.id = ${channel.table}.chunk_id
+             WHERE ${channel.table} MATCH ?${filters.sql}`
+          : `FROM ${channel.table} WHERE ${channel.table} MATCH ?`;
         const rows = database.prepare(
-          `SELECT chunk_id, bm25(${channel.table}) AS score FROM ${channel.table}
-           WHERE ${channel.table} MATCH ? ORDER BY score LIMIT 500`,
-        ).all(channel.expression) as Array<{ chunk_id: string; score: number }>;
+          `SELECT ${channel.table}.chunk_id, bm25(${channel.table}) AS score
+           ${candidateSource}
+           ORDER BY score, ${channel.table}.chunk_id LIMIT 500`,
+        ).all(channel.expression, ...filters.parameters) as Array<{ chunk_id: string; score: number }>;
         for (const row of rows) {
           const existing = scores.get(row.chunk_id) ?? { score: 0, channels: new Set() };
           existing.score += -row.score * channel.weight;
@@ -630,8 +675,10 @@ export async function searchResearchIndex(
         }
       }
       const literalRows = database.prepare(
-        "SELECT id FROM reference_chunks WHERE instr(lower(text), lower(?)) > 0 LIMIT 500",
-      ).all(input.query) as Array<{ id: string }>;
+        `SELECT candidate_chunk.id FROM reference_chunks AS candidate_chunk
+         WHERE instr(lower(candidate_chunk.text), lower(?)) > 0${filters.sql}
+         ORDER BY candidate_chunk.id LIMIT 500`,
+      ).all(input.query, ...filters.parameters) as Array<{ id: string }>;
       for (const row of literalRows) {
         const existing = scores.get(row.id) ?? { score: 0, channels: new Set() };
         existing.score += 1;
@@ -643,10 +690,12 @@ export async function searchResearchIndex(
         : [];
       if (cjkTerms.length > 1) {
         const cjkTermRows = database.prepare(
-          `SELECT id FROM reference_chunks WHERE ${cjkTerms
-            .map(() => "instr(lower(text), lower(?)) > 0")
-            .join(" OR ")} LIMIT 500`,
-        ).all(...cjkTerms) as Array<{ id: string }>;
+          `SELECT candidate_chunk.id FROM reference_chunks AS candidate_chunk
+           WHERE (${cjkTerms
+            .map(() => "instr(lower(candidate_chunk.text), lower(?)) > 0")
+            .join(" OR ")})${filters.sql}
+           ORDER BY candidate_chunk.id LIMIT 500`,
+        ).all(...cjkTerms, ...filters.parameters) as Array<{ id: string }>;
         for (const row of cjkTermRows) {
           const existing = scores.get(row.id) ?? { score: 0, channels: new Set() };
           existing.score += 0.2;

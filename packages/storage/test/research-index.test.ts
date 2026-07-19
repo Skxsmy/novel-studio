@@ -26,6 +26,8 @@ function prepared(input: {
   permission?: "never" | "allowed";
   tags?: string[];
   kind?: "txt" | "markdown";
+  blockCount?: number;
+  author?: string;
 }): PreparedResearchSourceImport {
   const bytes = Buffer.from(input.text, "utf8");
   const kind = input.kind ?? "txt";
@@ -38,7 +40,7 @@ function prepared(input: {
     contentHash: createHash("sha256").update(bytes).digest("hex"),
     properties: {
       displayName: input.name,
-      author: input.name === "English log" ? "M. Sailor" : "",
+      author: input.author ?? (input.name === "English log" ? "M. Sailor" : ""),
       declaredLanguage: input.language,
       tags: input.tags ?? [],
       aiPermission: input.permission ?? "allowed",
@@ -51,19 +53,23 @@ function prepared(input: {
       parserVersion: 1,
       warnings: [],
       sections: [],
-      blocks: [{
-        order: 0,
-        sectionOrder: null,
-        kind: "paragraph",
-        text: input.text,
-        location: {
-          kind: "text",
-          startLine: 1,
-          endLine: 1,
-          startOffset: 0,
-          endOffset: input.text.length,
-        },
-      }],
+      blocks: Array.from({ length: input.blockCount ?? 1 }, (_, order) => {
+        const blockText = input.blockCount ? `${input.text} ${order}` : input.text;
+        const startOffset = input.blockCount ? order * (input.text.length + 1) : 0;
+        return {
+          order,
+          sectionOrder: null,
+          kind: "paragraph",
+          text: blockText,
+          location: {
+            kind: "text",
+            startLine: order + 1,
+            endLine: order + 1,
+            startOffset,
+            endOffset: startOffset + blockText.length,
+          },
+        };
+      }),
     },
   };
 }
@@ -215,6 +221,43 @@ describe("NS-604 isolated Research keyword index", () => {
       purpose: "model-context",
       limit: 20,
     })).results[0]?.sourceDisplayName).toBe("Private archive");
+  });
+
+  it("applies permission and metadata filters before the bounded candidate window", async () => {
+    const store = await repository();
+    const database = await store.createResearchDatabase({ name: "Bounded permission search" });
+    const allowed = await store.importResearchSource(database.database.id, prepared({
+      name: "Allowed late evidence",
+      text: "obsidian harbor evidence",
+      language: "en",
+      permission: "allowed",
+      tags: ["Public"],
+      kind: "markdown",
+      author: "Allowed Late Author",
+    }));
+    const denied = await store.importResearchSource(database.database.id, prepared({
+      name: "Denied candidate flood",
+      text: "private obsidian harbor evidence",
+      language: "en",
+      permission: "never",
+      tags: ["private"],
+      blockCount: 501,
+    }));
+    const databaseRoot = path.join(store.libraryRoot, "research-databases", database.database.id);
+    await store.rebuildResearchDatabaseIndex(database.database.id);
+
+    const modelResults = await store.searchResearchSources(database.database.id, {
+      query: "obsidian harbor",
+      purpose: "model-context",
+      sourceKinds: ["markdown"],
+      languageTags: ["en"],
+      tags: ["public"],
+      author: "allowed late",
+      limit: 20,
+    });
+    expect(modelResults.results.map((result) => result.sourceId)).toEqual([allowed.source.id]);
+    expect(modelResults.results.every((result) => result.sourceId !== denied.source.id)).toBe(true);
+    expect(await inspectResearchIndex(databaseRoot, database.database.id)).toMatchObject({ status: "ready" });
   });
 
   it("isolates identical databases and rebuilds a copied foreign index from local authority", async () => {

@@ -89,6 +89,14 @@ export interface ResearchVectorSearchResult extends Omit<ResearchVectorChunkInpu
   distance: number;
 }
 
+export interface ResearchVectorSearchFilters {
+  purpose?: "local" | "model-context";
+  sourceKinds?: ResearchSourceKind[];
+  languageTags?: string[];
+  tags?: string[];
+  author?: string;
+}
+
 export interface ResearchVectorIndexBuildHooks {
   afterDatabaseCreated?: (databasePath: string) => void | Promise<void>;
   beforeSwap?: (databasePath: string) => void | Promise<void>;
@@ -632,6 +640,7 @@ export async function searchResearchVectorIndex(
   researchDatabaseId: string,
   queryEmbedding: number[],
   limit: number,
+  filters: ResearchVectorSearchFilters = {},
 ): Promise<ResearchVectorSearchResult[]> {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
     throw new StorageError("Research vector search limit is invalid", "INVALID_DATA", { limit });
@@ -642,14 +651,16 @@ export async function searchResearchVectorIndex(
       const meta = readMeta(database);
       const dimensions = Number(meta.get("dimensions"));
       validateChunk({ embedding: queryEmbedding } as ResearchVectorChunkInput, dimensions);
-      const rows = database.prepare(`
+      const total = (database.prepare("SELECT count(*) AS count FROM chunk_metadata").get() as { count: number }).count;
+      if (total === 0) return [];
+      const query = database.prepare(`
         SELECT m.*, v.distance
         FROM chunk_vectors AS v
         JOIN chunk_metadata AS m ON m.vector_rowid = v.rowid
         WHERE v.embedding MATCH ? AND k = ?
         ORDER BY v.distance, m.chunk_id
-      `).all(JSON.stringify(queryEmbedding), limit) as Array<Record<string, unknown>>;
-      return rows.map((row) => ({
+      `);
+      const mapRow = (row: Record<string, unknown>): ResearchVectorSearchResult => ({
         chunkId: String(row.chunk_id),
         sourceId: String(row.source_id),
         sourceRevision: String(row.source_revision),
@@ -665,7 +676,29 @@ export async function searchResearchVectorIndex(
         languageTag: String(row.language_tag),
         location: JSON.parse(String(row.location_json)) as ResearchSourceLocation,
         distance: Number(row.distance),
-      }));
+      });
+      const matchesFilters = (result: ResearchVectorSearchResult): boolean => {
+        if (filters.purpose === "model-context" && result.aiPermission === "never") return false;
+        if (filters.sourceKinds && !filters.sourceKinds.includes(result.sourceKind)) return false;
+        if (filters.languageTags && !filters.languageTags.some((tag) =>
+          result.languageTag.toLocaleLowerCase("und").startsWith(tag.toLocaleLowerCase("und")))) return false;
+        if (filters.tags && !filters.tags.every((tag) => result.sourceTags.some((actual) =>
+          actual.toLocaleLowerCase("und") === tag.toLocaleLowerCase("und")))) return false;
+        if (filters.author && !result.sourceAuthor.toLocaleLowerCase("und").includes(filters.author.toLocaleLowerCase("und"))) return false;
+        return true;
+      };
+      const hasFilters = filters.purpose === "model-context"
+        || Boolean(filters.sourceKinds?.length)
+        || Boolean(filters.languageTags?.length)
+        || Boolean(filters.tags?.length)
+        || Boolean(filters.author);
+      let candidateCount = Math.min(total, hasFilters ? Math.max(100, limit) : limit);
+      while (true) {
+        const rows = query.all(JSON.stringify(queryEmbedding), candidateCount) as Array<Record<string, unknown>>;
+        const matches = rows.map(mapRow).filter(matchesFilters);
+        if (matches.length >= limit || candidateCount === total) return matches.slice(0, limit);
+        candidateCount = Math.min(total, candidateCount * 2);
+      }
     } finally {
       database.close();
     }

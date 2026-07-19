@@ -95,6 +95,43 @@ describe("NS-605 isolated sqlite-vec Research index", () => {
     expect(results[0]?.distance).toBeCloseTo(0.1, 5);
   });
 
+  it("expands the nearest-neighbor window until metadata-filtered evidence is found", async () => {
+    const databaseRoot = await root("filtered-search");
+    const nearerTxtChunks = Array.from({ length: 120 }, (_, index) => chunk({
+      chunkId: `41000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      sourceId: "42000000-0000-4000-8000-000000000000",
+      text: `nearer private candidate ${index}`,
+      embedding: [index / 10_000, 0],
+    }));
+    const allowedMarkdown = {
+      ...chunk({
+        chunkId: "43000000-0000-4000-8000-000000000000",
+        sourceId: "44000000-0000-4000-8000-000000000000",
+        text: "filtered semantic evidence",
+        embedding: [0.5, 0],
+      }),
+      sourceKind: "markdown" as const,
+      sourceAuthor: "Research Author",
+      sourceTags: ["Public"],
+      languageTag: "en",
+    };
+    await rebuildResearchVectorIndex(databaseRoot, {
+      researchDatabaseId: databaseId,
+      ...identity,
+      dimensions: 2,
+      chunks: [...nearerTxtChunks, allowedMarkdown],
+    });
+
+    const results = await searchResearchVectorIndex(databaseRoot, databaseId, [0, 0], 1, {
+      purpose: "model-context",
+      sourceKinds: ["markdown"],
+      languageTags: ["en"],
+      tags: ["public"],
+      author: "research",
+    });
+    expect(results.map((result) => result.chunkId)).toEqual([allowedMarkdown.chunkId]);
+  });
+
   it("keeps sidecars isolated and reports profile or source drift", async () => {
     const firstRoot = await root("first");
     const secondRoot = await root("second");
