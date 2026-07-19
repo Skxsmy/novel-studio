@@ -154,8 +154,40 @@ export const ResearchNoteRevisionInputSchema = z.object({
 }).strict();
 export type ResearchNoteRevisionInput = z.infer<typeof ResearchNoteRevisionInputSchema>;
 
+export const DeleteResearchNoteInputSchema = ResearchNoteRevisionInputSchema.extend({
+  confirmationTitle: z.string().min(1).max(200),
+}).strict();
+export type DeleteResearchNoteInput = z.infer<typeof DeleteResearchNoteInputSchema>;
+
+export const ResearchNotePendingProposalReferenceSchema = z.object({
+  seriesId: z.string().uuid(),
+  seriesTitle: z.string().trim().min(1).max(200),
+  proposalId: z.string().uuid(),
+  proposalTitle: z.string().trim().min(1).max(400),
+}).strict();
+export type ResearchNotePendingProposalReference = z.infer<typeof ResearchNotePendingProposalReferenceSchema>;
+
+export const ResearchNoteDeletionBlockersSchema = z.object({
+  researchDatabaseId: z.string().uuid(),
+  noteId: z.string().uuid(),
+  blocked: z.boolean(),
+  pendingProposalReferences: z.array(ResearchNotePendingProposalReferenceSchema).max(10_000),
+  unreadableSeries: z.array(z.object({
+    seriesId: z.string().uuid(),
+    seriesTitle: z.string().trim().min(1).max(200),
+    diagnosticCount: z.number().int().positive(),
+  }).strict()).max(10_000),
+}).strict().superRefine((result, context) => {
+  const expected = result.pendingProposalReferences.length > 0 || result.unreadableSeries.length > 0;
+  if (result.blocked !== expected) {
+    context.addIssue({ code: "custom", path: ["blocked"], message: "Research Note blocker state is inconsistent" });
+  }
+});
+export type ResearchNoteDeletionBlockers = z.infer<typeof ResearchNoteDeletionBlockersSchema>;
+
 export const ResearchNoteEvidenceFreshnessSchema = z.enum([
   "current",
+  "source-archived",
   "source-revision-changed",
   "passage-changed",
   "source-missing",
@@ -175,6 +207,7 @@ export type ResearchNoteEvidenceResolution = z.infer<typeof ResearchNoteEvidence
 
 export const ResearchNoteFreshnessCountsSchema = z.object({
   current: z.number().int().nonnegative(),
+  sourceArchived: z.number().int().nonnegative(),
   sourceRevisionChanged: z.number().int().nonnegative(),
   passageChanged: z.number().int().nonnegative(),
   sourceMissing: z.number().int().nonnegative(),

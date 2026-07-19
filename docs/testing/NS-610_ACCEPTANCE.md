@@ -11,7 +11,7 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | Acceptance ID | Status | Verification | Required evidence |
 | --- | --- | --- | --- |
 | NS-610-A01 | passed | authoritative records and `npm.cmd run docs:check` | ADR-0025 and product, data, API, security, UX, traceability, task, and acceptance records agree before runtime edits; documentation check passed for 200 Markdown files and the scoped contradiction scan found no live claim that lifecycle routes must remain absent |
-| NS-610-A02 | planned | Contracts lifecycle and affected Research tests | valid compatibility and malformed/contradictory schema evidence |
+| NS-610-A02 | passed | `packages/contracts/test/research-lifecycle.test.ts`, full Contracts suite/build, and affected workspace typechecks | Database version 1/version 2 and Source version 2/version 3/version 4 compatibility, lifecycle consistency, bounded replacement/confirmation inputs, blocker consistency, and archived-Source freshness pass 5 focused files/20 tests and the full 12-file/79-test Contracts suite; Contracts build plus Storage, Server, and Web typechecks pass |
 | NS-610-A03 | planned | Storage database lifecycle tests | archive, restore, blocker, quarantine delete, restart cleanup, and rollback evidence |
 | NS-610-A04 | planned | Storage Source lifecycle tests | immutable file/web replacement versions, reparse, archive/restore, parser-family, Note freshness, and rollback evidence |
 | NS-610-A05 | planned | Storage Note/Source blocker matrix and Proposal regressions | exact-confirmed deletion and every live/unreadable reference outcome |
@@ -46,6 +46,7 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 | --- | --- | --- | --- |
 | 2026-07-20 | clean tracked post-`c3c87ac` worktree | current contracts, storage, routes, Research UI, Proposal/audit references, architecture, and predecessor evidence inventory | Confirmed the missing lifecycle commands, identified existing Workshop database blocker scaffolding, mapped versioned authority and reference boundaries, and opened NS-610 without treating scaffolding as implemented behavior |
 | 2026-07-20 | NS-610 planning worktree before runtime edits | `npm.cmd run docs:check`; `git diff --check`; scoped lifecycle contradiction scan | Passed 200 Markdown files and diff safety. ADR-0025 fixes database v2, Source v4 immutable replacement/reparse history, archive/read-only retrieval exclusion, deletion dependency order, external blocker handling, and exact-confirmed cleanup; A01 passed before runtime edits. |
+| 2026-07-20 | post-`d35462e` A02 worktree | focused lifecycle and affected Contracts tests; full Contracts suite/build; Storage, Server, and Web typechecks; `git diff --check` | Passed 5 focused files/20 tests, full Contracts 12 files/79 tests, Contracts build, all affected workspace typechecks, and diff safety. Malformed lifecycle pairs, invalid versions, unsafe replacement envelopes, inconsistent blocker booleans, and oversized/empty confirmations are rejected. |
 
 ## Repository Safety
 

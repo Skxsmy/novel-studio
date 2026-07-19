@@ -29,19 +29,49 @@ function isCanonicalBase64Shape(value: string): boolean {
 
 export const MAX_RESEARCH_SOURCE_BYTES = 25 * 1024 * 1024;
 
-export const ResearchDatabaseSchema = z.object({
-  schemaVersion: z.literal(1),
+const ResearchDatabaseFactsSchema = z.object({
   id: z.string().uuid(),
   name: z.string().trim().min(1).max(120),
   description: z.string().max(4000).default(""),
   linkedSeriesIds: z.array(z.string().uuid()).max(100).default([]),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
-}).superRefine((database, context) => {
+});
+
+function validateResearchDatabaseLinks(
+  database: z.infer<typeof ResearchDatabaseFactsSchema>,
+  context: z.RefinementCtx,
+): void {
   if (new Set(database.linkedSeriesIds).size !== database.linkedSeriesIds.length) {
     context.addIssue({ code: "custom", message: "Linked Series IDs must be unique", path: ["linkedSeriesIds"] });
   }
+}
+
+export const ResearchDatabaseV1Schema = ResearchDatabaseFactsSchema.extend({
+  schemaVersion: z.literal(1),
+}).superRefine(validateResearchDatabaseLinks);
+export type ResearchDatabaseV1 = z.infer<typeof ResearchDatabaseV1Schema>;
+
+export const ResearchLifecycleStatusSchema = z.enum(["active", "archived"]);
+export type ResearchLifecycleStatus = z.infer<typeof ResearchLifecycleStatusSchema>;
+
+export const ResearchDatabaseV2Schema = ResearchDatabaseFactsSchema.extend({
+  schemaVersion: z.literal(2),
+  status: ResearchLifecycleStatusSchema,
+  archivedAt: z.string().datetime().nullable(),
+  migratedFromVersion1Revision: z.string().regex(SHA256_PATTERN).optional(),
+}).superRefine((database, context) => {
+  validateResearchDatabaseLinks(database, context);
+  if (database.status === "active" && database.archivedAt !== null) {
+    context.addIssue({ code: "custom", message: "An active Research Database cannot have archivedAt", path: ["archivedAt"] });
+  }
+  if (database.status === "archived" && database.archivedAt === null) {
+    context.addIssue({ code: "custom", message: "An archived Research Database requires archivedAt", path: ["archivedAt"] });
+  }
 });
+export type ResearchDatabaseV2 = z.infer<typeof ResearchDatabaseV2Schema>;
+
+export const ResearchDatabaseSchema = z.union([ResearchDatabaseV1Schema, ResearchDatabaseV2Schema]);
 export type ResearchDatabase = z.infer<typeof ResearchDatabaseSchema>;
 
 export const ResearchDatabaseDocumentSchema = z.object({
@@ -68,6 +98,11 @@ export const ResearchDatabaseListResultSchema = z.object({
 });
 export type ResearchDatabaseListResult = z.infer<typeof ResearchDatabaseListResultSchema>;
 
+export const ResearchLifecycleListQuerySchema = z.object({
+  status: z.enum(["active", "archived", "all"]).default("active"),
+}).strict();
+export type ResearchLifecycleListQuery = z.input<typeof ResearchLifecycleListQuerySchema>;
+
 export const ResearchDatabaseWorkshopReferenceSchema = z.object({
   seriesId: z.string().uuid(),
   seriesTitle: z.string().trim().min(1).max(200),
@@ -79,17 +114,32 @@ export type ResearchDatabaseWorkshopReference = z.infer<
   typeof ResearchDatabaseWorkshopReferenceSchema
 >;
 
+export const ResearchPendingProposalReferenceSchema = z.object({
+  seriesId: z.string().uuid(),
+  seriesTitle: z.string().trim().min(1).max(200),
+  proposalId: z.string().uuid(),
+  proposalTitle: z.string().trim().min(1).max(400),
+  noteId: z.string().uuid(),
+  noteTitle: z.string().trim().min(1).max(200),
+}).strict();
+export type ResearchPendingProposalReference = z.infer<typeof ResearchPendingProposalReferenceSchema>;
+
 export const ResearchDatabaseDeletionBlockersSchema = z.object({
   researchDatabaseId: z.string().uuid(),
   blocked: z.boolean(),
   workshopReferences: z.array(ResearchDatabaseWorkshopReferenceSchema).max(10_000),
+  pendingProposalReferences: z.array(ResearchPendingProposalReferenceSchema).max(10_000).default([]),
+  sourceCount: z.number().int().nonnegative().default(0),
+  noteCount: z.number().int().nonnegative().default(0),
   unreadableSeries: z.array(z.object({
     seriesId: z.string().uuid(),
     seriesTitle: z.string().trim().min(1).max(200),
     diagnosticCount: z.number().int().positive(),
   }).strict()).max(10_000),
 }).strict().superRefine((result, context) => {
-  const expected = result.workshopReferences.length > 0 || result.unreadableSeries.length > 0;
+  const expected = result.workshopReferences.length > 0
+    || result.pendingProposalReferences.length > 0
+    || result.unreadableSeries.length > 0;
   if (result.blocked !== expected) {
     context.addIssue({ code: "custom", path: ["blocked"], message: "Research Database blocker state is inconsistent" });
   }
@@ -118,6 +168,16 @@ export const UpdateResearchDatabaseInputSchema = z.object({
   }
 });
 export type UpdateResearchDatabaseInput = z.infer<typeof UpdateResearchDatabaseInputSchema>;
+
+export const ResearchRevisionInputSchema = z.object({
+  baseRevision: z.string().regex(SHA256_PATTERN),
+}).strict();
+export type ResearchRevisionInput = z.infer<typeof ResearchRevisionInputSchema>;
+
+export const DeleteResearchDatabaseInputSchema = ResearchRevisionInputSchema.extend({
+  confirmationName: z.string().min(1).max(120),
+}).strict();
+export type DeleteResearchDatabaseInput = z.infer<typeof DeleteResearchDatabaseInputSchema>;
 
 const LegacyResearchSourceKindSchema = z.enum(["txt", "markdown"]);
 
@@ -402,7 +462,40 @@ export const ResearchSourceV3Schema = ResearchSourcePropertiesSchema.and(z.objec
 }));
 export type ResearchSourceV3 = z.infer<typeof ResearchSourceV3Schema>;
 
-export const ResearchSourceSchema = z.union([ResearchSourceV2Schema, ResearchSourceV3Schema]);
+export const ResearchSourceV4Schema = ResearchSourcePropertiesSchema.and(z.object({
+  schemaVersion: z.literal(4),
+  id: z.string().uuid(),
+  researchDatabaseId: z.string().uuid(),
+  kind: ResearchSourceKindSchema,
+  mediaType: ResearchSourceMediaTypeSchema,
+  originalFileName: z.string().trim().min(1).max(240).regex(SAFE_SOURCE_FILE_NAME_PATTERN),
+  sizeBytes: z.number().int().positive().max(MAX_RESEARCH_SOURCE_BYTES),
+  contentHash: z.string().regex(SHA256_PATTERN),
+  originalRelativePath: z.string().min(1).max(512),
+  contentRelativePath: z.string().min(1).max(512),
+  parsedContentHash: z.string().regex(SHA256_PATTERN),
+  parseStatus: ResearchSourceParseStatusSchema,
+  parserName: z.string().min(1).max(120),
+  parserVersion: z.number().int().positive(),
+  parseWarnings: z.array(z.string().min(1).max(1000)).max(100).default([]),
+  origin: z.discriminatedUnion("type", [ResearchFileOriginSchema, ResearchWebOriginSchema]),
+  importedAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  status: ResearchLifecycleStatusSchema,
+  archivedAt: z.string().datetime().nullable(),
+  contentVersion: z.number().int().positive(),
+  migratedFromVersion3Revision: z.string().regex(SHA256_PATTERN).optional(),
+})).superRefine((source, context) => {
+  if (source.status === "active" && source.archivedAt !== null) {
+    context.addIssue({ code: "custom", message: "An active Research source cannot have archivedAt", path: ["archivedAt"] });
+  }
+  if (source.status === "archived" && source.archivedAt === null) {
+    context.addIssue({ code: "custom", message: "An archived Research source requires archivedAt", path: ["archivedAt"] });
+  }
+});
+export type ResearchSourceV4 = z.infer<typeof ResearchSourceV4Schema>;
+
+export const ResearchSourceSchema = z.union([ResearchSourceV2Schema, ResearchSourceV3Schema, ResearchSourceV4Schema]);
 export type ResearchSource = z.infer<typeof ResearchSourceSchema>;
 
 export const ResearchSourceDocumentSchema = z.object({
@@ -419,6 +512,11 @@ export const ResearchSourceDetailSchema = z.union([
   }),
   z.object({
     source: ResearchSourceV3Schema,
+    revision: z.string().regex(SHA256_PATTERN),
+    content: ResearchSourceContentSchema,
+  }),
+  z.object({
+    source: ResearchSourceV4Schema,
     revision: z.string().regex(SHA256_PATTERN),
     content: ResearchSourceContentSchema,
   }),
@@ -441,6 +539,11 @@ export const ResearchSourceViewSchema = z.union([
   }),
   z.object({
     source: ResearchSourceV3Schema,
+    revision: z.string().regex(SHA256_PATTERN),
+    contentSummary: ResearchSourceContentSummarySchema,
+  }),
+  z.object({
+    source: ResearchSourceV4Schema,
     revision: z.string().regex(SHA256_PATTERN),
     contentSummary: ResearchSourceContentSummarySchema,
   }),
@@ -515,6 +618,44 @@ export const UpdateResearchSourceInputSchema = z.object({
   }
 });
 export type UpdateResearchSourceInput = z.infer<typeof UpdateResearchSourceInputSchema>;
+
+export const ReplaceResearchSourceInputSchema = z.object({
+  baseRevision: z.string().regex(SHA256_PATTERN),
+  fileName: z.string().trim().min(1).max(240).regex(SAFE_SOURCE_FILE_NAME_PATTERN),
+  mediaType: ResearchSourceMediaTypeSchema,
+  sizeBytes: z.number().int().positive().max(MAX_RESEARCH_SOURCE_BYTES),
+  contentBase64: z.string()
+    .min(4)
+    .max(Math.ceil(MAX_RESEARCH_SOURCE_BYTES / 3) * 4)
+    .refine(isCanonicalBase64Shape, { message: "Research source content must be canonical base64" }),
+}).strict();
+export type ReplaceResearchSourceInput = z.infer<typeof ReplaceResearchSourceInputSchema>;
+
+export const DeleteResearchSourceInputSchema = ResearchRevisionInputSchema.extend({
+  confirmationName: z.string().min(1).max(240),
+}).strict();
+export type DeleteResearchSourceInput = z.infer<typeof DeleteResearchSourceInputSchema>;
+
+export const ResearchSourceNoteReferenceSchema = z.object({
+  noteId: z.string().uuid(),
+  noteTitle: z.string().trim().min(1).max(200),
+  noteStatus: z.enum(["active", "archived"]),
+}).strict();
+export type ResearchSourceNoteReference = z.infer<typeof ResearchSourceNoteReferenceSchema>;
+
+export const ResearchSourceDeletionBlockersSchema = z.object({
+  researchDatabaseId: z.string().uuid(),
+  sourceId: z.string().uuid(),
+  blocked: z.boolean(),
+  noteReferences: z.array(ResearchSourceNoteReferenceSchema).max(10_000),
+  unreadableNoteCount: z.number().int().nonnegative(),
+}).strict().superRefine((result, context) => {
+  const expected = result.noteReferences.length > 0 || result.unreadableNoteCount > 0;
+  if (result.blocked !== expected) {
+    context.addIssue({ code: "custom", path: ["blocked"], message: "Research Source blocker state is inconsistent" });
+  }
+});
+export type ResearchSourceDeletionBlockers = z.infer<typeof ResearchSourceDeletionBlockersSchema>;
 
 export const ResearchKeywordSearchInputSchema = z.object({
   query: z.string().trim().min(1).max(500),
