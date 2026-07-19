@@ -8,6 +8,7 @@ import {
   type ResearchIndexState,
   type ResearchKeywordSearchInput,
   type ResearchKeywordSearchResponse,
+  type ResearchSourceDocument,
   type ResearchSourceDetail,
   type ResearchSourceKind,
 } from "@novel-studio/contracts";
@@ -94,6 +95,7 @@ export const RESEARCH_INDEX_SCHEMA_CHECKSUM = createHash("sha256")
 
 const INDEX_SUFFIXES = ["", "-wal", "-shm", "-journal"] as const;
 const researchIndexLanes = new Map<string, Promise<void>>();
+const validatedResearchIndexSignatures = new Map<string, string>();
 
 export interface ResearchIndexBuildHooks {
   afterDatabaseCreated?: (databasePath: string) => void | Promise<void>;
@@ -183,7 +185,7 @@ function initializeResearchIndex(
   applyFtsPolicy(database);
 }
 
-function validateReadyResearchIndex(database: Database.Database, researchDatabaseId: string): void {
+function validateResearchIndexIdentity(database: Database.Database, researchDatabaseId: string): void {
   if (Number(pragmaScalar(database, "application_id")) !== RESEARCH_INDEX_APPLICATION_ID) {
     throw new StorageError("Research index belongs to another application", "INVALID_DATA");
   }
@@ -199,6 +201,10 @@ function validateReadyResearchIndex(database: Database.Database, researchDatabas
   ) {
     throw new StorageError("Research index identity or schema checksum does not match", "INVALID_DATA");
   }
+}
+
+function validateReadyResearchIndex(database: Database.Database, researchDatabaseId: string): void {
+  validateResearchIndexIdentity(database, researchDatabaseId);
   const quickCheck = String(pragmaScalar(database, "quick_check"));
   if (quickCheck !== "ok") throw new StorageError("Research index integrity check failed", "INVALID_DATA", { quickCheck });
   const chunkCount = (database.prepare("SELECT count(*) AS count FROM reference_chunks").get() as { count: number }).count;
@@ -214,17 +220,37 @@ function validateReadyResearchIndex(database: Database.Database, researchDatabas
   }
 }
 
-function openResearchIndex(databasePath: string, researchDatabaseId: string, create = false, buildId = ""): Database.Database {
+function openResearchIndex(
+  databasePath: string,
+  researchDatabaseId: string,
+  create = false,
+  buildId = "",
+  deepValidation = true,
+): Database.Database {
   const database = new Database(databasePath, { fileMustExist: !create });
   try {
     applyConnectionPolicy(database);
     if (create) initializeResearchIndex(database, researchDatabaseId, buildId || randomUUID());
-    else validateReadyResearchIndex(database, researchDatabaseId);
+    else if (deepValidation) validateReadyResearchIndex(database, researchDatabaseId);
+    else validateResearchIndexIdentity(database, researchDatabaseId);
     return database;
   } catch (error) {
     database.close();
     throw error;
   }
+}
+
+async function researchIndexArtifactSignature(databasePath: string): Promise<string> {
+  const states = await Promise.all(INDEX_SUFFIXES.map(async (suffix) => {
+    try {
+      const state = await stat(`${databasePath}${suffix}`);
+      return [state.size, state.mtimeMs, state.ctimeMs];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }));
+  return JSON.stringify(states);
 }
 
 function v3Details(sources: ResearchSourceDetail[]): Array<Extract<ResearchSourceDetail, { content: unknown }>> {
@@ -403,7 +429,7 @@ export async function rebuildResearchIndex(
 export async function inspectResearchIndex(
   databaseRoot: string,
   researchDatabaseId: string,
-  sources: ResearchSourceDetail[] = [],
+  sources: ReadonlyArray<Pick<ResearchSourceDocument, "source" | "revision">> = [],
 ): Promise<ResearchIndexState> {
   const databasePath = researchIndexDatabasePath(databaseRoot);
   try {
@@ -421,12 +447,22 @@ export async function inspectResearchIndex(
     throw error;
   }
   let database: Database.Database | undefined;
+  let deepValidationPassed = false;
   try {
-    database = openResearchIndex(databasePath, researchDatabaseId);
+    const signature = await researchIndexArtifactSignature(databasePath);
+    database = openResearchIndex(databasePath, researchDatabaseId, false, "", false);
+    if (validatedResearchIndexSignatures.get(databasePath) !== signature) {
+      validateReadyResearchIndex(database, researchDatabaseId);
+      deepValidationPassed = true;
+    }
     const indexedSourceCount = (database.prepare("SELECT count(*) AS count FROM source_ledger").get() as { count: number }).count;
     const indexedChunkCount = (database.prepare("SELECT count(*) AS count FROM reference_chunks").get() as { count: number }).count;
     if (sources.length > 0) {
-      const expected = new Map(v3Details(sources).map((detail) => [detail.source.id, detail.revision]));
+      const expected = new Map(
+        sources
+          .filter((detail) => detail.source.schemaVersion === 3)
+          .map((detail) => [detail.source.id, detail.revision]),
+      );
       const actualRows = database.prepare("SELECT source_id, source_revision FROM source_ledger").all() as
         Array<{ source_id: string; source_revision: string }>;
       const actual = new Map(actualRows.map((row) => [row.source_id, row.source_revision]));
@@ -459,6 +495,9 @@ export async function inspectResearchIndex(
     });
   } finally {
     database?.close();
+    if (deepValidationPassed) {
+      validatedResearchIndexSignatures.set(databasePath, await researchIndexArtifactSignature(databasePath));
+    }
   }
 }
 
@@ -568,7 +607,14 @@ export async function searchResearchIndex(
 ): Promise<ResearchKeywordSearchResponse> {
   const input = ResearchKeywordSearchInputSchema.parse(rawInput);
   return withResearchIndexLane(databaseRoot, async () => {
-    const database = openResearchIndex(researchIndexDatabasePath(databaseRoot), researchDatabaseId);
+    const state = await inspectResearchIndex(databaseRoot, researchDatabaseId);
+    if (state.status !== "ready") {
+      throw new StorageError(state.reason ?? "Research index is unavailable", "INVALID_DATA", {
+        researchDatabaseId,
+        status: state.status,
+      });
+    }
+    const database = openResearchIndex(researchIndexDatabasePath(databaseRoot), researchDatabaseId, false, "", false);
     try {
       const scores = new Map<string, { score: number; channels: Set<"keyword-cjk" | "keyword-word" | "keyword-literal"> }>();
       for (const channel of searchChannels(input.query)) {

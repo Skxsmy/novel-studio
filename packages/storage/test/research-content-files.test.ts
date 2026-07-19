@@ -59,6 +59,36 @@ afterEach(async () => {
 });
 
 describe("NS-604 binary Research authority and version 2 migration", () => {
+  it("preserves sentence-aware Chinese, Japanese, English, and neutral language spans", () => {
+    const input = prepared();
+    input.content.blocks[0]!.text = "  港へ。Harbor! 123";
+    const content = buildResearchSourceContent({
+      researchDatabaseId: randomUUID(),
+      sourceId: randomUUID(),
+      originalContentHash: input.contentHash,
+      declaredLanguage: null,
+      prepared: input.content,
+    });
+
+    expect(content.blocks[0]?.language).toMatchObject({ languageTag: "en", source: "detected" });
+    expect(content.blocks[0]?.languageSpans.map(({ start, end, languageTag }) => ({ start, end, languageTag })))
+      .toEqual([
+        { start: 0, end: 5, languageTag: "ja" },
+        { start: 5, end: 16, languageTag: "en" },
+      ]);
+
+    input.content.blocks[0]!.text = "...!?";
+    const neutral = buildResearchSourceContent({
+      researchDatabaseId: randomUUID(),
+      sourceId: randomUUID(),
+      originalContentHash: input.contentHash,
+      declaredLanguage: null,
+      prepared: input.content,
+    });
+    expect(neutral.blocks[0]?.language).toMatchObject({ languageTag: "und", confidence: 0.2 });
+    expect(neutral.blocks[0]?.languageSpans).toMatchObject([{ start: 0, end: 5, languageTag: "und" }]);
+  });
+
   it("rejects cyclic section parents and dangling block sections instead of dropping them", () => {
     const cyclic = prepared();
     cyclic.content.sections = [{

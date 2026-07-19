@@ -190,8 +190,7 @@ function deterministicUuid(namespace: string, kind: string, order: number): stri
 
 type ScriptKind = "kana" | "han" | "latin" | "letter" | "neutral";
 
-function scriptKind(character: string): ScriptKind {
-  const value = character.codePointAt(0) ?? 0;
+function scriptKind(value: number): ScriptKind {
   if ((value >= 0x3040 && value <= 0x30ff) || (value >= 0x31f0 && value <= 0x31ff)) {
     return "kana";
   }
@@ -207,18 +206,32 @@ function scriptKind(character: string): ScriptKind {
     || (value >= 0x0061 && value <= 0x007a)
     || (value >= 0x00c0 && value <= 0x024f)
   ) return "latin";
-  if (/\p{L}/u.test(character)) return "letter";
+  if (/\p{L}/u.test(String.fromCodePoint(value))) return "letter";
   return "neutral";
 }
 
-function scriptLanguage(kind: ScriptKind, declaredLanguage: string | null): string | null {
-  if (kind === "kana") return declaredLanguage?.toLocaleLowerCase("und").startsWith("ja") ? declaredLanguage : "ja";
+function isSentenceBoundary(value: number): boolean {
+  return value === 0x3002
+    || value === 0xff01
+    || value === 0xff1f
+    || value === 0x21
+    || value === 0x3f
+    || value === 0x0a
+    || value === 0x0d;
+}
+
+function scriptLanguage(
+  kind: ScriptKind,
+  declaredLanguage: string | null,
+  normalizedDeclaredLanguage: string,
+): string | null {
+  if (kind === "kana") return normalizedDeclaredLanguage.startsWith("ja") ? declaredLanguage : "ja";
   if (kind === "han") {
-    if (declaredLanguage?.toLocaleLowerCase("und").startsWith("ja")) return declaredLanguage;
-    if (declaredLanguage?.toLocaleLowerCase("und").startsWith("zh")) return declaredLanguage;
+    if (normalizedDeclaredLanguage.startsWith("ja")) return declaredLanguage;
+    if (normalizedDeclaredLanguage.startsWith("zh")) return declaredLanguage;
     return null;
   }
-  if (kind === "latin") return declaredLanguage?.toLocaleLowerCase("und").startsWith("en") ? declaredLanguage : "en";
+  if (kind === "latin") return normalizedDeclaredLanguage.startsWith("en") ? declaredLanguage : "en";
   if (kind === "letter") return declaredLanguage ?? "und";
   return null;
 }
@@ -227,64 +240,72 @@ function analyzeLanguage(text: string, declaredLanguage: string | null): {
   language: ResearchLanguageAnalysis;
   spans: ResearchLanguageSpan[];
 } {
-  const units: Array<{ start: number; end: number; kind: ScriptKind; language: string | null }> = [];
-  for (let index = 0; index < text.length;) {
-    const codePoint = text.codePointAt(index)!;
-    const character = String.fromCodePoint(codePoint);
-    const end = index + character.length;
-    const kind = scriptKind(character);
-    units.push({ start: index, end, kind, language: scriptLanguage(kind, declaredLanguage) });
-    index = end;
-  }
-  for (let sentenceStart = 0; sentenceStart < units.length;) {
-    let sentenceEnd = sentenceStart;
-    while (sentenceEnd + 1 < units.length && !/[。！？!?\r\n]/u.test(text.slice(units[sentenceEnd]!.start, units[sentenceEnd]!.end))) {
-      sentenceEnd += 1;
-    }
-    const sentence = units.slice(sentenceStart, sentenceEnd + 1);
-    const inferredHanLanguage = sentence.some((unit) => unit.kind === "kana") ? "ja" : "zh";
-    for (const unit of sentence) {
-      if (unit.kind === "han" && unit.language === null) unit.language = inferredHanLanguage;
-    }
-    sentenceStart = sentenceEnd + 1;
-  }
-  let previous: string | null = null;
-  for (const unit of units) {
-    if (unit.language) previous = unit.language;
-    else if (previous) unit.language = previous;
-  }
-  let next = declaredLanguage ?? "und";
-  for (let index = units.length - 1; index >= 0; index -= 1) {
-    const unit = units[index]!;
-    if (unit.language) next = unit.language;
-    else unit.language = next;
-  }
+  const normalizedDeclaredLanguage = declaredLanguage?.toLocaleLowerCase("und") ?? "";
   const spans: ResearchLanguageSpan[] = [];
-  for (const unit of units) {
-    const languageTag = unit.language ?? declaredLanguage ?? "und";
+  const weightByLanguage = new Map<string, number>();
+  let spansOverflowed = false;
+  let previousLanguage: string | null = null;
+
+  const append = (start: number, end: number, languageTag: string): void => {
+    weightByLanguage.set(languageTag, (weightByLanguage.get(languageTag) ?? 0) + end - start);
+    if (spansOverflowed) return;
     const existing = spans.at(-1);
-    if (existing?.languageTag === languageTag && existing.end === unit.start) {
-      existing.end = unit.end;
-      continue;
+    if (existing?.languageTag === languageTag && existing.end === start) {
+      existing.end = end;
+      return;
     }
     spans.push({
-      start: unit.start,
-      end: unit.end,
+      start,
+      end,
       languageTag,
       source: declaredLanguage === languageTag ? "declared" : "detected",
       confidence: languageTag === "und" ? 0.2 : declaredLanguage === languageTag ? 0.8 : 0.98,
       detectorVersion: LANGUAGE_DETECTOR_VERSION,
     });
+    if (spans.length > MAX_LANGUAGE_SPANS) {
+      spansOverflowed = true;
+      spans.length = 0;
+    }
+  };
+
+  for (let sentenceStart = 0; sentenceStart < text.length;) {
+    let sentenceEnd = sentenceStart;
+    let containsKana = false;
+    while (sentenceEnd < text.length) {
+      const value = text.codePointAt(sentenceEnd)!;
+      const kind = scriptKind(value);
+      containsKana ||= kind === "kana";
+      sentenceEnd += value > 0xffff ? 2 : 1;
+      if (isSentenceBoundary(value)) break;
+    }
+    const inferredHanLanguage = containsKana ? "ja" : "zh";
+    for (let index = sentenceStart; index < sentenceEnd;) {
+      const value = text.codePointAt(index)!;
+      const end = index + (value > 0xffff ? 2 : 1);
+      const kind = scriptKind(value);
+      const explicitLanguage = kind === "han"
+        ? scriptLanguage(kind, declaredLanguage, normalizedDeclaredLanguage) ?? inferredHanLanguage
+        : scriptLanguage(kind, declaredLanguage, normalizedDeclaredLanguage);
+      if (explicitLanguage) {
+        if (previousLanguage === null && index > 0) append(0, index, explicitLanguage);
+        previousLanguage = explicitLanguage;
+        append(index, end, explicitLanguage);
+      } else if (previousLanguage) {
+        append(index, end, previousLanguage);
+      }
+      index = end;
+    }
+    sentenceStart = sentenceEnd;
   }
-  const weightByLanguage = new Map<string, number>();
-  for (const span of spans) {
-    weightByLanguage.set(span.languageTag, (weightByLanguage.get(span.languageTag) ?? 0) + span.end - span.start);
+
+  if (previousLanguage === null && text.length > 0) {
+    append(0, text.length, declaredLanguage ?? "und");
   }
   const languageTag = [...weightByLanguage.entries()]
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0]?.[0]
     ?? declaredLanguage
     ?? "und";
-  if (spans.length > MAX_LANGUAGE_SPANS) {
+  if (spansOverflowed) {
     spans.splice(0, spans.length, {
       start: 0,
       end: text.length,

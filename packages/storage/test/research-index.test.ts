@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -313,5 +313,37 @@ describe("NS-604 isolated Research keyword index", () => {
     expect(await store.getResearchIndexState(database.database.id)).toMatchObject({ status: "missing" });
     const rebuilt = await store.searchResearchSources(database.database.id, { query: "indigo compass", purpose: "local", limit: 20 });
     expect(rebuilt.results.map((result) => result.chunkHash)).toEqual(before.results.map((result) => result.chunkHash));
+  });
+
+  it("invalidates a verified Source cache when parsed authority files change", async () => {
+    const store = await repository();
+    const database = await store.createResearchDatabase({ name: "Authority cache" });
+    const source = await store.importResearchSource(database.database.id, prepared({
+      name: "Cached source",
+      text: "copper lighthouse evidence",
+      language: "en",
+    }));
+    await expect(store.searchResearchSources(database.database.id, {
+      query: "copper lighthouse",
+      purpose: "local",
+      limit: 20,
+    })).resolves.toMatchObject({ results: [{ sourceId: source.source.id }] });
+
+    expect(source.source.schemaVersion).toBe(3);
+    if (source.source.schemaVersion !== 3) throw new Error("Expected version 3 Research source");
+    const contentPath = path.join(
+      store.libraryRoot,
+      "research-databases",
+      database.database.id,
+      source.source.contentRelativePath,
+    );
+    const raw = await readFile(contentPath, "utf8");
+    await writeFile(contentPath, raw.replace("copper", "silver"), "utf8");
+
+    await expect(store.searchResearchSources(database.database.id, {
+      query: "copper lighthouse",
+      purpose: "local",
+      limit: 20,
+    })).rejects.toMatchObject({ code: "INVALID_DATA" });
   });
 });

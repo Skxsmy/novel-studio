@@ -5,6 +5,7 @@ import {
   readFile,
   readdir,
   rm,
+  stat,
 } from "node:fs/promises";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -1808,6 +1809,7 @@ export class ProjectRepository {
   readonly libraryRoot: string;
   private readonly recoveredSeriesRoots = new Set<string>();
   private readonly seriesIdsByRoot = new Map<string, string>();
+  private readonly verifiedResearchSourceSignatures = new Map<string, string>();
 
   constructor(libraryRoot: string) {
     this.libraryRoot = path.resolve(libraryRoot);
@@ -2112,7 +2114,8 @@ export class ProjectRepository {
   async getResearchIndexState(researchDatabaseId: string): Promise<ResearchIndexState> {
     await this.getResearchDatabase(researchDatabaseId);
     const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
-    const sources = await this.readResearchSourceDetails(researchDatabaseId);
+    const sources = await this.listResearchSources(researchDatabaseId);
+    await this.verifyResearchSourceAuthorities(researchDatabaseId, sources);
     return inspectResearchIndex(databaseRoot, researchDatabaseId, sources);
   }
 
@@ -2132,10 +2135,15 @@ export class ProjectRepository {
   ): Promise<ResearchKeywordSearchResponse> {
     await this.getResearchDatabase(researchDatabaseId);
     const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
-    const sources = await this.readResearchSourceDetails(researchDatabaseId);
+    const sources = await this.listResearchSources(researchDatabaseId);
+    await this.verifyResearchSourceAuthorities(researchDatabaseId, sources);
     const state = await inspectResearchIndex(databaseRoot, researchDatabaseId, sources);
     if (state.status !== "ready") {
-      await rebuildResearchIndex(databaseRoot, researchDatabaseId, sources);
+      await rebuildResearchIndex(
+        databaseRoot,
+        researchDatabaseId,
+        await this.readResearchSourceDetails(researchDatabaseId, sources),
+      );
     }
     return searchResearchIndex(databaseRoot, researchDatabaseId, input);
   }
@@ -2166,9 +2174,74 @@ export class ProjectRepository {
     };
   }
 
-  private async readResearchSourceDetails(researchDatabaseId: string): Promise<ResearchSourceDetail[]> {
-    const documents = await this.listResearchSources(researchDatabaseId);
-    return Promise.all(documents.map((document) => this.getResearchSource(researchDatabaseId, document.source.id)));
+  private researchSourceSignatureKey(researchDatabaseId: string, sourceId: string): string {
+    return `${researchDatabaseId}:${sourceId}`;
+  }
+
+  private async researchSourceFileSignature(
+    researchDatabaseId: string,
+    document: ResearchSourceDocument,
+  ): Promise<string> {
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
+    const paths = [
+      assertInside(databaseRoot, path.join(databaseRoot, document.source.originalRelativePath)),
+      ...(document.source.schemaVersion === 3
+        ? [assertInside(databaseRoot, path.join(databaseRoot, document.source.contentRelativePath))]
+        : []),
+    ];
+    const states = await Promise.all(paths.map((filePath) => stat(filePath))).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("Research source authority file is missing", "INVALID_DATA", {
+          sourceId: document.source.id,
+        });
+      }
+      throw error;
+    });
+    return JSON.stringify({
+      revision: document.revision,
+      files: states.map((state) => [state.size, state.mtimeMs, state.ctimeMs]),
+    });
+  }
+
+  private async readVerifiedResearchSourceDetail(
+    researchDatabaseId: string,
+    document: ResearchSourceDocument,
+  ): Promise<ResearchSourceDetail> {
+    const before = await this.researchSourceFileSignature(researchDatabaseId, document);
+    const detail = await this.getResearchSource(researchDatabaseId, document.source.id);
+    const after = await this.researchSourceFileSignature(researchDatabaseId, document);
+    if (before !== after) {
+      throw new StorageError("Research source changed while its authority was being verified", "CONFLICT", {
+        sourceId: document.source.id,
+      });
+    }
+    this.verifiedResearchSourceSignatures.set(
+      this.researchSourceSignatureKey(researchDatabaseId, document.source.id),
+      after,
+    );
+    return detail;
+  }
+
+  private async verifyResearchSourceAuthorities(
+    researchDatabaseId: string,
+    documents: ResearchSourceDocument[],
+  ): Promise<void> {
+    await Promise.all(documents.map(async (document) => {
+      const key = this.researchSourceSignatureKey(researchDatabaseId, document.source.id);
+      const before = await this.researchSourceFileSignature(researchDatabaseId, document);
+      if (this.verifiedResearchSourceSignatures.get(key) === before) return;
+      await this.readVerifiedResearchSourceDetail(researchDatabaseId, document);
+    }));
+  }
+
+  private async readResearchSourceDetails(
+    researchDatabaseId: string,
+    documents?: ResearchSourceDocument[],
+  ): Promise<ResearchSourceDetail[]> {
+    const sources = documents ?? await this.listResearchSources(researchDatabaseId);
+    return Promise.all(
+      sources.map((document) => this.readVerifiedResearchSourceDetail(researchDatabaseId, document)),
+    );
   }
 
   async listLegacyResearchSourceGroups(): Promise<LegacyResearchSourceGroup[]> {

@@ -21,6 +21,8 @@
     "test:e2e:quick": "playwright test",
     "test:e2e:headed": "npm run build && playwright test --headed",
     "probe:ns605": "node scripts/ns-605-retrieval-probe.mjs",
+    "probe:ns608:performance:exact": "node scripts/ns-608-exact-performance-probe.mjs",
+    "probe:ns608:performance:vector": "node scripts/ns-605-retrieval-probe.mjs",
     "probe:ns607": "node scripts/ns-607-workshop-research-harness.mjs",
     "probe:ns607:behavior": "node scripts/ns-607-workshop-behavior-harness.mjs",
     "probe:ns608:preflight": "node scripts/ns-608-real-author-harness.mjs --preflight",

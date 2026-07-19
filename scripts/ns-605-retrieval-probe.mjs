@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { arch, cpus, platform, release, tmpdir, totalmem } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import Database from "better-sqlite3";
@@ -41,6 +41,19 @@ function vectorFor(index) {
 function percentile(values, fraction) {
   const sorted = [...values].sort((left, right) => left - right);
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)] ?? 0;
+}
+
+function hardwareSummary() {
+  const processors = cpus();
+  return {
+    platform: platform(),
+    release: release(),
+    architecture: arch(),
+    cpuModel: processors[0]?.model.trim() ?? "unknown",
+    logicalCpuCount: processors.length,
+    totalMemoryBytes: totalmem(),
+    nodeVersion: process.version,
+  };
 }
 
 async function sizeOrZero(filePath) {
@@ -179,7 +192,23 @@ try {
   if (schemaVersion !== RESEARCH_VECTOR_INDEX_SCHEMA_VERSION) throw new Error(`Unexpected user_version ${schemaVersion}`);
 
   const extensionPath = path.resolve(getLoadablePath());
+  const queryP95 = percentile(queryDurations, 0.95);
+  const measuredPeakIncreaseBytes = Math.max(0, peakRss - rssBefore);
+  const checks = {
+    expectedChunkCount: rebuilt.indexedChunkCount === chunkCount,
+    expectedDimensions: dimensions === 384,
+    buildWithinTarget: buildMilliseconds < 2_000,
+    queryP95WithinTarget: queryP95 < 100,
+    peakRssWithinTarget: measuredPeakIncreaseBytes <= 128 * 1024 * 1024,
+    citationHashPreserved: true,
+    boundedLimitRejected: limitRejected,
+    cancellationPreservedLiveBytes: cancellationObserved,
+    incrementalReembeddedOneChunk: rebuildEmbeddedChunks === 1,
+  };
   const metrics = {
+    schemaVersion: 1,
+    passed: Object.values(checks).every(Boolean),
+    hardware: hardwareSummary(),
     corpus: {
       chunks: chunkCount,
       dimensions,
@@ -190,13 +219,13 @@ try {
     queryMilliseconds: {
       minimum: Number(Math.min(...queryDurations).toFixed(2)),
       median: Number(percentile(queryDurations, 0.5).toFixed(2)),
-      p95: Number(percentile(queryDurations, 0.95).toFixed(2)),
+      p95: Number(queryP95.toFixed(2)),
       maximum: Number(Math.max(...queryDurations).toFixed(2)),
     },
     memory: {
       rssBeforeBytes: rssBefore,
       peakRssBytes: peakRss,
-      measuredPeakIncreaseBytes: Math.max(0, peakRss - rssBefore),
+      measuredPeakIncreaseBytes,
     },
     disk: {
       sidecarBytes: await sizeOrZero(indexPath),
@@ -220,8 +249,15 @@ try {
       incrementalReembeddedChunks: rebuildEmbeddedChunks,
       rebuildRestoredChunkCount: rebuilt.indexedChunkCount,
     },
+    targets: {
+      buildMilliseconds: 2_000,
+      queryP95Milliseconds: 100,
+      peakRssIncreaseBytes: 128 * 1024 * 1024,
+    },
+    checks,
   };
   process.stdout.write(`${JSON.stringify(metrics, null, 2)}\n`);
+  if (!metrics.passed) process.exitCode = 1;
 } finally {
   await rm(tempRoot, { recursive: true, force: true });
 }
