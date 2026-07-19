@@ -3,6 +3,7 @@ export type { ApiClient, ApiClientOptions, RequestEventStreamOptions, RequestJso
 export { createAiApi } from "./ai";
 export { createCodexApi } from "./codex";
 export { createProposalApi } from "./proposals";
+export { createResearchApi } from "./research";
 export { createSeriesApi } from "./series";
 export { createWorkshopApi } from "./workshop";
 export type {
@@ -48,6 +49,12 @@ export type {
   ProposalInbox,
   ProposalRevisionInput,
 } from "./proposals";
+export type {
+  ImportResearchSourceInput,
+  ResearchSourceDetail,
+  ResearchSourceDocument,
+  UpdateResearchSourceInput,
+} from "./research";
 export type { CreateSeriesInput, SeriesSummary } from "./series";
 export type {
   ContextBundle,
@@ -71,6 +78,7 @@ import { createApiClient } from "./client";
 import { createAiApi } from "./ai";
 import { createCodexApi } from "./codex";
 import { createProposalApi } from "./proposals";
+import { createResearchApi } from "./research";
 import { createSeriesApi } from "./series";
 import { createWorkshopApi } from "./workshop";
 
@@ -80,6 +88,7 @@ export const api = {
   ai: createAiApi(apiClient),
   codex: createCodexApi(apiClient),
   proposals: createProposalApi(apiClient),
+  research: createResearchApi(apiClient),
   series: createSeriesApi(apiClient),
   workshop: createWorkshopApi(apiClient),
 };

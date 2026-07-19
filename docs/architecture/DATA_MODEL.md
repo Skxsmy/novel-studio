@@ -36,7 +36,9 @@ series-slug-id/
 ├─ codex/relations/
 ├─ codex/progressions/
 ├─ codex/knowledge/
-├─ research/{sources,notes}/
+├─ research/
+│  ├─ sources/<source-id>.json
+│  └─ originals/<source-id>.{txt,md}
 ├─ snippets/
 ├─ styles/
 ├─ agents/
@@ -126,9 +128,9 @@ Scene JSON 的规划字段包括目标、冲突、结果、摘要、节拍、POV
 
 SQLite 保存可重建的场景定位、正文搜索、Codex 搜索、名称候选、正文提及、歧义与 FTS5 数据。它不得保存无法从权威文件或明确缓存源恢复的唯一 Canon。删除 SQLite 后必须能完整重建。
 
-当前实现是每个 Series 的 `.studio/index.sqlite` 原型：Schema 由多个 Storage 模块在打开数据库时创建，`user_version` 和 `application_id` 尚未设置，重建路径会先清空活动表再回填。它已经提供索引功能，但不具备原子全量重建、显式迁移账本、统一来源哈希或完整损坏恢复保证。
+NS-602 起，每个 Series 的 `.studio/index.sqlite` 通过统一 `IndexDatabase` 边界打开。新数据库使用固定 `application_id = 0x4E534958`、`user_version = 1`、校验过的迁移账本、严格类型普通表、固定 WAL/连接策略和每个 Series 一个串行写入/重建队列。当前旧 `application_id=0` 且 `user_version=0` 的数据库被分类为 `legacy-v0` 派生索引，不被误认为权威或已迁移数据。
 
-NS-601 的拟议目标详见 `docs/architecture/DATABASE_ARCHITECTURE.md` 和 ADR-0018：每个 Series 继续使用派生 `index.sqlite`，未来可按实际跨 Series 需求增加派生 `catalog.sqlite`；所有普通表使用严格类型与外键，FTS5 从规范化搜索内容表同步，权威文件先提交、索引随后独立更新；全量重建必须在临时数据库完成校验后原子替换活动数据库。向量正文不是 SQLite Canon，向量来源 revision/hash、模型和维度等可重建元数据通过后续适配器投影。上述目标由 NS-602 至 NS-605 实现，规划本身不改变当前磁盘格式。
+全量重建在 `.studio/index-build/<build-id>.sqlite` 中投影 Scene、Codex、提及、歧义、Context Bundle 和 Model Call，完成身份、checksum、`quick_check`、外键和 build ID 验证并关闭 WAL 后才替换活动库。取消、构建失败或交换失败会恢复旧活动库并清理该 build 的有界临时文件。NS-603 才增加统一来源账本、小说文本单元、语言分析和新的外部内容 FTS；NS-604/NS-605 继续实现完整资料索引、可选 library catalog 和跨语言向量适配器。SQLite 和向量正文始终不是 Canon。
 
 小说文字投影不能只保存 Scene 级纯文本。每个 SceneBlock 进一步派生 paragraph、sentence、dialogue、quote、heading 和 narration 等 `text_units`，并保存原文 hash、原文 start/end offset、分析器版本、BCP 47 语言和混合语言 `language_spans`。Dialogue speaker、POV、人物/地点参与、故事事件时间、情节线 setup/payoff、因果关系和文字统计均是可重建投影；AI 推断项必须带原文证据、来源和候选状态，作者接受后由对应 JSON/Proposal 成为权威，不能只存在 SQLite。
 

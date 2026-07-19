@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./isolated-test.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -81,7 +81,7 @@ test("selects context in Workshop and proves the sent Context Bundle contains it
   page.on("console", (message) => {
     if (message.type() === "error") browserErrors.push(`console.error: ${message.text()}`);
   });
-  page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.stack ?? error.message}`));
 
   await page.goto("/");
   await page.getByRole("button", { name: "Workshop" }).click();

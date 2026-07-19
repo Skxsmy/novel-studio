@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { ReferenceCodexWorkspace } from "../features/codex/ReferenceCodexWorkspace";
 import { ReferenceOverviewWorkspace } from "../features/overview/ReferenceOverviewWorkspace";
 import { ReferencePlanWorkspace } from "../features/plan/ReferencePlanWorkspace";
+import { ReferenceResearchWorkspace } from "../features/research/ReferenceResearchWorkspace";
 import { ReferenceSettingsWorkspace } from "../features/settings/ReferenceSettingsWorkspace";
 import { ReferenceWorkshopWorkspace } from "../features/workshop/ReferenceWorkshopWorkspace";
 import { ReferenceWriteWorkspace } from "../features/write/ReferenceWriteWorkspace";
@@ -17,6 +18,7 @@ import { useReferenceStyleSheet } from "./useReferenceStyleSheet";
 export interface ReferenceReplicaProps {
   connectCodex?: boolean;
   connectOverview?: boolean;
+  connectResearch?: boolean;
   connectSettings?: boolean;
   connectWorkshop?: boolean;
   connectWrite?: boolean;
@@ -48,12 +50,14 @@ function ProjectIdentityBridge({ session }: { session: ProjectSessionState }) {
 function ConnectedProjectWorkspaces({
   connectCodex,
   connectOverview,
+  connectResearch,
   connectSettings,
   connectWorkshop,
   connectWrite,
 }: {
   connectCodex: boolean;
   connectOverview: boolean;
+  connectResearch: boolean;
   connectSettings: boolean;
   connectWorkshop: boolean;
   connectWrite: boolean;
@@ -107,6 +111,8 @@ function ConnectedProjectWorkspaces({
         onModelProfilesChanged={() => setModelProfilesRevision((current) => current + 1)}
       />
       <ReferencePlanWorkspace />
+      {connectResearch ? <ReferenceResearchNavigationBridge /> : null}
+      {connectResearch ? <ReferenceResearchWorkspace seriesId={session.activeSeries?.manifest.id ?? null} /> : null}
       {connectWrite ? <ReferenceWriteWorkspace requestedBlockId={writeTarget?.blockId ?? null} session={session} /> : <ReferenceSurface selector="#write-workspace" />}
       {connectCodex ? <ReferenceCodexWorkspace onOpenWrite={openWriteTarget} session={session} /> : <ReferenceCodexWorkspace />}
       {connectWorkshop ? (
@@ -122,6 +128,55 @@ function ConnectedProjectWorkspaces({
       ) : null}
     </>
   );
+}
+
+function ReferenceResearchNavigationBridge() {
+  useLayoutEffect(() => {
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>(".workspace-button[data-workspace]")];
+    const researchButton = buttons.find((button) => button.dataset.workspace === "Research");
+    if (!researchButton) return;
+    const wasDisabled = researchButton.disabled;
+    const workspaceContexts: Record<string, string> = {
+      Codex: "Story memory",
+      Overview: "Project overview",
+      Plan: "Structure and continuity",
+      Research: "Reference library",
+      Settings: "Project and application settings",
+      Workshop: "Development conversations",
+      Write: "Manuscript editor",
+    };
+    const listeners = new Map<HTMLButtonElement, () => void>();
+
+    function activateWorkspace(workspace: string) {
+      buttons.forEach((button) => {
+        const active = button.dataset.workspace === workspace;
+        button.classList.toggle("is-active", active);
+        if (active) button.setAttribute("aria-current", "page");
+        else button.removeAttribute("aria-current");
+      });
+      document.querySelectorAll<HTMLElement>("[data-workspace-view]").forEach((view) => {
+        view.hidden = view.dataset.workspaceView !== workspace;
+      });
+      const context = document.getElementById("brand-context");
+      if (context) context.textContent = workspaceContexts[workspace] ?? "Novel Studio";
+    }
+
+    researchButton.disabled = false;
+    buttons.forEach((button) => {
+      if (button.disabled) return;
+      const listener = () => {
+        const workspace = button.dataset.workspace;
+        if (workspace) globalThis.setTimeout(() => activateWorkspace(workspace), 0);
+      };
+      listeners.set(button, listener);
+      button.addEventListener("click", listener);
+    });
+    return () => {
+      listeners.forEach((listener, button) => button.removeEventListener("click", listener));
+      researchButton.disabled = wasDisabled;
+    };
+  }, []);
+  return null;
 }
 
 export function WorkshopProviderSettingsBridge({ onReturn }: { onReturn: () => void }) {
@@ -154,13 +209,14 @@ export function WorkshopProviderSettingsBridge({ onReturn }: { onReturn: () => v
 export function ReferenceReplica({
   connectCodex,
   connectOverview = true,
+  connectResearch = connectOverview,
   connectSettings = true,
   connectWorkshop = true,
   connectWrite = true,
   enableRuntime = true,
 }: ReferenceReplicaProps = {}) {
   const shouldConnectCodex = connectCodex ?? connectWrite;
-  const hasConnectedProjectWorkspace = connectOverview || connectWrite || shouldConnectCodex || connectWorkshop;
+  const hasConnectedProjectWorkspace = connectOverview || connectWrite || shouldConnectCodex || connectWorkshop || connectResearch;
   const prototypeRef = useRef<HTMLElement>(null);
   useReferenceStyleSheet();
   useReferenceRuntime(
@@ -198,6 +254,7 @@ export function ReferenceReplica({
           <ConnectedProjectWorkspaces
             connectCodex={shouldConnectCodex}
             connectOverview={connectOverview}
+            connectResearch={connectResearch}
             connectSettings={connectSettings}
             connectWorkshop={connectWorkshop}
             connectWrite={connectWrite}

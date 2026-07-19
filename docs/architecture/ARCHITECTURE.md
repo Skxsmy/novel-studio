@@ -77,7 +77,7 @@ Markdown and Word are import, export, mirror, preview, and migration boundary fo
 
 SQLite/FTS5 stores rebuildable projections such as search and mention indexes. Deleting derived state must not prevent the application from opening and editing authority files; rebuilding must validate source revisions and hashes.
 
-`docs/architecture/DATABASE_ARCHITECTURE.md` and accepted ADR-0018 define the M6 implementation plan for database identity, a single-writer WAL boundary, normalized projections, external-content FTS5, temporary-build atomic replacement, Reference Library indexing, and later vector adapters. These documents describe the target for NS-602 through NS-605; the current runtime still uses the earlier unversioned per-Series prototype and must not be reported as having those guarantees yet.
+`docs/architecture/DATABASE_ARCHITECTURE.md` and accepted ADR-0018 define the M6 implementation plan for database identity, a single-writer WAL boundary, normalized projections, external-content FTS5, temporary-build atomic replacement, Reference Library indexing, and later vector adapters. NS-602 implements the fixed-identity version 1 kernel, serialized write/rebuild lane, temporary-build replacement, and first TXT/Markdown source authority path. It does not yet implement the NS-603 source ledger/text analyzer, NS-604 complete reference projections, or NS-605 catalog/vector/cross-language retrieval.
 
 The target Search Service is novel- and language-aware. It projects paragraph,
 sentence, dialogue, POV, story-time, plot-thread, language-span, entity-alias,

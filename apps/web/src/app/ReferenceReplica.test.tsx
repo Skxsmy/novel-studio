@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReferenceReplica, WorkshopProviderSettingsBridge } from "./ReferenceReplica";
@@ -113,6 +113,38 @@ describe("NS-514 P3/P4 reference replica", () => {
     expect(getByTestId("fixture-provider-editor").parentElement?.classList.contains("is-provider-bridge")).toBe(true);
     fireEvent.click(await findByRole("button", { name: "Return to Workshop" }));
     expect(onReturn).toHaveBeenCalledTimes(1);
+  });
+
+  it("enables Research after Review and returns to the selected source", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/series")) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const { container } = render(
+      <ReferenceReplica
+        connectOverview={false}
+        connectResearch
+        connectSettings={false}
+        connectWorkshop={false}
+        connectWrite={false}
+      />,
+    );
+    const researchButton = container.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Research']")!;
+    const research = container.querySelector<HTMLElement>("#research-workspace")!;
+    await waitFor(() => expect(researchButton.disabled).toBe(false));
+    expect(researchButton.previousElementSibling?.textContent).toContain("Review");
+
+    fireEvent.click(researchButton);
+    await waitFor(() => expect(research.hidden).toBe(false));
+    expect(researchButton.getAttribute("aria-current")).toBe("page");
+    await waitFor(() => expect(container.querySelector("#brand-context")?.textContent).toBe("Reference library"));
+    fireEvent.click(container.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Plan']")!);
+    expect(research.hidden).toBe(true);
+    fireEvent.click(researchButton);
+    await waitFor(() => expect(research.hidden).toBe(false));
   });
 
   it("assembles every reference surface without non-reference controls", () => {

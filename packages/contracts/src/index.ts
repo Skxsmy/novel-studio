@@ -18,6 +18,7 @@ export * from "./context.js";
 export * from "./defaults.js";
 export * from "./prompts.js";
 export * from "./proposals.js";
+export * from "./research.js";
 export * from "./workshop.js";
 export * from "./workshopPrompts.js";
 

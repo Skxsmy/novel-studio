@@ -136,6 +136,17 @@ Progression 是统一 JSON 权威系统，存放于 `codex/progressions/`。它�
 
 Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复要求自身 `baseRevision`。有效状态查询只按当前叙事位置返回已生效记录；未来记录只返回数量，不返回摘要、证据或 ID。
 
+## Research
+
+- `GET /series/:seriesId/research/sources`
+- `GET /series/:seriesId/research/sources/:sourceId`
+- `POST /series/:seriesId/research/sources`
+- `PUT /series/:seriesId/research/sources/:sourceId`
+
+列表返回按导入时间排序的 SourceDocument 与 revision；详情额外返回受管理原文。导入请求使用 JSON `fileName`、`mediaType`、`sizeBytes` 和规范 `contentBase64`，可同时提供显示名称、作者、声明语言、标签、人工智能权限和版权/使用备注。NS-602 只接受扩展名与媒体类型一致、大小不超过 5 MiB、严格 UTF-8、非空且字节数可复核的 `.txt` 和 `.md`；服务端自己计算 SHA-256，不信任客户端哈希。成功返回 `201` 和建立后的详情。
+
+属性更新要求 `baseRevision`，只可修改显示名称、作者、声明语言、标签、人工智能权限和使用备注。冲突返回 `409` 并保留现有权威文件；原始文件名、媒体类型、字节数、哈希、导入时间、解析器和原文位置不可由该接口修改。NS-602 不注册删除、归档、重新解析或搜索路由，客户端不得把这些命令显示为可用。
+
 ## Workshop Agent Tools
 
 Workshop session mutations enforce one in-process activity boundary. A session

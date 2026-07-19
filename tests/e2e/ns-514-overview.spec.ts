@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./isolated-test.js";
 
 interface CreatedSeries {
   manifest: { id: string; title: string };

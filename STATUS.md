@@ -6,14 +6,14 @@ Authority: current operational state only
 ## Project Mainline
 
 - Active milestone: `M6 Reference Library And Retrieval`.
-- Active task: none while the scoped NS-601 closure is committed.
-- Task record: none.
-- Acceptance record: none.
-- Last reached mainline task: `NS-601 / M6.0 Database Architecture Planning`.
-- Next mainline task: `NS-602 / M6.1 Database Kernel And Research Source Vertical Slice`.
+- Active task: `NS-602 / M6.1 Database Kernel And Research Source Vertical Slice` (`in_progress`).
+- Task record: `docs/tasks/NS-602.md`.
+- Acceptance record: `docs/testing/NS-602_ACCEPTANCE.md`.
+- Last reached mainline task: `NS-601 / M6.0 Database Architecture Planning` at `e889c4c`.
+- Next mainline task: `NS-602 / M6.1 Database Kernel And Research Source Vertical Slice`; automated implementation and repository closure are complete, while author visual acceptance remains open.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; NS-514 is paused with only A16 author visual acceptance open. No task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
-- Mainline state: NS-601 is complete with accepted planning for the current unversioned per-Series SQLite/FTS5 prototype, JSON-authority-preserving novel-text/narrative projection, domain/language-aware search, Chinese-query-to-Japanese/English retrieval, atomic rebuild, migration, Reference Library, vector, security, and performance boundaries. No runtime database implementation is claimed by NS-601.
+- Mainline state: NS-602 automated implementation evidence and task-scoped repository closure are complete for the versioned/atomic database kernel and the first real TXT/Markdown Research source workflow. The author rejected the obsolete Figma Research path; the page uses the pinned `ui-design` Skill and the named React design checklist. Explicit author visual acceptance remains open.
 
 ## Active Support Work
 
@@ -21,16 +21,16 @@ Authority: current operational state only
 - Last completed support task: `GOV-001 Documentation Governance And Delivery Skeleton`.
 - Task record: `docs/tasks/GOV-001.md`.
 - Acceptance record: `docs/testing/GOV-001_ACCEPTANCE.md`.
-- Next action: open NS-602 with an exact acceptance map for the database kernel and real TXT/Markdown Research source workflow. NS-514 A16 remains a separate paused visual gate.
+- Next action: perform the user-requested database implementation review as separate support work without treating it as NS-602 visual acceptance. NS-514 A16 and NS-602 A12 remain separate paused visual gates.
 
 ## Repository State
 
-- Branch: `codex/ns-514-overview`; current base commit `5981d384c44c`.
+- Branch: `codex/ns-514-overview`; NS-601 base is `e889c4c` and the separate NS-514 follow-up commit is `b7ae1be`.
 - Rewritten pre-GOV-001 mainline tip: `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`.
 - Numbering-repair verification tip before closure: `578a74a GOV-001 docs(governance): separate support work from product mainline`.
 - Local recovery ref: `backup/gov-001-before-numbering-rewrite-20260710` preserves the original pre-rewrite history; the rewritten and backup tips have identical tree `deae3c9fae1f797239b975c464106126df530765`.
 - NS-514 repair and integration commits include `d532e79 NS-514 fix(settings): restore real model connections`, `1f01082 NS-514 fix(workshop): restore zero-model chat flow`, `ae7452b NS-514 fix(workshop): isolate session message validation`, `64b7ef0 NS-514 feat(overview): connect reference workspace`, and current base `5981d38 NS-514 docs(overview): record integration evidence`.
-- Current uncommitted NS-514 work connects real Series creation/selection, repairs multi-profile Settings/Workshop synchronization and Settings layout, adds durable author-correction and source-authority behavior, hardens Agent tool execution, fixes the startup stop path and connected runtime omission order, and updates tests and records. The pre-existing untracked `data/library/` remains outside task scope and must be preserved; temporary fixtures and stopped-service PID state were removed. The tracked binding reference remains unchanged.
+- NS-514 and NS-602 were split into separate task-scoped commits. NS-602 contains Research contracts/storage/API/UI/tests, the versioned SQLite kernel and atomic rebuild, database/product records, and isolated current end-to-end fixtures. The pre-existing `data/library/` remains outside task scope and must be preserved; the tracked binding reference remains unchanged.
 - The unpublished range contains 29 rewritten commits including the first GOV-001 commit; no remote history was rewritten.
 
 ## Current Product And Implementation Boundary
@@ -56,3 +56,4 @@ Authority: current operational state only
 - Some current non-Write surfaces still expose the legacy `act/chapter` interpretation; product-facing mapping closure belongs to the next scoped mainline UI/runtime task and must follow the canonical labels above.
 - `packages/storage/src/index.ts` remains oversized and should be split only when a scoped task touches the relevant domain.
 - First-start library selection, in-app service stop, tray behavior, full provider real-world validation, and broader UI visual acceptance remain incomplete.
+- `tests/e2e/browser-acceptance.spec.ts` still asserts the retired Chinese pre-reference shell (`小说工作室`) and fails independently; the five current reference/Research browser tests pass after per-test temporary-library isolation. Do not skip or weaken the historical assertions merely to make the aggregate command green.

@@ -42,6 +42,7 @@ import { registerContextRoutes } from "./routes/context.js";
 import { registerModelCallRoutes } from "./routes/modelCalls.js";
 import { registerProposalRoutes } from "./routes/proposals.js";
 import { registerPromptRoutes } from "./routes/prompts.js";
+import { registerResearchRoutes } from "./routes/research.js";
 import { registerWorkshopRoutes } from "./routes/workshop.js";
 
 export interface BuildAppOptions {
@@ -399,6 +400,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   registerModelCallRoutes(app, repository, { providerRegistry });
   registerContextRoutes(app, repository, { providerRegistry });
   registerProposalRoutes(app, repository);
+  registerResearchRoutes(app, repository);
   registerWorkshopRoutes(app, repository, { providerRegistry, embeddingRouter });
 
   app.post<{ Params: { seriesId: string } }>(

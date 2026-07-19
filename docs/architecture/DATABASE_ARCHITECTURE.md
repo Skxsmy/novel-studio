@@ -79,6 +79,7 @@ Primary references:
 - SQLite WAL: <https://www.sqlite.org/wal.html>
 - SQLite FTS5: <https://www.sqlite.org/fts5.html>
 - SQLite PRAGMA reference: <https://www.sqlite.org/pragma.html>
+- SQLite public application-ID registry: <https://www.sqlite.org/src/doc/trunk/magic.txt>
 - SQLite strict tables: <https://www.sqlite.org/stricttables.html>
 - Git index format: <https://git-scm.com/docs/gitformat-index>
 - calibre database API: <https://manual.calibre-ebook.com/db_api.html>
@@ -154,7 +155,7 @@ not construct `better-sqlite3` directly.
 The factory applies and verifies this baseline before normal queries:
 
 ```sql
-PRAGMA application_id = <assigned Novel Studio index id>;
+PRAGMA application_id = 0x4E534958;
 PRAGMA user_version = 1;
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
@@ -186,10 +187,11 @@ Additional policy:
   serialized write lane. Additional read-only worker connections are introduced
   only with concurrency tests and bounded lifetime.
 
-The `application_id` value remains provisional until implementation verifies
-that the selected value is not reserved in SQLite's public registry. Code must
-never modify SQLite's internal `schema_version`; application schema ownership
-uses `user_version` and the migration table below.
+NS-602 assigns `0x4E534958` (`NSIX`) to the per-Series Novel Studio index after
+checking SQLite's public application-ID registry. This identity applies only to
+the derived Series index; a future `catalog.sqlite` requires its own reviewed
+identity. Code never modifies SQLite's internal `schema_version`; application
+schema ownership uses `user_version` and the migration table below.
 
 ## 7. Core Metadata Schema
 
@@ -738,9 +740,10 @@ Provisional acceptance targets:
 - Keep Embedding profile routing, language-pair validation, and vector
   provenance explicit. No model or translation Provider is selected silently.
 
-Each implementation task requires its own task and acceptance record. This
-planning document does not mark any NS-602 through NS-605 runtime capability as
-implemented.
+Each implementation task requires its own task and acceptance record. NS-602
+implements the first kernel, atomic replacement, and TXT/Markdown source slice;
+the richer source ledger, text analyzer, complete format pipeline, library
+catalog, and cross-language retrieval remain NS-603 through NS-605 work.
 
 ## 20. Acceptance Blueprint
 
@@ -778,7 +781,6 @@ program must eventually prove:
 
 ## 21. Open Decisions Before Runtime Implementation
 
-- Confirm the final registered `application_id` value.
 - Decide whether `catalog.sqlite` is needed in NS-605 or whether bounded file
   scanning remains sufficient for the first Library release.
 - Benchmark trigram size and one/two-character fallback before considering a

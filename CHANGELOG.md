@@ -6,6 +6,8 @@ This changelog records user-visible product changes. Task status, command logs, 
 
 ### Added
 
+- Independent Research workspace with real UTF-8 TXT/Markdown import, unchanged original preview, persisted source shelf, revision-safe properties, explicit AI context permission, and honest format/lifecycle limits.
+- Versioned per-Series SQLite index kernel with fixed application identity, migration checksum and health classification, serialized writes, and validated temporary-build replacement that preserves the live index on failure.
 - Connected Codex workspace with real categories and Entries, Archived Entries, keyboard-reachable lifecycle menus, appended Detail editing, the original three-column Detail Type Library with persisted descriptions and row-context Rename/Delete, description-only Relation creation, Current Scene projection, real Write navigation, and separate Manuscript/Codex mentions with Canon previews.
 - Relation authority v2 migration with exact v1 rollback artifacts and guarded permanent deletion.
 - Connected reference Workshop workspace with real Chat, Agent, and Archived filtering; row-only session lifecycle menus; bottom-right message action menus; context selection; attachments; branch history; export; immediate expanded reasoning above replies; exact-model runtime options; and one truthful Send/Sending/Stop/Stopping control.
