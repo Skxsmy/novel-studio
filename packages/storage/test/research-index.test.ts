@@ -118,6 +118,15 @@ describe("NS-604 isolated Research keyword index", () => {
     const japanese = await store.searchResearchSources(database.database.id, { query: "北海航路", purpose: "local", limit: 20 });
     expect(japanese.results.some((result) => result.sourceDisplayName === "Japanese route")).toBe(true);
 
+    const partialJapanese = await store.searchResearchSources(database.database.id, {
+      query: "北海 守 船 夜明け",
+      purpose: "local",
+      languageTags: ["ja"],
+      limit: 20,
+    });
+    expect(partialJapanese.results[0]).toMatchObject({ sourceDisplayName: "Japanese route" });
+    expect(partialJapanese.results[0]?.matchChannels).toContain("keyword-literal");
+
     const english = await store.searchResearchSources(database.database.id, {
       query: "harbor ledger",
       purpose: "local",
@@ -129,6 +138,15 @@ describe("NS-604 isolated Research keyword index", () => {
     });
     expect(english.results.map((result) => result.sourceDisplayName)).toEqual(["English log"]);
     expect(english.results[0]?.matchChannels).toContain("keyword-word");
+
+    const partialEnglish = await store.searchResearchSources(database.database.id, {
+      query: "harbor guardian ledger dawn",
+      purpose: "local",
+      languageTags: ["en"],
+      limit: 20,
+    });
+    expect(partialEnglish.results[0]).toMatchObject({ sourceDisplayName: "English log" });
+    expect(partialEnglish.results[0]?.matchChannels).toContain("keyword-word");
 
     const literal = await store.searchResearchSources(database.database.id, { query: "%_", purpose: "local", limit: 20 });
     expect(literal.results.map((result) => result.sourceDisplayName)).toEqual(["English log"]);

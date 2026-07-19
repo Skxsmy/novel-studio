@@ -201,6 +201,9 @@ describe("NS-607 Workshop Agent Research loop", () => {
         expect(request) {
           const result = lastToolResult(request) as { results?: Array<Record<string, unknown>> };
           expect(result.results?.[0]?.originalText).toContain("winter solstice");
+          expect(result).toMatchObject({
+            nextAction: expect.stringContaining("If the returned original text answers the question"),
+          });
         },
         result: scriptedToolResult({
           name: "research.open_passage",
@@ -223,6 +226,9 @@ describe("NS-607 Workshop Agent Research loop", () => {
         expect(request) {
           const result = lastToolResult(request) as { passages?: Array<Record<string, unknown>> };
           expect(result.passages?.[0]?.originalText).toContain("western gate");
+          expect(result).toMatchObject({
+            nextAction: expect.stringContaining("stop retrieving and answer now"),
+          });
         },
         result: scriptedToolResult({
           name: "codex.create_entry",
@@ -356,5 +362,38 @@ describe("NS-607 Workshop Agent Research loop", () => {
       fixture.series.manifest.id,
       result.modelCall!.id,
     )).toEqual([]);
+  });
+
+  it("forces a prose conclusion after the Agent Research no-progress budget is exhausted", async () => {
+    const provider = new ScriptedWorkshopProvider([
+      {
+        name: "first empty search",
+        result: scriptedToolResult({ name: "research.search", arguments: { query: "missing one", mode: "exact" } }),
+      },
+      {
+        name: "second empty search",
+        result: scriptedToolResult({ name: "research.search", arguments: { query: "missing two", mode: "exact" } }),
+      },
+      {
+        name: "bounded prose conclusion",
+        expect(request) {
+          expect(request.toolChoice).toBeUndefined();
+          expect(request.tools).toBeUndefined();
+          expect((request.history ?? []).some((message) => message.role === "tool")).toBe(false);
+          expect((request.history ?? []).some((message) =>
+            message.role === "assistant" && Boolean(message.toolCalls?.length))).toBe(false);
+          expect(request.prompt.user).toContain("Research retrieval is closed");
+          expect(request.prompt.user).toContain("No matching passages were returned");
+        },
+        result: scriptedAnswer("No matching source was found, so I cannot confirm that detail."),
+      },
+    ]);
+    const fixture = await agentFixture(provider, "Check the active references for a missing detail.");
+    const result = await runWorkshopAgent(fixture.input);
+    expect(result.run.run.status).toBe("completed");
+    expect(result.toolMessages).toEqual([]);
+    expect(result.assistantMessage.content).toContain("cannot confirm");
+    expect(provider.requests).toHaveLength(3);
+    provider.assertExhausted();
   });
 });

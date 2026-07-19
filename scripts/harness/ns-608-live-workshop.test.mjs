@@ -7,6 +7,8 @@ import { ProjectRepository } from "@novel-studio/storage";
 import {
   NS608_TARGET_MODEL,
   assertPublicSummarySafe,
+  evaluateCrossLanguageFactCoverage,
+  exactResearchCitationPresent,
   fingerprintDirectory,
   harnessFailure,
   publicHarnessFailure,
@@ -73,6 +75,48 @@ test("fingerprints byte changes and rejects private material in public summaries
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("matches Research citations against the source chunk text hash", () => {
+  const sourceDetail = {
+    source: { id: "source-japanese" },
+    content: {
+      chunks: [{ id: "chunk-1", textHash: "a".repeat(64) }],
+    },
+  };
+  assert.equal(exactResearchCitationPresent([{
+    sourceId: "source-japanese",
+    chunkId: "chunk-1",
+    chunkHash: "a".repeat(64),
+  }], sourceDetail), true);
+  assert.equal(exactResearchCitationPresent([{
+    sourceId: "source-japanese",
+    chunkId: "chunk-1",
+    chunkHash: "b".repeat(64),
+  }], sourceDetail), false);
+});
+
+test("recognizes governed cross-language facts without forcing simplified Chinese wording", () => {
+  assert.deepEqual(evaluateCrossLanguageFactCoverage(
+    "冬至に西門を守り、開門前に青銅の鈴を三度鳴らす。鐘の音が終わるまで門扉に触れてはならない。",
+  ), {
+    winterSolstice: true,
+    westGate: true,
+    bronzeBell: true,
+    ringsThreeTimes: true,
+    beforeOpening: true,
+    noDoorTouchUntilRingingEnds: true,
+  });
+  assert.deepEqual(evaluateCrossLanguageFactCoverage(
+    "At the Winter Solstice west gate, ring the bronze bell three times before opening. The guard must not touch the door until the ringing has ended.",
+  ), {
+    winterSolstice: true,
+    westGate: true,
+    bronzeBell: true,
+    ringsThreeTimes: true,
+    beforeOpening: true,
+    noDoorTouchUntilRingingEnds: true,
+  });
 });
 
 test("preserves the source library and reports cleanup safety after a failed live callback", async () => {

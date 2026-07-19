@@ -466,20 +466,51 @@ function ftsLiteral(value: string): string {
   return `"${value.replace(/"/gu, "\"\"")}"`;
 }
 
-function searchChannels(query: string): Array<{ table: "reference_fts_cjk" | "reference_fts_word"; channel: "keyword-cjk" | "keyword-word"; expression: string }> {
-  const channels: Array<{ table: "reference_fts_cjk" | "reference_fts_word"; channel: "keyword-cjk" | "keyword-word"; expression: string }> = [];
+function queryWords(query: string): string[] {
+  return [...new Set(query.match(/[\p{L}\p{N}]+/gu) ?? [])];
+}
+
+function searchChannels(query: string): Array<{
+  table: "reference_fts_cjk" | "reference_fts_word";
+  channel: "keyword-cjk" | "keyword-word";
+  expression: string;
+  weight: number;
+}> {
+  const channels: Array<{
+    table: "reference_fts_cjk" | "reference_fts_word";
+    channel: "keyword-cjk" | "keyword-word";
+    expression: string;
+    weight: number;
+  }> = [];
   if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(query) && query.length >= 3) {
-    channels.push({ table: "reference_fts_cjk", channel: "keyword-cjk", expression: ftsLiteral(query) });
+    channels.push({ table: "reference_fts_cjk", channel: "keyword-cjk", expression: ftsLiteral(query), weight: 1.2 });
   }
-  const words = query.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const words = queryWords(query);
   if (words.length > 0) {
     channels.push({
       table: "reference_fts_word",
       channel: "keyword-word",
       expression: words.map(ftsLiteral).join(" AND "),
+      weight: 1,
     });
+    if (words.length > 1) {
+      channels.push({
+        table: "reference_fts_word",
+        channel: "keyword-word",
+        expression: words.map(ftsLiteral).join(" OR "),
+        weight: 0.35,
+      });
+    }
   }
   return channels;
+}
+
+function queryWordMatch(text: string, query: string): { matched: number; total: number; coverage: number } {
+  const normalizedText = text.toLocaleLowerCase("und");
+  const words = queryWords(query).map((word) => word.toLocaleLowerCase("und"));
+  if (words.length === 0) return { matched: 0, total: 0, coverage: 0 };
+  const matched = words.filter((word) => normalizedText.includes(word)).length;
+  return { matched, total: words.length, coverage: matched / words.length };
 }
 
 interface IndexedLanguageSpan {
@@ -547,7 +578,7 @@ export async function searchResearchIndex(
         ).all(channel.expression) as Array<{ chunk_id: string; score: number }>;
         for (const row of rows) {
           const existing = scores.get(row.chunk_id) ?? { score: 0, channels: new Set() };
-          existing.score += -row.score;
+          existing.score += -row.score * channel.weight;
           existing.channels.add(channel.channel);
           scores.set(row.chunk_id, existing);
         }
@@ -560,6 +591,22 @@ export async function searchResearchIndex(
         existing.score += 1;
         existing.channels.add("keyword-literal");
         scores.set(row.id, existing);
+      }
+      const cjkTerms = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(input.query)
+        ? queryWords(input.query).slice(0, 24)
+        : [];
+      if (cjkTerms.length > 1) {
+        const cjkTermRows = database.prepare(
+          `SELECT id FROM reference_chunks WHERE ${cjkTerms
+            .map(() => "instr(lower(text), lower(?)) > 0")
+            .join(" OR ")} LIMIT 500`,
+        ).all(...cjkTerms) as Array<{ id: string }>;
+        for (const row of cjkTermRows) {
+          const existing = scores.get(row.id) ?? { score: 0, channels: new Set() };
+          existing.score += 0.2;
+          existing.channels.add("keyword-literal");
+          scores.set(row.id, existing);
+        }
       }
 
       const getChunk = database.prepare(
@@ -601,6 +648,8 @@ export async function searchResearchIndex(
           indexedLanguageTags.some((actual) => languageTagMatches(actual, requested)))) return [];
         if (input.tags && !input.tags.every((tag) => tags.some((actual) => actual.toLocaleLowerCase("und") === tag.toLocaleLowerCase("und")))) return [];
         if (input.author && !row.source_author.toLocaleLowerCase("und").includes(input.author.toLocaleLowerCase("und"))) return [];
+        const wordMatch = queryWordMatch(row.text, input.query);
+        if (wordMatch.total > 1 && (wordMatch.matched < 2 || wordMatch.coverage < 0.5)) return [];
         const matchRange = findMatchRange(row.text, input.query);
         return [{
           researchDatabaseId,
@@ -616,7 +665,7 @@ export async function searchResearchIndex(
           languageTag: languageTagForMatch(languageSpans, matchRange, row.language_tag),
           location: JSON.parse(row.location_json),
           matchChannels: [...match.channels].sort(),
-          score: match.score,
+          score: match.score + wordMatch.coverage,
         }];
       }).sort((left, right) => right.score - left.score || left.sourceDisplayName.localeCompare(right.sourceDisplayName))
         .slice(0, input.limit);

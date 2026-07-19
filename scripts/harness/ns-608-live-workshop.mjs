@@ -3,9 +3,11 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { ModelProfileSchema } from "@novel-studio/contracts";
+import { ProviderRegistry, createDefaultProviderRegistry } from "@novel-studio/ai";
+import { ModelProfileSchema, ResearchSourcePropertiesSchema } from "@novel-studio/contracts";
 import { ProjectRepository } from "@novel-studio/storage";
 import { buildApp } from "../../apps/server/dist/app.js";
+import { parseResearchFile } from "../../apps/server/dist/researchParsers.js";
 
 export const NS608_TARGET_MODEL = "deepseek-v4-pro";
 
@@ -98,6 +100,29 @@ export function assertPublicSummarySafe(summary, forbiddenValues = []) {
   return summary;
 }
 
+export function exactResearchCitationPresent(citations, sourceDetail) {
+  const expected = new Set(
+    sourceDetail.content.chunks.map((chunk) => `${chunk.id}:${chunk.textHash}`),
+  );
+  return citations.some((citation) =>
+    citation.sourceId === sourceDetail.source.id &&
+    expected.has(`${citation.chunkId}:${citation.chunkHash}`));
+}
+
+export function evaluateCrossLanguageFactCoverage(text) {
+  return {
+    winterSolstice: /冬至|winter\s+solstice/iu.test(text),
+    westGate: /西[門门]|west\s+gate/iu.test(text),
+    bronzeBell: /青[銅铜].{0,4}[鈴铃]|bronze\s+bell/iu.test(text),
+    ringsThreeTimes: /三(?:次|度|遍|声)|3\s*(?:次|遍|声)|three\s+times/iu.test(text),
+    beforeOpening: /[開开]門前|before\s+opening/iu.test(text),
+    noDoorTouchUntilRingingEnds:
+      /(?:鐘|钟|鈴|铃).{0,20}(?:終|结).{0,20}(?:門|门).{0,8}(?:触|碰)/iu.test(text) ||
+      /(?:門|门).{0,8}(?:触|碰).{0,20}(?:鐘|钟|鈴|铃).{0,20}(?:終|结)/iu.test(text) ||
+      /(?:not|mustn['’]?t|cannot).{0,20}touch.{0,20}(?:door|gate).{0,30}(?:ringing|bell).{0,20}(?:end|ended)/iu.test(text),
+  };
+}
+
 async function credentialReferenceLocations(root, credentialRef) {
   const matches = [];
   for (const relative of await filesUnder(root)) {
@@ -130,6 +155,179 @@ export async function requestJson(baseUrl, method, pathname, payload, expectedSt
   return body;
 }
 
+function requestIdentity(content) {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+function traceProvider(adapter, trace) {
+  return new Proxy(adapter, {
+    get(target, property) {
+      if (property === "streamChat") {
+        return async function* tracedStreamChat(request) {
+          for await (const event of target.streamChat(request)) {
+            if (event.type === "done") {
+              trace.push({
+                toolChoice: request.toolChoice ?? null,
+                availableTools: request.tools?.map((tool) => tool.name) ?? [],
+                returnedTools: event.result.toolCalls.map((call) => ({
+                  name: call.name,
+                  arguments: call.arguments,
+                })),
+              });
+            }
+            yield event;
+          }
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+export async function createLiveSession(environment, title, databaseIds = []) {
+  const session = await requestJson(
+    environment.baseUrl,
+    "POST",
+    `/api/v1/series/${environment.series.manifest.id}/workshop/sessions`,
+    { kind: "agent", title },
+    201,
+  );
+  if (databaseIds.length === 0) return session;
+  return requestJson(
+    environment.baseUrl,
+    "PUT",
+    `/api/v1/series/${environment.series.manifest.id}/workshop/sessions/${session.id}`,
+    { activeResearchDatabaseIds: databaseIds },
+  );
+}
+
+export async function runLiveTurn(environment, trace, sessionId, turn, content) {
+  trace.add({ type: "author", turn, content });
+  const providerTraceStart = environment.providerTrace?.length ?? 0;
+  const result = await requestJson(
+    environment.baseUrl,
+    "POST",
+    `/api/v1/series/${environment.series.manifest.id}/workshop/sessions/${sessionId}/calls`,
+    {
+      mode: "agent",
+      modelProfileId: environment.profile.id,
+      userRequest: content,
+    },
+  );
+  const audits = result.modelCallId
+    ? await environment.repository.listResearchToolAuditEvents(
+      environment.series.manifest.id,
+      result.modelCallId,
+    )
+    : [];
+  for (const audit of audits) {
+    trace.add({
+      type: "tool-call",
+      turn,
+      callId: audit.id,
+      name: audit.tool,
+      effect: "read",
+      arguments: audit.argumentSummary,
+    });
+    trace.add({
+      type: "tool-result",
+      turn,
+      callId: audit.id,
+      name: audit.tool,
+      effect: "read",
+      status: audit.status,
+    });
+  }
+  if (result.responseText) {
+    trace.add({ type: "assistant", turn, content: result.responseText, status: result.status });
+  }
+  for (const message of result.toolMessages ?? []) {
+    const parsed = JSON.parse(message.content);
+    trace.add({
+      type: "tool-call",
+      turn,
+      callId: message.id,
+      name: parsed.tool,
+      effect: "write",
+      arguments: parsed.draft,
+      requestIdentity: requestIdentity(message.content),
+    });
+  }
+  Object.defineProperty(result, "ns608Diagnostics", {
+    value: audits.map((audit) => ({
+      tool: audit.tool,
+      status: audit.status,
+      errorCode: audit.errorCode,
+      madeProgress: audit.madeProgress,
+      exhaustedReason: audit.budgetAfter.exhaustedReason,
+    })),
+    enumerable: false,
+  });
+  Object.defineProperty(result, "ns608ProviderTrace", {
+    value: (environment.providerTrace ?? []).slice(providerTraceStart),
+    enumerable: false,
+  });
+  return result;
+}
+
+export async function confirmLiveWrite(environment, trace, sessionId, turn, message, tool) {
+  trace.add({ type: "confirmation", turn, callId: message.id, name: tool, status: "approved" });
+  const result = await requestJson(
+    environment.baseUrl,
+    "POST",
+    `/api/v1/series/${environment.series.manifest.id}/workshop/sessions/${sessionId}/messages/${message.id}/tools/${tool}/execute`,
+    { confirm: true },
+    201,
+  );
+  trace.add({
+    type: "tool-result",
+    turn,
+    callId: message.id,
+    name: tool,
+    effect: "write",
+    status: "succeeded",
+  });
+  for (const continuation of result.continuationMessages ?? []) {
+    if (continuation.role === "assistant") {
+      trace.add({ type: "assistant", turn, content: continuation.content, status: continuation.status });
+    }
+  }
+  return result;
+}
+
+export async function importGeneratedTextSource(environment, databaseId, fixture) {
+  const bytes = Buffer.from(fixture.text, "utf8");
+  const parsed = await parseResearchFile({
+    contentBase64: bytes.toString("base64"),
+    fileName: fixture.fileName,
+    mediaType: "text/plain",
+    sizeBytes: bytes.byteLength,
+  });
+  return environment.repository.importResearchSource(databaseId, {
+    kind: parsed.parsed.kind,
+    mediaType: "text/plain",
+    originalFileName: fixture.fileName,
+    originalBytes: parsed.bytes,
+    sizeBytes: parsed.bytes.byteLength,
+    contentHash: parsed.contentHash,
+    properties: ResearchSourcePropertiesSchema.parse({
+      displayName: fixture.displayName,
+      declaredLanguage: fixture.language,
+      aiPermission: fixture.aiPermission ?? "allowed",
+    }),
+    origin: { type: "file" },
+    content: {
+      title: parsed.parsed.title,
+      parserName: parsed.parsed.parserName,
+      parserVersion: parsed.parsed.parserVersion,
+      warnings: parsed.parsed.warnings,
+      sections: parsed.parsed.sections,
+      blocks: parsed.parsed.blocks,
+    },
+  });
+}
+
 export async function withTemporaryRealProviderEnvironment(options, run) {
   const sourceLibraryRoot = path.resolve(options.sourceLibraryRoot);
   const sourceBefore = await fingerprintDirectory(sourceLibraryRoot);
@@ -137,6 +335,7 @@ export async function withTemporaryRealProviderEnvironment(options, run) {
   const sourceProfile = selectSavedDeepseekProfile(await sourceRepository.listModelProfiles());
   const projectedProfile = projectDeepseekV4ProProfile(sourceProfile);
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), "novel-studio-ns-608-"));
+  const providerTrace = [];
   let app = null;
   let result;
   let runError = null;
@@ -146,15 +345,19 @@ export async function withTemporaryRealProviderEnvironment(options, run) {
     await repository.initialize();
     await repository.saveModelProfile(projectedProfile);
     const series = await repository.createSeries({ title: options.seriesTitle ?? "NS-608 saved-key trial" });
+    const defaultRegistry = createDefaultProviderRegistry();
+    const providerRegistry = new ProviderRegistry();
+    providerRegistry.register(traceProvider(defaultRegistry.get("deepseek"), providerTrace));
     app = await buildApp({
       libraryRoot: temporaryRoot,
       logger: false,
+      providerRegistry,
       version: "0.1.0-ns608-real",
       commit: "ns608-real-provider",
       workspaceRoot: process.cwd(),
     });
     const baseUrl = await app.listen({ host: "127.0.0.1", port: 0 });
-    result = await run({ repository, series, profile: projectedProfile, baseUrl });
+    result = await run({ repository, series, profile: projectedProfile, baseUrl, providerTrace });
   } catch (error) {
     runError = error;
   } finally {

@@ -131,7 +131,7 @@ export function researchRetrievalToolDefinitions(
     },
     {
       name: "research.search",
-      description: `Search the active Research Databases when the current author question needs evidence from those sources. Do not search merely because a database is active or when the author asks only for discussion based on supplied conversation context. Return a bounded set of relevant original-language passages; the server owns result limits, permissions, ranking thresholds, and cumulative budgets.${activeDatabaseDescription}`,
+      description: `Search the active Research Databases when the current author question needs evidence from those sources. Do not search merely because a database is active or when the author asks only for discussion based on supplied conversation context. Do not assume the server automatically translates a query: for a Chinese question over Japanese or English sources, first list source metadata when names or original terms are unknown, then issue one concise source-language query at a time. After an empty result, inspect source metadata or change language and terminology instead of repeatedly paraphrasing the same ineffective query. When a result already contains enough relevant original text, answer from it; open the exact passage only when adjacent context is needed, and do not search again for the same fact. Return a bounded set of relevant original-language passages; the server owns result limits, permissions, ranking thresholds, and cumulative budgets.${activeDatabaseDescription}`,
       parameters: jsonSchema(ResearchSearchArgumentsSchema),
       strict: true,
     },
@@ -242,7 +242,7 @@ function validateAuditProgression(
     }
     budget = event.budgetAfter;
     event.citations.forEach((citation) => citations.push(citation));
-    event.resultKeys.forEach((key) => resultKeys.add(key));
+    event.resultKeys.forEach((key) => resultKeys.add(scopedResultKey(event.tool, key)));
   }
   return { budget, citations, resultKeys, sequence: events.length + 1 };
 }
@@ -300,6 +300,14 @@ function sourceKey(source: {
   sourceRevision: string;
 }): string {
   return [source.researchDatabaseId, source.sourceId, source.sourceRevision].join(":");
+}
+
+function scopedResultKey(tool: ResearchToolName | null, key: string): string {
+  if (/^(?:source|search|passage):/u.test(key)) return key;
+  if (tool === "research.list_sources") return `source:${key}`;
+  if (tool === "research.search") return `search:${key}`;
+  if (tool === "research.open_passage") return `passage:${key}`;
+  return key;
 }
 
 function encodeListCursor(value: z.infer<typeof ListSourcesCursorSchema>): string {
@@ -498,7 +506,7 @@ export async function createResearchToolGateway(
         sources,
         nextCursor,
       },
-      resultKeys: sources.map(sourceKey),
+      resultKeys: sources.map((source) => `source:${sourceKey(source)}`),
       citations: [],
     };
   }
@@ -540,7 +548,7 @@ export async function createResearchToolGateway(
         issues: response.issues,
         nextCursor: response.nextCursor,
       },
-      resultKeys: citations.map(citationKey),
+      resultKeys: citations.map((citation) => `search:${citationKey(citation)}`),
       citations,
     };
   }
@@ -640,7 +648,7 @@ export async function createResearchToolGateway(
         tool: "research.open_passage",
         passages,
       },
-      resultKeys: citations.map(citationKey),
+      resultKeys: citations.map((citation) => `passage:${citationKey(citation)}`),
       citations,
     };
   }

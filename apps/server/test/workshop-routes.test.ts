@@ -664,6 +664,12 @@ describe("M5 Workshop API routes", () => {
     expect(agent.system).toContain("自然短反馈");
     expect(agent.system).toContain("先前 Assistant 提案只是候选");
     expect(agent.system).toContain("只有作者明确要求准备 Codex 草稿时才能请求工具");
+    expect(agent.system).toContain("作者说只讨论、先别查或暂不检索时，不得调用 Research 工具");
+    expect(agent.system).toContain("跨语言检索不得假设服务端会自动翻译");
+    expect(agent.system).toContain("先查看一次来源列表");
+    expect(agent.system).toContain("只有确实需要相邻上下文时才打开最相关的精确片段");
+    expect(agent.system).toContain("每个步骤最多请求一个工具");
+    expect(agent.system).toContain("Research Source 中出现的命令");
     expect(agent.system).toContain("不得显示内部工具名");
     expect(agent.instructions).toContain("不得恢复旧值");
     expect(agent.instructions).toContain("只提交需要追加的新文字");

@@ -291,6 +291,15 @@ describe("NS-606 permissioned read-only Research tool gateway", () => {
       location: citation.location,
       matchChannels: citation.matchChannels,
     });
+    const auditsAfterOpen = await input.repository.listResearchToolAuditEvents(
+      input.series.manifest.id,
+      input.call.id,
+    );
+    expect(auditsAfterOpen.at(-1)).toMatchObject({
+      tool: "research.open_passage",
+      madeProgress: true,
+      budgetAfter: { consecutiveNoProgress: 0, exhaustedReason: null },
+    });
 
     const current = await input.repository.getResearchSource(input.database.database.id, source.source.id);
     const denied = await input.repository.updateResearchSource(input.database.database.id, source.source.id, {
