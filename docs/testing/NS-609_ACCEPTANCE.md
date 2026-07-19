@@ -44,6 +44,7 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 | --- | --- | --- | --- |
 | 2026-07-20 | clean post-`b27e6f2` worktree | authority and runtime inventory over Research specifications, Research Database/Source contracts, Proposal contracts, Proposal storage, Review UI, STATUS, and TASKS | Confirmed the Research Note implementation is absent beyond Proposal enum scaffolding; recorded the two unresolved product boundaries before runtime changes |
 | 2026-07-20 | clean post-`83ae262` worktree | official Zotero note/library model and official Novelcrafter Codex revision/progression research | Mature references support library-owned source-bound and standalone notes, separately versioned Canon description and non-Canon notes, and explicit story-state progression; recorded as recommendation evidence without claiming author approval |
+| 2026-07-20 | clean post-`5dca4d6` worktree | installed `ui-design` Skill, accepted Research checklists, current connected Research DOM/CSS, Story Change component, API, and state inventory | Added the named direct-to-React UI checklist covering route, entry/return, three-column Sources/Notes structure, component/data map, evidence states, promotion dialog, accessibility, responsiveness, and exact browser path while keeping both product decisions unresolved |
 
 ## Repository Safety
 
