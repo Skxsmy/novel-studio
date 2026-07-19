@@ -43,6 +43,7 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 | Date | Commit/worktree | Command or procedure | Result |
 | --- | --- | --- | --- |
 | 2026-07-20 | clean post-`b27e6f2` worktree | authority and runtime inventory over Research specifications, Research Database/Source contracts, Proposal contracts, Proposal storage, Review UI, STATUS, and TASKS | Confirmed the Research Note implementation is absent beyond Proposal enum scaffolding; recorded the two unresolved product boundaries before runtime changes |
+| 2026-07-20 | clean post-`83ae262` worktree | official Zotero note/library model and official Novelcrafter Codex revision/progression research | Mature references support library-owned source-bound and standalone notes, separately versioned Canon description and non-Canon notes, and explicit story-state progression; recorded as recommendation evidence without claiming author approval |
 
 ## Repository Safety
 
