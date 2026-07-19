@@ -146,6 +146,7 @@ Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复�
 - `POST /research/databases/:databaseId/migrations/series/:seriesId`
 - `GET /research/databases/:databaseId/sources`
 - `GET /research/databases/:databaseId/sources/:sourceId`
+- `GET /research/databases/:databaseId/sources/:sourceId/content`
 - `POST /research/databases/:databaseId/sources`
 - `POST /research/databases/:databaseId/sources/web`
 - `PUT /research/databases/:databaseId/sources/:sourceId`
@@ -160,21 +161,32 @@ Research Database 是 library 范围、互相隔离的作者权威对象，不�
 命令复制到已经链接该 Series 的目标数据库；旧权威在复制成功后仍保留。
 旧 `/series/:seriesId/research/sources` 路由已退役，不再提供隐式兼容写入。
 
-来源列表返回目标数据库内按导入时间排序的 SourceDocument version 2 或 version 3 与 revision；
-version 3 详情额外返回版本化 Section、Block、Chunk、SourceLocation 和语言片段。导入请求使用 JSON `fileName`、`mediaType`、
+来源列表返回目标数据库内按导入时间排序的 SourceDocument version 2 或 version 3 与 revision。
+version 2 详情保留旧的原文响应；version 3 详情、导入响应和属性更新响应只返回
+Source 元数据与 `contentSummary`，不把全部 Section、Block 和 Chunk 序列化到普通响应。
+version 3 正文通过 `sources/:sourceId/content?offset=<block>&limit=<count>` 分页读取；
+该端点返回有界的有序 Block、总 Block 数和下一页位置，每个 Block 仍保留
+SourceLocation 与语言片段。导入请求使用 JSON `fileName`、`mediaType`、
 `sizeBytes` 和规范 `contentBase64`，可同时提供显示名称、作者、声明语言、
 标签、人工智能权限和版权/使用备注。当前文件接口接受大小不超过 25 MiB、
 扩展名与媒体类型一致的 TXT、Markdown、DOCX、文本型 PDF、EPUB、HTML/XHTML；
 服务端复核字节数、检测伪装/损坏输入并自己计算 SHA-256，不信任客户端哈希。
 网页接口只接受作者明确提交的公开 `http`/`https` 地址，执行一次受控获取并
 把清洗后的 HTML 快照作为 `web-snapshot` 原件。两种成功路径均返回 `201` 和
-建立后的 version 3 详情。
+建立后的轻量 version 3 Source 视图；客户端必须另行分页读取正文。
 
 来源属性更新要求 `baseRevision`，只可修改显示名称、作者、声明语言、标签、
 人工智能权限和使用备注。冲突返回 `409` 并保留现有权威文件；原始文件名、
 媒体类型、字节数、哈希、导入时间、解析器和原文位置不可由该接口修改。
 当前不注册删除、归档、重新解析、网页重新抓取或多数据库搜索路由，客户端不得把这些命令显示为
 可用。
+
+当前 Research API 只提供单数据库本地词法搜索。`purpose: model-context`
+会排除 `aiPermission: never` 的 Source，但不存在任何调用该路径的 Workshop
+或 Provider 工具。NS-605 才新增显式多数据库混合检索；NS-606 才新增由服务端
+执行的 `research.list_sources`、`research.search` 和
+`research.open_passage` 只读工具网关；NS-607 才把会话激活和有界迭代工具循环
+接入 Workshop。现有端点不得描述成模型已能主动搜索数据库。
 
 ## Workshop Agent Tools
 

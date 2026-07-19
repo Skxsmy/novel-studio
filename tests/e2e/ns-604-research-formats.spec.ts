@@ -122,3 +122,46 @@ test("imports structured sources, searches exact locations, and keeps databases 
   });
   expect(browserErrors).toEqual([]);
 });
+
+test("imports and navigates a three-megabyte text source without loading every block", async ({ page }) => {
+  test.setTimeout(45_000);
+  const paragraph =
+    "Aster Vale archive notes describe harbor bells, winter maps, multilingual names, and revision evidence for a fictional author. This paragraph is synthetic acceptance data for Novel Studio Research.";
+  const marker =
+    "NS604_E2E_FINAL_PASSAGE confirms the last indexed passage opens in the paged reader.";
+  const largeText = `${`${paragraph}\n\n`.repeat(15_810)}${marker}`;
+  expect(Buffer.byteLength(largeText, "utf8")).toBeGreaterThan(3 * 1024 * 1024);
+
+  await page.goto("/");
+  const navigation = page.getByRole("navigation", { name: "Workspaces" });
+  await navigation.getByRole("button", { exact: true, name: "Research" }).click();
+  const workspace = page.locator("#research-workspace");
+
+  await workspace.getByTitle("Create Research Database").click();
+  const dialog = workspace.getByRole("dialog", { name: "Create Research Database" });
+  await dialog.getByLabel("Name").fill("Large Text Archive");
+  await dialog.getByRole("button", { name: "Create database" }).click();
+
+  await workspace.getByLabel("Choose a Research source file").setInputFiles({
+    name: "large-archive.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from(largeText, "utf8"),
+  });
+  await expect(workspace.getByRole("status")).toContainText("Imported large-archive.txt", {
+    timeout: 20_000,
+  });
+  await expect(workspace.getByText(/Blocks 1-40 of \d+/u)).toBeVisible();
+
+  await workspace.getByRole("navigation", { name: "Source pages" }).getByRole("button", { name: "Next" }).click();
+  await expect(workspace.getByText(/Blocks 41-80 of \d+/u)).toBeVisible();
+
+  const search = workspace.getByLabel("Search selected Research Database");
+  await search.fill("NS604_E2E_FINAL_PASSAGE");
+  await workspace.getByRole("button", { exact: true, name: "Search" }).click();
+  const result = workspace.getByRole("button", { name: /NS604_E2E_FINAL_PASSAGE/u });
+  await expect(result).toBeVisible();
+  await result.click();
+
+  await expect(workspace.locator(".rs10-text-block.is-highlighted")).toContainText(marker);
+  await expect(workspace.getByText(/Blocks (?!1-40)\d+-\d+ of \d+/u)).toBeVisible();
+});

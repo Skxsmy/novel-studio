@@ -147,6 +147,28 @@ Workshop 的 General Chat 属于讨论型单角色调用。它必须满足：
 
 调用前用户可以展开每个 Context Item，手工取消或钉住允许的项目。调用后日志保存项目清单、revision、模型和用量；敏感正文不额外复制进普通日志。
 
+### 4.6 Research Database 检索工具
+
+Research Database 不通过把检索到的全部文件或全部相关 Chunk 预先追加到
+Prompt 来接入模型。Workshop 会话只保存作者明确激活的作品库级数据库标识；
+Provider 首次请求只获得紧凑的数据库元数据和只读工具定义。支持 native tool
+calls 的模型可以在同一作者回合中调用 `research.list_sources`、
+`research.search` 和 `research.open_passage`，根据结果继续缩小查询或打开相邻
+原文。General Chat 和 Agent 使用同一只读网关；Codex 等写工具仍遵守独立确认
+边界。
+
+服务端而不是模型负责数据库白名单、Source `aiPermission`、单次返回数、相关性
+阈值、重复片段合并、来源多样性、单次与累计字符/token 预算、最大工具次数、
+无进展终止和取消。工具结果必须携带不变的 Research Database、Source、Chunk、
+hash、revision、语言、SourceLocation 和实际检索通道，最终回答引用这些原文
+锚点。模型不能要求读取未激活数据库、`never` Source、完整数据库转储、原始
+文件路径或凭据。
+
+词法检索、别名/转写、查询翻译和多语言向量是不同通道，必须逐项披露。只有
+通过中日英正向、反向、专名、假朋友和无关负样本验证的 embedding profile
+才能提供无共享词项的跨语言语义通道；否则网关明确降级为现有词法能力，不得
+把中文查询偶然命中日文汉字描述成语义跨语言检索。
+
 ## 5. Proposal 系统
 
 ### 5.1 Proposal 类型

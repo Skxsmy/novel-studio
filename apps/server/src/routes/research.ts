@@ -13,9 +13,11 @@ import {
   ResearchKeywordSearchInputSchema,
   ResearchKeywordSearchResponseSchema,
   ResearchLegacyMigrationResultSchema,
-  ResearchSourceDetailSchema,
+  ResearchSourceContentPageQuerySchema,
+  ResearchSourceContentPageSchema,
   ResearchSourceDocumentSchema,
   ResearchSourcePropertiesSchema,
+  ResearchSourceViewSchema,
   ResearchSourceV2MigrationResultSchema,
   UpdateResearchDatabaseInputSchema,
   UpdateResearchSourceInputSchema,
@@ -124,14 +126,30 @@ export function registerResearchRoutes(
           blocks: parsed.blocks,
         },
       });
-      return reply.status(201).send(ResearchSourceDetailSchema.parse(source));
+      return reply.status(201).send(ResearchSourceViewSchema.parse(
+        await repository.getResearchSourceView(request.params.databaseId, source.source.id),
+      ));
     },
   );
 
   app.get<{ Params: { databaseId: string; sourceId: string } }>(
     "/api/v1/research/databases/:databaseId/sources/:sourceId",
-    async (request) => ResearchSourceDetailSchema.parse(
-      await repository.getResearchSource(request.params.databaseId, request.params.sourceId),
+    async (request) => ResearchSourceViewSchema.parse(
+      await repository.getResearchSourceView(request.params.databaseId, request.params.sourceId),
+    ),
+  );
+
+  app.get<{
+    Params: { databaseId: string; sourceId: string };
+    Querystring: { offset?: string | number; limit?: string | number };
+  }>(
+    "/api/v1/research/databases/:databaseId/sources/:sourceId/content",
+    async (request) => ResearchSourceContentPageSchema.parse(
+      await repository.getResearchSourceContentPage(
+        request.params.databaseId,
+        request.params.sourceId,
+        ResearchSourceContentPageQuerySchema.parse(request.query),
+      ),
     ),
   );
 
@@ -172,19 +190,24 @@ export function registerResearchRoutes(
           blocks: imported.parsed.blocks,
         },
       });
-      return reply.status(201).send(ResearchSourceDetailSchema.parse(source));
+      return reply.status(201).send(ResearchSourceViewSchema.parse(
+        await repository.getResearchSourceView(request.params.databaseId, source.source.id),
+      ));
     },
   );
 
   app.put<{ Params: { databaseId: string; sourceId: string } }>(
     "/api/v1/research/databases/:databaseId/sources/:sourceId",
-    async (request) => ResearchSourceDetailSchema.parse(
-      await repository.updateResearchSource(
+    async (request) => {
+      const updated = await repository.updateResearchSource(
         request.params.databaseId,
         request.params.sourceId,
         UpdateResearchSourceInputSchema.parse(request.body),
-      ),
-    ),
+      );
+      return ResearchSourceViewSchema.parse(
+        await repository.getResearchSourceView(request.params.databaseId, updated.source.id),
+      );
+    },
   );
 
   app.get<{ Params: { databaseId: string } }>(

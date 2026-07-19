@@ -41,21 +41,65 @@ export function prepareVersion2ResearchContent(
   const sections: PreparedResearchSection[] = [];
   const blocks: PreparedResearchBlock[] = [];
   const headingStack: Array<{ level: number; sectionOrder: number }> = [];
-  const paragraphPattern = /[^\n](?:.*?)(?=\n{2,}|$)/gsu;
+  const lineStarts = [0];
+  for (let index = 0; index < normalized.length; index += 1) {
+    if (normalized.charCodeAt(index) === 10) lineStarts.push(index + 1);
+  }
+  const lineAtOffset = (offset: number): number => {
+    let low = 0;
+    let high = lineStarts.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (lineStarts[middle]! <= offset) low = middle + 1;
+      else high = middle;
+    }
+    return Math.max(1, low);
+  };
   const locationFor = (startOffset: number, endOffset: number): ResearchSourceLocation => ({
     kind: "text",
-    startLine: normalized.slice(0, startOffset).split("\n").length,
-    endLine: normalized.slice(0, endOffset).split("\n").length,
+    startLine: lineAtOffset(startOffset),
+    endLine: lineAtOffset(Math.max(startOffset, endOffset - 1)),
     startOffset,
     endOffset,
   });
-  for (const match of normalized.matchAll(paragraphPattern)) {
-    const raw = match[0];
+  const appendBlock = (input: Omit<PreparedResearchBlock, "order">): void => {
+    const previous = blocks.at(-1);
+    if (
+      input.kind === "paragraph"
+      && previous?.kind === "paragraph"
+      && previous.sectionOrder === input.sectionOrder
+      && previous.text.length + input.text.length + 2 <= MAX_BLOCK_LENGTH
+      && previous.location.kind === "text"
+      && input.location.kind === "text"
+    ) {
+      previous.text = `${previous.text}\n\n${input.text}`;
+      previous.location = locationFor(previous.location.startOffset, input.location.endOffset);
+      return;
+    }
+    blocks.push({ order: blocks.length, ...input });
+  };
+  let cursor = 0;
+  while (cursor < normalized.length) {
+    while (cursor < normalized.length && normalized[cursor] === "\n") cursor += 1;
+    if (cursor >= normalized.length) break;
+    const startOffset = cursor;
+    let endOffset = normalized.length;
+    while (cursor < normalized.length) {
+      if (normalized[cursor] !== "\n") {
+        cursor += 1;
+        continue;
+      }
+      const newlineStart = cursor;
+      while (cursor < normalized.length && normalized[cursor] === "\n") cursor += 1;
+      if (cursor - newlineStart >= 2) {
+        endOffset = newlineStart;
+        break;
+      }
+    }
+    const raw = normalized.slice(startOffset, endOffset);
     const value = raw.replace(/[\t ]+/gu, " ").trim();
     if (!value) continue;
-    const startOffset = match.index ?? 0;
-    const endOffset = startOffset + raw.length;
-    const heading = kind === "markdown" ? /^(#{1,6})\s+(.+)$/u.exec(value) : null;
+    const heading = kind === "markdown" && value.length <= 500 ? /^(#{1,6})\s+(.+)$/u.exec(value) : null;
     let blockKind: PreparedResearchBlock["kind"] = "paragraph";
     let blockText = value;
     let sectionOrder = headingStack.at(-1)?.sectionOrder ?? null;
@@ -79,13 +123,40 @@ export function prepareVersion2ResearchContent(
       blockKind = "quote";
       blockText = value.replace(/^>\s?/u, "");
     }
-    blocks.push({
-      order: blocks.length,
-      sectionOrder,
-      kind: blockKind,
-      text: blockText,
-      location: locationFor(startOffset, endOffset),
-    });
+    if (blockText.length <= MAX_BLOCK_LENGTH) {
+      appendBlock({
+        sectionOrder,
+        kind: blockKind,
+        text: blockText,
+        location: locationFor(startOffset, endOffset),
+      });
+      continue;
+    }
+    let rawOffset = 0;
+    while (rawOffset < raw.length) {
+      let rawEnd = Math.min(raw.length, rawOffset + MAX_BLOCK_LENGTH);
+      if (
+        rawEnd < raw.length
+        && raw.charCodeAt(rawEnd - 1) >= 0xd800
+        && raw.charCodeAt(rawEnd - 1) <= 0xdbff
+        && raw.charCodeAt(rawEnd) >= 0xdc00
+        && raw.charCodeAt(rawEnd) <= 0xdfff
+      ) {
+        rawEnd -= 1;
+      }
+      let piece = raw.slice(rawOffset, rawEnd).replace(/[\t ]+/gu, " ").trim();
+      if (rawOffset === 0 && blockKind === "list-item") piece = piece.replace(/^[-*+]\s+/u, "");
+      if (rawOffset === 0 && blockKind === "quote") piece = piece.replace(/^>\s?/u, "");
+      if (piece) {
+        appendBlock({
+          sectionOrder,
+          kind: blockKind,
+          text: piece,
+          location: locationFor(startOffset + rawOffset, startOffset + rawEnd),
+        });
+      }
+      rawOffset = rawEnd;
+    }
   }
   if (blocks.length === 0) {
     throw new StorageError("Version 2 Research source has no extractable text", "INVALID_DATA");
@@ -93,7 +164,7 @@ export function prepareVersion2ResearchContent(
   return {
     title: sections[0]?.title ?? "",
     parserName: kind === "markdown" ? "novel-studio-markdown" : "novel-studio-text",
-    parserVersion: 1,
+    parserVersion: 2,
     warnings: [],
     sections,
     blocks,
@@ -101,7 +172,9 @@ export function prepareVersion2ResearchContent(
 }
 
 const LANGUAGE_DETECTOR_VERSION = "novel-studio-script-v2";
+const MAX_BLOCK_LENGTH = 16_000;
 const MAX_CHUNK_LENGTH = 1_200;
+const MAX_LANGUAGE_SPANS = 200;
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -211,6 +284,16 @@ function analyzeLanguage(text: string, declaredLanguage: string | null): {
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0]?.[0]
     ?? declaredLanguage
     ?? "und";
+  if (spans.length > MAX_LANGUAGE_SPANS) {
+    spans.splice(0, spans.length, {
+      start: 0,
+      end: text.length,
+      languageTag,
+      source: declaredLanguage === languageTag ? "declared" : "detected",
+      confidence: declaredLanguage === languageTag ? 0.8 : 0.6,
+      detectorVersion: LANGUAGE_DETECTOR_VERSION,
+    });
+  }
   return {
     language: {
       languageTag,

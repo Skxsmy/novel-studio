@@ -57,7 +57,15 @@ describe("NS-604 Research original-language routes", () => {
     });
     expect(imported.statusCode).toBe(201);
     expect(imported.json().source.schemaVersion).toBe(3);
-    expect(imported.json().content.sections[0].title).toBe("北海航路");
+    expect(imported.json()).not.toHaveProperty("content");
+    expect(imported.json().contentSummary).toMatchObject({ title: "北海航路", sectionCount: 1 });
+    const contentPage = await app.inject({
+      method: "GET",
+      url: `${root}/sources/${imported.json().source.id}/content?offset=0&limit=1`,
+    });
+    expect(contentPage.statusCode).toBe(200);
+    expect(contentPage.json()).toMatchObject({ offset: 0, limit: 1, totalBlocks: 2 });
+    expect(contentPage.json().blocks[0]).toMatchObject({ kind: "heading", text: "北海航路" });
 
     const local = await app.inject({
       method: "POST",
@@ -68,6 +76,8 @@ describe("NS-604 Research original-language routes", () => {
     expect(local.json().results[0]).toMatchObject({
       researchDatabaseId: database.database.id,
       sourceId: imported.json().source.id,
+      blockId: contentPage.json().blocks[0].id,
+      blockOrder: 0,
       location: { kind: "text", startLine: 1 },
     });
     const model = await app.inject({
@@ -80,6 +90,48 @@ describe("NS-604 Research original-language routes", () => {
     expect((await app.inject({ method: "POST", url: `${root}/index/rebuild` })).json()).toMatchObject({ status: "ready" });
     await app.close();
   });
+
+  it("imports and pages real 3 MiB single-line and many-paragraph text without returning full content", async () => {
+    const { app, database } = await fixture();
+    const root = `/api/v1/research/databases/${database.database.id}`;
+    const singleLineText = `single-line-anchor ${"A".repeat(3 * 1024 * 1024 - 19)}`;
+    const manyParagraphText = `${"many-paragraph-anchor northern harbor ledger.\n\n".repeat(70_000)}`
+      .padEnd(3 * 1024 * 1024, "B")
+      .slice(0, 3 * 1024 * 1024);
+
+    for (const [fileName, text] of [
+      ["large-single-line.txt", singleLineText],
+      ["large-many-paragraphs.txt", manyParagraphText],
+    ] as const) {
+      const imported = await app.inject({
+        method: "POST",
+        url: `${root}/sources`,
+        payload: { ...filePayload(fileName, "text/plain", text), aiPermission: "allowed" },
+      });
+      expect(imported.statusCode).toBe(201);
+      expect(imported.json()).not.toHaveProperty("content");
+      expect(imported.json().contentSummary.blockCount).toBeGreaterThan(1);
+      const page = await app.inject({
+        method: "GET",
+        url: `${root}/sources/${imported.json().source.id}/content?offset=0&limit=40`,
+      });
+      expect(page.statusCode).toBe(200);
+      expect(page.json().blocks.length).toBeLessThanOrEqual(40);
+      expect(Math.max(...page.json().blocks.map((block: { text: string }) => block.text.length))).toBeLessThanOrEqual(16_000);
+    }
+
+    const search = await app.inject({
+      method: "POST",
+      url: `${root}/search`,
+      payload: { query: "many-paragraph-anchor", purpose: "model-context", limit: 3 },
+    });
+    expect(search.statusCode).toBe(200);
+    expect(search.json().results[0]).toMatchObject({
+      researchDatabaseId: database.database.id,
+      blockOrder: expect.any(Number),
+    });
+    await app.close();
+  }, 60_000);
 
   it("imports exactly one sanitized managed web snapshot without following page links", async () => {
     const { acquire, app, database, libraryRoot } = await fixture();

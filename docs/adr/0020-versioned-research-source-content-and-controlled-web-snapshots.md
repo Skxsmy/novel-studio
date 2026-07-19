@@ -57,6 +57,12 @@ that hierarchy and remain owned only by their selected Research Database.
    ratios before content extraction. DOCX external file and package relationships
    are rejected; ordinary hyperlinks remain readable text and are never fetched.
    EPUB spine items must resolve inside the validated archive.
+9. The 25 MiB Source limit is an implemented capacity boundary. Text parsers
+   scan line locations once, split overlong text, and coalesce bounded runs of
+   small compatible blocks without changing original bytes. Import and update
+   routes return Source metadata instead of the complete parsed-content and
+   Chunk projection. The reader obtains bounded Block pages, and a search hit
+   carries the Block identity/order required to open the containing page.
 
 ## Dependency Decision
 
@@ -82,6 +88,9 @@ acquisition boundary is the only NS-604 network path.
   invisible changes to Evidence anchors.
 - Import remains successful when authority commits but index projection fails;
   the index reports degraded state and can be rebuilt without re-importing.
+- Large Source authority may remain one versioned content document on disk,
+  but HTTP responses and browser rendering are bounded; no request needs to
+  serialize every Chunk or mount every Block in the document.
 - OCR, recursive crawling, automatic research, translation, semantic vectors,
   and multi-database search remain outside this decision.
 
@@ -107,3 +116,6 @@ acquisition boundary is the only NS-604 network path.
   and prove the other database remains isolated and searchable.
 - Inject parser, authority-write, build, and swap failures; prove no partial
   source appears and the prior live index remains readable or recoverable.
+- Import both a multi-megabyte single-line text and a multi-megabyte text with
+  many ordinary paragraphs, page through the reader, open a search result on
+  its containing page, and run a direct 25 MiB parser/storage stress probe.

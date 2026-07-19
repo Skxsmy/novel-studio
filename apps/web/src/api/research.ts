@@ -10,7 +10,8 @@ import type {
   ResearchKeywordSearchInput,
   ResearchKeywordSearchResponse,
   ResearchLegacyMigrationResult,
-  ResearchSourceDetail,
+  ResearchSourceContentPage,
+  ResearchSourceView,
   ResearchSourceDocument,
   ResearchSourceV2MigrationResult,
   UpdateResearchDatabaseInput,
@@ -51,22 +52,28 @@ export function createResearchApi(client: ApiClient) {
       return client.requestJson<ResearchSourceDocument[]>(`/research/databases/${databaseId}/sources`);
     },
     getSource(databaseId: string, sourceId: string) {
-      return client.requestJson<ResearchSourceDetail>(`/research/databases/${databaseId}/sources/${sourceId}`);
+      return client.requestJson<ResearchSourceView>(`/research/databases/${databaseId}/sources/${sourceId}`);
+    },
+    getSourceContentPage(databaseId: string, sourceId: string, offset: number, limit = 40) {
+      const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+      return client.requestJson<ResearchSourceContentPage>(
+        `/research/databases/${databaseId}/sources/${sourceId}/content?${query}`,
+      );
     },
     importSource(databaseId: string, input: ImportResearchSourceInput) {
-      return client.requestJson<ResearchSourceDetail>(`/research/databases/${databaseId}/sources`, {
+      return client.requestJson<ResearchSourceView>(`/research/databases/${databaseId}/sources`, {
         body: input,
         method: "POST",
       });
     },
     importWebSource(databaseId: string, input: ImportResearchWebSourceInput) {
-      return client.requestJson<ResearchSourceDetail>(`/research/databases/${databaseId}/sources/web`, {
+      return client.requestJson<ResearchSourceView>(`/research/databases/${databaseId}/sources/web`, {
         body: input,
         method: "POST",
       });
     },
     updateSource(databaseId: string, sourceId: string, input: UpdateResearchSourceInput) {
-      return client.requestJson<ResearchSourceDetail>(`/research/databases/${databaseId}/sources/${sourceId}`, {
+      return client.requestJson<ResearchSourceView>(`/research/databases/${databaseId}/sources/${sourceId}`, {
         body: input,
         method: "PUT",
       });
@@ -106,7 +113,8 @@ export type {
   ResearchKeywordSearchInput,
   ResearchKeywordSearchResponse,
   ResearchLegacyMigrationResult,
-  ResearchSourceDetail,
+  ResearchSourceContentPage,
+  ResearchSourceView,
   ResearchSourceDocument,
   ResearchSourceV2MigrationResult,
   UpdateResearchDatabaseInput,

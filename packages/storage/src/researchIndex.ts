@@ -562,7 +562,12 @@ export async function searchResearchIndex(
         scores.set(row.id, existing);
       }
 
-      const getChunk = database.prepare("SELECT * FROM reference_chunks WHERE id = ?");
+      const getChunk = database.prepare(
+        `SELECT reference_chunks.*, reference_blocks.position AS block_position
+         FROM reference_chunks
+         JOIN reference_blocks ON reference_blocks.id = reference_chunks.block_id
+         WHERE reference_chunks.id = ?`,
+      );
       const getLanguageSpans = database.prepare(
         `SELECT start_offset, end_offset, language_tag FROM reference_language_spans
          WHERE chunk_id = ? ORDER BY position`,
@@ -571,6 +576,8 @@ export async function searchResearchIndex(
         const row = getChunk.get(chunkId) as {
           id: string;
           source_id: string;
+          block_id: string;
+          block_position: number;
           text: string;
           text_hash: string;
           location_json: string;
@@ -602,6 +609,8 @@ export async function searchResearchIndex(
           sourceDisplayName: row.source_display_name,
           sourceKind: row.source_kind,
           chunkId: row.id,
+          blockId: row.block_id,
+          blockOrder: row.block_position,
           chunkHash: row.text_hash,
           originalText: row.text,
           languageTag: languageTagForMatch(languageSpans, matchRange, row.language_tag),

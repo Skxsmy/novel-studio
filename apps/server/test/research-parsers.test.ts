@@ -95,6 +95,33 @@ describe("Research format parsers", () => {
     expect(markdown.parsed.blocks.map((block) => block.kind)).toEqual(["heading", "list-item", "quote"]);
   });
 
+  it("bounds multi-megabyte single-line and many-paragraph text in one linear scan", async () => {
+    const singleLine = Buffer.from("harbor evidence ".repeat(196_608), "utf8");
+    const parsedSingleLine = await upload(singleLine, "large-single-line.txt", "text/plain");
+    expect(parsedSingleLine.parsed.blocks.length).toBeGreaterThan(1);
+    expect(Math.max(...parsedSingleLine.parsed.blocks.map((block) => block.text.length))).toBeLessThanOrEqual(16_000);
+    expect(parsedSingleLine.parsed.blocks.at(-1)?.location).toMatchObject({
+      kind: "text",
+      endOffset: singleLine.byteLength,
+    });
+
+    const unicodeBoundary = `${"A".repeat(15_999)}😀tail`;
+    const parsedUnicode = await upload(Buffer.from(unicodeBoundary, "utf8"), "unicode-boundary.txt", "text/plain");
+    expect(parsedUnicode.parsed.blocks.map((block) => block.text).join("")).toBe(unicodeBoundary);
+    expect(parsedUnicode.parsed.blocks.every((block) => Array.from(block.text).every((character) => (
+      character.length > 1
+      || character.charCodeAt(0) < 0xd800
+      || character.charCodeAt(0) > 0xdfff
+    )))).toBe(true);
+
+    const paragraph = "Harbor ledger entry for the northern route.";
+    const manyParagraphs = Buffer.from(`${paragraph}\n\n`.repeat(70_000), "utf8");
+    const parsedMany = await upload(manyParagraphs, "large-paragraphs.txt", "text/plain");
+    expect(parsedMany.parsed.blocks.length).toBeLessThan(500);
+    expect(Math.max(...parsedMany.parsed.blocks.map((block) => block.text.length))).toBeLessThanOrEqual(16_000);
+    expect(parsedMany.parsed.blocks[0]?.text).toContain("\n\n");
+  }, 30_000);
+
   it("parses a real DOCX ZIP, permits hyperlinks, and rejects external files", async () => {
     const parsed = await upload(
       await docxBytes(),

@@ -767,14 +767,49 @@ Provisional acceptance targets:
 - Keep Embedding profile routing, language-pair validation, and vector
   provenance explicit. No model or translation Provider is selected silently.
 
+### NS-606: Artificial-intelligence retrieval gateway
+
+- Expose the selected-database retrieval service through strict read-only
+  `research.list_sources`, `research.search`, and `research.open_passage`
+  contracts.
+- Enforce active-database allowlists, Source permission, thresholds,
+  deduplication, source diversity, token/character budgets, call-count and
+  no-progress limits, cancellation, and redacted durable audit on the server.
+- Return bounded original-language passages with exact database, Source, Chunk,
+  hash, revision, language, location, and match-channel citations. Do not expose
+  import, property, rebuild, web acquisition, or lifecycle mutations as model
+  tools.
+
+### NS-607: Workshop retrieval integration
+
+- Add versioned session-level Research Database activation with empty-default
+  migration, rollback, branch, archive, deletion, and damage behavior.
+- Add a compact Workshop selector and bounded native-tool continuation loops for
+  General Chat and Agent. Initial Provider context receives metadata and tools,
+  not prefetched Source text.
+- Preserve the visible General Chat prompt, existing write-tool confirmation,
+  cancellation, session activity, streaming, retry, and audit boundaries while
+  read tools execute automatically.
+
+### NS-608: Real-author workflow hardening
+
+- Exercise several saved-key author sessions with multiple retrieval/model turns
+  until each research or writing problem is resolved.
+- Measure realistic large-corpus performance and repair failures across import,
+  indexing, permissions, retrieval budgets, cancellation, restart, citations,
+  Provider errors, prompt injection, and cross-language negative controls.
+- Require a separate author visual/workflow decision after automated and real
+  model evidence; do not infer acceptance from tests or screenshots.
+
 Each implementation task requires its own task and acceptance record. NS-602
 implements the first Series index kernel, atomic replacement, and legacy
 Series-owned TXT/Markdown source slice. ADR-0019 changes the later Research
 topology: isolated database authority belongs to NS-603, formats/chunks and
-original-language Reference search belong to NS-604, and explicit multi-database
-plus cross-language retrieval belongs to NS-605. Remaining Series novel-text
-projection normalization is scoped separately after this author-prioritized
-Research path.
+original-language Reference search belong to NS-604; explicit multi-database
+plus cross-language retrieval belongs to NS-605; model-facing retrieval tools,
+Workshop activation, and real-author hardening belong to NS-606, NS-607, and
+NS-608 respectively. Remaining Series novel-text projection normalization is
+scoped separately after this author-prioritized Research path.
 
 ## 20. Acceptance Blueprint
 

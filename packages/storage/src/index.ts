@@ -117,7 +117,10 @@ import {
   CreateResearchDatabaseInputSchema,
   ResearchDatabaseSchema,
   ResearchLegacyMigrationResultSchema,
+  ResearchSourceContentPageQuerySchema,
+  ResearchSourceContentPageSchema,
   ResearchSourceV3Schema,
+  ResearchSourceViewSchema,
   RestoreSceneSectionInputSchema,
   type AgentRole,
   SceneBlockDocumentResponseSchema,
@@ -270,11 +273,14 @@ import {
   type ReorderInput,
   type ResearchSource,
   type ResearchSourceDetail,
+  type ResearchSourceContentPage,
+  type ResearchSourceContentPageQuery,
   type ResearchSourceDocument,
   type ResearchSourceKind,
   type ResearchSourceMediaType,
   type ResearchSourceProperties,
   type ResearchSourceV3,
+  type ResearchSourceView,
   type MigrateResearchSourcesV2Input,
   type ResearchIndexState,
   type ResearchKeywordSearchInput,
@@ -1781,6 +1787,56 @@ export class ProjectRepository {
       researchDatabaseId,
       sourceId,
     );
+  }
+
+  async getResearchSourceView(researchDatabaseId: string, sourceId: string): Promise<ResearchSourceView> {
+    const detail = await this.getResearchSource(researchDatabaseId, sourceId);
+    if ("originalText" in detail) return ResearchSourceViewSchema.parse(detail);
+    return ResearchSourceViewSchema.parse({
+      source: detail.source,
+      revision: detail.revision,
+      contentSummary: {
+        title: detail.content.title,
+        sectionCount: detail.content.sections.length,
+        blockCount: detail.content.blocks.length,
+        chunkCount: detail.content.chunks.length,
+      },
+    });
+  }
+
+  async getResearchSourceContentPage(
+    researchDatabaseId: string,
+    sourceId: string,
+    rawQuery: ResearchSourceContentPageQuery,
+  ): Promise<ResearchSourceContentPage> {
+    const query = ResearchSourceContentPageQuerySchema.parse(rawQuery);
+    const detail = await this.getResearchSource(researchDatabaseId, sourceId);
+    if (!("content" in detail)) {
+      throw new StorageError("Upgrade this older Research source before opening structured pages", "INVALID_DATA", {
+        sourceId,
+      });
+    }
+    const totalBlocks = detail.content.blocks.length;
+    if (query.offset >= totalBlocks) {
+      throw new StorageError("Research source page is outside the available text", "INVALID_DATA", {
+        offset: query.offset,
+        sourceId,
+        totalBlocks,
+      });
+    }
+    const blocks = detail.content.blocks.slice(query.offset, query.offset + query.limit);
+    return ResearchSourceContentPageSchema.parse({
+      researchDatabaseId,
+      sourceId,
+      sourceRevision: detail.revision,
+      title: detail.content.title,
+      offset: query.offset,
+      limit: query.limit,
+      totalBlocks,
+      blocks,
+      previousOffset: query.offset === 0 ? null : Math.max(0, query.offset - query.limit),
+      nextOffset: query.offset + blocks.length < totalBlocks ? query.offset + query.limit : null,
+    });
   }
 
   async importResearchSource(

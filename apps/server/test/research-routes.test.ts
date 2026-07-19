@@ -47,7 +47,13 @@ describe("NS-603 Research source routes", () => {
     });
     expect(txtResponse.statusCode).toBe(201);
     const txtSource = txtResponse.json();
-    expect(txtSource.content.chunks[0].text).toBe(txt);
+    expect(txtSource).not.toHaveProperty("content");
+    expect(txtSource.contentSummary).toMatchObject({ blockCount: 1, chunkCount: 1 });
+    const txtPage = await app.inject({
+      method: "GET",
+      url: `${sourceUrl}/${txtSource.source.id}/content?offset=0&limit=40`,
+    });
+    expect(txtPage.json().blocks[0].text).toBe(txt);
     expect(txtSource.source).toMatchObject({
       kind: "txt",
       originalFileName: "interview.txt",
@@ -73,7 +79,12 @@ describe("NS-603 Research source routes", () => {
       method: "GET",
       url: `${sourceUrl}/${mdResponse.json().source.id}`,
     });
-    expect(detail.json().content.blocks.map((block: { text: string }) => block.text)).toEqual([
+    expect(detail.json()).not.toHaveProperty("content");
+    const content = await app.inject({
+      method: "GET",
+      url: `${sourceUrl}/${mdResponse.json().source.id}/content?offset=0&limit=40`,
+    });
+    expect(content.json().blocks.map((block: { text: string }) => block.text)).toEqual([
       "用語",
       "月守（つきもり）は英語で Moon Keeper。",
     ]);

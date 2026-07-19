@@ -65,6 +65,7 @@ const MAX_ZIP_ENTRIES = 10_000;
 const MAX_ZIP_EXPANDED_BYTES = 100 * 1024 * 1024;
 const MAX_ZIP_RATIO = 100;
 const PARSE_TIMEOUT_MS = 20_000;
+const MAX_TEXT_BLOCK_LENGTH = 16_000;
 const HTML_BLOCK_TAGS = new Set(["p", "li", "blockquote", "td", "th"]);
 const HTML_DROP_TAGS = new Set([
   "script",
@@ -207,25 +208,125 @@ export function classifyResearchSource(
   return match.kind;
 }
 
-function textLocation(text: string, startOffset: number, endOffset: number): ResearchSourceLocation {
-  const startLine = text.slice(0, startOffset).split("\n").length;
-  const endLine = text.slice(0, endOffset).split("\n").length;
+function textLineStarts(text: string): number[] {
+  const starts = [0];
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) === 10) starts.push(index + 1);
+  }
+  return starts;
+}
+
+function lineAtOffset(lineStarts: number[], offset: number): number {
+  let low = 0;
+  let high = lineStarts.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (lineStarts[middle]! <= offset) low = middle + 1;
+    else high = middle;
+  }
+  return Math.max(1, low);
+}
+
+function textLocation(
+  lineStarts: number[],
+  startOffset: number,
+  endOffset: number,
+): ResearchSourceLocation {
+  const startLine = lineAtOffset(lineStarts, startOffset);
+  const endLine = lineAtOffset(lineStarts, Math.max(startOffset, endOffset - 1));
   return { kind: "text", startLine, endLine, startOffset, endOffset };
 }
 
 function parsePlainText(text: string, kind: "txt" | "markdown"): Omit<ParsedResearchDocument, "mediaType"> {
   const normalized = text.replace(/\r\n?/gu, "\n");
+  const lineStarts = textLineStarts(normalized);
   const sections: ParsedResearchSection[] = [];
   const blocks: ParsedResearchBlock[] = [];
   const headingStack: Array<{ level: number; sectionOrder: number }> = [];
-  const paragraphPattern = /[^\n](?:.*?)(?=\n{2,}|$)/gsu;
-  for (const match of normalized.matchAll(paragraphPattern)) {
-    const raw = match[0];
+  let cursor = 0;
+
+  const appendBlock = (input: Omit<ParsedResearchBlock, "order">): void => {
+    const previous = blocks.at(-1);
+    if (
+      input.kind === "paragraph"
+      && previous?.kind === "paragraph"
+      && previous.sectionOrder === input.sectionOrder
+      && previous.text.length + input.text.length + 2 <= MAX_TEXT_BLOCK_LENGTH
+      && previous.location.kind === "text"
+      && input.location.kind === "text"
+    ) {
+      previous.text = `${previous.text}\n\n${input.text}`;
+      previous.location = textLocation(lineStarts, previous.location.startOffset, input.location.endOffset);
+      return;
+    }
+    blocks.push({ order: blocks.length, ...input });
+  };
+
+  const appendBoundedBlocks = (input: {
+    kind: ParsedResearchBlockKind;
+    text: string;
+    sectionOrder: number | null;
+    rawStart: number;
+    rawEnd: number;
+  }): void => {
+    if (input.text.length <= MAX_TEXT_BLOCK_LENGTH) {
+      appendBlock({
+        sectionOrder: input.sectionOrder,
+        kind: input.kind,
+        text: input.text,
+        location: textLocation(lineStarts, input.rawStart, input.rawEnd),
+      });
+      return;
+    }
+    const rawText = normalized.slice(input.rawStart, input.rawEnd);
+    let offset = 0;
+    while (offset < rawText.length) {
+      let end = Math.min(rawText.length, offset + MAX_TEXT_BLOCK_LENGTH);
+      if (
+        end < rawText.length
+        && rawText.charCodeAt(end - 1) >= 0xd800
+        && rawText.charCodeAt(end - 1) <= 0xdbff
+        && rawText.charCodeAt(end) >= 0xdc00
+        && rawText.charCodeAt(end) <= 0xdfff
+      ) {
+        end -= 1;
+      }
+      let piece = normalizeText(rawText.slice(offset, end));
+      if (offset === 0 && input.kind === "list-item") piece = piece.replace(/^[-*+]\s+/u, "");
+      if (offset === 0 && input.kind === "quote") piece = piece.replace(/^>\s?/u, "");
+      if (piece) {
+        appendBlock({
+          sectionOrder: input.sectionOrder,
+          kind: input.kind,
+          text: piece,
+          location: textLocation(lineStarts, input.rawStart + offset, input.rawStart + end),
+        });
+      }
+      offset = end;
+    }
+  };
+
+  while (cursor < normalized.length) {
+    while (cursor < normalized.length && normalized[cursor] === "\n") cursor += 1;
+    if (cursor >= normalized.length) break;
+    const rawStart = cursor;
+    let rawEnd = normalized.length;
+    while (cursor < normalized.length) {
+      if (normalized[cursor] !== "\n") {
+        cursor += 1;
+        continue;
+      }
+      const newlineStart = cursor;
+      while (cursor < normalized.length && normalized[cursor] === "\n") cursor += 1;
+      if (cursor - newlineStart >= 2) {
+        rawEnd = newlineStart;
+        break;
+      }
+    }
+    const raw = normalized.slice(rawStart, rawEnd);
     const value = normalizeText(raw);
     if (!value) continue;
-    const rawStart = match.index ?? 0;
-    const rawEnd = rawStart + raw.length;
-    const heading = kind === "markdown" ? /^(#{1,6})\s+(.+)$/u.exec(value) : null;
+    const heading = kind === "markdown" && value.length <= 500 ? /^(#{1,6})\s+(.+)$/u.exec(value) : null;
     let blockKind: ParsedResearchBlockKind = "paragraph";
     let blockText = value;
     let sectionOrder = headingStack.at(-1)?.sectionOrder ?? null;
@@ -240,7 +341,7 @@ function parsePlainText(text: string, kind: "txt" | "markdown"): Omit<ParsedRese
         order: sectionOrder,
         parentOrder,
         title: blockText,
-        location: textLocation(normalized, rawStart, rawEnd),
+        location: textLocation(lineStarts, rawStart, rawEnd),
       });
       headingStack.push({ level, sectionOrder });
     } else if (kind === "markdown" && /^[-*+]\s+/u.test(value)) {
@@ -250,19 +351,19 @@ function parsePlainText(text: string, kind: "txt" | "markdown"): Omit<ParsedRese
       blockKind = "quote";
       blockText = value.replace(/^>\s?/u, "");
     }
-    blocks.push({
-      order: blocks.length,
+    appendBoundedBlocks({
       sectionOrder,
       kind: blockKind,
       text: blockText,
-      location: textLocation(normalized, rawStart, rawEnd),
+      rawStart,
+      rawEnd,
     });
   }
   if (blocks.length === 0) fail("Research source has no extractable text");
   return {
     kind,
     parserName: kind === "markdown" ? "novel-studio-markdown" : "novel-studio-text",
-    parserVersion: 1,
+    parserVersion: 2,
     title: sections[0]?.title ?? "",
     warnings: [],
     sections,

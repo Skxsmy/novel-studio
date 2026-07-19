@@ -56,8 +56,9 @@ export type {
   ResearchDatabaseDocument,
   ResearchDatabaseListResult,
   ResearchLegacyMigrationResult,
-  ResearchSourceDetail,
+  ResearchSourceContentPage,
   ResearchSourceDocument,
+  ResearchSourceView,
   UpdateResearchDatabaseInput,
   UpdateResearchSourceInput,
 } from "./research";

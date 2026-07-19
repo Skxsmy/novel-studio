@@ -79,7 +79,7 @@ Markdown and Word are import, export, mirror, preview, and migration boundary fo
 
 SQLite/FTS5 stores rebuildable projections such as search and mention indexes. Deleting derived state must not prevent the application from opening and editing authority files; rebuilding must validate source revisions and hashes.
 
-`docs/architecture/DATABASE_ARCHITECTURE.md`, ADR-0018, and ADR-0019 define the M6 implementation plan. A Series owns one rebuildable manuscript projection. Each author-facing Research Database is instead a library-level isolated authority root with its own Sources and future index, and may be explicitly linked to several Series. NS-602 implements the Series index kernel and first legacy Series-owned TXT/Markdown path. NS-603 replaces that Research ownership with multiple isolated database roots and an explicit migration boundary; NS-604 and NS-605 add formats, original-language indexing, explicit multi-database queries, and cross-language retrieval.
+`docs/architecture/DATABASE_ARCHITECTURE.md`, ADR-0018, ADR-0019, ADR-0020, and ADR-0021 define the M6 implementation plan. A Series owns one rebuildable manuscript projection. Each author-facing Research Database is instead a library-level isolated authority root with its own Sources and rebuildable index, and may be explicitly linked to several Series. NS-602 implements the Series index kernel and first legacy Series-owned TXT/Markdown path. NS-603 replaces that Research ownership with multiple isolated database roots and an explicit migration boundary. NS-604 is limited to durable formats, large-source reading, and single-database original-language lexical indexing. NS-605 adds explicit multi-database hybrid and validated cross-language retrieval; NS-606 adds the permissioned model tool gateway; NS-607 integrates session activation and bounded retrieval loops into Workshop; NS-608 performs real-author hardening. Completion of one task does not imply implementation of any later task.
 
 The target Search Service is novel- and language-aware. It projects paragraph,
 sentence, dialogue, POV, story-time, plot-thread, language-span, entity-alias,
@@ -124,6 +124,12 @@ Normal authority writes carry stable IDs and `baseRevision`. The server re-reads
 AI and imports do not receive generic file-write authority. Semantic changes enter a Proposal or a limited author-confirmed command path. Proposal acceptance validates target revisions, creates required snapshots, applies through domain/repository commands, and records the decision.
 
 The current Workshop Agent path persists revision-protected run/step records, uses Provider structured output when declared, bounds malformed-output repair to one attempt, continues after successful or atomically failed author-confirmed Codex create/update commands, and exposes explicit retry or abandon for eligible interruptions. Full Tool Plan/Grant records, broader tool scopes, and Proposal conversion remain target work and must not be inferred from this limited path.
+
+The current Workshop path does not call Research Database search and does not
+provide Research tools to any Provider. The implemented `model-context` search
+purpose is only a storage permission filter. ADR-0021's hybrid retrieval,
+read-only gateway, Workshop activation, and iterative model loop remain NS-605
+through NS-608 work and must not be inferred from the local Research page.
 
 ## Lifecycle And Deletion
 

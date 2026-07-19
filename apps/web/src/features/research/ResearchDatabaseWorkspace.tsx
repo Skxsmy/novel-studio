@@ -9,11 +9,12 @@ import {
   type ResearchKeywordSearchResult,
   type ResearchSourceAiPermission,
   type ResearchSourceBlock,
-  type ResearchSourceDetail,
+  type ResearchSourceContentPage,
   type ResearchSourceDocument,
   type ResearchSourceKind,
   type ResearchSourceLocation,
   type ResearchSourceMediaType,
+  type ResearchSourceView,
 } from "@novel-studio/contracts";
 import {
   BookOpenText,
@@ -52,6 +53,7 @@ interface DatabaseDraft {
 }
 
 const DATABASE_SELECTION_KEY = "novel-studio.research.database.selected";
+const SOURCE_PAGE_SIZE = 40;
 
 const SOURCE_MEDIA_TYPES: Record<string, ResearchSourceMediaType> = {
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -74,7 +76,7 @@ function sourceSelectionKey(databaseId: string): string {
   return `novel-studio.research.source.selected.${databaseId}`;
 }
 
-function sourceDraftFromDetail(detail: ResearchSourceDetail): SourceDraft {
+function sourceDraftFromDetail(detail: ResearchSourceView): SourceDraft {
   return {
     displayName: detail.source.displayName,
     author: detail.source.author,
@@ -214,7 +216,8 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
   const [sources, setSources] = useState<ResearchSourceDocument[]>([]);
   const [sourceShelfDatabaseId, setSourceShelfDatabaseId] = useState<string | null>(null);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<ResearchSourceDetail | null>(null);
+  const [detail, setDetail] = useState<ResearchSourceView | null>(null);
+  const [contentPage, setContentPage] = useState<ResearchSourceContentPage | null>(null);
   const [sourceDraft, setSourceDraft] = useState<SourceDraft | null>(null);
   const [savedSourceDraft, setSavedSourceDraft] = useState<SourceDraft | null>(null);
   const [databaseDraft, setDatabaseDraft] = useState<DatabaseDraft | null>(null);
@@ -222,6 +225,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
   const [isLoadingDatabases, setIsLoadingDatabases] = useState(false);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [isLoadingContentPage, setIsLoadingContentPage] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isSavingSource, setIsSavingSource] = useState(false);
   const [isSavingDatabase, setIsSavingDatabase] = useState(false);
@@ -318,6 +322,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setSourceShelfDatabaseId(null);
     setSelectedSourceId(null);
     setDetail(null);
+    setContentPage(null);
     setSourceDraft(null);
     setSavedSourceDraft(null);
     setDatabaseDocument(null);
@@ -379,6 +384,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
   useEffect(() => {
     if (!selectedDatabaseId || !selectedSourceId || sourceShelfDatabaseId !== selectedDatabaseId) {
       setDetail(null);
+      setContentPage(null);
       setSourceDraft(null);
       setSavedSourceDraft(null);
       return;
@@ -387,10 +393,14 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     let cancelled = false;
     setIsLoadingDetail(true);
     setError("");
-    void api.research.getSource(selectedDatabaseId, selectedSourceId).then((loaded) => {
+    void api.research.getSource(selectedDatabaseId, selectedSourceId).then(async (loaded) => {
+      const page = loaded.source.schemaVersion === 3
+        ? await api.research.getSourceContentPage(selectedDatabaseId, selectedSourceId, 0, SOURCE_PAGE_SIZE)
+        : null;
       if (cancelled) return;
       const nextDraft = sourceDraftFromDetail(loaded);
       setDetail(loaded);
+      setContentPage(page);
       setSourceDraft(nextDraft);
       setSavedSourceDraft(nextDraft);
     }).catch((reason) => {
@@ -399,6 +409,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
       globalThis.localStorage?.removeItem(sourceSelectionKey(selectedDatabaseId));
       setSelectedSourceId(null);
       setDetail(null);
+      setContentPage(null);
       setSourceDraft(null);
       setSavedSourceDraft(null);
       setRailOpen(true);
@@ -412,16 +423,33 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
   }, [selectedDatabaseId, selectedSourceId, sourceShelfDatabaseId]);
 
   useEffect(() => {
-    if (!detail || !("content" in detail) || !pendingSearchResult) return;
+    if (!detail || detail.source.schemaVersion !== 3 || !pendingSearchResult || !selectedDatabaseId) return;
     if (detail.source.id !== pendingSearchResult.sourceId) return;
-    const chunk = detail.content.chunks.find((item) => item.id === pendingSearchResult.chunkId);
-    if (!chunk) return;
-    setHighlightedBlockId(chunk.blockId);
-    setPendingSearchResult(null);
-    globalThis.setTimeout(() => {
-      document.getElementById(`research-block-${chunk.blockId}`)?.scrollIntoView?.({ block: "center" });
-    }, 0);
-  }, [detail, pendingSearchResult]);
+    let cancelled = false;
+    const offset = Math.floor(pendingSearchResult.blockOrder / SOURCE_PAGE_SIZE) * SOURCE_PAGE_SIZE;
+    setIsLoadingContentPage(true);
+    void api.research.getSourceContentPage(
+      selectedDatabaseId,
+      pendingSearchResult.sourceId,
+      offset,
+      SOURCE_PAGE_SIZE,
+    ).then((page) => {
+      if (cancelled) return;
+      setContentPage(page);
+      setHighlightedBlockId(pendingSearchResult.blockId);
+      setPendingSearchResult(null);
+      globalThis.setTimeout(() => {
+        document.getElementById(`research-block-${pendingSearchResult.blockId}`)?.scrollIntoView?.({ block: "center" });
+      }, 0);
+    }).catch((reason) => {
+      if (!cancelled) setError(errorMessage(reason, "The matching source page could not be opened."));
+    }).finally(() => {
+      if (!cancelled) setIsLoadingContentPage(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail, pendingSearchResult, selectedDatabaseId]);
 
   function chooseDatabase(databaseId: string) {
     if (sourceIsDirty || isSavingSource) {
@@ -433,6 +461,8 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setNotice("");
     setSearchResults(null);
     setHighlightedBlockId(null);
+    setPendingSearchResult(null);
+    setIsLoadingContentPage(false);
   }
 
   function chooseSource(sourceId: string) {
@@ -445,6 +475,8 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setNotice("");
     setSearchResults(null);
     setHighlightedBlockId(null);
+    setPendingSearchResult(null);
+    setIsLoadingContentPage(false);
   }
 
   function openFilePicker() {
@@ -596,7 +628,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     }
   }
 
-  function applyImportedDetail(created: ResearchSourceDetail, message: string) {
+  function applyImportedDetail(created: ResearchSourceView, message: string) {
     setSources((current) => [
       { source: created.source, revision: created.revision },
       ...current.filter((document) => document.source.id !== created.source.id),
@@ -607,6 +639,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setSelectedSourceId(created.source.id);
     const nextDraft = sourceDraftFromDetail(created);
     setDetail(created);
+    setContentPage(null);
     setSourceDraft(nextDraft);
     setSavedSourceDraft(nextDraft);
     setSearchResults(null);
@@ -618,6 +651,25 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
       setIndexState(await api.research.getIndexState(databaseId));
     } catch {
       setIndexState(null);
+    }
+  }
+
+  async function openContentPage(offset: number) {
+    if (!selectedDatabaseId || !detail || detail.source.schemaVersion !== 3 || isLoadingContentPage) return;
+    setIsLoadingContentPage(true);
+    setError("");
+    try {
+      setContentPage(await api.research.getSourceContentPage(
+        selectedDatabaseId,
+        detail.source.id,
+        offset,
+        SOURCE_PAGE_SIZE,
+      ));
+      setHighlightedBlockId(null);
+    } catch (reason) {
+      setError(errorMessage(reason, "The source page could not be opened."));
+    } finally {
+      setIsLoadingContentPage(false);
     }
   }
 
@@ -857,7 +909,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
           {databaseIssues.length > 0 ? <div className="rs8-banner is-error" role="alert">{databaseIssues.length} Research Database {databaseIssues.length === 1 ? "directory could" : "directories could"} not be opened. Other databases remain available.</div> : null}
           {selectedDatabaseId ? <form className="rs10-searchbar" onSubmit={(event) => void searchDatabase(event)} role="search"><Search aria-hidden="true" size={17} /><label><span className="rs10-visually-hidden">Search selected Research Database</span><input aria-label="Search selected Research Database" disabled={isSearching || sourceIsDirty} maxLength={500} onChange={(event) => setSearchQuery(event.target.value)} placeholder={`Search ${databaseDocument?.database.name ?? "this database"} in any original language`} value={searchQuery} /></label>{searchQuery || searchResults !== null ? <button aria-label="Clear search" className="rs10-search-clear" onClick={() => { setSearchQuery(""); setSearchResults(null); }} title="Clear search" type="button"><X aria-hidden="true" size={15} /></button> : null}<button className="rs10-search-submit" disabled={isSearching || sourceIsDirty || !searchQuery.trim()} type="submit">{isSearching ? "Searching" : "Search"}</button></form> : null}
           {indexState && indexState.status !== "ready" && sources.length > 0 ? <div className={`rs10-index-callout is-${indexState.status}`}><div><strong>{indexState.status === "damaged" ? "Search needs repair" : indexState.status === "stale" ? "Sources changed since the last index" : "Search will be built when needed"}</strong><span>{indexState.reason ?? "The original sources remain available."}</span></div>{indexState.status !== "missing" ? <button disabled={isRebuildingIndex || sourceIsDirty} onClick={() => void rebuildIndex()} type="button"><RefreshCw aria-hidden="true" size={14} />{isRebuildingIndex ? "Rebuilding" : "Rebuild"}</button> : null}</div> : null}
-          {searchResults !== null ? <section aria-label="Search results" className="rs10-search-results"><header><div><p>Selected database only</p><h2>{searchResults.length} result{searchResults.length === 1 ? "" : "s"} for “{searchQuery}”</h2></div><span>{databaseDocument?.database.name}</span></header>{searchResults.length === 0 ? <div className="rs10-no-results"><Search aria-hidden="true" size={22} /><strong>No matching passage</strong><p>Try the term in its original spelling or a shorter exact phrase.</p></div> : <ol>{searchResults.map((result) => <li key={`${result.sourceId}:${result.chunkId}`}><button onClick={() => openSearchResult(result)} type="button"><span className="rs10-location-ribbon"><BookOpenText aria-hidden="true" size={14} /><strong>{formatLocation(result.location)}</strong><em>{result.languageTag}</em></span><span className="rs10-result-source">{result.sourceDisplayName}<small>{sourceKindLabel(result.sourceKind)}</small></span><span className="rs10-result-text">{result.originalText}</span><span className="rs10-match-channels">{result.matchChannels.map((channel) => <small key={channel}>{matchChannelLabel(channel)}</small>)}</span></button></li>)}</ol>}</section> : isLoadingDatabases ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening Research Databases</p></div> : !selectedDatabaseId ? <div className="rs8-empty"><Database aria-hidden="true" size={23} /><h2>Create your first Research Database</h2><p>Each database keeps its own sources, originals, permissions, and search index. It does not belong to a Series.</p><button onClick={openCreateDialog} type="button">Create Research Database</button></div> : isLoadingDetail ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source</p></div> : detail ? <article className="rs8-document"><header><div className="rs8-document-mark"><span aria-hidden="true" /><em>{sourceKindMark(detail.source.kind)}</em></div><div><p>{detail.source.originalFileName}</p><h2>{detail.source.displayName}</h2><span>{databaseDocument?.database.name} · Imported {formatImportedAt(detail.source.importedAt)} · {formatBytes(detail.source.sizeBytes)}</span></div></header>{detail.source.schemaVersion === 3 && detail.source.parseWarnings.length > 0 ? <div className="rs10-parse-warning"><strong>Imported with {detail.source.parseWarnings.length} warning{detail.source.parseWarnings.length === 1 ? "" : "s"}</strong><span>{detail.source.parseWarnings.join(" ")}</span></div> : null}<div className="rs8-preview-label"><strong>{"content" in detail ? "Parsed text" : "Original text"}</strong><span>{"content" in detail ? "Locations preserved from the original" : "Upgrade this source to add locations"}</span></div>{"originalText" in detail ? <pre className="rs8-preview">{detail.originalText}</pre> : <div className="rs10-text-blocks">{detail.content.blocks.map((block) => <ResearchTextBlock block={block} highlighted={block.id === highlightedBlockId} key={block.id} />)}</div>}</article> : <div className="rs8-empty"><FileText aria-hidden="true" size={23} /><h2>Add a source to {databaseDocument?.database.name ?? "this database"}</h2><p>Import text, Markdown, Word (.docx), text PDF, EPUB, HTML, XHTML, or a controlled web-page snapshot.</p><button disabled={isUploading || isImportingWeb} onClick={openFilePicker} type="button">Choose file</button></div>}
+          {searchResults !== null ? <section aria-label="Search results" className="rs10-search-results"><header><div><p>Selected database only</p><h2>{searchResults.length} result{searchResults.length === 1 ? "" : "s"} for “{searchQuery}”</h2></div><span>{databaseDocument?.database.name}</span></header>{searchResults.length === 0 ? <div className="rs10-no-results"><Search aria-hidden="true" size={22} /><strong>No matching passage</strong><p>Try the term in its original spelling or a shorter exact phrase.</p></div> : <ol>{searchResults.map((result) => <li key={`${result.sourceId}:${result.chunkId}`}><button onClick={() => openSearchResult(result)} type="button"><span className="rs10-location-ribbon"><BookOpenText aria-hidden="true" size={14} /><strong>{formatLocation(result.location)}</strong><em>{result.languageTag}</em></span><span className="rs10-result-source">{result.sourceDisplayName}<small>{sourceKindLabel(result.sourceKind)}</small></span><span className="rs10-result-text">{result.originalText}</span><span className="rs10-match-channels">{result.matchChannels.map((channel) => <small key={channel}>{matchChannelLabel(channel)}</small>)}</span></button></li>)}</ol>}</section> : isLoadingDatabases ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening Research Databases</p></div> : !selectedDatabaseId ? <div className="rs8-empty"><Database aria-hidden="true" size={23} /><h2>Create your first Research Database</h2><p>Each database keeps its own sources, originals, permissions, and search index. It does not belong to a Series.</p><button onClick={openCreateDialog} type="button">Create Research Database</button></div> : isLoadingDetail ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source</p></div> : detail ? <article className="rs8-document"><header><div className="rs8-document-mark"><span aria-hidden="true" /><em>{sourceKindMark(detail.source.kind)}</em></div><div><p>{detail.source.originalFileName}</p><h2>{detail.source.displayName}</h2><span>{databaseDocument?.database.name} · Imported {formatImportedAt(detail.source.importedAt)} · {formatBytes(detail.source.sizeBytes)}</span></div></header>{detail.source.schemaVersion === 3 && detail.source.parseWarnings.length > 0 ? <div className="rs10-parse-warning"><strong>Imported with {detail.source.parseWarnings.length} warning{detail.source.parseWarnings.length === 1 ? "" : "s"}</strong><span>{detail.source.parseWarnings.join(" ")}</span></div> : null}<div className="rs8-preview-label"><strong>{"originalText" in detail ? "Original text" : "Parsed text"}</strong><span>{"originalText" in detail ? "Upgrade this source to add locations" : `${detail.contentSummary.blockCount} blocks · locations preserved from the original`}</span></div>{"originalText" in detail ? <pre className="rs8-preview">{detail.originalText}</pre> : isLoadingContentPage && !contentPage ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source page</p></div> : contentPage ? <><div className="rs10-text-blocks">{contentPage.blocks.map((block) => <ResearchTextBlock block={block} highlighted={block.id === highlightedBlockId} key={block.id} />)}</div><nav aria-label="Source pages" className="rs10-source-pages"><button disabled={contentPage.previousOffset === null || isLoadingContentPage} onClick={() => void openContentPage(contentPage.previousOffset ?? 0)} type="button">Previous</button><span>Blocks {contentPage.offset + 1}-{contentPage.offset + contentPage.blocks.length} of {contentPage.totalBlocks}</span><button disabled={contentPage.nextOffset === null || isLoadingContentPage} onClick={() => void openContentPage(contentPage.nextOffset ?? 0)} type="button">Next</button></nav></> : <div className="rs8-empty"><FileText aria-hidden="true" size={20} /><h2>Source page unavailable</h2><p>Reload the source to try again.</p></div>}</article> : <div className="rs8-empty"><FileText aria-hidden="true" size={23} /><h2>Add a source to {databaseDocument?.database.name ?? "this database"}</h2><p>Import text, Markdown, Word (.docx), text PDF, EPUB, HTML, XHTML, or a controlled web-page snapshot.</p><button disabled={isUploading || isImportingWeb} onClick={openFilePicker} type="button">Choose file</button></div>}
         </main>
 
         <aside aria-label="Source properties" className="rs8-inspector">

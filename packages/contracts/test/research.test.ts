@@ -62,6 +62,21 @@ describe("NS-603 Research source contracts", () => {
     }).success).toBe(false);
   });
 
+  it("validates a canonical 25 MiB base64 envelope without recursive regular-expression failure", () => {
+    const bytes = Buffer.alloc(MAX_RESEARCH_SOURCE_BYTES, 65);
+    const parsed = ImportResearchSourceInputSchema.parse({
+      fileName: "capacity-boundary.txt",
+      mediaType: "text/plain",
+      sizeBytes: bytes.byteLength,
+      contentBase64: bytes.toString("base64"),
+    });
+    expect(parsed.sizeBytes).toBe(MAX_RESEARCH_SOURCE_BYTES);
+    expect(ImportResearchSourceInputSchema.safeParse({
+      ...parsed,
+      contentBase64: `${parsed.contentBase64.slice(0, -4)}=AAA`,
+    }).success).toBe(false);
+  });
+
   it("allows only revision-bound editable property updates", () => {
     expect(UpdateResearchSourceInputSchema.parse({
       baseRevision: "c".repeat(64),

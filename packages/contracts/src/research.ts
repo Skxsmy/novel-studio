@@ -1,9 +1,27 @@
 import { z } from "zod";
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
-const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
 const SAFE_SOURCE_FILE_NAME_PATTERN = /^[^\\/\u0000-\u001f\u007f]+$/u;
 const BCP47_PATTERN = /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/u;
+
+function isCanonicalBase64Shape(value: string): boolean {
+  if (value.length === 0 || value.length % 4 !== 0) return false;
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  const contentLength = value.length - padding;
+  for (let index = 0; index < contentLength; index += 1) {
+    const code = value.charCodeAt(index);
+    const allowed = (code >= 48 && code <= 57)
+      || (code >= 65 && code <= 90)
+      || (code >= 97 && code <= 122)
+      || code === 43
+      || code === 47;
+    if (!allowed) return false;
+  }
+  for (let index = contentLength; index < value.length; index += 1) {
+    if (value.charCodeAt(index) !== 61) return false;
+  }
+  return padding === 0 || contentLength % 4 === 2 || (padding === 1 && contentLength % 4 === 3);
+}
 
 export const MAX_RESEARCH_SOURCE_BYTES = 25 * 1024 * 1024;
 
@@ -373,11 +391,56 @@ export const ResearchSourceDetailSchema = z.union([
 ]);
 export type ResearchSourceDetail = z.infer<typeof ResearchSourceDetailSchema>;
 
+export const ResearchSourceContentSummarySchema = z.object({
+  title: z.string().trim().max(500),
+  sectionCount: z.number().int().nonnegative(),
+  blockCount: z.number().int().positive(),
+  chunkCount: z.number().int().positive(),
+});
+export type ResearchSourceContentSummary = z.infer<typeof ResearchSourceContentSummarySchema>;
+
+export const ResearchSourceViewSchema = z.union([
+  z.object({
+    source: ResearchSourceV2Schema,
+    revision: z.string().regex(SHA256_PATTERN),
+    originalText: z.string(),
+  }),
+  z.object({
+    source: ResearchSourceV3Schema,
+    revision: z.string().regex(SHA256_PATTERN),
+    contentSummary: ResearchSourceContentSummarySchema,
+  }),
+]);
+export type ResearchSourceView = z.infer<typeof ResearchSourceViewSchema>;
+
+export const ResearchSourceContentPageQuerySchema = z.object({
+  offset: z.coerce.number().int().nonnegative().default(0),
+  limit: z.coerce.number().int().min(1).max(100).default(40),
+});
+export type ResearchSourceContentPageQuery = z.input<typeof ResearchSourceContentPageQuerySchema>;
+
+export const ResearchSourceContentPageSchema = z.object({
+  researchDatabaseId: z.string().uuid(),
+  sourceId: z.string().uuid(),
+  sourceRevision: z.string().regex(SHA256_PATTERN),
+  title: z.string().trim().max(500),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().min(1).max(100),
+  totalBlocks: z.number().int().positive(),
+  blocks: z.array(ResearchSourceBlockSchema).max(100),
+  previousOffset: z.number().int().nonnegative().nullable(),
+  nextOffset: z.number().int().nonnegative().nullable(),
+});
+export type ResearchSourceContentPage = z.infer<typeof ResearchSourceContentPageSchema>;
+
 export const ImportResearchSourceInputSchema = z.object({
   fileName: z.string().trim().min(1).max(240).regex(SAFE_SOURCE_FILE_NAME_PATTERN),
   mediaType: ResearchSourceMediaTypeSchema,
   sizeBytes: z.number().int().positive().max(MAX_RESEARCH_SOURCE_BYTES),
-  contentBase64: z.string().min(4).max(Math.ceil(MAX_RESEARCH_SOURCE_BYTES / 3) * 4).regex(BASE64_PATTERN),
+  contentBase64: z.string()
+    .min(4)
+    .max(Math.ceil(MAX_RESEARCH_SOURCE_BYTES / 3) * 4)
+    .refine(isCanonicalBase64Shape, { message: "Research source content must be canonical base64" }),
   displayName: z.string().trim().min(1).max(240).optional(),
   author: z.string().trim().max(240).optional(),
   declaredLanguage: z.string().trim().regex(BCP47_PATTERN).max(64).nullable().optional(),
@@ -437,6 +500,8 @@ export const ResearchKeywordSearchResultSchema = z.object({
   sourceDisplayName: z.string().min(1).max(240),
   sourceKind: ResearchSourceKindSchema,
   chunkId: z.string().uuid(),
+  blockId: z.string().uuid(),
+  blockOrder: z.number().int().nonnegative(),
   chunkHash: z.string().regex(SHA256_PATTERN),
   originalText: z.string().min(1).max(100_000),
   languageTag: z.string().regex(BCP47_PATTERN).max(64),

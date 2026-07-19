@@ -6,7 +6,9 @@ import type {
   ResearchIndexState,
   ResearchKeywordSearchResult,
   ResearchSourceDetail,
+  ResearchSourceContentPage,
   ResearchSourceDocument,
+  ResearchSourceView,
 } from "@novel-studio/contracts";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -147,6 +149,58 @@ function v2Detail(): ResearchSourceDetailV2 {
   };
 }
 
+function v3View(detail = v3Detail()): ResearchSourceView {
+  return {
+    source: detail.source,
+    revision: detail.revision,
+    contentSummary: {
+      title: detail.content.title,
+      sectionCount: detail.content.sections.length,
+      blockCount: detail.content.blocks.length,
+      chunkCount: detail.content.chunks.length,
+    },
+  };
+}
+
+function contentPage(detail = v3Detail(), offset = 0): ResearchSourceContentPage {
+  return {
+    researchDatabaseId: databaseId,
+    sourceId: detail.source.id,
+    sourceRevision: detail.revision,
+    title: detail.content.title,
+    offset,
+    limit: 40,
+    totalBlocks: detail.content.blocks.length,
+    blocks: detail.content.blocks.slice(offset, offset + 40),
+    previousOffset: null,
+    nextOffset: null,
+  };
+}
+
+function manyBlockDetail(): ResearchSourceDetailV3 {
+  const detail = v3Detail();
+  const blocks = Array.from({ length: 85 }, (_, index) => ({
+    ...detail.content.blocks[0]!,
+    id: `${(index + 1).toString(16).padStart(8, "0")}-0000-4000-8000-${(index + 1).toString(16).padStart(12, "0")}`,
+    order: index,
+    text: `Reader block ${index + 1}`,
+  }));
+  return {
+    ...detail,
+    content: {
+      ...detail.content,
+      blocks,
+      chunks: blocks.map((block) => ({
+        ...detail.content.chunks[0]!,
+        id: `${(block.order + 101).toString(16).padStart(8, "0")}-0000-4000-8000-${(block.order + 101).toString(16).padStart(12, "0")}`,
+        blockId: block.id,
+        order: 0,
+        text: block.text,
+      })),
+    },
+  };
+}
+
 function listed(detail: ResearchSourceDetail): ResearchSourceDocument {
   return { source: detail.source, revision: detail.revision };
 }
@@ -156,11 +210,14 @@ function arrange(detail: ResearchSourceDetail | null = v3Detail()) {
   vi.spyOn(api.research, "listLegacySources").mockResolvedValue([]);
   vi.spyOn(api.research, "getDatabase").mockResolvedValue(databaseDocument());
   vi.spyOn(api.research, "listSources").mockResolvedValue(detail ? [listed(detail)] : []);
-  vi.spyOn(api.research, "getSource").mockResolvedValue(detail ?? v3Detail());
+  vi.spyOn(api.research, "getSource").mockResolvedValue(
+    detail ? ("content" in detail ? v3View(detail) : detail) : v3View(),
+  );
 }
 
 beforeEach(() => {
   vi.spyOn(api.research, "getIndexState").mockResolvedValue(readyIndex());
+  vi.spyOn(api.research, "getSourceContentPage").mockResolvedValue(contentPage());
 });
 
 afterEach(() => {
@@ -172,7 +229,7 @@ afterEach(() => {
 describe("NS-604 original-language Research workspace", () => {
   it("maps a Word file by extension and imports it into only the selected database", async () => {
     arrange(null);
-    const created = v3Detail();
+    const created = v3View();
     const importSource = vi.spyOn(api.research, "importSource").mockResolvedValue(created);
 
     const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
@@ -207,7 +264,7 @@ describe("NS-604 original-language Research workspace", () => {
         responseMediaType: "text/html",
       },
     });
-    const importWebSource = vi.spyOn(api.research, "importWebSource").mockResolvedValue(webDetail);
+    const importWebSource = vi.spyOn(api.research, "importWebSource").mockResolvedValue(v3View(webDetail));
 
     const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
     const root = container.querySelector<HTMLElement>("#research-workspace")!;
@@ -235,6 +292,8 @@ describe("NS-604 original-language Research workspace", () => {
       sourceDisplayName: detail.source.displayName,
       sourceKind: detail.source.kind,
       chunkId,
+      blockId,
+      blockOrder: 0,
       chunkHash: "d".repeat(64),
       originalText: detail.content.chunks[0]!.text,
       languageTag: "ja-JP",
@@ -262,12 +321,70 @@ describe("NS-604 original-language Research workspace", () => {
     expect(within(root).getByRole("status").textContent).toContain("Opened 用語 · paragraph 3");
   });
 
+  it("cancels a pending result-page jump when the author reselects the source", async () => {
+    const detail = manyBlockDetail();
+    arrange(detail);
+    const targetBlock = detail.content.blocks[80]!;
+    const targetChunk = detail.content.chunks[80]!;
+    let resolveTargetPage!: (page: ResearchSourceContentPage) => void;
+    const targetPage = new Promise<ResearchSourceContentPage>((resolve) => {
+      resolveTargetPage = resolve;
+    });
+    vi.mocked(api.research.getSourceContentPage)
+      .mockResolvedValueOnce({ ...contentPage(detail, 0), nextOffset: 40 })
+      .mockReturnValueOnce(targetPage);
+    vi.spyOn(api.research, "search").mockResolvedValue({
+      researchDatabaseId: databaseId,
+      query: "Reader block 81",
+      results: [{
+        researchDatabaseId: databaseId,
+        sourceId,
+        sourceRevision: detail.revision,
+        sourceDisplayName: detail.source.displayName,
+        sourceKind: detail.source.kind,
+        chunkId: targetChunk.id,
+        blockId: targetBlock.id,
+        blockOrder: targetBlock.order,
+        chunkHash: targetChunk.textHash,
+        originalText: targetChunk.text,
+        languageTag: targetChunk.language.languageTag,
+        location: targetChunk.location,
+        matchChannels: ["keyword-word"],
+        score: 1,
+      }],
+    });
+
+    const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
+    const root = container.querySelector<HTMLElement>("#research-workspace")!;
+    root.hidden = false;
+    await waitFor(() => expect(within(root).getByText("Reader block 1")).toBeTruthy());
+    fireEvent.change(within(root).getByLabelText("Search selected Research Database"), {
+      target: { value: "Reader block 81" },
+    });
+    fireEvent.click(within(root).getByRole("button", { name: "Search" }));
+    fireEvent.click(await within(root).findByRole("button", { name: /Reader block 81/u }));
+    await waitFor(() => expect(api.research.getSourceContentPage).toHaveBeenLastCalledWith(
+      databaseId,
+      sourceId,
+      80,
+      40,
+    ));
+
+    fireEvent.click(within(root).getByTitle("Harbor terminology"));
+    const next = within(root).getByRole("button", { name: "Next" }) as HTMLButtonElement;
+    await waitFor(() => expect(next.disabled).toBe(false));
+    resolveTargetPage({ ...contentPage(detail, 80), previousOffset: 40 });
+    await Promise.resolve();
+    expect(within(root).getByText("Reader block 1")).toBeTruthy();
+    expect(within(root).queryByText("Reader block 81")).toBeNull();
+  });
+
   it("upgrades version 2 sources explicitly and refreshes the structured reader", async () => {
     const legacy = v2Detail();
     const migrated = v3Detail({ kind: "txt", mediaType: "text/plain", originalFileName: "legacy.txt", displayName: "Legacy notes" });
     arrange(legacy);
     vi.mocked(api.research.listSources).mockResolvedValueOnce([listed(legacy)]).mockResolvedValueOnce([listed(migrated)]);
-    vi.mocked(api.research.getSource).mockResolvedValueOnce(legacy).mockResolvedValueOnce(migrated);
+    vi.mocked(api.research.getSource).mockResolvedValueOnce(legacy).mockResolvedValueOnce(v3View(migrated));
     const migrate = vi.spyOn(api.research, "migrateSourcesV2").mockResolvedValue({
       researchDatabaseId: databaseId,
       migratedSourceIds: [sourceId],
@@ -301,5 +418,25 @@ describe("NS-604 original-language Research workspace", () => {
 
     await waitFor(() => expect(rebuild).toHaveBeenCalledWith(databaseId));
     await waitFor(() => expect(within(root).getByText("Search ready")).toBeTruthy());
+  });
+
+  it("pages a large structured source without mounting every block", async () => {
+    const detail = manyBlockDetail();
+    arrange(detail);
+    vi.mocked(api.research.getSourceContentPage).mockImplementation(async (_databaseId, _sourceId, offset) => ({
+      ...contentPage(detail, offset),
+      previousOffset: offset === 0 ? null : Math.max(0, offset - 40),
+      nextOffset: offset + 40 < detail.content.blocks.length ? offset + 40 : null,
+    }));
+
+    const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
+    const root = container.querySelector<HTMLElement>("#research-workspace")!;
+    root.hidden = false;
+    await waitFor(() => expect(within(root).getByText("Reader block 1")).toBeTruthy());
+    expect(within(root).queryByText("Reader block 41")).toBeNull();
+    fireEvent.click(within(root).getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(within(root).getByText("Reader block 41")).toBeTruthy());
+    expect(api.research.getSourceContentPage).toHaveBeenLastCalledWith(databaseId, sourceId, 40, 40);
+    expect(within(root).queryByText("Reader block 1")).toBeNull();
   });
 });
