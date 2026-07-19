@@ -29,7 +29,8 @@ None.
 | NS-605 | paused | M6.4 explicit multi-database hybrid retrieval and validated Chinese/Japanese/English cross-language ranking; A01-A11 are committed while author A12 remains open without blocking the requested continuation | `docs/tasks/NS-605.md`; `docs/testing/NS-605_ACCEPTANCE.md` |
 | NS-606 | complete | M6.5 permissioned artificial-intelligence retrieval gateway with read-only tools, budgets, citations, and durable audit | `docs/tasks/NS-606.md`; `docs/testing/NS-606_ACCEPTANCE.md` |
 | NS-607 | paused | M6.6 Workshop database activation, bounded retrieval loops, and all-tool model behavior harness are committed; author-only A15 remains open while continued mainline work proceeds by direction | `docs/tasks/NS-607.md` |
-| NS-608 | in_progress | M6.7 deepseek-v4-pro real-author workflow, saved-key, adversarial, performance, recovery, and usability hardening | `docs/tasks/NS-608.md`; `docs/testing/NS-608_ACCEPTANCE.md` |
+| NS-608 | paused | M6.7 saved-key `deepseek-v4-pro` author workflow, adversarial, recovery, performance, browser, and final database audit evidence passes A01-A12; author-only A13 remains open | `docs/tasks/NS-608.md`; `docs/testing/NS-608_ACCEPTANCE.md`; `docs/testing/NS-608_DATABASE_FINAL_AUDIT.md` |
+| NS-609 | todo | M6.8 evidence-bound Research Note authority, stale-evidence handling, and separately confirmed Proposal-gated Codex promotion | task and acceptance records must be created before runtime edits |
 
 ## Incomplete Existing Lines
 

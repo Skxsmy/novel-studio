@@ -4,7 +4,7 @@ Date: 2026-07-20
 Status: complete
 Task: `docs/tasks/NS-608.md`
 Acceptance: `docs/testing/NS-608_ACCEPTANCE.md`
-Reviewed through: A10 commit `d611dd6` plus the A11 worktree
+Reviewed through: A11 commit `86efea8`
 
 Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Scene`.
 
