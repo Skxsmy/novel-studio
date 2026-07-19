@@ -142,6 +142,10 @@ Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复�
 - `POST /research/databases`
 - `GET /research/databases/:databaseId`
 - `PUT /research/databases/:databaseId`
+- `POST /research/databases/:databaseId/archive`
+- `POST /research/databases/:databaseId/restore`
+- `GET /research/databases/:databaseId/deletion-blockers`
+- `DELETE /research/databases/:databaseId`
 - `GET /research/legacy-sources`
 - `POST /research/databases/:databaseId/migrations/series/:seriesId`
 - `GET /research/databases/:databaseId/sources`
@@ -150,6 +154,13 @@ Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复�
 - `POST /research/databases/:databaseId/sources`
 - `POST /research/databases/:databaseId/sources/web`
 - `PUT /research/databases/:databaseId/sources/:sourceId`
+- `POST /research/databases/:databaseId/sources/:sourceId/archive`
+- `POST /research/databases/:databaseId/sources/:sourceId/restore`
+- `POST /research/databases/:databaseId/sources/:sourceId/replace/file`
+- `POST /research/databases/:databaseId/sources/:sourceId/refresh-web`
+- `POST /research/databases/:databaseId/sources/:sourceId/reparse`
+- `GET /research/databases/:databaseId/sources/:sourceId/deletion-blockers`
+- `DELETE /research/databases/:databaseId/sources/:sourceId`
 - `GET /research/databases/:databaseId/index`
 - `POST /research/databases/:databaseId/index/rebuild`
 - `POST /research/databases/:databaseId/search`
@@ -162,6 +173,8 @@ Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复�
 - `DELETE /research/databases/:databaseId/notes/:noteId/evidence/:evidenceId`
 - `POST /research/databases/:databaseId/notes/:noteId/archive`
 - `POST /research/databases/:databaseId/notes/:noteId/restore`
+- `GET /research/databases/:databaseId/notes/:noteId/deletion-blockers`
+- `DELETE /research/databases/:databaseId/notes/:noteId`
 - `POST /research/databases/:databaseId/notes/:noteId/promotions`
 
 Research Database 是 library 范围、互相隔离的作者权威对象，不由 Series
@@ -184,8 +197,8 @@ Canon Description。响应只创建一个 pending Proposal；不调用 Provider�
 写 Codex。接受路径重新校验 Note、Evidence 和目标 revision/absence，再在 Series
 事务中写 Codex、不可变快照与 Proposal 决定。
 
-来源列表返回目标数据库内按导入时间排序的 SourceDocument version 2 或 version 3 与 revision。
-version 2 详情保留旧的原文响应；version 3 详情、导入响应和属性更新响应只返回
+来源列表按 `status=active|archived|all` 返回目标数据库内的 SourceDocument version 2、version 3 或 version 4 与 revision；默认只返回活动来源。
+version 2 详情保留旧的原文响应；version 3/version 4 详情、导入响应和属性更新响应只返回
 Source 元数据与 `contentSummary`，不把全部 Section、Block 和 Chunk 序列化到普通响应。
 version 3 正文通过 `sources/:sourceId/content?offset=<block>&limit=<count>` 分页读取；
 该端点返回有界的有序 Block、总 Block 数和下一页位置，每个 Block 仍保留
@@ -196,13 +209,18 @@ SourceLocation 与语言片段。导入请求使用 JSON `fileName`、`mediaType
 服务端复核字节数、检测伪装/损坏输入并自己计算 SHA-256，不信任客户端哈希。
 网页接口只接受作者明确提交的公开 `http`/`https` 地址，执行一次受控获取并
 把清洗后的 HTML 快照作为 `web-snapshot` 原件。两种成功路径均返回 `201` 和
-建立后的轻量 version 3 Source 视图；客户端必须另行分页读取正文。
+建立后的轻量当前 Source 视图；客户端必须另行分页读取正文。
 
 来源属性更新要求 `baseRevision`，只可修改显示名称、作者、声明语言、标签、
 人工智能权限和使用备注。冲突返回 `409` 并保留现有权威文件；原始文件名、
 媒体类型、字节数、哈希、导入时间、解析器和原文位置不可由该接口修改。
-当前不注册删除、归档、重新解析或网页重新抓取路由，客户端不得把这些命令显示为
-可用。
+ADR-0025 的数据库、Source 和 Research Note 生命周期端点全部要求 `baseRevision`。
+数据库和 Source 提供 `/archive`、`/restore`、`/deletion-blockers` 与 `DELETE`；
+Source 还提供 `/replace/file`、`/refresh-web` 与 `/reparse`。文件替换请求复用有界
+导入字节字段但不接受管理路径；网页刷新只复用当前 Source 中已经验证的 requested
+URL；重新解析没有 URL 或正文输入。永久删除请求还必须提供与当前可见名称或标题
+完全一致的确认文字。归档数据库/Source 的读取端点仍可用于作者本地检查，但普通
+search、多库 search、Workshop 激活和模型工具都拒绝归档对象。
 
 NS-605 新增 `POST /research/search`。请求必须明确提供一至十二个互不重复的
 Research Database ID、查询文字、`Exact` 或 `Hybrid` 检索方式、用途和有界页长；

@@ -146,6 +146,22 @@ Block/Chunk 身份、Chunk/hash、原语言引用快照与 hash、语言、Sourc
 捕获时间。证据新鲜度在读取时从当前 Source 权威派生，不写回或改写笔记正文。
 归档笔记只读；永久删除在能够检查 Proposal 和快照引用前不可用。
 
+ADR-0025 将 Research Database authority 扩展为 version 2，增加
+`status: active | archived` 和与状态一致的 `archivedAt`。version 1
+兼容读取为活动状态；首次明确生命周期命令在同一事务中保存精确 version 1
+回滚 JSON。归档数据库不改写子对象，但其整个根只读且不进入检索或 Workshop。
+
+SourceDocument version 4 在 version 3 事实和属性上增加 `status`、
+`archivedAt` 与递增的 `contentVersion`。version 3 兼容读取为活动状态；首次生命
+周期或版本命令保存精确回滚 JSON。替换为同一 Source ID 写入新的不可变原件和
+content 路径；重新解析复用当前原件并只写新的 content 版本。`versions/` 保存此前
+Source JSON 与其不可变路径，不成为第二个当前 Source。永久删除在引用检查后删除
+该 Source 的当前和历史 authority/original/content 文件；索引仍可重建。
+
+Research Note permanent delete 不改变 schema version 1。命令只允许删除已经归档、
+revision 与标题确认都匹配且没有待确认 Proposal 引用的 Note 文件。已经决定的
+Proposal 依靠自身不可变证据继续作为历史权威。
+
 NS-602 起，每个 Series 的 `.studio/index.sqlite` 通过统一 `IndexDatabase` 边界打开。新数据库使用固定 `application_id = 0x4E534958`、`user_version = 1`、校验过的迁移账本、严格类型普通表、固定 WAL/连接策略和每个 Series 一个串行写入/重建队列。当前旧 `application_id=0` 且 `user_version=0` 的数据库被分类为 `legacy-v0` 派生索引，不被误认为权威或已迁移数据。
 
 全量重建在 `.studio/index-build/<build-id>.sqlite` 中投影 Scene、Codex、提及、歧义、Context Bundle 和 Model Call，完成身份、checksum、`quick_check`、外键和 build ID 验证并关闭 WAL 后才替换活动库。取消、构建失败或交换失败会恢复旧活动库并清理该 build 的有界临时文件。每个 Research Database 的 `.studio/index.sqlite` 使用独立的 `application_id = 0x4E535258`、schema checksum、数据库身份和来源 freshness ledger，投影 Section、Block、Chunk、语言片段及 CJK trigram/Unicode word FTS；缺失、过期、损坏或外来索引从当前数据库权威原子重建。NS-605 才在明确多选时联合查询多个独立索引并接入跨语言向量适配器。Series 小说文本投影的剩余规范化另行验收。SQLite 和向量正文始终不是 Canon 或 Research Source 权威。

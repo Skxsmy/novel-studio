@@ -6,11 +6,11 @@ Authority: current operational state only
 ## Project Mainline
 
 - Active milestone: `M6 Reference Library And Retrieval`.
-- Active task: `NS-609 / M6.8 Evidence-bound Research Notes And Canon Promotion`; database-owned Note authority, no-early-write promotion, atomic Review application, isolation, connected return navigation, and the final repository check now pass A01-A11. Only the author-only visual decision remains open.
-- Last reached mainline task: `NS-608 / M6.7 Research-assisted Author Workflow Hardening`; saved-key `deepseek-v4-pro`, adversarial, recovery, performance, browser, and final source-level audit evidence passes through A12.
-- Next mainline task: `NS-609 / M6.8 Evidence-bound Research Notes And Canon Promotion`, which is now active.
-- Following mainline task: `NS-610 / M6.9 Research Database And Source Lifecycle`. Backup, job/lock, query-translation, embedding-Settings, OCR, and `.doc` recommendations remain separate work and are not packed into NS-609.
-- Next mainline action: complete A09 isolation/redaction review and A10 Review return navigation plus connected desktop/narrow verification; A01-A08 are passed.
+- Active task: `NS-610 / M6.9 Research Database And Source Lifecycle`; the authority, reference, migration, rollback, API, security, UI, and exact acceptance boundary is being recorded before runtime edits.
+- Last reached mainline task: `NS-609 / M6.8 Evidence-bound Research Notes And Canon Promotion`; automated implementation and verification pass A01-A11, while author-only A12 remains open by explicit continued-mainline direction.
+- Next mainline task: `NS-610 / M6.9 Research Database And Source Lifecycle`, which is now active after NS-609 reached its automated boundary.
+- Following mainline task: to be scoped after NS-610 from the remaining database audit gaps. Backup, job/lock, query-translation, Embedding Settings, OCR, and `.doc` recommendations remain separate work and are not packed into NS-610.
+- Next mainline action: implement and prove NS-610 A02 contract compatibility, then build database authority lifecycle before Source replacement/reparse and deletion dependency order. A01 is passed.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; NS-514 is paused with only A16 author visual acceptance open. No task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
 - Mainline state: GOV-002 is complete and does not consume, complete, or renumber an NS task. NS-602 author visual acceptance was supplied separately by the author.
