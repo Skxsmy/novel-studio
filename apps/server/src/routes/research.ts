@@ -4,6 +4,8 @@ import type { FastifyInstance } from "fastify";
 import type { EmbeddingRouter } from "@novel-studio/ai";
 import {
   CreateResearchDatabaseInputSchema,
+  CreateResearchNoteInputSchema,
+  AppendResearchNoteEvidenceInputSchema,
   ImportResearchSourceInputSchema,
   ImportResearchWebSourceInputSchema,
   LegacyResearchSourceGroupSchema,
@@ -21,6 +23,11 @@ import {
   ResearchOpenPassageArgumentsSchema,
   ResearchQueryExpansionDocumentSchema,
   ResearchLegacyMigrationResultSchema,
+  ResearchNoteDetailSchema,
+  ResearchNoteListQuerySchema,
+  ResearchNoteListResultSchema,
+  ResearchNoteRevisionInputSchema,
+  RemoveResearchNoteEvidenceInputSchema,
   ResearchSourceContentPageQuerySchema,
   ResearchSourceContentPageSchema,
   ResearchSourceDocumentSchema,
@@ -30,10 +37,11 @@ import {
   ResearchVectorIndexStateSchema,
   UpdateResearchQueryExpansionsInputSchema,
   UpdateResearchDatabaseInputSchema,
+  UpdateResearchNoteInputSchema,
   UpdateResearchSourceInputSchema,
   ValidateResearchEmbeddingCapabilityInputSchema,
 } from "@novel-studio/contracts";
-import { ProjectRepository } from "@novel-studio/storage";
+import { ProjectRepository, StorageError } from "@novel-studio/storage";
 import { parseResearchFile, parseResearchWebSnapshot } from "../researchParsers.js";
 import { acquireResearchWebPage } from "../researchWebImport.js";
 import type { AcquiredResearchWebPage } from "../researchWebImport.js";
@@ -49,6 +57,17 @@ const RESEARCH_UPLOAD_BODY_LIMIT = 36 * 1024 * 1024;
 
 function defaultDisplayName(fileName: string): string {
   return path.basename(fileName, path.extname(fileName)).trim() || fileName;
+}
+
+async function researchNoteRoute<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof StorageError) {
+      throw new StorageError(error.message, error.code);
+    }
+    throw error;
+  }
 }
 
 export interface ResearchRouteOptions {
@@ -96,6 +115,92 @@ export function registerResearchRoutes(
         UpdateResearchDatabaseInputSchema.parse(request.body),
       ),
     ),
+  );
+
+  app.get<{
+    Params: { databaseId: string };
+    Querystring: { status?: string; offset?: string | number; limit?: string | number };
+  }>(
+    "/api/v1/research/databases/:databaseId/notes",
+    async (request) => researchNoteRoute(async () => ResearchNoteListResultSchema.parse(
+      await repository.listResearchNotes(
+        request.params.databaseId,
+        ResearchNoteListQuerySchema.parse(request.query),
+      ),
+    )),
+  );
+
+  app.post<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/notes",
+    async (request, reply) => researchNoteRoute(async () => reply.status(201).send(
+      ResearchNoteDetailSchema.parse(await repository.createResearchNote(
+        request.params.databaseId,
+        CreateResearchNoteInputSchema.parse(request.body),
+      )),
+    )),
+  );
+
+  app.get<{ Params: { databaseId: string; noteId: string } }>(
+    "/api/v1/research/databases/:databaseId/notes/:noteId",
+    async (request) => researchNoteRoute(async () => ResearchNoteDetailSchema.parse(
+      await repository.getResearchNote(request.params.databaseId, request.params.noteId),
+    )),
+  );
+
+  app.put<{ Params: { databaseId: string; noteId: string } }>(
+    "/api/v1/research/databases/:databaseId/notes/:noteId",
+    async (request) => researchNoteRoute(async () => ResearchNoteDetailSchema.parse(
+      await repository.updateResearchNote(
+        request.params.databaseId,
+        request.params.noteId,
+        UpdateResearchNoteInputSchema.parse(request.body),
+      ),
+    )),
+  );
+
+  app.post<{ Params: { databaseId: string; noteId: string } }>(
+    "/api/v1/research/databases/:databaseId/notes/:noteId/evidence",
+    async (request) => researchNoteRoute(async () => ResearchNoteDetailSchema.parse(
+      await repository.appendResearchNoteEvidence(
+        request.params.databaseId,
+        request.params.noteId,
+        AppendResearchNoteEvidenceInputSchema.parse(request.body),
+      ),
+    )),
+  );
+
+  app.delete<{ Params: { databaseId: string; noteId: string; evidenceId: string } }>(
+    "/api/v1/research/databases/:databaseId/notes/:noteId/evidence/:evidenceId",
+    async (request) => researchNoteRoute(async () => ResearchNoteDetailSchema.parse(
+      await repository.removeResearchNoteEvidence(
+        request.params.databaseId,
+        request.params.noteId,
+        request.params.evidenceId,
+        RemoveResearchNoteEvidenceInputSchema.parse(request.body),
+      ),
+    )),
+  );
+
+  app.post<{ Params: { databaseId: string; noteId: string } }>(
+    "/api/v1/research/databases/:databaseId/notes/:noteId/archive",
+    async (request) => researchNoteRoute(async () => ResearchNoteDetailSchema.parse(
+      await repository.archiveResearchNote(
+        request.params.databaseId,
+        request.params.noteId,
+        ResearchNoteRevisionInputSchema.parse(request.body),
+      ),
+    )),
+  );
+
+  app.post<{ Params: { databaseId: string; noteId: string } }>(
+    "/api/v1/research/databases/:databaseId/notes/:noteId/restore",
+    async (request) => researchNoteRoute(async () => ResearchNoteDetailSchema.parse(
+      await repository.restoreResearchNote(
+        request.params.databaseId,
+        request.params.noteId,
+        ResearchNoteRevisionInputSchema.parse(request.body),
+      ),
+    )),
   );
 
   app.get<{ Params: { databaseId: string } }>(
