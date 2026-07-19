@@ -43,6 +43,7 @@ import {
   X,
 } from "lucide-react";
 import { ApiError, api } from "../../api";
+import { ResearchNoteCaptureDialog, ResearchNotesWorkspace } from "./ResearchNotesWorkspace";
 import "./reference-research.css";
 
 interface ReferenceResearchWorkspaceProps {
@@ -98,6 +99,10 @@ const SOURCE_FILE_ACCEPT = [
 
 function sourceSelectionKey(databaseId: string): string {
   return `novel-studio.research.source.selected.${databaseId}`;
+}
+
+function researchViewKey(databaseId: string): string {
+  return `novel-studio.research.view.${databaseId}`;
 }
 
 function sourceDraftFromDetail(detail: ResearchSourceView): SourceDraft {
@@ -331,6 +336,12 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
   const [notice, setNotice] = useState("");
   const [dialogError, setDialogError] = useState("");
   const [railOpen, setRailOpen] = useState(false);
+  const [researchView, setResearchView] = useState<"sources" | "notes">("sources");
+  const [noteIsDirty, setNoteIsDirty] = useState(false);
+  const [noteRefreshToken, setNoteRefreshToken] = useState(0);
+  const [requestedNoteId, setRequestedNoteId] = useState<string | null>(null);
+  const [openedSearchResult, setOpenedSearchResult] = useState<ResearchRetrievalResult | null>(null);
+  const [captureEvidence, setCaptureEvidence] = useState<ResearchRetrievalResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createNameRef = useRef<HTMLInputElement>(null);
   const webUrlRef = useRef<HTMLInputElement>(null);
@@ -424,6 +435,7 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
       return;
     }
     openedCitationKeyRef.current = key;
+    setResearchView("sources");
     setPendingExternalCitation(requestedCitation);
     setSelectedDatabaseId(requestedCitation.researchDatabaseId);
     setSelectedSourceId(requestedCitation.sourceId);
@@ -433,6 +445,19 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
     setNotice("");
     setError("");
   }, [databaseListResolved, databases, isSavingSource, requestedCitation, sourceIsDirty]);
+
+  useEffect(() => {
+    if (!selectedDatabaseId) {
+      setResearchView("sources");
+      setNoteIsDirty(false);
+      setRequestedNoteId(null);
+      return;
+    }
+    const restored = globalThis.localStorage?.getItem(researchViewKey(selectedDatabaseId));
+    setResearchView(restored === "notes" ? "notes" : "sources");
+    setNoteIsDirty(false);
+    setRequestedNoteId(null);
+  }, [selectedDatabaseId]);
 
   useEffect(() => {
     setSources([]);
@@ -455,6 +480,8 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
     setPendingSearchResult((current) =>
       current?.result.researchDatabaseId === selectedDatabaseId ? current : null);
     setHighlightedPassage(null);
+    setOpenedSearchResult(null);
+    setCaptureEvidence(null);
     setSourceMenuOpen(false);
     setWebDialogOpen(false);
     setError("");
@@ -623,6 +650,7 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
         passageText: target.originalText,
         query: pendingSearchResult.query,
       });
+      setOpenedSearchResult(target);
       setPendingSearchResult(null);
       setSearchResults(null);
       setError("");
@@ -630,6 +658,7 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
     }).catch((reason) => {
       if (!cancelled) {
         setPendingSearchResult(null);
+        setOpenedSearchResult(null);
         setNotice("");
         setError(errorMessage(reason, "The matching source page could not be opened."));
       }
@@ -683,6 +712,7 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
         passageText: "",
         query: "",
       });
+      setOpenedSearchResult(null);
       setNotice(`Opened ${formatLocation(pendingExternalCitation.location)} from Workshop evidence.`);
       setPendingExternalCitation(null);
       setError("");
@@ -710,8 +740,8 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
   }, [contentPage, highlightedPassage]);
 
   function chooseDatabase(databaseId: string) {
-    if (sourceIsDirty || isSavingSource) {
-      setError("Save or discard the open source changes before switching Research Databases.");
+    if (sourceIsDirty || isSavingSource || noteIsDirty) {
+      setError(`Save or discard the open ${noteIsDirty ? "Note" : "source"} changes before switching Research Databases.`);
       return;
     }
     setSelectedDatabaseId(databaseId || null);
@@ -721,6 +751,8 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
     setSearchResultQuery("");
     setHighlightedPassage(null);
     setPendingSearchResult(null);
+    setOpenedSearchResult(null);
+    setCaptureEvidence(null);
     setIsLoadingContentPage(false);
   }
 
@@ -740,7 +772,22 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
     setSearchResultQuery("");
     setHighlightedPassage(null);
     setPendingSearchResult(null);
+    setOpenedSearchResult(null);
     setIsLoadingContentPage(false);
+  }
+
+  function chooseResearchView(view: "sources" | "notes") {
+    if (view === researchView || !selectedDatabaseId) return;
+    if (sourceIsDirty || isSavingSource || noteIsDirty) {
+      setError(`Save or discard the open ${noteIsDirty ? "Note" : "source"} changes before changing Research views.`);
+      return;
+    }
+    globalThis.localStorage?.setItem(researchViewKey(selectedDatabaseId), view);
+    setResearchView(view);
+    setRailOpen(false);
+    setSourceMenuOpen(false);
+    setError("");
+    setNotice("");
   }
 
   function retrySelectedSource() {
@@ -915,6 +962,8 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
     setSavedSourceDraft(nextDraft);
     setSearchResults(null);
     setSearchResultQuery("");
+    globalThis.localStorage?.setItem(researchViewKey(created.source.researchDatabaseId), "sources");
+    setResearchView("sources");
     setNotice(message);
   }
 
@@ -938,6 +987,7 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
         SOURCE_PAGE_SIZE,
       ));
       setHighlightedPassage(null);
+      setOpenedSearchResult(null);
     } catch (reason) {
       setError(errorMessage(reason, "The source page could not be opened."));
     } finally {
@@ -1012,6 +1062,7 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
     setIsSearching(true);
     setError("");
     setNotice("");
+    setOpenedSearchResult(null);
     setHighlightedPassage(null);
     try {
       const response = await api.research.searchDatabases({
@@ -1083,6 +1134,7 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
       return;
     }
     const retryUnavailableSource = result.sourceId === selectedSourceId && !detail && !isLoadingDetail;
+    setOpenedSearchResult(null);
     setPendingSearchResult({ query: searchResultQuery, result });
     if (result.researchDatabaseId !== selectedDatabaseId) {
       setSelectedDatabaseId(result.researchDatabaseId);
@@ -1316,22 +1368,24 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
     <section aria-label="Research workspace" className="rs8 rs9 workspace-view" data-workspace-view="Research" hidden id="research-workspace">
       <header className="rs8-toolbar rs9-toolbar">
         <div className="rs8-heading">
-          <button aria-expanded={railOpen} aria-label="Toggle source shelf" className="rs8-rail-toggle" onClick={() => setRailOpen((open) => !open)} title="Toggle source shelf" type="button"><Menu aria-hidden="true" size={17} /></button>
+          <button aria-expanded={railOpen} aria-label={`Toggle ${researchView === "sources" ? "source" : "Note"} shelf`} className="rs8-rail-toggle" onClick={() => setRailOpen((open) => !open)} title={`Toggle ${researchView === "sources" ? "source" : "Note"} shelf`} type="button"><Menu aria-hidden="true" size={17} /></button>
           <div><p>Reference library</p><h1>Research</h1></div>
         </div>
         <div className="rs9-database-controls">
-          <label className="rs9-database-select"><span>Research Database</span><select aria-label="Research Database" disabled={isLoadingDatabases || databases.length === 0} onChange={(event) => chooseDatabase(event.target.value)} value={selectedDatabaseId ?? ""}><option value="">{isLoadingDatabases ? "Loading databases" : "No databases"}</option>{databases.map((item) => <option key={item.database.id} value={item.database.id}>{item.database.name}</option>)}</select></label>
-          <button aria-label="Create Research Database" className="rs9-icon-button" onClick={openCreateDialog} title="Create Research Database" type="button"><Plus aria-hidden="true" size={17} /></button>
-          <button aria-label="Database settings" className="rs9-settings-button" disabled={!databaseDocument} onClick={openDatabaseDialog} type="button"><Settings2 aria-hidden="true" size={14} /><span className="rs9-settings-wide">Database settings</span><span className="rs9-settings-compact">Settings</span></button>
+          <label className="rs9-database-select"><span>Research Database</span><select aria-label="Research Database" disabled={isLoadingDatabases || databases.length === 0 || noteIsDirty} onChange={(event) => chooseDatabase(event.target.value)} value={selectedDatabaseId ?? ""}><option value="">{isLoadingDatabases ? "Loading databases" : "No databases"}</option>{databases.map((item) => <option key={item.database.id} value={item.database.id}>{item.database.name}</option>)}</select></label>
+          <button aria-label="Create Research Database" className="rs9-icon-button" disabled={noteIsDirty} onClick={openCreateDialog} title="Create Research Database" type="button"><Plus aria-hidden="true" size={17} /></button>
+          <button aria-label="Database settings" className="rs9-settings-button" disabled={!databaseDocument || noteIsDirty} onClick={openDatabaseDialog} type="button"><Settings2 aria-hidden="true" size={14} /><span className="rs9-settings-wide">Database settings</span><span className="rs9-settings-compact">Settings</span></button>
+          <div aria-label="Research content" className="rs12-view-tabs" role="tablist"><button aria-selected={researchView === "sources"} disabled={researchView === "notes" && noteIsDirty} onClick={() => chooseResearchView("sources")} role="tab" type="button">Sources</button><button aria-selected={researchView === "notes"} disabled={!selectedDatabaseId || (researchView === "sources" && sourceIsDirty)} onClick={() => chooseResearchView("notes")} role="tab" type="button">Notes</button></div>
         </div>
         <div className="rs10-add-source">
-          <button aria-expanded={sourceMenuOpen} aria-haspopup="menu" className="rs8-upload" disabled={!selectedDatabaseId || isUploading || isImportingWeb || isSavingSource || sourceIsDirty} onClick={() => setSourceMenuOpen((open) => !open)} type="button"><Plus aria-hidden="true" size={15} />{isUploading || isImportingWeb ? "Importing" : "Add source"}<ChevronDown aria-hidden="true" size={13} /></button>
+          <button aria-expanded={sourceMenuOpen} aria-haspopup="menu" className="rs8-upload" disabled={!selectedDatabaseId || isUploading || isImportingWeb || isSavingSource || sourceIsDirty || noteIsDirty} onClick={() => setSourceMenuOpen((open) => !open)} type="button"><Plus aria-hidden="true" size={15} />{isUploading || isImportingWeb ? "Importing" : "Add source"}<ChevronDown aria-hidden="true" size={13} /></button>
           {sourceMenuOpen ? <div aria-label="Add source" className="rs10-source-menu" role="menu"><button onClick={openFilePicker} role="menuitem" type="button"><FileUp aria-hidden="true" size={16} /><span><strong>File</strong><small>Text, Word, PDF, EPUB, or HTML</small></span></button><button onClick={openWebDialog} role="menuitem" type="button"><Globe2 aria-hidden="true" size={16} /><span><strong>Web address</strong><small>Save a controlled page snapshot</small></span></button></div> : null}
         </div>
         <input accept={SOURCE_FILE_ACCEPT} aria-label="Choose a Research source file" hidden onChange={(event) => void importFile(event)} ref={fileInputRef} type="file" />
       </header>
 
       <div className={`rs8-layout${railOpen ? " is-rail-open" : ""}`}>
+        {researchView === "sources" ? <>
         <aside aria-label="Research sources" className="rs8-rail">
           <div className="rs8-rail-head"><strong>{selectedDatabaseSummary?.database.name ?? "Sources"}</strong><span>{sources.length}</span></div>
           {selectedDatabaseId ? <section aria-label="Search index" className={`rs10-index-state is-${indexState?.status ?? "unknown"}`}><Database aria-hidden="true" size={15} /><div><strong>{isLoadingIndex ? "Checking search" : indexState?.status === "ready" ? "Search ready" : indexState?.status === "damaged" ? "Search damaged" : indexState?.status === "stale" ? "Search out of date" : indexState?.status === "missing" ? "Search not built" : "Search unavailable"}</strong><span>{indexState?.status === "ready" ? `${indexState.indexedChunkCount} searchable passages` : indexState?.reason ?? "Rebuild to prepare this database."}</span></div><button aria-label="Rebuild search index" disabled={isRebuildingIndex || isLoadingSources || sourceIsDirty} onClick={() => void rebuildIndex()} title="Rebuild search index" type="button"><RefreshCw aria-hidden="true" className={isRebuildingIndex ? "is-spinning" : ""} size={15} /></button></section> : null}
@@ -1359,13 +1413,37 @@ export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId 
             {searchIssues.length > 0 ? <div className="rs11-retrieval-issues">{searchIssues.map((issue) => <p key={`${issue.researchDatabaseId}:${issue.code}`}><strong>{databases.find((item) => item.database.id === issue.researchDatabaseId)?.database.name ?? "Unavailable database"}</strong><span>{issue.message}</span></p>)}</div> : null}
             {searchResults.length === 0 ? <div className="rs10-no-results"><Search aria-hidden="true" size={22} /><strong>No matching passage</strong><p>Try another spelling, add an alias, or review the selected databases and retrieval mode.</p></div> : <><ol>{searchResults.map((result) => <li key={`${result.researchDatabaseId}:${result.sourceId}:${result.chunkId}`}><button disabled={isLoadingContentPage || isLoadingDetail} onClick={() => openSearchResult(result)} type="button"><span className="rs11-result-database"><Database aria-hidden="true" size={13} />{result.researchDatabaseName}</span><span className="rs10-location-ribbon"><BookOpenText aria-hidden="true" size={14} /><strong>{formatLocation(result.location)}</strong><em>{result.languageTag}</em></span><span className="rs10-result-source">{result.sourceDisplayName}<small>{sourceKindLabel(result.sourceKind)}</small></span><span className="rs10-result-text">{result.originalText}</span><span className="rs10-match-channels">{result.channelContributions.map((contribution) => <small key={contribution.channel} title={`Rank ${contribution.rank} for ${contribution.matchedQuery}`}>{matchChannelLabel(contribution.channel)}</small>)}</span></button></li>)}</ol>{searchNextCursor ? <button className="rs11-load-more" disabled={isSearching} onClick={() => void loadMoreSearchResults()} type="button">{isSearching ? "Loading" : "Load more"}</button> : null}</>}
           </section> : isLoadingDatabases ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening Research Databases</p></div> : !selectedDatabaseId ? <div className="rs8-empty"><Database aria-hidden="true" size={23} /><h2>Create your first Research Database</h2><p>Each database keeps its own sources, originals, permissions, and search index. It does not belong to a Series.</p><button onClick={openCreateDialog} type="button">Create Research Database</button></div> : isLoadingDetail ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source</p></div> : detail ? <article className="rs8-document"><header><div className="rs8-document-mark"><span aria-hidden="true" /><em>{sourceKindMark(detail.source.kind)}</em></div><div><p>{detail.source.originalFileName}</p><h2>{detail.source.displayName}</h2><span>{databaseDocument?.database.name} · Imported {formatImportedAt(detail.source.importedAt)} · {formatBytes(detail.source.sizeBytes)}</span></div></header>{detail.source.schemaVersion === 3 && detail.source.parseWarnings.length > 0 ? <div className="rs10-parse-warning"><strong>Imported with {detail.source.parseWarnings.length} warning{detail.source.parseWarnings.length === 1 ? "" : "s"}</strong><span>{detail.source.parseWarnings.join(" ")}</span></div> : null}<div className="rs8-preview-label"><strong>{"originalText" in detail ? "Original text" : "Parsed text"}</strong><span>{"originalText" in detail ? "Upgrade this source to add locations" : `${detail.contentSummary.blockCount} blocks · locations preserved from the original`}</span></div>{"originalText" in detail ? <pre className="rs8-preview">{detail.originalText}</pre> : isLoadingContentPage && !contentPage ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source page</p></div> : contentPage ? <><div className="rs10-text-blocks">{contentPage.blocks.map((block) => <ResearchTextBlock block={block} highlighted={block.id === highlightedPassage?.blockId ? highlightedPassage : null} key={block.id} />)}</div><nav aria-label="Source pages" className="rs10-source-pages"><button disabled={contentPage.previousOffset === null || isLoadingContentPage} onClick={() => void openContentPage(contentPage.previousOffset ?? 0)} type="button">Previous</button><span>Blocks {contentPage.offset + 1}-{contentPage.offset + contentPage.blocks.length} of {contentPage.totalBlocks}</span><button disabled={contentPage.nextOffset === null || isLoadingContentPage} onClick={() => void openContentPage(contentPage.nextOffset ?? 0)} type="button">Next</button></nav></> : <div className="rs8-empty"><FileText aria-hidden="true" size={20} /><h2>Source page unavailable</h2><p>The Source and its properties remain available.</p><button disabled={isLoadingContentPage} onClick={() => void openContentPage(0)} type="button"><RefreshCw aria-hidden="true" size={14} />Retry page</button></div>}</article> : selectedListDocument ? <div className="rs8-empty"><FileText aria-hidden="true" size={23} /><h2>Source unavailable</h2><p>The Source remains in this database. Try opening its details again.</p><button disabled={isLoadingDetail} onClick={retrySelectedSource} type="button"><RefreshCw aria-hidden="true" size={14} />Retry source</button></div> : <div className="rs8-empty"><FileText aria-hidden="true" size={23} /><h2>Add a source to {databaseDocument?.database.name ?? "this database"}</h2><p>Import text, Markdown, Word (.docx), text PDF, EPUB, HTML, XHTML, or a controlled web-page snapshot.</p><button disabled={isUploading || isImportingWeb} onClick={openFilePicker} type="button">Choose file</button></div>}
+          {openedSearchResult && searchResults === null && detail?.source.id === openedSearchResult.sourceId && highlightedPassage?.blockId === openedSearchResult.blockId ? <div className="rs12-opened-evidence"><span><strong>Exact passage opened</strong><small>{formatLocation(openedSearchResult.location)} remains separate from your interpretation.</small></span><button onClick={() => setCaptureEvidence(openedSearchResult)} type="button"><Plus aria-hidden="true" size={14} />Add to project</button></div> : null}
         </main>
 
         <aside aria-label="Source properties" className="rs8-inspector">
           <header><div><p>{databaseDocument?.database.name ?? "Selected source"}</p><h2>Properties</h2></div>{sourceIsDirty ? <span className="rs8-dirty">Unsaved changes</span> : detail ? <span className="rs8-status">Parsed</span> : null}</header>
           {detail && sourceDraft ? <form onSubmit={(event) => void saveSourceProperties(event)}><label><span>Display name</span><input disabled={isSavingSource} maxLength={240} onChange={(event) => setSourceDraft({ ...sourceDraft, displayName: event.target.value })} required value={sourceDraft.displayName} /></label><label><span>Author</span><input disabled={isSavingSource} maxLength={240} onChange={(event) => setSourceDraft({ ...sourceDraft, author: event.target.value })} value={sourceDraft.author} /></label><label><span>Declared language</span><input disabled={isSavingSource} maxLength={64} onChange={(event) => setSourceDraft({ ...sourceDraft, declaredLanguage: event.target.value })} placeholder="zh-CN, ja-JP, en" value={sourceDraft.declaredLanguage} /></label><label><span>Tags</span><input disabled={isSavingSource} maxLength={1200} onChange={(event) => setSourceDraft({ ...sourceDraft, tags: event.target.value })} placeholder="history, folklore" value={sourceDraft.tags} /></label><fieldset><legend>AI context permission</legend><div className="rs8-permission"><label><input checked={sourceDraft.aiPermission === "never"} disabled={isSavingSource} name="research-ai-permission" onChange={() => setSourceDraft({ ...sourceDraft, aiPermission: "never" })} type="radio" /><span>Never send</span></label><label><input checked={sourceDraft.aiPermission === "allowed"} disabled={isSavingSource} name="research-ai-permission" onChange={() => setSourceDraft({ ...sourceDraft, aiPermission: "allowed" })} type="radio" /><span>Allow when selected</span></label></div></fieldset><label><span>Copyright / use notes</span><textarea disabled={isSavingSource} maxLength={8000} onChange={(event) => setSourceDraft({ ...sourceDraft, useNotes: event.target.value })} rows={4} value={sourceDraft.useNotes} /></label><div className="rs8-actions"><button className="rs8-discard" disabled={!sourceIsDirty || isSavingSource} onClick={discardSourceDraft} type="button">Discard changes</button><button className="rs8-save" disabled={!sourceIsDirty || isSavingSource || !sourceDraft.displayName.trim()} type="submit">{isSavingSource ? "Saving" : "Save properties"}</button></div><details className="rs8-facts"><summary>Import facts</summary><dl><div><dt>Database</dt><dd>{databaseDocument?.database.name}</dd></div><div><dt>Type</dt><dd>{sourceKindLabel(detail.source.kind)} · {detail.source.mediaType}</dd></div><div><dt>Original file</dt><dd>{detail.source.originalFileName}</dd></div>{detail.source.schemaVersion === 3 && detail.source.origin.type === "web" ? <div><dt>Page URL</dt><dd title={detail.source.origin.finalUrl}>{detail.source.origin.finalUrl}</dd></div> : null}<div><dt>Size</dt><dd>{formatBytes(detail.source.sizeBytes)}</dd></div><div><dt>Parser</dt><dd>{detail.source.parserName} v{detail.source.parserVersion}</dd></div><div><dt>SHA-256</dt><dd title={detail.source.contentHash}>{detail.source.contentHash}</dd></div></dl></details></form> : <div className="rs8-inspector-empty">{selectedListDocument ? <p>{isLoadingDetail ? "Opening source properties." : "Source properties are temporarily unavailable."}</p> : databaseDocument ? <><strong>{databaseDocument.database.name}</strong><p>{databaseDocument.database.description || "No database description."}</p><p>{databaseDocument.database.linkedSeriesIds.length} linked Series · {selectedDatabaseSummary?.sourceCount ?? 0} sources</p><button className="rs9-inline-command" onClick={openDatabaseDialog} type="button">Open database settings</button></> : <p>Create or select a Research Database.</p>}</div>}
         </aside>
+        </> : selectedDatabaseId ? <ResearchNotesWorkspace
+          databaseId={selectedDatabaseId}
+          databaseName={databaseDocument?.database.name ?? selectedDatabaseSummary?.database.name ?? "Research Database"}
+          onDirtyChange={setNoteIsDirty}
+          refreshToken={noteRefreshToken}
+          requestedNoteId={requestedNoteId}
+        /> : null}
       </div>
+
+      {captureEvidence && selectedDatabaseId ? <ResearchNoteCaptureDialog
+        databaseId={selectedDatabaseId}
+        databaseName={databaseDocument?.database.name ?? selectedDatabaseSummary?.database.name ?? "Research Database"}
+        evidence={captureEvidence}
+        onClose={() => setCaptureEvidence(null)}
+        onSaved={(saved) => {
+          setCaptureEvidence(null);
+          setRequestedNoteId(saved.note.id);
+          setNoteRefreshToken((current) => current + 1);
+          globalThis.localStorage?.setItem(researchViewKey(selectedDatabaseId), "notes");
+          setResearchView("notes");
+          setNotice("");
+          setError("");
+        }}
+      /> : null}
 
       {retrievalDialogOpen ? <div className="rs9-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !queryExpansionsDirty && !isSavingQueryExpansions && !isValidatingCapability && !isRebuildingVector) setRetrievalDialogOpen(false); }}><section aria-labelledby="research-retrieval-settings-title" aria-modal="true" className="rs9-dialog rs11-retrieval-dialog" role="dialog"><header><div><p>{databaseDocument?.database.name ?? "Research Database"}</p><h2 id="research-retrieval-settings-title">Retrieval settings</h2></div><button aria-label="Close" disabled={isSavingQueryExpansions || isValidatingCapability || isRebuildingVector} onClick={() => { if (queryExpansionsDirty) setDialogError("Save or discard alias changes before closing."); else setRetrievalDialogOpen(false); }} title="Close" type="button"><X aria-hidden="true" size={17} /></button></header><div className="rs11-retrieval-body">
         {dialogError ? <div className="rs9-dialog-error" role="alert">{dialogError}</div> : null}

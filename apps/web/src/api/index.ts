@@ -51,15 +51,20 @@ export type {
 } from "./proposals";
 export type {
   CreateResearchDatabaseInput,
+  CreateResearchNoteInput,
+  AppendResearchNoteEvidenceInput,
   ImportResearchSourceInput,
   LegacyResearchSourceGroup,
   ResearchDatabaseDocument,
   ResearchDatabaseListResult,
   ResearchLegacyMigrationResult,
+  ResearchNoteDetail,
+  ResearchNoteListResult,
   ResearchSourceContentPage,
   ResearchSourceDocument,
   ResearchSourceView,
   UpdateResearchDatabaseInput,
+  UpdateResearchNoteInput,
   UpdateResearchSourceInput,
 } from "./research";
 export type { CreateSeriesInput, SeriesSummary } from "./series";

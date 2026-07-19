@@ -282,13 +282,25 @@ afterEach(() => {
 describe("NS-604 original-language Research workspace", () => {
   it("maps a Word file by extension and imports it into only the selected database", async () => {
     arrange(null);
+    localStorage.setItem(`novel-studio.research.view.${databaseId}`, "notes");
+    vi.spyOn(api.research, "listNotes").mockResolvedValue({
+      researchDatabaseId: databaseId,
+      status: "active",
+      offset: 0,
+      limit: 100,
+      total: 0,
+      notes: [],
+      issueCount: 0,
+      issues: [],
+    });
     const created = v3View();
     const importSource = vi.spyOn(api.research, "importSource").mockResolvedValue(created);
 
     const { container } = render(<ReferenceResearchWorkspace seriesId={null} />);
     const root = container.querySelector<HTMLElement>("#research-workspace")!;
     root.hidden = false;
-    await waitFor(() => expect(within(root).getByText("This source shelf is empty")).toBeTruthy());
+    await waitFor(() => expect(within(root).getByText("No active Notes")).toBeTruthy());
+    expect(within(root).getByRole("tab", { name: "Notes" }).getAttribute("aria-selected")).toBe("true");
     const file = new File(["PK-docx"], "harbor-notes.docx", { type: "application/octet-stream" });
     fireEvent.change(within(root).getByLabelText("Choose a Research source file"), { target: { files: [file] } });
 
@@ -299,6 +311,7 @@ describe("NS-604 original-language Research workspace", () => {
       mediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     });
     await waitFor(() => expect(within(root).getByText("月守（つきもり）は夜明け前に港へ着いた。")).toBeTruthy());
+    expect(within(root).getByRole("tab", { name: "Sources" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("opens the source menu and submits a controlled web snapshot", async () => {

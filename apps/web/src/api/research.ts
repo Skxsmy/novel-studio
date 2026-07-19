@@ -1,5 +1,7 @@
 import type {
   CreateResearchDatabaseInput,
+  CreateResearchNoteInput,
+  AppendResearchNoteEvidenceInput,
   ImportResearchSourceInput,
   ImportResearchWebSourceInput,
   LegacyResearchSourceGroup,
@@ -16,6 +18,11 @@ import type {
   ResearchMultiSearchResponse,
   ResearchQueryExpansionDocument,
   ResearchLegacyMigrationResult,
+  ResearchNoteDetail,
+  ResearchNoteListQuery,
+  ResearchNoteListResult,
+  ResearchNoteRevisionInput,
+  RemoveResearchNoteEvidenceInput,
   ResearchSourceContentPage,
   ResearchSourceView,
   ResearchSourceDocument,
@@ -24,6 +31,7 @@ import type {
   ResearchVectorIndexState,
   UpdateResearchQueryExpansionsInput,
   UpdateResearchDatabaseInput,
+  UpdateResearchNoteInput,
   UpdateResearchSourceInput,
   ValidateResearchEmbeddingCapabilityInput,
 } from "@novel-studio/contracts";
@@ -53,6 +61,58 @@ export function createResearchApi(client: ApiClient) {
         body: input,
         method: "PUT",
       });
+    },
+    listNotes(databaseId: string, input: ResearchNoteListQuery = {}) {
+      const query = new URLSearchParams();
+      if (input.status !== undefined) query.set("status", input.status);
+      if (input.offset !== undefined) query.set("offset", String(input.offset));
+      if (input.limit !== undefined) query.set("limit", String(input.limit));
+      const suffix = query.size > 0 ? `?${query}` : "";
+      return client.requestJson<ResearchNoteListResult>(`/research/databases/${databaseId}/notes${suffix}`);
+    },
+    getNote(databaseId: string, noteId: string) {
+      return client.requestJson<ResearchNoteDetail>(`/research/databases/${databaseId}/notes/${noteId}`);
+    },
+    createNote(databaseId: string, input: CreateResearchNoteInput) {
+      return client.requestJson<ResearchNoteDetail>(`/research/databases/${databaseId}/notes`, {
+        body: input,
+        method: "POST",
+      });
+    },
+    updateNote(databaseId: string, noteId: string, input: UpdateResearchNoteInput) {
+      return client.requestJson<ResearchNoteDetail>(`/research/databases/${databaseId}/notes/${noteId}`, {
+        body: input,
+        method: "PUT",
+      });
+    },
+    appendNoteEvidence(databaseId: string, noteId: string, input: AppendResearchNoteEvidenceInput) {
+      return client.requestJson<ResearchNoteDetail>(
+        `/research/databases/${databaseId}/notes/${noteId}/evidence`,
+        { body: input, method: "POST" },
+      );
+    },
+    removeNoteEvidence(
+      databaseId: string,
+      noteId: string,
+      evidenceId: string,
+      input: RemoveResearchNoteEvidenceInput,
+    ) {
+      return client.requestJson<ResearchNoteDetail>(
+        `/research/databases/${databaseId}/notes/${noteId}/evidence/${evidenceId}`,
+        { body: input, method: "DELETE" },
+      );
+    },
+    archiveNote(databaseId: string, noteId: string, input: ResearchNoteRevisionInput) {
+      return client.requestJson<ResearchNoteDetail>(
+        `/research/databases/${databaseId}/notes/${noteId}/archive`,
+        { body: input, method: "POST" },
+      );
+    },
+    restoreNote(databaseId: string, noteId: string, input: ResearchNoteRevisionInput) {
+      return client.requestJson<ResearchNoteDetail>(
+        `/research/databases/${databaseId}/notes/${noteId}/restore`,
+        { body: input, method: "POST" },
+      );
     },
     getQueryExpansions(databaseId: string) {
       return client.requestJson<ResearchQueryExpansionDocument>(
@@ -163,6 +223,8 @@ export function createResearchApi(client: ApiClient) {
 
 export type {
   CreateResearchDatabaseInput,
+  CreateResearchNoteInput,
+  AppendResearchNoteEvidenceInput,
   ImportResearchSourceInput,
   ImportResearchWebSourceInput,
   LegacyResearchSourceGroup,
@@ -179,6 +241,11 @@ export type {
   ResearchMultiSearchResponse,
   ResearchQueryExpansionDocument,
   ResearchLegacyMigrationResult,
+  ResearchNoteDetail,
+  ResearchNoteListQuery,
+  ResearchNoteListResult,
+  ResearchNoteRevisionInput,
+  RemoveResearchNoteEvidenceInput,
   ResearchSourceContentPage,
   ResearchSourceView,
   ResearchSourceDocument,
@@ -187,6 +254,7 @@ export type {
   ResearchVectorIndexState,
   UpdateResearchQueryExpansionsInput,
   UpdateResearchDatabaseInput,
+  UpdateResearchNoteInput,
   UpdateResearchSourceInput,
   ValidateResearchEmbeddingCapabilityInput,
 };

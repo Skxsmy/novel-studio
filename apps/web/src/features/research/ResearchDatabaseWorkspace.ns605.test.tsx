@@ -187,6 +187,16 @@ afterEach(() => {
 
 describe("NS-605 Research retrieval workspace", () => {
   it("selects multiple databases, discloses degradation, paginates, and opens a cross-database result", async () => {
+    vi.spyOn(api.research, "listNotes").mockResolvedValue({
+      researchDatabaseId: secondDatabaseId,
+      status: "active",
+      offset: 0,
+      limit: 100,
+      total: 0,
+      notes: [],
+      issueCount: 0,
+      issues: [],
+    });
     const search = vi.spyOn(api.research, "searchDatabases")
       .mockResolvedValueOnce({
         query: "江户时代的旅馆",
@@ -234,6 +244,10 @@ describe("NS-605 Research retrieval workspace", () => {
     await waitFor(() => expect((within(root).getByRole("combobox", { name: "Research Database" }) as HTMLSelectElement).value).toBe(secondDatabaseId));
     await waitFor(() => expect(root.querySelector(`#research-match-${blockId}`)?.textContent).toContain("江戸時代"));
     expect(within(root).getByRole("status").textContent).toContain("Opened Line 1 in Edo inns");
+    fireEvent.click(within(root).getByRole("button", { name: "Add to project" }));
+    const captureDialog = await within(root).findByRole("dialog", { name: "Capture Research Note" });
+    expect(within(captureDialog).getByText(result().originalText)).toBeTruthy();
+    expect(within(captureDialog).getByText("Location: Line 1")).toBeTruthy();
   });
 
   it("refreshes from the first page when a retrieval cursor becomes stale", async () => {
