@@ -54,6 +54,63 @@ function proposalPayload(scene: {
   };
 }
 
+async function researchPromotionApiFixture(
+  app: Awaited<ReturnType<typeof buildApp>>,
+) {
+  const databaseResponse = await app.inject({
+    method: "POST",
+    url: "/api/v1/research/databases",
+    payload: { name: "Proposal route archive" },
+  });
+  expect(databaseResponse.statusCode).toBe(201);
+  const databaseId = databaseResponse.json().database.id as string;
+  const privateSourceText = "PRIVATE HARBOR SOURCE the bell opened the market by local custom";
+  const sourceBytes = Buffer.from(privateSourceText, "utf8");
+  const sourceResponse = await app.inject({
+    method: "POST",
+    url: `/api/v1/research/databases/${databaseId}/sources`,
+    payload: {
+      fileName: "harbor-source.txt",
+      mediaType: "text/plain",
+      sizeBytes: sourceBytes.byteLength,
+      contentBase64: sourceBytes.toString("base64"),
+      displayName: "Harbor source",
+      aiPermission: "never",
+    },
+  });
+  expect(sourceResponse.statusCode).toBe(201);
+  const source = sourceResponse.json();
+  const searchResponse = await app.inject({
+    method: "POST",
+    url: `/api/v1/research/databases/${databaseId}/search`,
+    payload: { query: "bell opened", purpose: "local", limit: 10 },
+  });
+  expect(searchResponse.statusCode).toBe(200);
+  const passage = searchResponse.json().results[0];
+  const noteResponse = await app.inject({
+    method: "POST",
+    url: `/api/v1/research/databases/${databaseId}/notes`,
+    payload: {
+      title: "Harbor bell custom",
+      body: "Author interpretation remains separate from evidence.",
+      evidence: [{
+        sourceId: passage.sourceId,
+        sourceRevision: passage.sourceRevision,
+        blockId: passage.blockId,
+        chunkId: passage.chunkId,
+        chunkHash: passage.chunkHash,
+      }],
+    },
+  });
+  expect(noteResponse.statusCode).toBe(201);
+  return {
+    databaseId,
+    note: noteResponse.json(),
+    privateSourceText,
+    source,
+  };
+}
+
 describe("M5 Proposal API routes", () => {
   it("creates, lists, previews, and accepts a Proposal through review routes", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "novel-studio-proposal-api-"));
@@ -205,6 +262,161 @@ describe("M5 Proposal API routes", () => {
     expect(accepted.json().skipped).toEqual([]);
     expect(accepted.json().failed).toEqual([]);
 
+    await app.close();
+  });
+
+  it("accepts and edits Research Note promotions through Review while stale dependencies fail closed", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-promotion-api-"));
+    roots.push(root);
+    const app = await buildApp({ libraryRoot: root });
+    const seriesResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Promotion Review API" },
+    });
+    expect(seriesResponse.statusCode).toBe(201);
+    const seriesId = seriesResponse.json().manifest.id as string;
+    const codexResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${seriesId}/codex/entries`,
+      payload: {
+        categoryId: "location",
+        name: "Bell Harbor",
+        description: "A working port.",
+        research: "Unconfirmed notes.",
+      },
+    });
+    expect(codexResponse.statusCode).toBe(201);
+    const originalCodex = codexResponse.json();
+    const fixture = await researchPromotionApiFixture(app);
+
+    const canonPromotionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/research/databases/${fixture.databaseId}/notes/${fixture.note.note.id}/promotions`,
+      payload: {
+        seriesId,
+        baseRevision: fixture.note.revision,
+        meaning: "world-rule",
+        target: {
+          kind: "existing",
+          entryId: originalCodex.metadata.id,
+          targetRevision: originalCodex.revision,
+        },
+        candidateText: "The market opens only after the bell rings.",
+      },
+    });
+    expect(canonPromotionResponse.statusCode).toBe(201);
+    const canonPromotion = canonPromotionResponse.json();
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${seriesId}/review/proposals/batch-preview`,
+      payload: { proposalIds: [canonPromotion.proposal.id] },
+    });
+    expect(previewResponse.statusCode).toBe(200);
+    expect(previewResponse.json().items[0]).toMatchObject({ eligible: true });
+
+    const acceptedResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${seriesId}/review/proposals/${canonPromotion.proposal.id}/accept`,
+      payload: {
+        baseRevision: canonPromotion.revision,
+        actor: "user",
+        note: "Confirmed as Canon.",
+      },
+    });
+    expect(acceptedResponse.statusCode).toBe(200);
+    expect(acceptedResponse.json()).toMatchObject({
+      proposal: { proposal: { status: "accepted" } },
+      snapshot: { schemaVersion: 2, targetAbsent: false },
+    });
+    const afterCanonResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${seriesId}/codex/entries/${originalCodex.metadata.id}`,
+    });
+    const afterCanon = afterCanonResponse.json();
+    expect(afterCanon.description).toBe(
+      "A working port.\n\nThe market opens only after the bell rings.",
+    );
+    expect(afterCanon.research.content).toBe("Unconfirmed notes.");
+
+    const researchPromotionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/research/databases/${fixture.databaseId}/notes/${fixture.note.note.id}/promotions`,
+      payload: {
+        seriesId,
+        baseRevision: fixture.note.revision,
+        meaning: "real-world-reference",
+        target: {
+          kind: "existing",
+          entryId: originalCodex.metadata.id,
+          targetRevision: afterCanon.research.revision,
+        },
+        candidateText: "Initial reference draft.",
+      },
+    });
+    expect(researchPromotionResponse.statusCode).toBe(201);
+    const researchPromotion = researchPromotionResponse.json();
+    const editedText = "Unconfirmed notes.\n\nAuthor-edited reference.";
+    const editedResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${seriesId}/review/proposals/${researchPromotion.proposal.id}/edit-and-accept`,
+      payload: {
+        baseRevision: researchPromotion.revision,
+        actor: "user",
+        note: "Keep outside Canon.",
+        patches: [{ ...researchPromotion.proposal.patches[0], after: editedText }],
+      },
+    });
+    expect(editedResponse.statusCode).toBe(200);
+    expect(editedResponse.json().proposal.proposal.status).toBe("edited");
+    const afterResearch = (await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${seriesId}/codex/entries/${originalCodex.metadata.id}`,
+    })).json();
+    expect(afterResearch.description).toBe(afterCanon.description);
+    expect(afterResearch.research.content).toBe(editedText);
+
+    const stalePromotionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/research/databases/${fixture.databaseId}/notes/${fixture.note.note.id}/promotions`,
+      payload: {
+        seriesId,
+        baseRevision: fixture.note.revision,
+        meaning: "world-rule",
+        target: {
+          kind: "existing",
+          entryId: originalCodex.metadata.id,
+          targetRevision: afterResearch.revision,
+        },
+        candidateText: "This stale candidate must not apply.",
+      },
+    });
+    expect(stalePromotionResponse.statusCode).toBe(201);
+    const stalePromotion = stalePromotionResponse.json();
+    const noteUpdateResponse = await app.inject({
+      method: "PUT",
+      url: `/api/v1/research/databases/${fixture.databaseId}/notes/${fixture.note.note.id}`,
+      payload: {
+        baseRevision: fixture.note.revision,
+        body: "Changed after Review opened.",
+      },
+    });
+    expect(noteUpdateResponse.statusCode).toBe(200);
+    const staleAcceptResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${seriesId}/review/proposals/${stalePromotion.proposal.id}/accept`,
+      payload: {
+        baseRevision: stalePromotion.revision,
+        actor: "user",
+        note: "Must fail.",
+      },
+    });
+    expect(staleAcceptResponse.statusCode).toBe(409);
+    expect(staleAcceptResponse.json()).toMatchObject({ code: "CONFLICT" });
+    expect(staleAcceptResponse.body).not.toContain(fixture.privateSourceText);
+    expect(staleAcceptResponse.body).not.toContain(root);
+    expect(staleAcceptResponse.body).not.toContain("filePath");
+    expect(staleAcceptResponse.body).not.toContain("credential");
     await app.close();
   });
 });

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
@@ -10,7 +10,7 @@ import {
   StorageError,
   type PreparedResearchSourceImport,
 } from "../src/index.js";
-import { proposalSnapshotPath } from "../src/proposalFiles.js";
+import { proposalAuthorityPath, proposalSnapshotPath } from "../src/proposalFiles.js";
 
 const temporaryDirectories: string[] = [];
 const HASH = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -80,6 +80,27 @@ function researchCapture(source: Awaited<ReturnType<ProjectRepository["getResear
     chunkId: chunk.id,
     chunkHash: chunk.textHash,
   };
+}
+
+async function researchPromotionFixture(store: ProjectRepository, title: string) {
+  const series = await store.createSeries({ title });
+  const database = await store.createResearchDatabase({ name: `${title} archive` });
+  const source = await store.importResearchSource(
+    database.database.id,
+    researchImport("The harbor bell marked the legal opening of the market."),
+  );
+  const note = await store.createResearchNote(database.database.id, {
+    title: "Harbor bell custom",
+    body: "The bell can become binding law in the fictional port.",
+    evidence: [researchCapture(source)],
+  });
+  const entry = await store.createCodexEntry(series.manifest.id, {
+    categoryId: "location",
+    name: "Salt Harbor",
+    description: "An old trading port.",
+    research: "Existing non-Canon notes.",
+  });
+  return { series, database, source, note, entry };
 }
 
 function target(scene: { metadata: { id: string; title: string }; revision: string }) {
@@ -565,5 +586,444 @@ describe("M5 Proposal storage", () => {
       candidateText: "Archived Note must fail.",
     })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
     expect((await store.listProposals(series.manifest.id)).items).toHaveLength(2);
+  });
+
+  it("accepts existing Canon and Research promotions with exact snapshots and bounded author editing", async () => {
+    const store = await repository();
+    const { series, database, note, entry } = await researchPromotionFixture(
+      store,
+      "ResearchPromotionAccept",
+    );
+    const noteBefore = await store.getResearchNote(database.database.id, note.note.id);
+    const canon = await store.createResearchNotePromotion(database.database.id, note.note.id, {
+      seriesId: series.manifest.id,
+      baseRevision: note.revision,
+      meaning: "world-rule",
+      target: {
+        kind: "existing",
+        entryId: entry.metadata.id,
+        targetRevision: entry.revision,
+      },
+      candidateText: "The market may open only after the harbor bell rings.",
+    });
+
+    const acceptedCanon = await store.acceptProposal(series.manifest.id, canon.proposal.id, {
+      baseRevision: canon.revision,
+      actor: "user",
+      note: "Confirmed as a fictional world rule.",
+    });
+    expect(acceptedCanon.proposal.proposal.status).toBe("accepted");
+    expect(acceptedCanon.snapshot).toMatchObject({
+      schemaVersion: 2,
+      targetRevision: entry.revision,
+      targetAbsent: false,
+      data: { authority: { description: "An old trading port." } },
+    });
+    const afterCanon = await store.getCodexEntry(series.manifest.id, entry.metadata.id);
+    expect(afterCanon.description).toBe(
+      "An old trading port.\n\nThe market may open only after the harbor bell rings.",
+    );
+    expect(afterCanon.research.content).toBe("Existing non-Canon notes.");
+
+    const research = await store.createResearchNotePromotion(database.database.id, note.note.id, {
+      seriesId: series.manifest.id,
+      baseRevision: note.revision,
+      meaning: "real-world-reference",
+      target: {
+        kind: "existing",
+        entryId: entry.metadata.id,
+        targetRevision: afterCanon.research.revision,
+      },
+      candidateText: "Archive reference draft.",
+    });
+    const originalPatch = research.proposal.patches[0]!;
+    await expect(store.editAndAcceptProposal(series.manifest.id, research.proposal.id, {
+      baseRevision: research.revision,
+      actor: "user",
+      note: "Tampered target must not apply.",
+      patches: [{
+        ...originalPatch,
+        target: { ...originalPatch.target, targetId: randomUUID() },
+      }],
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+
+    const editedText = "Existing non-Canon notes.\n\nAuthor-edited archive reference.";
+    const acceptedResearch = await store.editAndAcceptProposal(
+      series.manifest.id,
+      research.proposal.id,
+      {
+        baseRevision: research.revision,
+        actor: "user",
+        note: "Kept as non-Canon reference.",
+        title: "Reviewed harbor source",
+        patches: [{ ...originalPatch, after: editedText }],
+      },
+    );
+    expect(acceptedResearch.proposal.proposal).toMatchObject({
+      status: "edited",
+      title: "Reviewed harbor source",
+      originalCandidate: { patches: [{ after: originalPatch.after }] },
+      decision: { editedCandidate: { patches: [{ after: editedText }] } },
+    });
+    expect(acceptedResearch.snapshot).toMatchObject({
+      schemaVersion: 2,
+      targetRevision: afterCanon.research.revision,
+      targetAbsent: false,
+      data: { authority: { content: "Existing non-Canon notes." } },
+    });
+    const afterResearch = await store.getCodexEntry(series.manifest.id, entry.metadata.id);
+    expect(afterResearch.description).toBe(afterCanon.description);
+    expect(afterResearch.research.content).toBe(editedText);
+    expect(await store.getResearchNote(database.database.id, note.note.id)).toEqual(noteBefore);
+  });
+
+  it("accepts a preallocated new Codex target and leaves a rejected target absent", async () => {
+    const store = await repository();
+    const { series, database, note } = await researchPromotionFixture(
+      store,
+      "ResearchPromotionCreate",
+    );
+    const created = await store.createResearchNotePromotion(database.database.id, note.note.id, {
+      seriesId: series.manifest.id,
+      baseRevision: note.revision,
+      meaning: "inspiration-only",
+      target: { kind: "new", categoryId: "location", name: "Bell Market" },
+      candidateText: "Use the archive as atmosphere, not as world law.",
+    });
+    const accepted = await store.acceptProposal(series.manifest.id, created.proposal.id, {
+      baseRevision: created.revision,
+      actor: "user",
+      note: "Create the non-Canon destination.",
+    });
+    expect(accepted.snapshot).toMatchObject({
+      schemaVersion: 2,
+      targetRevision: null,
+      targetAbsent: true,
+      data: {
+        entryId: created.proposal.target.targetId,
+        categoryId: "location",
+        name: "Bell Market",
+      },
+    });
+    const target = await store.getCodexEntry(series.manifest.id, created.proposal.target.targetId);
+    expect(target).toMatchObject({
+      metadata: { name: "Bell Market", categoryId: "location" },
+      description: "",
+      research: { content: "Use the archive as atmosphere, not as world law." },
+    });
+    expect(await store.searchCodex(series.manifest.id, "Bell Market")).toEqual([
+      expect.objectContaining({ entryId: target.metadata.id, name: "Bell Market" }),
+    ]);
+
+    const rejected = await store.createResearchNotePromotion(database.database.id, note.note.id, {
+      seriesId: series.manifest.id,
+      baseRevision: note.revision,
+      meaning: "world-rule",
+      target: { kind: "new", categoryId: "location", name: "Rejected Port" },
+      candidateText: "This must never be written.",
+    });
+    await store.rejectProposal(series.manifest.id, rejected.proposal.id, {
+      baseRevision: rejected.revision,
+      actor: "user",
+      note: "Not Canon.",
+    });
+    await expect(store.getCodexEntry(series.manifest.id, rejected.proposal.target.targetId))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "NOT_FOUND" });
+  });
+
+  it("blocks changed Note, Source, Codex target, and archived dependencies at acceptance", async () => {
+    const store = await repository();
+
+    const noteFixture = await researchPromotionFixture(store, "PromotionStaleNote");
+    const noteProposal = await store.createResearchNotePromotion(
+      noteFixture.database.database.id,
+      noteFixture.note.note.id,
+      {
+        seriesId: noteFixture.series.manifest.id,
+        baseRevision: noteFixture.note.revision,
+        meaning: "world-rule",
+        target: {
+          kind: "existing",
+          entryId: noteFixture.entry.metadata.id,
+          targetRevision: noteFixture.entry.revision,
+        },
+        candidateText: "Stale Note text.",
+      },
+    );
+    await store.updateResearchNote(noteFixture.database.database.id, noteFixture.note.note.id, {
+      baseRevision: noteFixture.note.revision,
+      body: "The author changed the Note after opening Review.",
+    });
+    await expect(store.acceptProposal(noteFixture.series.manifest.id, noteProposal.proposal.id, {
+      baseRevision: noteProposal.revision,
+      actor: "user",
+      note: "",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    const archivedNoteFixture = await researchPromotionFixture(store, "PromotionArchivedNote");
+    const archivedNoteProposal = await store.createResearchNotePromotion(
+      archivedNoteFixture.database.database.id,
+      archivedNoteFixture.note.note.id,
+      {
+        seriesId: archivedNoteFixture.series.manifest.id,
+        baseRevision: archivedNoteFixture.note.revision,
+        meaning: "world-rule",
+        target: {
+          kind: "existing",
+          entryId: archivedNoteFixture.entry.metadata.id,
+          targetRevision: archivedNoteFixture.entry.revision,
+        },
+        candidateText: "Archived Note text.",
+      },
+    );
+    await store.archiveResearchNote(
+      archivedNoteFixture.database.database.id,
+      archivedNoteFixture.note.note.id,
+      { baseRevision: archivedNoteFixture.note.revision },
+    );
+    await expect(store.acceptProposal(
+      archivedNoteFixture.series.manifest.id,
+      archivedNoteProposal.proposal.id,
+      {
+        baseRevision: archivedNoteProposal.revision,
+        actor: "user",
+        note: "",
+      },
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    const sourceFixture = await researchPromotionFixture(store, "PromotionStaleSource");
+    const sourceProposal = await store.createResearchNotePromotion(
+      sourceFixture.database.database.id,
+      sourceFixture.note.note.id,
+      {
+        seriesId: sourceFixture.series.manifest.id,
+        baseRevision: sourceFixture.note.revision,
+        meaning: "real-world-reference",
+        target: {
+          kind: "existing",
+          entryId: sourceFixture.entry.metadata.id,
+          targetRevision: sourceFixture.entry.research.revision,
+        },
+        candidateText: "Stale Source text.",
+      },
+    );
+    await store.updateResearchSource(sourceFixture.database.database.id, sourceFixture.source.source.id, {
+      baseRevision: sourceFixture.source.revision,
+      displayName: "Renamed source after Review opened",
+    });
+    await expect(store.acceptProposal(sourceFixture.series.manifest.id, sourceProposal.proposal.id, {
+      baseRevision: sourceProposal.revision,
+      actor: "user",
+      note: "",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    const targetFixture = await researchPromotionFixture(store, "PromotionStaleTarget");
+    const targetProposal = await store.createResearchNotePromotion(
+      targetFixture.database.database.id,
+      targetFixture.note.note.id,
+      {
+        seriesId: targetFixture.series.manifest.id,
+        baseRevision: targetFixture.note.revision,
+        meaning: "world-rule",
+        target: {
+          kind: "existing",
+          entryId: targetFixture.entry.metadata.id,
+          targetRevision: targetFixture.entry.revision,
+        },
+        candidateText: "Stale target text.",
+      },
+    );
+    const changedTarget = await store.updateCodexEntry(
+      targetFixture.series.manifest.id,
+      targetFixture.entry.metadata.id,
+      {
+        baseRevision: targetFixture.entry.revision,
+        description: "The author changed Canon outside Review.",
+      },
+    );
+    await expect(store.acceptProposal(targetFixture.series.manifest.id, targetProposal.proposal.id, {
+      baseRevision: targetProposal.revision,
+      actor: "user",
+      note: "",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    const archivedProposal = await store.createResearchNotePromotion(
+      targetFixture.database.database.id,
+      targetFixture.note.note.id,
+      {
+        seriesId: targetFixture.series.manifest.id,
+        baseRevision: targetFixture.note.revision,
+        meaning: "world-rule",
+        target: {
+          kind: "existing",
+          entryId: changedTarget.metadata.id,
+          targetRevision: changedTarget.revision,
+        },
+        candidateText: "Archived target text.",
+      },
+    );
+    await store.archiveCodexEntry(targetFixture.series.manifest.id, changedTarget.metadata.id, {
+      baseRevision: changedTarget.revision,
+    });
+    await expect(store.acceptProposal(targetFixture.series.manifest.id, archivedProposal.proposal.id, {
+      baseRevision: archivedProposal.revision,
+      actor: "user",
+      note: "",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+
+    const collisionFixture = await researchPromotionFixture(store, "PromotionTargetCollision");
+    const collisionProposal = await store.createResearchNotePromotion(
+      collisionFixture.database.database.id,
+      collisionFixture.note.note.id,
+      {
+        seriesId: collisionFixture.series.manifest.id,
+        baseRevision: collisionFixture.note.revision,
+        meaning: "inspiration-only",
+        target: { kind: "new", categoryId: "location", name: "Reserved Harbor" },
+        candidateText: "The reserved target must remain absent until acceptance.",
+      },
+    );
+    const collisionRoot = seriesRoot(
+      store,
+      "PromotionTargetCollision",
+      collisionFixture.series.manifest.id,
+    );
+    const collisionEntryId = collisionProposal.proposal.target.targetId;
+    const collisionTime = new Date().toISOString();
+    const collisionEntryPath = path.join(
+      collisionRoot,
+      path.dirname(collisionFixture.entry.relativePath),
+      `${collisionEntryId}.json`,
+    );
+    const collisionResearchPath = path.join(
+      collisionRoot,
+      path.dirname(collisionFixture.entry.research.relativePath),
+      `${collisionEntryId}.json`,
+    );
+    await writeFile(collisionEntryPath, JSON.stringify({
+      metadata: {
+        ...collisionFixture.entry.metadata,
+        id: collisionEntryId,
+        name: "Conflicting authority",
+        createdAt: collisionTime,
+        updatedAt: collisionTime,
+      },
+      description: "Created outside Review.",
+    }), "utf8");
+    await writeFile(collisionResearchPath, JSON.stringify({
+      metadata: {
+        ...collisionFixture.entry.research.metadata,
+        entryId: collisionEntryId,
+        createdAt: collisionTime,
+        updatedAt: collisionTime,
+      },
+      content: "Collision research.",
+    }), "utf8");
+    await expect(store.acceptProposal(
+      collisionFixture.series.manifest.id,
+      collisionProposal.proposal.id,
+      {
+        baseRevision: collisionProposal.revision,
+        actor: "user",
+        note: "",
+      },
+    )).rejects.toMatchObject<Partial<StorageError>>({ code: "CONFLICT" });
+    expect((await store.getCodexEntry(
+      collisionFixture.series.manifest.id,
+      collisionEntryId,
+    )).description).toBe("Created outside Review.");
+  });
+
+  it("rolls back every authority on injected failure and applies concurrent acceptance exactly once", async () => {
+    const store = await repository();
+    const failedFixture = await researchPromotionFixture(store, "PromotionAtomicFailure");
+    const failedProposal = await store.createResearchNotePromotion(
+      failedFixture.database.database.id,
+      failedFixture.note.note.id,
+      {
+        seriesId: failedFixture.series.manifest.id,
+        baseRevision: failedFixture.note.revision,
+        meaning: "world-rule",
+        target: {
+          kind: "existing",
+          entryId: failedFixture.entry.metadata.id,
+          targetRevision: failedFixture.entry.revision,
+        },
+        candidateText: "Atomic failure candidate.",
+      },
+    );
+    const failedRoot = seriesRoot(
+      store,
+      "PromotionAtomicFailure",
+      failedFixture.series.manifest.id,
+    );
+    const entryPath = path.join(failedRoot, failedFixture.entry.relativePath);
+    const proposalPath = proposalAuthorityPath(failedRoot, failedProposal.proposal.id);
+    const entryBefore = await readFile(entryPath, "utf8");
+    const proposalBefore = await readFile(proposalPath, "utf8");
+    await expect(store.acceptProposal(
+      failedFixture.series.manifest.id,
+      failedProposal.proposal.id,
+      {
+        baseRevision: failedProposal.revision,
+        actor: "user",
+        note: "Injected transaction failure.",
+      },
+      {
+        afterMutationApplied: ({ index }) => {
+          if (index === 1) throw new Error("injected promotion transaction failure");
+        },
+      },
+    )).rejects.toThrow("injected promotion transaction failure");
+    expect(await readFile(entryPath, "utf8")).toBe(entryBefore);
+    expect(await readFile(proposalPath, "utf8")).toBe(proposalBefore);
+    const snapshotDirectory = path.join(failedRoot, ".studio", "history", "proposal-snapshots");
+    const snapshotFiles = await readdir(snapshotDirectory).catch(() => [] as string[]);
+    expect(snapshotFiles).toEqual([]);
+    expect((await store.getProposal(
+      failedFixture.series.manifest.id,
+      failedProposal.proposal.id,
+    )).proposal.status).toBe("pending");
+
+    const concurrentFixture = await researchPromotionFixture(store, "PromotionExactlyOnce");
+    const concurrentProposal = await store.createResearchNotePromotion(
+      concurrentFixture.database.database.id,
+      concurrentFixture.note.note.id,
+      {
+        seriesId: concurrentFixture.series.manifest.id,
+        baseRevision: concurrentFixture.note.revision,
+        meaning: "world-rule",
+        target: {
+          kind: "existing",
+          entryId: concurrentFixture.entry.metadata.id,
+          targetRevision: concurrentFixture.entry.revision,
+        },
+        candidateText: "Exactly once candidate.",
+      },
+    );
+    const attempts = await Promise.allSettled([
+      store.acceptProposal(concurrentFixture.series.manifest.id, concurrentProposal.proposal.id, {
+        baseRevision: concurrentProposal.revision,
+        actor: "user",
+        note: "First concurrent click.",
+      }),
+      store.acceptProposal(concurrentFixture.series.manifest.id, concurrentProposal.proposal.id, {
+        baseRevision: concurrentProposal.revision,
+        actor: "user",
+        note: "Second concurrent click.",
+      }),
+    ]);
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    const rejected = attempts.find((attempt) => attempt.status === "rejected");
+    expect(rejected).toMatchObject({ reason: { code: "CONFLICT" } });
+    const finalEntry = await store.getCodexEntry(
+      concurrentFixture.series.manifest.id,
+      concurrentFixture.entry.metadata.id,
+    );
+    expect(finalEntry.description.match(/Exactly once candidate\./gu)).toHaveLength(1);
+    expect((await store.getProposal(
+      concurrentFixture.series.manifest.id,
+      concurrentProposal.proposal.id,
+    )).proposal.status).toBe("accepted");
   });
 });

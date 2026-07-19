@@ -366,6 +366,7 @@ import {
   recoverFileTransactions,
   runSeriesFileTransaction,
   type FileMutation,
+  type FileTransactionOptions,
 } from "./fileTransactions.js";
 import {
   deleteEmbeddingUseCaseBinding,
@@ -1601,6 +1602,10 @@ function codexResearchPath(seriesRoot: string, entryId: string): string {
   return path.join(seriesRoot, CODEX_DIR, CODEX_RESEARCH_DIR, `${entryId}.json`);
 }
 
+function codexIndexRebuildMarkerPath(seriesRoot: string): string {
+  return path.join(seriesRoot, ".studio", "codex-index-rebuild-required.json");
+}
+
 function codexRelationPath(seriesRoot: string, relationId: string): string {
   return path.join(seriesRoot, CODEX_DIR, CODEX_RELATIONS_DIR, `${relationId}.json`);
 }
@@ -1692,6 +1697,13 @@ interface PreparedSceneProposalApplication {
   scenePath: string;
   sceneContent: string;
   snapshot: ProposalSnapshot;
+}
+
+interface PreparedResearchNotePromotionApplication {
+  proposal: Proposal;
+  entryId: string;
+  snapshot: ProposalSnapshot;
+  targetMutations: FileMutation[];
 }
 
 export interface WorkshopToolExecutionClaimResult {
@@ -7846,30 +7858,49 @@ export class ProjectRepository {
     seriesId: string,
     proposalId: string,
     rawInput: ProposalRevisionInput,
+    transactionOptions: FileTransactionOptions = {},
   ): Promise<ProposalApplyResult> {
     const input = ProposalRevisionInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const current = await readProposalAuthorityFile(seriesRoot, proposalId);
-    this.assertProposalRevision(current.revision, input.baseRevision, current.proposal);
-    assertProposalStatusTransition(current.proposal.status, "accepted");
-    const application = await this.prepareSceneContentProposalApplication(seriesId, current.proposal);
-    const updated = ProposalSchema.parse({
-      ...current.proposal,
-      status: "accepted",
-      decision: {
-        kind: "accepted",
-        actor: input.actor,
-        decidedAt: new Date().toISOString(),
-        note: input.note,
-        snapshotId: application.snapshot.id,
-        editedCandidate: null,
-      },
-      updatedAt: new Date().toISOString(),
-    });
-    const written = await this.writeAppliedSceneProposalTransaction(seriesRoot, application, updated);
-    return ProposalApplyResultSchema.parse({
-      proposal: await this.proposalDocument(seriesId, seriesRoot, written.proposal, written.revision),
-      snapshot: application.snapshot,
+    const initial = await readProposalAuthorityFile(seriesRoot, proposalId);
+    if (initial.proposal.researchNotePromotion) {
+      return this.applyResearchNotePromotionProposal(
+        seriesId,
+        seriesRoot,
+        proposalId,
+        input,
+        null,
+        transactionOptions,
+      );
+    }
+    return runSeriesFileTransaction(seriesRoot, async () => {
+      const current = await readProposalAuthorityFile(seriesRoot, proposalId);
+      this.assertProposalRevision(current.revision, input.baseRevision, current.proposal);
+      this.assertProposalPendingForApplication(current.proposal, "accepted");
+      const application = await this.prepareSceneContentProposalApplication(seriesId, current.proposal);
+      const updated = ProposalSchema.parse({
+        ...current.proposal,
+        status: "accepted",
+        decision: {
+          kind: "accepted",
+          actor: input.actor,
+          decidedAt: new Date().toISOString(),
+          note: input.note,
+          snapshotId: application.snapshot.id,
+          editedCandidate: null,
+        },
+        updatedAt: new Date().toISOString(),
+      });
+      const written = await this.writeAppliedSceneProposalTransaction(
+        seriesRoot,
+        application,
+        updated,
+        transactionOptions,
+      );
+      return ProposalApplyResultSchema.parse({
+        proposal: await this.proposalDocument(seriesId, seriesRoot, written.proposal, written.revision),
+        snapshot: application.snapshot,
+      });
     });
   }
 
@@ -7877,51 +7908,70 @@ export class ProjectRepository {
     seriesId: string,
     proposalId: string,
     rawInput: EditAndAcceptProposalInput,
+    transactionOptions: FileTransactionOptions = {},
   ): Promise<ProposalApplyResult> {
     const input = EditAndAcceptProposalInputSchema.parse(rawInput);
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const current = await readProposalAuthorityFile(seriesRoot, proposalId);
-    this.assertProposalRevision(current.revision, input.baseRevision, current.proposal);
-    assertProposalStatusTransition(current.proposal.status, "edited");
-    const originalCandidate: ProposalCandidateSnapshot = {
-      title: current.proposal.title,
-      summary: current.proposal.summary,
-      reason: current.proposal.reason,
-      patches: current.proposal.patches,
-    };
-    const editedCandidate: ProposalCandidateSnapshot = {
-      title: input.title ?? current.proposal.title,
-      summary: input.summary ?? current.proposal.summary,
-      reason: input.reason ?? current.proposal.reason,
-      patches: input.patches,
-    };
-    const candidate = ProposalSchema.parse({
-      ...current.proposal,
-      title: editedCandidate.title,
-      summary: editedCandidate.summary,
-      reason: editedCandidate.reason,
-      patches: editedCandidate.patches,
-      updatedAt: new Date().toISOString(),
-    });
-    const application = await this.prepareSceneContentProposalApplication(seriesId, candidate);
-    const updated = ProposalSchema.parse({
-      ...candidate,
-      status: "edited",
-      originalCandidate,
-      decision: {
-        kind: "edited",
-        actor: input.actor,
-        decidedAt: new Date().toISOString(),
-        note: input.note,
-        snapshotId: application.snapshot.id,
-        editedCandidate,
-      },
-      updatedAt: new Date().toISOString(),
-    });
-    const written = await this.writeAppliedSceneProposalTransaction(seriesRoot, application, updated);
-    return ProposalApplyResultSchema.parse({
-      proposal: await this.proposalDocument(seriesId, seriesRoot, written.proposal, written.revision),
-      snapshot: application.snapshot,
+    const initial = await readProposalAuthorityFile(seriesRoot, proposalId);
+    if (initial.proposal.researchNotePromotion) {
+      return this.applyResearchNotePromotionProposal(
+        seriesId,
+        seriesRoot,
+        proposalId,
+        input,
+        input,
+        transactionOptions,
+      );
+    }
+    return runSeriesFileTransaction(seriesRoot, async () => {
+      const current = await readProposalAuthorityFile(seriesRoot, proposalId);
+      this.assertProposalRevision(current.revision, input.baseRevision, current.proposal);
+      this.assertProposalPendingForApplication(current.proposal, "edited");
+      const originalCandidate: ProposalCandidateSnapshot = {
+        title: current.proposal.title,
+        summary: current.proposal.summary,
+        reason: current.proposal.reason,
+        patches: current.proposal.patches,
+      };
+      const editedCandidate: ProposalCandidateSnapshot = {
+        title: input.title ?? current.proposal.title,
+        summary: input.summary ?? current.proposal.summary,
+        reason: input.reason ?? current.proposal.reason,
+        patches: input.patches,
+      };
+      const candidate = ProposalSchema.parse({
+        ...current.proposal,
+        title: editedCandidate.title,
+        summary: editedCandidate.summary,
+        reason: editedCandidate.reason,
+        patches: editedCandidate.patches,
+        updatedAt: new Date().toISOString(),
+      });
+      const application = await this.prepareSceneContentProposalApplication(seriesId, candidate);
+      const updated = ProposalSchema.parse({
+        ...candidate,
+        status: "edited",
+        originalCandidate,
+        decision: {
+          kind: "edited",
+          actor: input.actor,
+          decidedAt: new Date().toISOString(),
+          note: input.note,
+          snapshotId: application.snapshot.id,
+          editedCandidate,
+        },
+        updatedAt: new Date().toISOString(),
+      });
+      const written = await this.writeAppliedSceneProposalTransaction(
+        seriesRoot,
+        application,
+        updated,
+        transactionOptions,
+      );
+      return ProposalApplyResultSchema.parse({
+        proposal: await this.proposalDocument(seriesId, seriesRoot, written.proposal, written.revision),
+        snapshot: application.snapshot,
+      });
     });
   }
 
@@ -7931,21 +7981,24 @@ export class ProjectRepository {
   ): Promise<ProposalBatchPreviewResult> {
     const input = ProposalBatchPreviewInputSchema.parse(rawInput);
     const items: ProposalBatchPreviewItem[] = [];
-    const sceneTargets = new Set<string>();
+    const targets = new Set<string>();
     for (const proposalId of input.proposalIds) {
       const item = await this.previewProposal(seriesId, proposalId);
       if (item.eligible) {
         const document = await this.getProposal(seriesId, proposalId);
-        const sceneId = document.proposal.patches[0]?.target.targetId;
-        if (sceneId && sceneTargets.has(sceneId)) {
+        const patchTarget = document.proposal.patches[0]?.target;
+        const targetKey = patchTarget ? `${patchTarget.kind}:${patchTarget.targetId}` : null;
+        if (targetKey && targets.has(targetKey)) {
           items.push({
             ...item,
             eligible: false,
-            reason: "Another Proposal in this batch changes the same scene first",
+            reason: patchTarget?.kind === "scene-content"
+              ? "Another Proposal in this batch changes the same scene first"
+              : "Another Proposal in this batch changes the same target first",
           });
           continue;
         }
-        if (sceneId) sceneTargets.add(sceneId);
+        if (targetKey) targets.add(targetKey);
       }
       items.push(item);
     }
@@ -9613,6 +9666,209 @@ export class ProjectRepository {
     }
   }
 
+  private assertProposalPendingForApplication(
+    proposal: Proposal,
+    decision: "accepted" | "edited",
+  ): void {
+    if (proposal.status !== "pending") {
+      throw new StorageError("Proposal has already been decided", "CONFLICT", {
+        proposalId: proposal.id,
+        status: proposal.status,
+      });
+    }
+    assertProposalStatusTransition(proposal.status, decision);
+  }
+
+  private assertResearchNotePromotionEditIsBounded(
+    original: Proposal,
+    editedPatches: ProposalPatch[],
+  ): void {
+    if (original.patches.length !== editedPatches.length) {
+      throw new StorageError("Research Note promotion editing cannot add or remove patches", "INVALID_DATA", {
+        proposalId: original.id,
+      });
+    }
+    for (const [index, patch] of original.patches.entries()) {
+      const edited = editedPatches[index]!;
+      const immutableOriginal = { ...patch, after: null };
+      const immutableEdited = { ...edited, after: null };
+      if (!isDeepStrictEqual(immutableOriginal, immutableEdited)) {
+        throw new StorageError(
+          "Research Note promotion editing may change only the candidate text",
+          "INVALID_DATA",
+          { proposalId: original.id, patchId: patch.id },
+        );
+      }
+    }
+  }
+
+  private async applyResearchNotePromotionProposal(
+    seriesId: string,
+    seriesRoot: string,
+    proposalId: string,
+    input: ProposalRevisionInput,
+    editInput: EditAndAcceptProposalInput | null,
+    transactionOptions: FileTransactionOptions,
+  ): Promise<ProposalApplyResult> {
+    const initial = await readProposalAuthorityFile(seriesRoot, proposalId);
+    const initialPromotion = initial.proposal.researchNotePromotion;
+    if (!initialPromotion) {
+      throw new StorageError("Proposal is not a Research Note promotion", "INVALID_DATA", { proposalId });
+    }
+    const databaseRoot = researchDatabaseRoot(
+      this.libraryRoot,
+      initialPromotion.researchDatabaseId,
+    );
+    const applied = await runSeriesFileTransaction(databaseRoot, async () =>
+      runSeriesFileTransaction(seriesRoot, async (commit) => {
+        const current = await readProposalAuthorityFile(seriesRoot, proposalId);
+        this.assertProposalRevision(current.revision, input.baseRevision, current.proposal);
+        this.assertProposalPendingForApplication(
+          current.proposal,
+          editInput ? "edited" : "accepted",
+        );
+        const promotion = current.proposal.researchNotePromotion;
+        if (!promotion || promotion.researchDatabaseId !== initialPromotion.researchDatabaseId) {
+          throw new StorageError("Research Note promotion baseline changed", "CONFLICT", { proposalId });
+        }
+
+        const originalCandidate: ProposalCandidateSnapshot = {
+          title: current.proposal.title,
+          summary: current.proposal.summary,
+          reason: current.proposal.reason,
+          patches: current.proposal.patches,
+        };
+        if (editInput) {
+          this.assertResearchNotePromotionEditIsBounded(current.proposal, editInput.patches);
+        }
+        const editedCandidate: ProposalCandidateSnapshot | null = editInput
+          ? {
+              title: editInput.title ?? current.proposal.title,
+              summary: editInput.summary ?? current.proposal.summary,
+              reason: editInput.reason ?? current.proposal.reason,
+              patches: editInput.patches,
+            }
+          : null;
+        const candidate = ProposalSchema.parse({
+          ...current.proposal,
+          ...(editedCandidate
+            ? {
+                title: editedCandidate.title,
+                summary: editedCandidate.summary,
+                reason: editedCandidate.reason,
+                patches: editedCandidate.patches,
+              }
+            : {}),
+          updatedAt: new Date().toISOString(),
+        });
+
+        let sourceAvailability: { available: boolean; reason: string };
+        try {
+          sourceAvailability = await this.proposalSourceAvailability(seriesId, candidate);
+        } catch (error) {
+          if (error instanceof StorageError) {
+            throw new StorageError(
+              "Research Note promotion source dependency cannot be verified",
+              "CONFLICT",
+              { proposalId },
+            );
+          }
+          throw error;
+        }
+        if (!sourceAvailability.available) {
+          throw new StorageError(
+            "Research Note promotion source dependency changed or is unavailable",
+            "CONFLICT",
+            { proposalId, reason: sourceAvailability.reason },
+          );
+        }
+
+        let targetAvailability: { available: boolean; reason: string };
+        try {
+          targetAvailability = await this.proposalTargetAvailability(seriesId, seriesRoot, candidate);
+        } catch (error) {
+          if (error instanceof StorageError) {
+            throw new StorageError(
+              "Research Note promotion target dependency cannot be verified",
+              "CONFLICT",
+              { proposalId },
+            );
+          }
+          throw error;
+        }
+        if (!targetAvailability.available) {
+          throw new StorageError(
+            "Research Note promotion target dependency changed or is unavailable",
+            "CONFLICT",
+            { proposalId, reason: targetAvailability.reason },
+          );
+        }
+
+        const application = await this.prepareResearchNotePromotionApplication(
+          seriesId,
+          seriesRoot,
+          candidate,
+        );
+        const decisionKind = editInput ? "edited" as const : "accepted" as const;
+        const updated = ProposalSchema.parse({
+          ...candidate,
+          status: decisionKind,
+          originalCandidate: editInput ? originalCandidate : null,
+          decision: {
+            kind: decisionKind,
+            actor: input.actor,
+            decidedAt: new Date().toISOString(),
+            note: input.note,
+            snapshotId: application.snapshot.id,
+            editedCandidate,
+          },
+          updatedAt: new Date().toISOString(),
+        });
+        const snapshotPath = proposalSnapshotPath(seriesRoot, application.snapshot.id);
+        if (await pathExists(snapshotPath)) {
+          throw new StorageError("Proposal snapshot already exists", "INVALID_DATA", {
+            snapshotId: application.snapshot.id,
+          });
+        }
+        const markerPath = codexIndexRebuildMarkerPath(seriesRoot);
+        await commit([
+          { targetPath: snapshotPath, content: serializeJsonAuthority(application.snapshot) },
+          ...application.targetMutations,
+          {
+            targetPath: proposalAuthorityPath(seriesRoot, proposalId),
+            content: serializeJsonAuthority(updated),
+          },
+          {
+            targetPath: markerPath,
+            content: serializeJsonAuthority({
+              schemaVersion: 1,
+              kind: "codex",
+              proposalId,
+              createdAt: new Date().toISOString(),
+            }),
+          },
+        ]);
+        const written = await readProposalAuthorityFile(seriesRoot, proposalId);
+        return {
+          application,
+          proposal: written.proposal,
+          revision: written.revision,
+        };
+      }, transactionOptions),
+    );
+
+    await this.refreshCodexIndexAfterAuthorityWrite(seriesRoot);
+    return ProposalApplyResultSchema.parse({
+      proposal: await this.proposalDocument(
+        seriesId,
+        seriesRoot,
+        applied.proposal,
+        applied.revision,
+      ),
+      snapshot: applied.application.snapshot,
+    });
+  }
+
   private async decideProposal(
     seriesId: string,
     proposalId: string,
@@ -9752,6 +10008,16 @@ export class ProjectRepository {
   }
 
   private proposalPatchSupportIssue(proposal: Proposal): string {
+    if (proposal.researchNotePromotion) {
+      if (proposal.patches.length !== 1) {
+        return "Research Note promotions require exactly one Codex patch";
+      }
+      const patch = proposal.patches[0]!;
+      if (patch.after === null || !patch.after.trim()) {
+        return "Research Note promotion candidate text cannot be empty";
+      }
+      return "";
+    }
     for (const patch of proposal.patches) {
       if (patch.target.kind !== "scene-content") {
         return "Only scene content patches can be applied in this milestone";
@@ -9771,6 +10037,193 @@ export class ProjectRepository {
       return "Batching patches across multiple scenes is not supported in this milestone";
     }
     return "";
+  }
+
+  private async prepareResearchNotePromotionApplication(
+    seriesId: string,
+    seriesRoot: string,
+    proposal: Proposal,
+  ): Promise<PreparedResearchNotePromotionApplication> {
+    const supportIssue = this.proposalPatchSupportIssue(proposal);
+    if (supportIssue) {
+      throw new StorageError(supportIssue, "INVALID_DATA", { proposalId: proposal.id });
+    }
+    const promotion = proposal.researchNotePromotion;
+    if (!promotion) {
+      throw new StorageError("Research Note promotion baseline is missing", "INVALID_DATA", {
+        proposalId: proposal.id,
+      });
+    }
+    const patch = proposal.patches[0]!;
+    const after = patch.after!;
+    const now = new Date().toISOString();
+    const targetMutations: FileMutation[] = [];
+    let snapshot: ProposalSnapshot;
+
+    if (promotion.target.kind === "new") {
+      await this.assertCodexCategoryWritable(seriesRoot, promotion.target.categoryId);
+      try {
+        await this.findCodexEntry(seriesRoot, promotion.target.entryId);
+        throw new StorageError("New Codex target already exists", "CONFLICT", {
+          proposalId: proposal.id,
+          entryId: promotion.target.entryId,
+        });
+      } catch (error) {
+        if (!(error instanceof StorageError) || error.code !== "NOT_FOUND") throw error;
+      }
+      if (patch.before !== null || patch.target.baseRevision !== null) {
+        throw new StorageError("New Codex promotion target must preserve verified absence", "INVALID_DATA", {
+          proposalId: proposal.id,
+        });
+      }
+      const metadata = CodexEntryMetadataSchema.parse({
+        schemaVersion: 1,
+        id: promotion.target.entryId,
+        categoryId: promotion.target.categoryId,
+        name: promotion.target.name,
+        aliases: [],
+        thumbnail: null,
+        details: {},
+        detailAiContext: {},
+        aiContextPolicy: "on-mention",
+        mention: {
+          caseSensitive: false,
+          matchAliases: true,
+          automaticPlural: false,
+          excludedTerms: [],
+        },
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+      });
+      const researchMetadata = CodexResearchMetadataSchema.parse({
+        schemaVersion: 1,
+        entryId: promotion.target.entryId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      targetMutations.push(
+        {
+          targetPath: assertInside(
+            seriesRoot,
+            codexEntryPath(seriesRoot, metadata.categoryId, metadata.id),
+          ),
+          content: serializeCodexEntry(
+            metadata,
+            proposal.target.kind === "codex-entry" ? after : "",
+          ),
+        },
+        {
+          targetPath: assertInside(seriesRoot, codexResearchPath(seriesRoot, metadata.id)),
+          content: serializeCodexResearch(
+            researchMetadata,
+            proposal.target.kind === "codex-research" ? after : "",
+          ),
+        },
+      );
+      snapshot = ProposalSnapshotSchema.parse({
+        schemaVersion: 2,
+        id: randomUUID(),
+        seriesId,
+        proposalId: proposal.id,
+        target: proposal.target,
+        createdAt: now,
+        targetRevision: null,
+        targetAbsent: true,
+        data: {
+          entryId: promotion.target.entryId,
+          categoryId: promotion.target.categoryId,
+          name: promotion.target.name,
+        },
+      });
+    } else {
+      const current = await this.findCodexEntry(seriesRoot, promotion.target.entryId);
+      if (current.document.metadata.archivedAt) {
+        throw new StorageError("Target Codex Entry is archived", "CONFLICT", {
+          proposalId: proposal.id,
+          entryId: current.document.metadata.id,
+        });
+      }
+      const targetsCanon = proposal.target.kind === "codex-entry";
+      const currentRevision = targetsCanon
+        ? current.document.revision
+        : current.document.research.revision;
+      const currentText = targetsCanon
+        ? current.document.description
+        : current.document.research.content;
+      if (proposal.target.baseRevision !== currentRevision) {
+        throw new StorageError("Codex promotion target changed since Proposal creation", "CONFLICT", {
+          proposalId: proposal.id,
+          entryId: current.document.metadata.id,
+        });
+      }
+      if (patch.before !== currentText) {
+        throw new StorageError("Codex promotion baseline text no longer matches the target", "CONFLICT", {
+          proposalId: proposal.id,
+          entryId: current.document.metadata.id,
+        });
+      }
+      if (targetsCanon) {
+        const metadata = CodexEntryMetadataSchema.parse({
+          ...current.document.metadata,
+          updatedAt: now,
+        });
+        targetMutations.push({
+          targetPath: current.filePath,
+          content: serializeCodexEntry(metadata, after),
+        });
+        snapshot = ProposalSnapshotSchema.parse({
+          schemaVersion: 2,
+          id: randomUUID(),
+          seriesId,
+          proposalId: proposal.id,
+          target: proposal.target,
+          createdAt: now,
+          targetRevision: current.document.revision,
+          targetAbsent: false,
+          data: {
+            authority: {
+              metadata: current.document.metadata,
+              description: current.document.description,
+            },
+            relativePath: current.document.relativePath,
+          },
+        });
+      } else {
+        const metadata = CodexResearchMetadataSchema.parse({
+          ...current.document.research.metadata,
+          updatedAt: now,
+        });
+        targetMutations.push({
+          targetPath: current.researchPath,
+          content: serializeCodexResearch(metadata, after),
+        });
+        snapshot = ProposalSnapshotSchema.parse({
+          schemaVersion: 2,
+          id: randomUUID(),
+          seriesId,
+          proposalId: proposal.id,
+          target: proposal.target,
+          createdAt: now,
+          targetRevision: current.document.research.revision,
+          targetAbsent: false,
+          data: {
+            authority: {
+              metadata: current.document.research.metadata,
+              content: current.document.research.content,
+            },
+            relativePath: current.document.research.relativePath,
+          },
+        });
+      }
+    }
+
+    return {
+      proposal,
+      entryId: promotion.target.entryId,
+      snapshot,
+      targetMutations,
+    };
   }
 
   private async prepareSceneContentProposalApplication(
@@ -9827,6 +10280,7 @@ export class ProjectRepository {
     seriesRoot: string,
     application: PreparedSceneProposalApplication,
     updatedProposal: Proposal,
+    transactionOptions: FileTransactionOptions = {},
   ): Promise<{ proposal: Proposal; revision: string }> {
     const parsedProposal = ProposalSchema.parse(updatedProposal);
     const parsedSnapshot = ProposalSnapshotSchema.parse(application.snapshot);
@@ -9838,11 +10292,15 @@ export class ProjectRepository {
       });
     }
     const proposalRaw = serializeJsonAuthority(parsedProposal);
-    await applyFileTransaction(seriesRoot, [
-      { targetPath: snapshotPath, content: serializeJsonAuthority(parsedSnapshot) },
-      { targetPath: application.scenePath, content: application.sceneContent },
-      { targetPath: proposalPath, content: proposalRaw },
-    ]);
+    await applyFileTransaction(
+      seriesRoot,
+      [
+        { targetPath: snapshotPath, content: serializeJsonAuthority(parsedSnapshot) },
+        { targetPath: application.scenePath, content: application.sceneContent },
+        { targetPath: proposalPath, content: proposalRaw },
+      ],
+      transactionOptions,
+    );
     const written = await readProposalAuthorityFile(seriesRoot, parsedProposal.id);
     const updatedScene = parseSceneText(
       await readFile(application.scenePath, "utf8"),
@@ -9850,6 +10308,15 @@ export class ProjectRepository {
     );
     await this.indexScene(seriesRoot, updatedScene);
     return { proposal: written.proposal, revision: written.revision };
+  }
+
+  private async refreshCodexIndexAfterAuthorityWrite(seriesRoot: string): Promise<void> {
+    try {
+      await this.rebuildCodexIndex(seriesRoot);
+      await rm(codexIndexRebuildMarkerPath(seriesRoot), { force: true });
+    } catch {
+      // The JSON authority commit remains valid; the marker forces a later rebuild before index reads.
+    }
   }
 
   private applySceneTextPatch(content: string, patch: ProposalPatch): string {
@@ -9940,6 +10407,9 @@ export class ProjectRepository {
           eligible: false,
           reason: supportIssue,
         };
+      }
+      if (document.proposal.researchNotePromotion) {
+        return { proposalId, revision: document.revision, eligible: true, reason: "" };
       }
       const sceneId = document.proposal.patches[0]!.target.targetId;
       const scene = await this.getScene(seriesId, sceneId);
@@ -11707,6 +12177,11 @@ export class ProjectRepository {
     seriesRoot: string,
     read: (database: Database.Database) => T,
   ): Promise<T> {
+    const codexRebuildMarker = codexIndexRebuildMarkerPath(seriesRoot);
+    if (await pathExists(codexRebuildMarker)) {
+      await this.rebuildCodexIndex(seriesRoot);
+      await rm(codexRebuildMarker, { force: true });
+    }
     const execute = () => {
       const database = this.openIndex(seriesRoot);
       try {
