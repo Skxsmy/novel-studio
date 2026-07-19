@@ -9,7 +9,7 @@ Authority: current operational state only
 - Active task: `NS-608 / M6.7 Research-assisted Author Workflow Hardening`; acceptance mapping is frozen before runtime edits, and saved-key trials use only `deepseek-v4-pro` with every other existing connection setting unchanged.
 - Last reached mainline task: `NS-607 / M6.6 Workshop Research Database Integration And Behavior Harness`; A01-A14 and A16-A18 pass through `80fc205`, while author-only A15 remains open without blocking continued mainline work.
 - Next mainline task: `NS-608 / M6.7 Research-assisted Author Workflow Hardening`.
-- Next mainline action: implement the temporary-library saved-credential runner, pass live DeepSeek model/tool preflight, then run repeated multi-session author workflows before adversarial/recovery/performance and final audit closure.
+- Next mainline action: extend the passed temporary-library `deepseek-v4-pro` preflight into repeated multi-session author workflows, then run adversarial/recovery/performance and final audit closure.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; NS-514 is paused with only A16 author visual acceptance open. No task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
 - Mainline state: GOV-002 is complete and does not consume, complete, or renumber an NS task. NS-602 author visual acceptance was supplied separately by the author.

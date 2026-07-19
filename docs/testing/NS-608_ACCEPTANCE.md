@@ -13,8 +13,8 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | Acceptance ID | Status | Verification | Required evidence |
 | --- | --- | --- | --- |
 | NS-608-A01 | passed | specifications, official DeepSeek documentation, and `npm.cmd run docs:check` | task-specific Provider decision and exact evidence map are recorded before runtime edits; live documents no longer describe implemented NS-607 paths as absent; documentation check passes 193 Markdown files |
-| NS-608-A02 | planned | saved-key preflight in `scripts/ns-608-real-author-harness.mjs` | discover exactly one eligible saved DeepSeek profile without printing its reference, project it to a temporary library as `deepseek-v4-pro`, confirm `/models`, connection, native tools, and redaction without reading plaintext key |
-| NS-608-A03 | planned | reusable live runner and Node tests | temporary authority, adaptive natural author turns, full trace capture, exact write confirmations, outcome reads, redacted summaries, and `finally` cleanup are deterministic around the real stochastic Provider boundary |
+| NS-608-A02 | passed | saved-key preflight in `scripts/ns-608-real-author-harness.mjs` | exactly one eligible saved DeepSeek profile was projected into a temporary library as `deepseek-v4-pro`; the host credential context resolved the saved key, `/models`, connection, native `codex.create_entry`, confirmation boundary, redaction, pointer confinement, cleanup, and byte-exact real-library safety passed |
+| NS-608-A03 | in_progress | reusable live runner and Node tests | temporary profile projection, source-library fingerprinting, secret-pointer confinement, public-summary redaction, safe failure classification, and unconditional cleanup pass; adaptive multi-round trace, confirmation, and outcome helpers remain in progress |
 | NS-608-A04 | planned | three real cross-language continuity trials | every session has several turns until resolved; Research reads are selective, Japanese/English original citations are exact, and final answers contain the governed facts without bulk context stuffing |
 | NS-608-A05 | planned | three real natural-correction/Codex trials | discussion and prose-only turns do not write; short corrections persist; exactly one create and one later update receive separate confirmation; corrected authority and no replay pass |
 | NS-608-A06 | planned | three real balanced-triggering/conflicting-source trials | necessary reads are not omitted, unnecessary reads/writes are not called, source disagreement and false friends remain explicit, and ordinary author language is sufficient |
@@ -62,6 +62,9 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 | --- | --- | --- | --- |
 | 2026-07-20 | clean post-`3af0d9c` worktree | current-state read, saved profile metadata redaction, official DeepSeek model/tool/API research, and NS-608 acceptance mapping | Planning began with one credential-configured DeepSeek profile. The author selected `deepseek-v4-pro` and required every other connection setting to remain unchanged. No real Provider call, runtime mutation, or `data/library/` authority mutation occurred before this map |
 | 2026-07-20 | NS-608 planning worktree | `npm.cmd run docs:check` | Passed 193 Markdown files after activating NS-608, freezing A01-A13 mappings, creating the pending final-audit matrix, and correcting stale Architecture/API/traceability claims before runtime edits |
+| 2026-07-20 | NS-608 preflight worktree | `npm.cmd run test:harness:ns608` | Passed 3 Node tests covering exact profile projection to `deepseek-v4-pro`, zero/multiple-profile rejection, byte-sensitive library fingerprints, safe public summaries, private failure-message suppression, and cleanup/source-integrity evidence after a controlled callback failure |
+| 2026-07-20 | NS-608 preflight worktree | sandboxed `npm.cmd run probe:ns608:preflight` | Correctly failed as `saved-credential-missing` because the restricted command context could not access the host Windows credential store; this is not evidence that the author's key was absent. Temporary pointer confinement and the byte-exact 413-file/2,497,618-byte real-library safety check still passed |
+| 2026-07-20 | NS-608 preflight worktree | host-credential `npm.cmd run probe:ns608:preflight` | Passed with the saved DeepSeek key and exact `deepseek-v4-pro`: target model discovered, connection passed, the real Provider requested native `codex.create_entry`, the run stopped at confirmation, authority write count remained zero, the non-secret pointer stayed confined to the temporary profile, and the 413-file/2,497,618-byte real library remained byte-exact |
 
 ## Repository Safety
 
@@ -72,3 +75,7 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 - A saved-key failure is evidence, not permission to replace the Provider,
   lower a hard boundary, or silently use Mock Provider output.
 - Browser diagnostics cannot claim the author-only A13 decision.
+- A restricted Codex command can be unable to see the host Windows credential
+  store even when the normal application can use the saved key. Saved-key
+  acceptance must run in the host credential context; a sandbox-only miss must
+  not be reported as credential loss.
