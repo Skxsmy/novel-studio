@@ -1083,7 +1083,7 @@ function mockFetch(options: {
     }
 
     if (url === `/api/v1/series/${seriesId}/workshop/sessions` && method === "GET") {
-      return jsonResponse(workshopSessions);
+      return jsonResponse({ sessions: workshopSessions, diagnostics: [] });
     }
 
     if (url === `/api/v1/series/${seriesId}/workshop/sessions` && method === "POST") {

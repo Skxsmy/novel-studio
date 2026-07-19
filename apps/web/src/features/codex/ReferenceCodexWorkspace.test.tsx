@@ -400,11 +400,15 @@ describe("NS-514 P3 Codex reference workspace", () => {
     render(<ReferenceCodexWorkspace onOpenWrite={openWrite} session={session()} />);
     await screen.findByRole("heading", { level: 1, name: "Mara Venn" });
     fireEvent.click(screen.getByRole("tab", { name: /^Progressions/u }));
-    fireEvent.click(screen.getByRole("button", { name: "Open in Write" }));
+    const openProgression = screen.getByRole("button", { name: "Open in Write" });
+    await waitFor(() => expect(openProgression).toHaveProperty("disabled", false));
+    fireEvent.click(openProgression);
     expect(openWrite).toHaveBeenCalledWith(sceneId, blockId);
 
     fireEvent.click(screen.getByRole("tab", { name: /^Mentions/u }));
-    fireEvent.click(screen.getByRole("button", { name: "Open Scene" }));
+    const openMention = screen.getByRole("button", { name: "Open Scene" });
+    await waitFor(() => expect(openMention).toHaveProperty("disabled", false));
+    fireEvent.click(openMention);
     expect(openWrite).toHaveBeenCalledWith(sceneId, blockId);
   });
 

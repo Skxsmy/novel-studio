@@ -432,12 +432,9 @@
   .wr5-composer-tools {
     min-width: 0;
     flex: 1 1 auto;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .wr5-composer-tools::-webkit-scrollbar {
-    display: none;
+    flex-wrap: wrap;
+    row-gap: 4px;
+    overflow-x: visible;
   }
 
   .wr5-composer-toolbar > .wr5-composer-tool {
@@ -445,7 +442,7 @@
   }
 
   .wr5-composer-tool span {
-    max-width: 126px;
+    max-width: 90px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

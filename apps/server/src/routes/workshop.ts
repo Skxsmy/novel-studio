@@ -518,6 +518,17 @@ async function executeWorkshopCall(input: {
   let reasoningText = "";
   let reasoningOutputKind: ReasoningOutputKind = "none";
   let researchCitations: ResearchToolAuditCitation[] = [];
+  const captureStreamEvent = async (
+    event: Exclude<ProviderChatStreamEvent, { type: "done" }>,
+  ) => {
+    if (event.type === "answer-delta") {
+      responseText += event.text;
+    } else {
+      reasoningText += event.text;
+      reasoningOutputKind = event.outputKind;
+    }
+    await input.onStreamEvent?.(event);
+  };
   try {
     if (input.abortSignal?.aborted) {
       const abortError = new Error("Workshop call cancelled by the author");
@@ -537,7 +548,7 @@ async function executeWorkshopCall(input: {
       resolvedParameters,
       mode: "general-chat",
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
-      ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
+      onStreamEvent: captureStreamEvent,
       ...(input.onResearchActivity ? { onResearchActivity: input.onResearchActivity } : {}),
     });
     if (input.abortSignal?.aborted) {

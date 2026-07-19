@@ -152,21 +152,28 @@ export async function runWorkshopResearchLoop(
       activeDatabases,
       allowResearchTools,
     });
-    for await (const event of input.adapter.streamChat({
-      modelProfile: input.modelProfile,
-      prompt: input.prompt,
-      contextBundle: input.contextBundle,
-      resolvedParameters: input.resolvedParameters,
-      ...(history.length > 0 ? { history } : {}),
-      ...(tools.length > 0 ? { tools, toolChoice: "auto" as const } : {}),
-      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
-    })) {
-      if (event.type === "done") {
-        if (result) throw modelError("provider-error", "The Provider returned more than one terminal result.");
-        result = event.result;
-      } else {
-        bufferedEvents.push(event);
+    try {
+      for await (const event of input.adapter.streamChat({
+        modelProfile: input.modelProfile,
+        prompt: input.prompt,
+        contextBundle: input.contextBundle,
+        resolvedParameters: input.resolvedParameters,
+        ...(history.length > 0 ? { history } : {}),
+        ...(tools.length > 0 ? { tools, toolChoice: "auto" as const } : {}),
+        ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+      })) {
+        if (event.type === "done") {
+          if (result) throw modelError("provider-error", "The Provider returned more than one terminal result.");
+          result = event.result;
+        } else {
+          bufferedEvents.push(event);
+        }
       }
+    } catch (caught) {
+      if (input.abortSignal?.aborted || (caught instanceof Error && caught.name === "AbortError")) {
+        for (const event of bufferedEvents) await input.onStreamEvent?.(event);
+      }
+      throw caught;
     }
     if (!result) throw modelError("provider-error", "The Provider stream ended without a terminal result.", true);
     providerResults.push(result);

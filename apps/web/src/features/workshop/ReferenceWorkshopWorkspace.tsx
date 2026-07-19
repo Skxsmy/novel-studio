@@ -1709,6 +1709,8 @@ function ConnectedReferenceWorkshopWorkspace({
             updateSessionMessages(sendingSession.id, (current) => replaceMessage(current, localAuthorId, event.message));
             bindAttachmentsToMessage(event.message);
           } else if (event.type === "assistant-start" || event.type === "metadata") {
+            const replaceOptimisticAssistant = firstServerAssistantId === null;
+            if (replaceOptimisticAssistant) firstServerAssistantId = event.assistantMessageId;
             updateSessionMessages(sendingSession.id, (current) => {
               const existing = current.find((message) => message.id === event.assistantMessageId);
               if (existing) return current;
@@ -1719,10 +1721,7 @@ function ConnectedReferenceWorkshopWorkspace({
                 modelCallId: event.modelCallId,
                 createdAt: new Date().toISOString(),
               };
-              if (!firstServerAssistantId) {
-                firstServerAssistantId = event.assistantMessageId;
-                return replaceMessage(current, localAssistantId, pending);
-              }
+              if (replaceOptimisticAssistant) return replaceMessage(current, localAssistantId, pending);
               return [...current, pending];
             });
             acceptAssistantStart(sendingSession.id, operation.id, event);

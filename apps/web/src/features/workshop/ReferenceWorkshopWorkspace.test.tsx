@@ -3,6 +3,7 @@
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { StrictMode } from "react";
 import type {
   ModelProfile,
   ProviderModelDescriptor,
@@ -225,6 +226,7 @@ function setupConnected(options: {
   sessionLoader?: (targetSeriesId: string, sessionId: string) => Promise<Awaited<ReturnType<typeof api.workshop.getSession>>>;
   sessions?: WorkshopSession[];
   sessionsLoader?: (targetSeriesId: string) => Promise<WorkshopSession[]>;
+  strictMode?: boolean;
 } = {}) {
   const sessions = options.sessions ?? [workshopSession()];
   const profiles = options.profiles ?? [modelProfile(profileAId, "reasoning-model")];
@@ -304,7 +306,7 @@ function setupConnected(options: {
     profileRevision: null,
     reason: "Vector index is not built.",
   }));
-  const rendered = render(<ReferenceWorkshopWorkspace
+  const workspace = <ReferenceWorkshopWorkspace
     {...(options.componentProps?.onOpenProviderSettings
       ? { onOpenProviderSettings: options.componentProps.onOpenProviderSettings }
       : {})}
@@ -312,7 +314,8 @@ function setupConnected(options: {
       ? { requestedSessionId: options.componentProps.requestedSessionId }
       : {})}
     session={options.projectSession ?? projectSession}
-  />);
+  />;
+  const rendered = render(options.strictMode ? <StrictMode>{workspace}</StrictMode> : workspace);
   rendered.container.querySelector<HTMLElement>("#workshop-workspace")!.hidden = false;
   return rendered;
 }
@@ -338,6 +341,8 @@ describe("NS-514 P3 Workshop reference workspace", () => {
     expect(css).toContain("@media (max-width: 760px)");
     expect(css).toContain(".wr5 { grid-template-columns: minmax(0,1fr); }");
     expect(css).toContain("@media (max-height: 760px)");
+    expect(connectedWorkshopCss).toContain("flex-wrap: wrap");
+    expect(connectedWorkshopCss).toContain("overflow-x: visible");
   });
 });
 
@@ -1065,13 +1070,17 @@ describe("NS-514 A29-A34 connected Workshop workspace", () => {
       await new Promise(() => undefined);
     });
     vi.spyOn(api.workshop, "cancelCall").mockImplementation(() => cancelResult);
-    const { container } = setupConnected();
+    const { container } = setupConnected({ strictMode: true });
     await waitFor(() => expect(within(container).getByRole("button", { name: "Model options" })).toHaveProperty("disabled", false));
     fireEvent.change(within(container).getByLabelText("Workshop message"), { target: { value: "Animate the state." } });
     fireEvent.click(within(container).getByRole("button", { name: "Send" }));
     await waitFor(() => expect(within(container).getByRole("button", { name: "Sending" })).toBeTruthy());
     expect(container.querySelectorAll(".wr5-send-actions button")).toHaveLength(1);
-    act(() => streamEvent({ type: "assistant-start", operationId, assistantMessageId: assistantId, contextBundleId, modelCallId, attempt: 1, reset: false }));
+    act(() => {
+      streamEvent({ type: "assistant-start", operationId, assistantMessageId: assistantId, contextBundleId, modelCallId, attempt: 1, reset: false });
+      streamEvent({ type: "metadata", operationId, assistantMessageId: assistantId, contextBundleId, modelCallId, attempt: 1, reset: false });
+    });
+    expect(within(container).getAllByText("Writing...", { exact: true })).toHaveLength(1);
     fireEvent.click(within(container).getByRole("button", { name: "Stop" }));
     expect(within(container).getByRole("button", { name: "Stopping" })).toHaveProperty("disabled", true);
     const author = workshopMessage({ content: "Animate the state." });

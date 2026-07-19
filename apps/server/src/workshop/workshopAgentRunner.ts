@@ -165,6 +165,21 @@ async function executeModelAttempt(input: {
   let answerText = "";
   let reasoningText = "";
   let reasoningOutputKind: ReasoningOutputKind = "none";
+  const captureStreamEvent = async (
+    event: Exclude<ProviderChatStreamEvent, { type: "done" }>,
+  ) => {
+    if (event.type === "answer-delta") {
+      answerText += event.text;
+    } else {
+      reasoningText += event.text;
+      reasoningOutputKind = event.outputKind;
+    }
+    await input.onStreamEvent?.({
+      modelCallId: input.modelCallId,
+      attempt: input.attemptNumber,
+      event,
+    });
+  };
   if (input.abortSignal?.aborted) {
     return {
       log: null,
@@ -269,13 +284,7 @@ async function executeModelAttempt(input: {
       mode: "agent",
       ...(input.history ? { history: input.history } : {}),
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
-      ...(input.onStreamEvent ? {
-        onStreamEvent: (event) => input.onStreamEvent?.({
-          modelCallId: input.modelCallId,
-          attempt: input.attemptNumber,
-          event,
-        }),
-      } : {}),
+      onStreamEvent: captureStreamEvent,
       ...(input.onResearchActivity ? { onResearchActivity: input.onResearchActivity } : {}),
     });
     providerResult = loop.providerResult;
