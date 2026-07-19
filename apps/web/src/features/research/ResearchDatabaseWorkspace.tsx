@@ -49,6 +49,7 @@ import "./reference-research.css";
 interface ReferenceResearchWorkspaceProps {
   onOpenProposal?: (proposalId: string) => void;
   requestedCitation?: ResearchToolAuditCitation | null;
+  requestedNote?: { databaseId: string; noteId: string; requestId: number } | null;
   seriesId: string | null;
   seriesTitle?: string | null;
 }
@@ -274,6 +275,7 @@ function sortDatabases(databases: ResearchDatabaseSummary[]): ResearchDatabaseSu
 export function ReferenceResearchWorkspace({
   onOpenProposal,
   requestedCitation = null,
+  requestedNote = null,
   seriesId,
   seriesTitle = null,
 }: ReferenceResearchWorkspaceProps) {
@@ -353,6 +355,8 @@ export function ReferenceResearchWorkspace({
   const createNameRef = useRef<HTMLInputElement>(null);
   const webUrlRef = useRef<HTMLInputElement>(null);
   const openedCitationKeyRef = useRef<string | null>(null);
+  const handledNoteRequestRef = useRef<number | null>(null);
+  const pendingNoteRequestRef = useRef<ReferenceResearchWorkspaceProps["requestedNote"]>(null);
 
   const sourceIsDirty = !sameValue(sourceDraft, savedSourceDraft);
   const databaseIsDirty = !sameValue(databaseDraft, savedDatabaseDraft);
@@ -454,16 +458,44 @@ export function ReferenceResearchWorkspace({
   }, [databaseListResolved, databases, isSavingSource, requestedCitation, sourceIsDirty]);
 
   useEffect(() => {
+    if (!requestedNote || !databaseListResolved) return;
+    if (handledNoteRequestRef.current === requestedNote.requestId) return;
+    if (sourceIsDirty || noteIsDirty || isSavingSource) {
+      setError("Save or discard the open Research changes before returning to this Note.");
+      return;
+    }
+    if (!databases.some((database) => database.database.id === requestedNote.databaseId)) {
+      handledNoteRequestRef.current = requestedNote.requestId;
+      setError("The Research Database for this Note is no longer available.");
+      return;
+    }
+    handledNoteRequestRef.current = requestedNote.requestId;
+    pendingNoteRequestRef.current = selectedDatabaseId === requestedNote.databaseId ? null : requestedNote;
+    globalThis.localStorage?.setItem(DATABASE_SELECTION_KEY, requestedNote.databaseId);
+    globalThis.localStorage?.setItem(researchViewKey(requestedNote.databaseId), "notes");
+    setSelectedDatabaseId(requestedNote.databaseId);
+    setResearchView("notes");
+    setRequestedNoteId(requestedNote.noteId);
+    setRailOpen(false);
+    setNotice("");
+    setError("");
+  }, [databaseListResolved, databases, isSavingSource, noteIsDirty, requestedNote, selectedDatabaseId, sourceIsDirty]);
+
+  useEffect(() => {
     if (!selectedDatabaseId) {
       setResearchView("sources");
       setNoteIsDirty(false);
       setRequestedNoteId(null);
       return;
     }
+    const requestedForDatabase = pendingNoteRequestRef.current?.databaseId === selectedDatabaseId
+      ? pendingNoteRequestRef.current
+      : null;
     const restored = globalThis.localStorage?.getItem(researchViewKey(selectedDatabaseId));
-    setResearchView(restored === "notes" ? "notes" : "sources");
+    setResearchView(requestedForDatabase || restored === "notes" ? "notes" : "sources");
     setNoteIsDirty(false);
-    setRequestedNoteId(null);
+    setRequestedNoteId(requestedForDatabase?.noteId ?? null);
+    if (requestedForDatabase) pendingNoteRequestRef.current = null;
   }, [selectedDatabaseId]);
 
   useEffect(() => {

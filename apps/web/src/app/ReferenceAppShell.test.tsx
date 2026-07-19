@@ -86,6 +86,7 @@ describe("NS-514 P2 reference shell", () => {
     expect(navigation.getByRole("button", { name: "Overview" }).getAttribute("aria-current")).toBe("page");
     expect((navigation.getByRole("button", { name: "Review" }) as HTMLButtonElement).disabled).toBe(true);
     expect((navigation.getByRole("button", { name: "Research" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Open Project Library" })).toBeTruthy();
     expect((screen.getByRole("button", { name: "Settings" }) as HTMLButtonElement).disabled).toBe(false);
     expect(container.querySelector("[data-workspace-view]")?.getAttribute("data-workspace-view")).toBe("Overview");
     expect(screen.getByText("Project overview").id).toBe("brand-context");

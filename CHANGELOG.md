@@ -56,6 +56,7 @@ This changelog records user-visible product changes. Task status, command logs, 
 - Each Workshop General Chat session now owns its system-prompt snapshot; switching sessions restores the corresponding prompt, branches inherit it, and Agent sessions remain separate from General Chat prompt state.
 - Workshop uses explicit context selection, prior same-session history, and message attachment snapshots rather than an implicit current scene.
 - Review prioritizes the candidate difference and author decision instead of an engineering Proposal dashboard.
+- Accepted Research Note promotions now remain visible as an explicit Review outcome, with one-shot exact return commands to the unchanged originating Note and the applied Canon Description or Codex Research field. Subsequent Note edits and Codex refreshes no longer retrigger an old return target. Narrow-screen decision controls are touch-sized, and the collapsed Series switch retains the current Series and Volume as its accessible name.
 - Model settings and credentials are library-global and do not expose a cloud/local policy switch.
 - Write uses a continuous manuscript editor with inline Codex Progression components.
 

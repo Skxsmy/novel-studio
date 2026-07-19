@@ -202,6 +202,7 @@ export function ReferenceAppShell({ renderWorkspace }: ReferenceAppShellProps = 
 
         <div className="appbar-right">
           <button
+            aria-label="Open Project Library"
             aria-controls="project-library-menu"
             aria-expanded={isLibraryOpen}
             className="project-switch"

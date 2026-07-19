@@ -17,6 +17,7 @@ const databaseAId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const databaseBId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const txtId = "22222222-2222-4222-8222-222222222222";
 const mdId = "33333333-3333-4333-8333-333333333333";
+const requestedNoteId = "44444444-4444-4444-8444-444444444444";
 const importedAt = "2026-07-19T02:00:00.000Z";
 type ResearchSourceDetailV2 = Extract<ResearchSourceDetail, { originalText: string }>;
 
@@ -100,6 +101,82 @@ afterEach(() => {
 });
 
 describe("NS-603 Research Database workspace", () => {
+  it("returns from Review to the exact Research Database and Note", async () => {
+    const firstDatabase = databaseDocument();
+    const secondDatabase = databaseDocument(databaseBId);
+    vi.spyOn(api.research, "listDatabases").mockResolvedValue({
+      databases: [databaseSummary(firstDatabase), databaseSummary(secondDatabase)],
+      issues: [],
+    });
+    vi.spyOn(api.research, "listLegacySources").mockResolvedValue([]);
+    vi.spyOn(api.research, "getDatabase").mockImplementation(async (databaseId) =>
+      databaseId === databaseBId ? secondDatabase : firstDatabase,
+    );
+    vi.spyOn(api.research, "listSources").mockResolvedValue([]);
+    vi.spyOn(api.research, "listNotes").mockResolvedValue({
+      researchDatabaseId: databaseBId,
+      status: "active",
+      offset: 0,
+      limit: 100,
+      total: 1,
+      notes: [{
+        id: requestedNoteId,
+        researchDatabaseId: databaseBId,
+        title: "Returned harbor Note",
+        tags: ["review"],
+        status: "active",
+        updatedAt: importedAt,
+        archivedAt: null,
+        revision: "9".repeat(64),
+        evidenceCount: 1,
+        freshness: {
+          current: 1,
+          sourceRevisionChanged: 0,
+          passageChanged: 0,
+          sourceMissing: 0,
+          unreadable: 0,
+          ownershipMismatch: 0,
+          modelUseForbidden: 1,
+        },
+      }],
+      issueCount: 0,
+      issues: [],
+    });
+    vi.spyOn(api.research, "getNote").mockResolvedValue({
+      note: {
+        schemaVersion: 1,
+        id: requestedNoteId,
+        researchDatabaseId: databaseBId,
+        title: "Returned harbor Note",
+        body: "This is the exact Note opened from Review.",
+        tags: ["review"],
+        evidence: [],
+        status: "active",
+        createdAt: importedAt,
+        updatedAt: importedAt,
+        archivedAt: null,
+      },
+      revision: "9".repeat(64),
+      evidence: [],
+    } as never);
+
+    const { container } = render(<ReferenceResearchWorkspace
+      requestedNote={{ databaseId: databaseBId, noteId: requestedNoteId, requestId: 1 }}
+      seriesId={seriesId}
+    />);
+    const root = container.querySelector<HTMLElement>("#research-workspace")!;
+    root.hidden = false;
+
+    const returnedBody = await within(root).findByDisplayValue("This is the exact Note opened from Review.");
+    expect(returnedBody).toBeTruthy();
+    expect((within(root).getByLabelText("Research Database") as HTMLSelectElement).value).toBe(databaseBId);
+    expect(within(root).getByRole("tab", { name: "Notes" }).getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.change(returnedBody, { target: { value: "The author continues editing after the return." } });
+    await waitFor(() => expect((within(root).getByRole("button", { name: "Save Note" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(within(root).queryByText("Save or discard the open Research changes before returning to this Note.")).toBeNull();
+  });
+
   it("creates a Research Database without an open Series", async () => {
     const created = databaseDocument();
     vi.spyOn(api.research, "listDatabases").mockResolvedValue({ databases: [], issues: [] });

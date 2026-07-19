@@ -419,4 +419,126 @@ describe("M5 Proposal API routes", () => {
     expect(staleAcceptResponse.body).not.toContain("credential");
     await app.close();
   });
+
+  it("fails closed across Research Database, Series, Codex target, and archived Note identities", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "novel-studio-promotion-isolation-api-"));
+    roots.push(root);
+    const app = await buildApp({ libraryRoot: root });
+    const firstSeries = (await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Promotion owner" },
+    })).json();
+    const secondSeries = (await app.inject({
+      method: "POST",
+      url: "/api/v1/series",
+      payload: { title: "Unrelated Series" },
+    })).json();
+    const firstEntryResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${firstSeries.manifest.id}/codex/entries`,
+      payload: { categoryId: "location", name: "Owner Harbor", description: "Owner Canon." },
+    });
+    const secondEntryResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${secondSeries.manifest.id}/codex/entries`,
+      payload: { categoryId: "location", name: "Foreign Harbor", description: "Foreign Canon." },
+    });
+    expect(firstEntryResponse.statusCode).toBe(201);
+    expect(secondEntryResponse.statusCode).toBe(201);
+    const firstEntry = firstEntryResponse.json();
+    const secondEntry = secondEntryResponse.json();
+    const fixture = await researchPromotionApiFixture(app);
+    const otherDatabaseResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/research/databases",
+      payload: { name: "Unrelated archive" },
+    });
+    const otherDatabaseId = otherDatabaseResponse.json().database.id as string;
+    const payload = {
+      seriesId: firstSeries.manifest.id,
+      baseRevision: fixture.note.revision,
+      meaning: "world-rule",
+      target: {
+        kind: "existing",
+        entryId: firstEntry.metadata.id,
+        targetRevision: firstEntry.revision,
+      },
+      candidateText: "The private source must not cross an authority boundary.",
+    };
+
+    const crossDatabase = await app.inject({
+      method: "POST",
+      url: `/api/v1/research/databases/${otherDatabaseId}/notes/${fixture.note.note.id}/promotions`,
+      payload,
+    });
+    expect(crossDatabase.statusCode).toBe(404);
+
+    const crossCodexTarget = await app.inject({
+      method: "POST",
+      url: `/api/v1/research/databases/${fixture.databaseId}/notes/${fixture.note.note.id}/promotions`,
+      payload: {
+        ...payload,
+        target: {
+          kind: "existing",
+          entryId: secondEntry.metadata.id,
+          targetRevision: secondEntry.revision,
+        },
+      },
+    });
+    expect(crossCodexTarget.statusCode).toBe(404);
+
+    const promotionResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/research/databases/${fixture.databaseId}/notes/${fixture.note.note.id}/promotions`,
+      payload,
+    });
+    expect(promotionResponse.statusCode).toBe(201);
+    const promotion = promotionResponse.json();
+    const crossSeriesRead = await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${secondSeries.manifest.id}/review/proposals/${promotion.proposal.id}`,
+    });
+    expect(crossSeriesRead.statusCode).toBe(404);
+    const crossSeriesAccept = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${secondSeries.manifest.id}/review/proposals/${promotion.proposal.id}/accept`,
+      payload: { baseRevision: promotion.revision, actor: "user", note: "Cross-Series attempt." },
+    });
+    expect(crossSeriesAccept.statusCode).toBe(404);
+
+    const archivedNoteResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/research/databases/${fixture.databaseId}/notes/${fixture.note.note.id}/archive`,
+      payload: { baseRevision: fixture.note.revision },
+    });
+    expect(archivedNoteResponse.statusCode).toBe(200);
+    const archivedAccept = await app.inject({
+      method: "POST",
+      url: `/api/v1/series/${firstSeries.manifest.id}/review/proposals/${promotion.proposal.id}/accept`,
+      payload: { baseRevision: promotion.revision, actor: "user", note: "Archived Note attempt." },
+    });
+    expect(archivedAccept.statusCode).toBe(409);
+    const unchangedOwner = (await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${firstSeries.manifest.id}/codex/entries/${firstEntry.metadata.id}`,
+    })).json();
+    const unchangedForeign = (await app.inject({
+      method: "GET",
+      url: `/api/v1/series/${secondSeries.manifest.id}/codex/entries/${secondEntry.metadata.id}`,
+    })).json();
+    expect(unchangedOwner.description).toBe("Owner Canon.");
+    expect(unchangedForeign.description).toBe("Foreign Canon.");
+
+    const publicFailures = [crossDatabase, crossCodexTarget, crossSeriesRead, crossSeriesAccept, archivedAccept];
+    for (const response of publicFailures) {
+      expect(response.body).not.toContain(fixture.privateSourceText);
+      expect(response.body).not.toContain(root);
+      expect(response.body).not.toContain("filePath");
+      expect(response.body).not.toContain("originalRelativePath");
+      expect(response.body).not.toContain("credential");
+      expect(response.body).not.toContain("contentBase64");
+    }
+    await app.close();
+  });
 });

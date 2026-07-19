@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ProposalDocument, ProposalPatch, SeriesDetail } from "@novel-studio/contracts";
+import { ArrowLeft, BookOpenText, CheckCircle2 } from "lucide-react";
 import { api } from "../../api";
 import { uiText } from "../../app/uiText";
 import "./review-workspace.css";
 
 interface ReviewWorkspaceProps {
+  onCodexAuthorityChanged?: () => void;
+  onOpenCodexEntry?: (entryId: string, tab: "canon" | "research") => void;
+  onOpenResearchNote?: (databaseId: string, noteId: string) => void;
   onOpenWorkshopMessage: (sessionId: string, messageId: string) => void;
   onOpenProposal: (proposalId: string) => void;
   selectedProposalId: string | null;
@@ -45,6 +49,9 @@ function patchFieldLabel(patch: ProposalPatch, index: number) {
 }
 
 export function ReviewWorkspace({
+  onCodexAuthorityChanged,
+  onOpenCodexEntry,
+  onOpenResearchNote,
   onOpenWorkshopMessage,
   onOpenProposal,
   selectedProposalId,
@@ -105,6 +112,10 @@ export function ReviewWorkspace({
   const canDecide = Boolean(selected && isSelectedPending && sourceAvailable && targetAvailable);
   const canReject = Boolean(selected && isSelectedPending);
   const canMarkStale = Boolean(selected && isSelectedPending && (!sourceAvailable || !targetAvailable));
+  const promotion = selected?.proposal.researchNotePromotion ?? null;
+  const promotionTab = selected?.proposal.target.kind === "codex-entry" ? "canon" as const : "research" as const;
+  const promotionDestination = promotionTab === "canon" ? "Canon Description" : "Codex Research";
+  const promotionApplied = selected?.proposal.status === "accepted" || selected?.proposal.status === "edited";
 
   useEffect(() => {
     setEditedTextByPatchId(Object.fromEntries(
@@ -125,6 +136,7 @@ export function ReviewWorkspace({
           actor: "user",
           note: "",
         });
+        onCodexAuthorityChanged?.();
       } else if (action === "stale") {
         await api.proposals.markStale(series.manifest.id, selected.proposal.id, {
           baseRevision: selected.revision,
@@ -149,10 +161,13 @@ export function ReviewWorkspace({
               : patch,
           ),
         });
+        onCodexAuthorityChanged?.();
       }
-      await loadInbox(null);
+      await loadInbox(selected.proposal.id);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Proposal action failed.");
+      const message = error instanceof Error ? error.message : "Proposal action failed.";
+      await loadInbox(selected.proposal.id).catch(() => undefined);
+      setErrorMessage(message);
     } finally {
       setBusyAction(null);
     }
@@ -260,7 +275,22 @@ export function ReviewWorkspace({
                   {selected.proposal.summary ? <p>{selected.proposal.summary}</p> : null}
                 </div>
 
-                {!sourceAvailable || !targetAvailable ? (
+                {!isSelectedPending && promotion ? (
+                  <section className={`review-promotion-outcome${promotionApplied ? " is-applied" : ""}`}>
+                    <span className="review-promotion-outcome-icon" aria-hidden="true">
+                      {promotionApplied ? <CheckCircle2 size={19} /> : <BookOpenText size={19} />}
+                    </span>
+                    <div>
+                      <span className="brief-label">Research Note decision</span>
+                      <h3>{promotionApplied ? `Applied to ${promotionDestination}` : "Not applied to Codex"}</h3>
+                      <p>{promotionApplied
+                        ? `The reviewed candidate is now saved in ${selected.proposal.target.label}. The Research Note and its evidence remain unchanged.`
+                        : "The Research Note remains in its database and Codex authority was not changed by this decision."}</p>
+                    </div>
+                  </section>
+                ) : null}
+
+                {isSelectedPending && (!sourceAvailable || !targetAvailable) ? (
                   <div className="alert review-warning">
                     <span>{unavailableReason}</span>
                     {selected.proposal.source.kind === "workshop-message" && !sourceAvailable ? (
@@ -353,6 +383,21 @@ export function ReviewWorkspace({
                         ) : null}
                       </div>
                     ) : null}
+                    {promotion ? (
+                      <div className="review-source-block">
+                        <span className="brief-label">Research Note</span>
+                        <p>{selected.proposal.source.label}</p>
+                        <button
+                          className="btn compact"
+                          disabled={busyAction !== null}
+                          onClick={() => onOpenResearchNote?.(promotion.researchDatabaseId, promotion.noteId)}
+                          type="button"
+                        >
+                          <BookOpenText aria-hidden="true" size={14} />
+                          {text.actions.openResearchNote}
+                        </button>
+                      </div>
+                    ) : null}
                     {selected.proposal.evidence.length ? selected.proposal.evidence.map((item) => (
                       <div className="review-source-block" key={`${item.sourceType}:${item.sourceId}`}>
                         <span className="brief-label">{text.labels.evidence}</span>
@@ -411,7 +456,30 @@ export function ReviewWorkspace({
                   ) : null}
                 </>
               ) : (
-                <p className="review-state-note">{text.reviewedState}</p>
+                promotion ? (
+                  <>
+                    <button
+                      className="btn"
+                      disabled={busyAction !== null}
+                      onClick={() => onOpenResearchNote?.(promotion.researchDatabaseId, promotion.noteId)}
+                      type="button"
+                    >
+                      <ArrowLeft aria-hidden="true" size={14} />
+                      {text.actions.backToResearchNote}
+                    </button>
+                    {promotionApplied ? (
+                      <button
+                        className="btn success"
+                        disabled={busyAction !== null}
+                        onClick={() => onOpenCodexEntry?.(selected.proposal.target.targetId, promotionTab)}
+                        type="button"
+                      >
+                        <BookOpenText aria-hidden="true" size={14} />
+                        {promotionTab === "canon" ? text.actions.openCanonDescription : text.actions.openCodexResearch}
+                      </button>
+                    ) : null}
+                  </>
+                ) : <p className="review-state-note">{text.reviewedState}</p>
               )}
             </div>
           ) : null}

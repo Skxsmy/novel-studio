@@ -44,6 +44,10 @@ function ProjectIdentityBridge({ session }: { session: ProjectSessionState }) {
       const target = document.getElementById(id);
       if (target) target.textContent = volumeTitle;
     }
+    document.getElementById("project-library-button")?.setAttribute(
+      "aria-label",
+      `${seriesTitle}. ${volumeTitle}. Open Project Library`,
+    );
   }, [series?.manifest.title, volume?.title]);
 
   return null;
@@ -73,6 +77,17 @@ function ConnectedProjectWorkspaces({
   const [modelProfilesRevision, setModelProfilesRevision] = useState(0);
   const [codexAuthorityRevision, setCodexAuthorityRevision] = useState(0);
   const [researchCitation, setResearchCitation] = useState<ResearchToolAuditCitation | null>(null);
+  const [codexTarget, setCodexTarget] = useState<{
+    entryId: string;
+    requestId: number;
+    tab: "canon" | "research";
+  } | null>(null);
+  const [researchNoteTarget, setResearchNoteTarget] = useState<{
+    databaseId: string;
+    noteId: string;
+    requestId: number;
+  } | null>(null);
+  const navigationRequestRef = useRef(0);
 
   useEffect(() => {
     if (session.isLibraryLoading || session.isOpeningSeries || session.activeSeries) return;
@@ -115,6 +130,19 @@ function ConnectedProjectWorkspaces({
     queueMicrotask(() => document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Review']")?.click());
   }
 
+  function openReviewCodexEntry(entryId: string, tab: "canon" | "research") {
+    navigationRequestRef.current += 1;
+    setCodexTarget({ entryId, requestId: navigationRequestRef.current, tab });
+    setCodexAuthorityRevision((current) => current + 1);
+    queueMicrotask(() => document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Codex']")?.click());
+  }
+
+  function openReviewResearchNote(databaseId: string, noteId: string) {
+    navigationRequestRef.current += 1;
+    setResearchNoteTarget({ databaseId, noteId, requestId: navigationRequestRef.current });
+    queueMicrotask(() => document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Research']")?.click());
+  }
+
   function openReviewWorkshopMessage(sessionId: string) {
     setRequestedWorkshopSessionId(sessionId);
     queueMicrotask(() => document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Workshop']")?.click());
@@ -136,13 +164,17 @@ function ConnectedProjectWorkspaces({
       {connectResearch ? <ReferenceResearchWorkspace
         onOpenProposal={openReviewProposal}
         requestedCitation={researchCitation}
+        requestedNote={researchNoteTarget}
         seriesId={session.activeSeries?.manifest.id ?? null}
         seriesTitle={session.activeSeries?.manifest.title ?? null}
       /> : null}
       {connectResearch && session.activeSeries ? <section className="workspace-view rn1-review-view" data-workspace-view="Review" hidden>
         <ReviewWorkspace
           key={reviewProposalId ?? "proposal-inbox"}
+          onCodexAuthorityChanged={() => setCodexAuthorityRevision((current) => current + 1)}
+          onOpenCodexEntry={openReviewCodexEntry}
           onOpenProposal={setReviewProposalId}
+          onOpenResearchNote={openReviewResearchNote}
           onOpenWorkshopMessage={(sessionId) => openReviewWorkshopMessage(sessionId)}
           selectedProposalId={reviewProposalId}
           series={session.activeSeries}
@@ -153,6 +185,9 @@ function ConnectedProjectWorkspaces({
         <ReferenceCodexWorkspace
           authorityRevision={codexAuthorityRevision}
           onOpenWrite={openWriteTarget}
+          requestedEntryId={codexTarget?.entryId ?? null}
+          requestedEntryRequestId={codexTarget?.requestId ?? null}
+          requestedTab={codexTarget?.tab ?? null}
           session={session}
         />
       ) : <ReferenceCodexWorkspace />}

@@ -200,3 +200,14 @@ Codex Entry target.
 - Browser inspection checks hierarchy, line length, clipping, focus, scroll
   ownership, and overlap. It is diagnostic evidence and never author acceptance.
 - Only the author can pass NS-609-A12.
+
+The implemented A10 browser pass used the installed `ui-design` Skill's quiet
+editorial direction without Figma or an external component reference. Review
+keeps the applied destination as the completion anchor, provides exact return
+commands for the originating Note and resulting Codex field, gives narrow-screen
+decision controls a 40-pixel minimum height, and keeps the collapsed Series
+switch named with the current Series and Volume. Exact return requests are
+consumed once, so ordinary Note edits and later Codex refreshes do not reopen a
+stale destination. Diagnostic desktop and
+390-by-844 inspection found no document-level horizontal overflow; this evidence
+does not pass the author-only acceptance row.

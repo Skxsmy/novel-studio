@@ -86,6 +86,9 @@ type DialogState =
 interface ReferenceCodexWorkspaceProps {
   authorityRevision?: number;
   onOpenWrite?: (sceneId: string, blockId?: string | null) => void;
+  requestedEntryId?: string | null;
+  requestedEntryRequestId?: number | null;
+  requestedTab?: "canon" | "research" | null;
   session?: ProjectSessionState;
 }
 
@@ -290,8 +293,11 @@ export function ReferenceCodexWorkspace(props: ReferenceCodexWorkspaceProps = {}
 function ConnectedReferenceCodexWorkspace({
   authorityRevision = 0,
   onOpenWrite,
+  requestedEntryId = null,
+  requestedEntryRequestId = null,
+  requestedTab = null,
   session,
-}: Required<Pick<ReferenceCodexWorkspaceProps, "session">> & Pick<ReferenceCodexWorkspaceProps, "authorityRevision" | "onOpenWrite">) {
+}: Required<Pick<ReferenceCodexWorkspaceProps, "session">> & Omit<ReferenceCodexWorkspaceProps, "session">) {
   const series = session.activeSeries;
   const [activeTab, setActiveTab] = useState<CodexTab>("canon");
   const [stateView, setStateView] = useState<StateView>("baseline");
@@ -326,6 +332,7 @@ function ConnectedReferenceCodexWorkspace({
   const [relationForm, setRelationForm] = useState({ description: "", sourceEntryId: "", targetEntryId: "" });
   const [preview, setPreview] = useState<{ description: string; entry: CodexEntryDocument; loading: boolean } | null>(null);
   const canonOverlayRef = useRef<HTMLDivElement>(null);
+  const handledEntryRequestRef = useRef<number | null>(null);
 
   const selectedEntry = selectedEntryId
     ? entries.find((entry) => entry.metadata.id === selectedEntryId) ?? null
@@ -390,8 +397,24 @@ function ConnectedReferenceCodexWorkspace({
       setCategories(nextCategories);
       setDetailTypes(nextDetailTypes);
       setEntries(nextEntries);
+      const isNewEntryRequest = requestedEntryRequestId !== null
+        && handledEntryRequestRef.current !== requestedEntryRequestId;
+      const requestedEntryExists = isNewEntryRequest && requestedEntryId
+        ? nextEntries.some((entry) => entry.metadata.id === requestedEntryId)
+        : false;
+      if (isNewEntryRequest) {
+        handledEntryRequestRef.current = requestedEntryRequestId;
+        setCategoryScope("all");
+        setQuery("");
+        if (requestedTab) setActiveTab(requestedTab);
+        if (requestedEntryId && !requestedEntryExists) {
+          setError("The requested Codex Entry is no longer available.");
+        }
+      }
       const selectedStillExists = nextEntries.some((entry) => entry.metadata.id === selectedEntryId);
-      const nextSelected = selectedStillExists
+      const nextSelected = requestedEntryExists
+        ? requestedEntryId
+        : selectedStillExists
         ? selectedEntryId
         : nextEntries.find((entry) => !entry.metadata.archivedAt)?.metadata.id ?? nextEntries[0]?.metadata.id ?? null;
       setSelectedEntryId(nextSelected);
@@ -403,7 +426,7 @@ function ConnectedReferenceCodexWorkspace({
       if (active) setIsLoading(false);
     });
     return () => { active = false; };
-  }, [authorityRevision, series?.manifest.id]);
+  }, [authorityRevision, requestedEntryId, requestedEntryRequestId, requestedTab, series?.manifest.id]);
 
   useEffect(() => {
     if (!selectedEntry) {

@@ -217,6 +217,31 @@ describe("NS-514 P3 Codex reference workspace", () => {
     expect(api.codex.listEntries).toHaveBeenCalledTimes(2);
   });
 
+  it("opens the exact requested Entry and Research field after Review", async () => {
+    const { rerender } = render(<ReferenceCodexWorkspace
+      requestedEntryId={ivoId}
+      requestedEntryRequestId={1}
+      requestedTab="research"
+      session={session()}
+    />);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Ivo Rell" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Research" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByDisplayValue(ivo.research.content)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Mara Venn/u }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Mara Venn" })).toBeTruthy();
+    rerender(<ReferenceCodexWorkspace
+      authorityRevision={1}
+      requestedEntryId={ivoId}
+      requestedEntryRequestId={1}
+      requestedTab="research"
+      session={session()}
+    />);
+    await waitFor(() => expect(api.codex.listEntries).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("heading", { level: 1, name: "Mara Venn" })).toBeTruthy();
+  });
+
   it("matches the NS-514 manifest for Codex", () => {
     const { container } = render(<ReferenceCodexWorkspace />);
     const root = container.querySelector<HTMLElement>("#codex-workspace")!;
