@@ -206,7 +206,11 @@ describe("M5 Workshop storage", () => {
       title: "Agent",
     });
 
-    expect(first).toMatchObject({ schemaVersion: 2, generalChatSystemPrompt: "First prompt." });
+    expect(first).toMatchObject({
+      schemaVersion: 3,
+      generalChatSystemPrompt: "First prompt.",
+      activeResearchDatabaseIds: [],
+    });
     expect(second.generalChatSystemPrompt).toBe("Second prompt.");
     expect(agent.generalChatSystemPrompt).toBeNull();
 

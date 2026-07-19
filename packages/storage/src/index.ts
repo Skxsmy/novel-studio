@@ -111,6 +111,8 @@ import {
   WorkshopMessageAttachmentSchema,
   WorkshopMessageSourceSchema,
   WorkshopMessageSchema,
+  WorkshopResearchEvidenceSchema,
+  WorkshopSessionListResultSchema,
   WorkshopSessionSchema,
   WorkshopToolExecutionSchema,
   ReorderInputSchema,
@@ -268,7 +270,9 @@ import {
   type WorkshopMessageAttachment,
   type WorkshopMessage,
   type WorkshopMessageSource,
+  type WorkshopResearchEvidence,
   type WorkshopSession,
+  type WorkshopSessionListResult,
   type WorkshopToolExecution,
   type PromptPreset,
   type PromptTemplate,
@@ -534,24 +538,31 @@ export {
 import {
   createWorkshopAgentRunFile,
   createWorkshopAttachmentFile,
+  createWorkshopResearchEvidenceFile,
   createWorkshopSessionFile,
   listWorkshopAgentRunFiles,
   listWorkshopAttachmentFiles,
   listWorkshopBranchFiles,
   listWorkshopMessageFiles,
+  listWorkshopResearchEvidenceFiles,
   listWorkshopSessionFiles,
+  listWorkshopSessionFilesWithDiagnostics,
   migrateWorkshopAuthorityToV2,
+  migrateWorkshopSessionsToV3,
   readWorkshopAttachmentFile,
   readWorkshopAgentRunFile,
   readWorkshopContextBasketFile,
   readWorkshopMessageFile,
+  readWorkshopResearchEvidenceFile,
   readWorkshopSessionFile,
   rollbackWorkshopAuthorityV2Migration,
+  rollbackWorkshopSessionsV3Migration,
   workshopAttachmentPath,
   workshopAgentRunPath,
   workshopBranchPath,
   workshopContextBasketPath,
   workshopMessagePath,
+  workshopResearchEvidencePath,
   workshopSessionPath,
   writeWorkshopContextBasketFile,
   writeWorkshopAgentRunFile,
@@ -1943,6 +1954,29 @@ export class ProjectRepository {
       previousOffset: query.offset === 0 ? null : Math.max(0, query.offset - query.limit),
       nextOffset: query.offset + blocks.length < totalBlocks ? query.offset + query.limit : null,
     });
+  }
+
+  async getResearchSourceContentPageForBlock(
+    researchDatabaseId: string,
+    sourceId: string,
+    blockId: string,
+    limit = 40,
+  ): Promise<ResearchSourceContentPage> {
+    const detail = await this.getResearchSource(researchDatabaseId, sourceId);
+    if (!("content" in detail)) {
+      throw new StorageError("Upgrade this older Research source before opening a cited block", "INVALID_DATA", {
+        sourceId,
+      });
+    }
+    const block = detail.content.blocks.find((candidate) => candidate.id === blockId);
+    if (!block) {
+      throw new StorageError("The cited Research block is no longer available", "NOT_FOUND", {
+        blockId,
+        sourceId,
+      });
+    }
+    const offset = Math.floor(block.order / limit) * limit;
+    return this.getResearchSourceContentPage(researchDatabaseId, sourceId, { offset, limit });
   }
 
   async importResearchSource(
@@ -5172,7 +5206,7 @@ export class ProjectRepository {
     }
     const now = new Date().toISOString();
     const session = WorkshopSessionSchema.parse({
-      schemaVersion: 2,
+      schemaVersion: 3,
       id: randomUUID(),
       seriesId,
       kind: input.kind,
@@ -5186,6 +5220,7 @@ export class ProjectRepository {
       updatedAt: now,
       archivedAt: null,
       lastMessageAt: null,
+      activeResearchDatabaseIds: [],
     });
     const created = await createWorkshopSessionFile(seriesRoot, session);
     const basket = WorkshopContextBasketSchema.parse({
@@ -5206,6 +5241,14 @@ export class ProjectRepository {
 
   async listWorkshopSessions(seriesId: string): Promise<WorkshopSession[]> {
     return listWorkshopSessionFiles(await this.findSeriesRoot(seriesId));
+  }
+
+  async listWorkshopSessionsWithDiagnostics(seriesId: string): Promise<WorkshopSessionListResult> {
+    const result = await listWorkshopSessionFilesWithDiagnostics(await this.findSeriesRoot(seriesId));
+    return WorkshopSessionListResultSchema.parse({
+      sessions: result.sessions.filter((session) => session.seriesId === seriesId),
+      diagnostics: result.diagnostics,
+    });
   }
 
   async migrateWorkshopAuthorityToV2(seriesId: string) {
@@ -5556,6 +5599,11 @@ export class ProjectRepository {
     rawInput: UpdateWorkshopSessionInput,
   ): Promise<WorkshopSession> {
     const input = UpdateWorkshopSessionInputSchema.parse(rawInput);
+    if (input.activeResearchDatabaseIds) {
+      await Promise.all(input.activeResearchDatabaseIds.map((databaseId) =>
+        this.getResearchDatabase(databaseId),
+      ));
+    }
     const seriesRoot = await this.findSeriesRoot(seriesId);
     return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
       const current = await readWorkshopSessionFile(seriesRoot, sessionId);
@@ -5665,6 +5713,7 @@ export class ProjectRepository {
         });
       }
       const attachments = await listWorkshopAttachmentFiles(seriesRoot, session.id);
+      const researchEvidence = await listWorkshopResearchEvidenceFiles(seriesRoot, session.id);
       const deletedMessageIds = messages.map((message) => message.id);
       const deletedMessageIdSet = new Set(deletedMessageIds);
       const branches = (await listWorkshopBranchFiles(seriesRoot)).filter((branch) =>
@@ -5698,6 +5747,10 @@ export class ProjectRepository {
           targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
           delete: true,
         })),
+        ...researchEvidence.map((evidence) => ({
+          targetPath: workshopResearchEvidencePath(seriesRoot, evidence.assistantMessageId),
+          delete: true,
+        })),
         ...branches.map((branch) => ({
           targetPath: workshopBranchPath(seriesRoot, branch.id),
           delete: true,
@@ -5720,6 +5773,105 @@ export class ProjectRepository {
   async listWorkshopBranches(seriesId: string): Promise<WorkshopBranch[]> {
     return (await listWorkshopBranchFiles(await this.findSeriesRoot(seriesId)))
       .filter((branch) => branch.seriesId === seriesId);
+  }
+
+  async createWorkshopResearchEvidence(
+    seriesId: string,
+    sessionId: string,
+    rawEvidence: WorkshopResearchEvidence,
+  ): Promise<WorkshopResearchEvidence> {
+    const evidence = WorkshopResearchEvidenceSchema.parse(rawEvidence);
+    if (evidence.seriesId !== seriesId || evidence.sessionId !== sessionId) {
+      throw new StorageError("Workshop Research evidence belongs to another session", "INVALID_DATA", {
+        assistantMessageId: evidence.assistantMessageId,
+        sessionId,
+      });
+    }
+    const seriesRoot = await this.findSeriesRoot(seriesId);
+    return withWorkshopSessionMutationLock(workshopSessionMutationKey(seriesRoot, sessionId), async () => {
+      const session = await readWorkshopSessionFile(seriesRoot, sessionId);
+      const message = await readWorkshopMessageFile(seriesRoot, evidence.assistantMessageId);
+      if (
+        message.sessionId !== session.id ||
+        message.role !== "assistant" ||
+        message.status !== "succeeded"
+      ) {
+        throw new StorageError("Workshop Research evidence requires a succeeded assistant message", "INVALID_DATA", {
+          assistantMessageId: evidence.assistantMessageId,
+        });
+      }
+      if (evidence.modelCallId === null || evidence.copiedFromEvidenceId !== null) {
+        throw new StorageError("Live Workshop Research evidence requires its model call", "INVALID_DATA", {
+          assistantMessageId: evidence.assistantMessageId,
+        });
+      }
+      if (message.modelCallId !== evidence.modelCallId) {
+        throw new StorageError("Workshop Research evidence model call does not match its message", "INVALID_DATA", {
+          assistantMessageId: evidence.assistantMessageId,
+          modelCallId: evidence.modelCallId,
+        });
+      }
+      const activeDatabaseIds = new Set(session.activeResearchDatabaseIds);
+      if (evidence.citations.some((citation) => !activeDatabaseIds.has(citation.researchDatabaseId))) {
+        throw new StorageError("Workshop Research evidence cites an inactive database", "INVALID_DATA", {
+          assistantMessageId: evidence.assistantMessageId,
+        });
+      }
+      const auditEvents = await listResearchToolAuditEvents(seriesRoot, evidence.modelCallId);
+      const auditCitationKeys = new Set(auditEvents.flatMap((event) => event.citations.map((citation) =>
+        [
+          citation.researchDatabaseId,
+          citation.sourceId,
+          citation.sourceRevision,
+          citation.chunkId,
+          citation.chunkHash,
+          citation.relationship,
+        ].join(":"),
+      )));
+      for (const citation of evidence.citations) {
+        const key = [
+          citation.researchDatabaseId,
+          citation.sourceId,
+          citation.sourceRevision,
+          citation.chunkId,
+          citation.chunkHash,
+          citation.relationship,
+        ].join(":");
+        if (!auditCitationKeys.has(key)) {
+          throw new StorageError("Workshop Research evidence citation was not returned by its gateway audit", "INVALID_DATA", {
+            assistantMessageId: evidence.assistantMessageId,
+            chunkId: citation.chunkId,
+          });
+        }
+      }
+      return createWorkshopResearchEvidenceFile(seriesRoot, evidence);
+    });
+  }
+
+  async getWorkshopResearchEvidence(
+    seriesId: string,
+    sessionId: string,
+    assistantMessageId: string,
+  ): Promise<WorkshopResearchEvidence> {
+    const evidence = await readWorkshopResearchEvidenceFile(
+      await this.findSeriesRoot(seriesId),
+      assistantMessageId,
+    );
+    if (evidence.seriesId !== seriesId || evidence.sessionId !== sessionId) {
+      throw new StorageError("Workshop Research evidence belongs to another session", "INVALID_DATA", {
+        assistantMessageId,
+        sessionId,
+      });
+    }
+    return evidence;
+  }
+
+  async listWorkshopResearchEvidence(
+    seriesId: string,
+    sessionId: string,
+  ): Promise<WorkshopResearchEvidence[]> {
+    await this.getWorkshopSession(seriesId, sessionId);
+    return listWorkshopResearchEvidenceFiles(await this.findSeriesRoot(seriesId), sessionId);
   }
 
   async branchWorkshopSession(
@@ -5774,7 +5926,7 @@ export class ProjectRepository {
     }
     const now = new Date().toISOString();
     const nextSession = WorkshopSessionSchema.parse({
-      schemaVersion: 2,
+      schemaVersion: 3,
       id: randomUUID(),
       seriesId,
       kind: sourceSession.kind,
@@ -5786,6 +5938,7 @@ export class ProjectRepository {
       updatedAt: now,
       archivedAt: null,
       lastMessageAt: branchMessages.at(-1)?.createdAt ?? null,
+      activeResearchDatabaseIds: sourceSession.activeResearchDatabaseIds,
     });
     const currentBasket = await this.getWorkshopContextBasket(seriesId, sourceSession.id);
     const nextBasket = WorkshopContextBasketSchema.parse({
@@ -5796,6 +5949,7 @@ export class ProjectRepository {
       updatedAt: now,
     });
     const sourceAttachments = await listWorkshopAttachmentFiles(seriesRoot, sourceSession.id);
+    const sourceResearchEvidence = await listWorkshopResearchEvidenceFiles(seriesRoot, sourceSession.id);
     const sourceAttachmentById = new Map(sourceAttachments.map((attachment) => [attachment.id, attachment]));
     const clonedAttachments: WorkshopMessageAttachment[] = [];
     const clonedMessages = branchMessages.map((message) => {
@@ -5840,6 +5994,17 @@ export class ProjectRepository {
           : undefined,
       });
     });
+    const clonedResearchEvidence = sourceResearchEvidence
+      .filter((evidence) => clonedMessageIds.has(evidence.assistantMessageId))
+      .map((evidence) => WorkshopResearchEvidenceSchema.parse({
+        ...evidence,
+        id: randomUUID(),
+        sessionId: nextSession.id,
+        assistantMessageId: clonedMessageIds.get(evidence.assistantMessageId),
+        modelCallId: null,
+        copiedFromEvidenceId: evidence.id,
+        createdAt: now,
+      }));
     const branch = WorkshopBranchSchema.parse({
       schemaVersion: 1,
       id: randomUUID(),
@@ -5860,6 +6025,10 @@ export class ProjectRepository {
       ...clonedAttachments.map((attachment) => ({
         targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
         content: serializeJsonAuthority(attachment),
+      })),
+      ...clonedResearchEvidence.map((evidence) => ({
+        targetPath: workshopResearchEvidencePath(seriesRoot, evidence.assistantMessageId),
+        content: serializeJsonAuthority(evidence),
       })),
       { targetPath: workshopBranchPath(seriesRoot, branch.id), content: serializeJsonAuthority(branch) },
     ]);
@@ -6869,6 +7038,8 @@ export class ProjectRepository {
           (attachment.messageId !== null && deletedMessageIdSet.has(attachment.messageId)) ||
           deletedMessages.some((message) => message.attachmentIds.includes(attachment.id)),
         );
+      const deletedResearchEvidence = (await listWorkshopResearchEvidenceFiles(seriesRoot, sessionId))
+        .filter((evidence) => deletedMessageIdSet.has(evidence.assistantMessageId));
       const branches = (await listWorkshopBranchFiles(seriesRoot)).filter((branch) =>
         deletedMessageIdSet.has(branch.sourceMessageId),
       );
@@ -6896,6 +7067,10 @@ export class ProjectRepository {
         })),
         ...attached.map((attachment) => ({
           targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
+          delete: true,
+        })),
+        ...deletedResearchEvidence.map((evidence) => ({
+          targetPath: workshopResearchEvidencePath(seriesRoot, evidence.assistantMessageId),
           delete: true,
         })),
         ...branches.map((branch) => ({
@@ -6984,6 +7159,8 @@ export class ProjectRepository {
         attachment.messageId !== null &&
         deletedMessageIdSet.has(attachment.messageId),
       );
+    const deletedResearchEvidence = (await listWorkshopResearchEvidenceFiles(seriesRoot, sessionId))
+      .filter((evidence) => deletedMessageIdSet.has(evidence.assistantMessageId));
     const branches = (await listWorkshopBranchFiles(seriesRoot)).filter((branch) =>
       deletedMessageIdSet.has(branch.sourceMessageId),
     );
@@ -7015,6 +7192,10 @@ export class ProjectRepository {
       })),
       ...deletedAttachments.map((attachment) => ({
         targetPath: workshopAttachmentPath(seriesRoot, attachment.id),
+        delete: true,
+      })),
+      ...deletedResearchEvidence.map((evidence) => ({
+        targetPath: workshopResearchEvidencePath(seriesRoot, evidence.assistantMessageId),
         delete: true,
       })),
       ...branches.map((branch) => ({
@@ -7373,6 +7554,18 @@ export class ProjectRepository {
         indexedModelCalls: rebuilt.indexedModelCalls,
       };
     }
+  }
+
+  async migrateWorkshopSessionsToV3(seriesId: string) {
+    return migrateWorkshopSessionsToV3(await this.findSeriesRoot(seriesId), seriesId);
+  }
+
+  async rollbackWorkshopSessionsV3Migration(seriesId: string, migrationId: string) {
+    return rollbackWorkshopSessionsV3Migration(
+      await this.findSeriesRoot(seriesId),
+      seriesId,
+      migrationId,
+    );
   }
 
   async searchCodex(seriesId: string, query: string): Promise<CodexSearchResult[]> {

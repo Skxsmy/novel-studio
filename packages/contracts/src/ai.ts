@@ -678,6 +678,13 @@ export type ProviderModelDescriptor = z.infer<
   typeof ProviderModelDescriptorSchema
 >;
 
+export const ProviderToolCapabilitySchema = z.object({
+  nativeToolCalls: z.boolean(),
+  parallelToolCalls: z.boolean(),
+  strictToolSchema: z.boolean(),
+}).strict();
+export type ProviderToolCapability = z.infer<typeof ProviderToolCapabilitySchema>;
+
 export const ProviderConnectionResultSchema = z.object({
   ok: z.boolean(),
   provider: AiProviderSchema,

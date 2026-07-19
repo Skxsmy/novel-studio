@@ -113,18 +113,25 @@ function jsonSchema(schema: z.ZodType): Record<string, unknown> {
   return z.toJSONSchema(schema, { target: "draft-7" }) as Record<string, unknown>;
 }
 
-export function researchRetrievalToolDefinitions(nativeToolCalls: boolean): ProviderToolDefinition[] {
+export function researchRetrievalToolDefinitions(
+  nativeToolCalls: boolean,
+  activeDatabases: Array<{ id: string; name: string }> = [],
+): ProviderToolDefinition[] {
   if (!nativeToolCalls) return [];
+  const activeDatabaseDescription = activeDatabases.length === 0
+    ? ""
+    : ` Active for this call: ${activeDatabases.map((database) =>
+      `${database.name} (${database.id})`).join("; ")}.`;
   return [
     {
       name: "research.list_sources",
-      description: "List a bounded page of AI-permitted source metadata from one Research Database active for this model call. This never returns source text.",
+      description: `List a bounded page of AI-permitted source metadata from one Research Database active for this model call. This never returns source text.${activeDatabaseDescription}`,
       parameters: jsonSchema(ResearchListSourcesArgumentsSchema),
       strict: true,
     },
     {
       name: "research.search",
-      description: "Search the active Research Databases for a bounded set of relevant original-language passages. The server owns result limits, permissions, ranking thresholds, and cumulative budgets.",
+      description: `Search the active Research Databases for a bounded set of relevant original-language passages. The server owns result limits, permissions, ranking thresholds, and cumulative budgets.${activeDatabaseDescription}`,
       parameters: jsonSchema(ResearchSearchArgumentsSchema),
       strict: true,
     },

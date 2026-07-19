@@ -30,7 +30,14 @@ export function registerWorkshopRecordRoutes(
 ): void {
   app.get<{ Params: { seriesId: string } }>(
     "/api/v1/series/:seriesId/workshop/sessions",
-    async (request) => repository.listWorkshopSessions(request.params.seriesId),
+    async (request) => {
+      let listed = await repository.listWorkshopSessionsWithDiagnostics(request.params.seriesId);
+      if (listed.diagnostics.length === 0) {
+        await repository.migrateWorkshopSessionsToV3(request.params.seriesId);
+        listed = await repository.listWorkshopSessionsWithDiagnostics(request.params.seriesId);
+      }
+      return listed;
+    },
   );
 
   app.post<{ Params: { seriesId: string } }>(
@@ -48,12 +55,13 @@ export function registerWorkshopRecordRoutes(
       const agentRuns = session.kind === "agent"
         ? await repository.reconcileWorkshopAgentRuns(request.params.seriesId, request.params.sessionId)
         : { runs: [], diagnostics: [] };
-      const [basket, messages, attachments] = await Promise.all([
+      const [basket, messages, attachments, researchEvidence] = await Promise.all([
         repository.getWorkshopContextBasket(request.params.seriesId, request.params.sessionId),
         repository.listWorkshopMessages(request.params.seriesId, request.params.sessionId),
         repository.listWorkshopAttachments(request.params.seriesId, request.params.sessionId),
+        repository.listWorkshopResearchEvidence(request.params.seriesId, request.params.sessionId),
       ]);
-      return { session, basket, messages, attachments, agentRuns };
+      return { session, basket, messages, attachments, agentRuns, researchEvidence };
     },
   );
 
@@ -81,7 +89,15 @@ export function registerWorkshopRecordRoutes(
     "/api/v1/series/:seriesId/workshop/sessions/:sessionId",
     async (request) => {
       const input = UpdateWorkshopSessionInputSchema.parse(request.body);
-      return repository.updateWorkshopSession(request.params.seriesId, request.params.sessionId, input);
+      return options.guardSessionLifecycle(
+        request.params.seriesId,
+        request.params.sessionId,
+        () => repository.updateWorkshopSession(
+          request.params.seriesId,
+          request.params.sessionId,
+          input,
+        ),
+      );
     },
   );
 

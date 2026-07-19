@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type { ResearchToolAuditCitation } from "@novel-studio/contracts";
 
 import { ReferenceCodexWorkspace } from "../features/codex/ReferenceCodexWorkspace";
 import { ReferenceOverviewWorkspace } from "../features/overview/ReferenceOverviewWorkspace";
@@ -67,6 +68,7 @@ function ConnectedProjectWorkspaces({
   const [writeTarget, setWriteTarget] = useState<{ blockId: string | null; sceneId: string } | null>(null);
   const [providerReturnSessionId, setProviderReturnSessionId] = useState<string | null>(null);
   const [modelProfilesRevision, setModelProfilesRevision] = useState(0);
+  const [researchCitation, setResearchCitation] = useState<ResearchToolAuditCitation | null>(null);
 
   useEffect(() => {
     if (session.isLibraryLoading || session.isOpeningSeries || session.activeSeries) return;
@@ -99,6 +101,11 @@ function ConnectedProjectWorkspaces({
     setProviderReturnSessionId(null);
   }
 
+  function openResearchCitation(citation: ResearchToolAuditCitation) {
+    setResearchCitation(citation);
+    document.querySelector<HTMLButtonElement>(".workspace-button[data-workspace='Research']")?.click();
+  }
+
   return (
     <>
       <ConnectedProjectLibrary session={session} />
@@ -112,13 +119,14 @@ function ConnectedProjectWorkspaces({
       />
       <ReferencePlanWorkspace />
       {connectResearch ? <ReferenceResearchNavigationBridge /> : null}
-      {connectResearch ? <ReferenceResearchWorkspace seriesId={session.activeSeries?.manifest.id ?? null} /> : null}
+      {connectResearch ? <ReferenceResearchWorkspace requestedCitation={researchCitation} seriesId={session.activeSeries?.manifest.id ?? null} /> : null}
       {connectWrite ? <ReferenceWriteWorkspace requestedBlockId={writeTarget?.blockId ?? null} session={session} /> : <ReferenceSurface selector="#write-workspace" />}
       {connectCodex ? <ReferenceCodexWorkspace onOpenWrite={openWriteTarget} session={session} /> : <ReferenceCodexWorkspace />}
       {connectWorkshop ? (
         <ReferenceWorkshopWorkspace
           modelProfilesRevision={modelProfilesRevision}
           onOpenProviderSettings={openProviderSettings}
+          onOpenResearchCitation={openResearchCitation}
           requestedSessionId={providerReturnSessionId}
           session={session}
         />

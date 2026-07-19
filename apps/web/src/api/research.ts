@@ -88,6 +88,11 @@ export function createResearchApi(client: ApiClient) {
         `/research/databases/${databaseId}/sources/${sourceId}/content?${query}`,
       );
     },
+    getSourceContentPageForBlock(databaseId: string, sourceId: string, blockId: string) {
+      return client.requestJson<ResearchSourceContentPage>(
+        `/research/databases/${databaseId}/sources/${sourceId}/content/blocks/${blockId}`,
+      );
+    },
     importSource(databaseId: string, input: ImportResearchSourceInput) {
       return client.requestJson<ResearchSourceView>(`/research/databases/${databaseId}/sources`, {
         body: input,

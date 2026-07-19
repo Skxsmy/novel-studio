@@ -8,10 +8,12 @@ import {
 } from "./codex.js";
 import { RevisionHashSchema } from "./common.js";
 import { ContextPreviewSelectionSchema } from "./context.js";
+import { ResearchToolAuditCitationSchema } from "./researchTools.js";
 import { DEFAULT_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT } from "./workshopPrompts.js";
 
 export const WORKSHOP_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 export const WORKSHOP_ATTACHMENT_MAX_COUNT = 12;
+export const WORKSHOP_RESEARCH_DATABASE_MAX_COUNT = 12;
 
 const WorkshopDraftTokenSchema = z.string().trim().min(1).max(120);
 const WorkshopAttachmentIdsSchema = z
@@ -227,17 +229,53 @@ export const WorkshopSessionV2Schema = z.discriminatedUnion("kind", [
 ]);
 export type WorkshopSessionV2 = z.infer<typeof WorkshopSessionV2Schema>;
 
-export const WorkshopSessionSchema = z.union([
+const WorkshopSessionV3BaseSchema = WorkshopSessionV2BaseSchema.omit({ schemaVersion: true }).extend({
+  schemaVersion: z.literal(3),
+  activeResearchDatabaseIds: z.array(z.string().uuid())
+    .max(WORKSHOP_RESEARCH_DATABASE_MAX_COUNT)
+    .default([]),
+});
+
+export const WorkshopSessionV3Schema = z.discriminatedUnion("kind", [
+  WorkshopSessionV3BaseSchema.extend({
+    kind: z.literal("chat"),
+    generalChatSystemPrompt: z.string().trim().max(8000),
+  }),
+  WorkshopSessionV3BaseSchema.extend({
+    kind: z.literal("agent"),
+    generalChatSystemPrompt: z.null(),
+  }),
+]).superRefine((session, context) => {
+  const seen = new Set<string>();
+  for (let index = 0; index < session.activeResearchDatabaseIds.length; index += 1) {
+    const databaseId = session.activeResearchDatabaseIds[index]!;
+    if (seen.has(databaseId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["activeResearchDatabaseIds", index],
+        message: "Active Research Database IDs must be unique",
+      });
+    }
+    seen.add(databaseId);
+  }
+});
+export type WorkshopSessionV3 = z.infer<typeof WorkshopSessionV3Schema>;
+
+export const WorkshopSessionAuthoritySchema = z.union([
+  WorkshopSessionV3Schema,
   WorkshopSessionV2Schema,
   WorkshopSessionV1Schema,
-]).transform((session): WorkshopSessionV2 => {
-  if (session.schemaVersion === 2) return session;
-  return WorkshopSessionV2Schema.parse({
+]);
+
+export const WorkshopSessionSchema = WorkshopSessionAuthoritySchema.transform((session): WorkshopSessionV3 => {
+  if (session.schemaVersion === 3) return session;
+  return WorkshopSessionV3Schema.parse({
     ...session,
-    schemaVersion: 2,
-    generalChatSystemPrompt: session.kind === "agent"
-      ? null
-      : DEFAULT_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT,
+    schemaVersion: 3,
+    generalChatSystemPrompt: session.schemaVersion === 2
+      ? session.generalChatSystemPrompt
+      : session.kind === "agent" ? null : DEFAULT_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT,
+    activeResearchDatabaseIds: [],
   });
 });
 export type WorkshopSession = z.infer<typeof WorkshopSessionSchema>;
@@ -745,6 +783,95 @@ export type RollbackWorkshopAuthorityV2MigrationResult = z.infer<
   typeof RollbackWorkshopAuthorityV2MigrationResultSchema
 >;
 
+const WorkshopSessionV3MigrationDocumentSchema = z.object({
+  id: z.string().uuid(),
+  sourceSchemaVersion: z.union([z.literal(1), z.literal(2)]),
+  relativePath: z.string().trim().min(1).max(500),
+  raw: z.string().min(1).max(1_000_000),
+  revision: RevisionHashSchema,
+  migratedRevision: RevisionHashSchema,
+}).strict();
+
+export const WorkshopSessionV3MigrationBackupSchema = z.object({
+  schemaVersion: z.literal(1),
+  migrationId: z.string().uuid(),
+  seriesId: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  documents: z.array(WorkshopSessionV3MigrationDocumentSchema),
+}).strict();
+export type WorkshopSessionV3MigrationBackup = z.infer<
+  typeof WorkshopSessionV3MigrationBackupSchema
+>;
+
+export const WorkshopSessionV3MigrationResultSchema = z.object({
+  migrationId: z.string().uuid(),
+  migratedSessionIds: z.array(z.string().uuid()),
+}).strict();
+export type WorkshopSessionV3MigrationResult = z.infer<
+  typeof WorkshopSessionV3MigrationResultSchema
+>;
+
+export const RollbackWorkshopSessionV3MigrationResultSchema = z.object({
+  migrationId: z.string().uuid(),
+  restoredSessionIds: z.array(z.string().uuid()),
+}).strict();
+export type RollbackWorkshopSessionV3MigrationResult = z.infer<
+  typeof RollbackWorkshopSessionV3MigrationResultSchema
+>;
+
+export const WorkshopSessionDiagnosticSchema = z.object({
+  fileName: z.string().min(1).max(260),
+  code: z.string().min(1).max(120),
+  message: z.string().min(1).max(4000),
+}).strict();
+export type WorkshopSessionDiagnostic = z.infer<typeof WorkshopSessionDiagnosticSchema>;
+
+export const WorkshopSessionListResultSchema = z.object({
+  sessions: z.array(WorkshopSessionV3Schema),
+  diagnostics: z.array(WorkshopSessionDiagnosticSchema).default([]),
+}).strict();
+export type WorkshopSessionListResult = z.infer<typeof WorkshopSessionListResultSchema>;
+
+export const WorkshopResearchEvidenceSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  seriesId: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  assistantMessageId: z.string().uuid(),
+  modelCallId: z.string().uuid().nullable(),
+  copiedFromEvidenceId: z.string().uuid().nullable().default(null),
+  citations: z.array(ResearchToolAuditCitationSchema).max(24),
+  createdAt: z.string().datetime(),
+}).strict().superRefine((evidence, context) => {
+  if ((evidence.modelCallId === null) === (evidence.copiedFromEvidenceId === null)) {
+    context.addIssue({
+      code: "custom",
+      message: "Research evidence must identify either its model call or its branch source",
+    });
+  }
+  const seen = new Set<string>();
+  for (let index = 0; index < evidence.citations.length; index += 1) {
+    const citation = evidence.citations[index]!;
+    const key = [
+      citation.researchDatabaseId,
+      citation.sourceId,
+      citation.sourceRevision,
+      citation.chunkId,
+      citation.chunkHash,
+      citation.relationship,
+    ].join(":");
+    if (seen.has(key)) {
+      context.addIssue({
+        code: "custom",
+        path: ["citations", index],
+        message: "Workshop Research evidence citations must be unique",
+      });
+    }
+    seen.add(key);
+  }
+});
+export type WorkshopResearchEvidence = z.infer<typeof WorkshopResearchEvidenceSchema>;
+
 export const WorkshopAgentRunDocumentSchema = z.object({
   run: WorkshopAgentRunSchema,
   revision: RevisionHashSchema,
@@ -781,6 +908,7 @@ export const WorkshopAgentRunActionResultSchema = z.object({
   toolMessages: z.array(WorkshopMessageSchema).default([]),
   modelCallId: z.string().uuid().nullable(),
   responseText: z.string().max(400000).default(""),
+  researchEvidence: WorkshopResearchEvidenceSchema.nullable().default(null),
 });
 export type WorkshopAgentRunActionResult = z.infer<typeof WorkshopAgentRunActionResultSchema>;
 
@@ -896,8 +1024,15 @@ export const UpdateWorkshopSessionInputSchema = z.object({
   title: z.string().trim().min(1).max(160).optional(),
   expectedTitle: z.string().trim().min(1).max(160).optional(),
   generalChatSystemPrompt: z.string().trim().max(8000).optional(),
+  activeResearchDatabaseIds: z.array(z.string().uuid())
+    .max(WORKSHOP_RESEARCH_DATABASE_MAX_COUNT)
+    .optional(),
 }).superRefine((input, context) => {
-  if (input.title === undefined && input.generalChatSystemPrompt === undefined) {
+  if (
+    input.title === undefined &&
+    input.generalChatSystemPrompt === undefined &&
+    input.activeResearchDatabaseIds === undefined
+  ) {
     context.addIssue({ code: "custom", message: "At least one session field is required" });
   }
   if (input.expectedTitle !== undefined && input.title === undefined) {
@@ -906,6 +1041,20 @@ export const UpdateWorkshopSessionInputSchema = z.object({
       path: ["expectedTitle"],
       message: "expectedTitle can only guard a title update",
     });
+  }
+  if (input.activeResearchDatabaseIds) {
+    const seen = new Set<string>();
+    for (let index = 0; index < input.activeResearchDatabaseIds.length; index += 1) {
+      const databaseId = input.activeResearchDatabaseIds[index]!;
+      if (seen.has(databaseId)) {
+        context.addIssue({
+          code: "custom",
+          path: ["activeResearchDatabaseIds", index],
+          message: "Active Research Database IDs must be unique",
+        });
+      }
+      seen.add(databaseId);
+    }
   }
 });
 export type UpdateWorkshopSessionInput = z.infer<typeof UpdateWorkshopSessionInputSchema>;
@@ -1129,6 +1278,7 @@ export const WorkshopCallResultSchema = z.object({
   estimatedUsage: TokenUsageSchema,
   actualUsage: TokenUsageSchema.nullable().default(null),
   agentRun: WorkshopAgentRunDocumentSchema.nullable().default(null),
+  researchEvidence: WorkshopResearchEvidenceSchema.nullable().default(null),
 });
 export type WorkshopCallResult = z.infer<typeof WorkshopCallResultSchema>;
 
@@ -1179,6 +1329,13 @@ export const WorkshopCallStreamEventSchema = z.discriminatedUnion("type", [
     attempt: z.number().int().positive(),
     text: z.string(),
     outputKind: z.enum(["summary", "full"]),
+  }),
+  z.object({
+    type: z.literal("research-activity"),
+    operationId: z.string().uuid(),
+    phase: z.enum(["listing", "searching", "reading"]),
+    status: z.enum(["started", "completed", "failed"]),
+    step: z.number().int().positive().max(10),
   }),
   z.object({
     type: z.literal("assistant-message"),

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type {
+  EmbeddingRouter,
   ProviderChatMessage,
   ProviderChatResult,
   ProviderChatStreamEvent,
@@ -19,10 +20,12 @@ import {
   type ModelParameters,
   type ModelProfile,
   type ReasoningOutputKind,
+  type ResearchToolAuditCitation,
   type TokenUsage,
   type WorkshopAgentRunDocument,
   type WorkshopAgentStepRecord,
   type WorkshopMessage,
+  type WorkshopResearchEvidence,
 } from "@novel-studio/contracts";
 import type { ProjectRepository } from "@novel-studio/storage";
 import { ensureCredentialBoundary, modelError } from "../ai/policy.js";
@@ -39,6 +42,7 @@ import {
   workshopAgentToolDefinitions,
   type WorkshopAgentStep,
 } from "./workshopAgent.js";
+import { runWorkshopResearchLoop } from "./workshopResearchLoop.js";
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -127,14 +131,17 @@ interface ModelAttemptResult {
   error: ModelCallError | null;
   providerResult: ProviderChatResult | null;
   cancelled: boolean;
+  researchCitations: ResearchToolAuditCitation[];
 }
 
 async function executeModelAttempt(input: {
   repository: ProjectRepository;
   providerRegistry: ProviderRegistry;
+  embeddingRouter: EmbeddingRouter;
   seriesId: string;
   contextBundle: ContextBundle;
   modelProfile: ModelProfile;
+  activeResearchDatabaseIds: string[];
   prompt: ProviderPrompt;
   parameters: ModelParameters;
   modelCallId: string;
@@ -147,6 +154,11 @@ async function executeModelAttempt(input: {
     modelCallId: string;
     attempt: number;
     event: Exclude<ProviderChatStreamEvent, { type: "done" }>;
+  }) => void | Promise<void>;
+  onResearchActivity?: (activity: {
+    phase: "listing" | "searching" | "reading";
+    status: "started" | "completed" | "failed";
+    step: number;
   }) => void | Promise<void>;
 }): Promise<ModelAttemptResult> {
   let adapter;
@@ -165,6 +177,7 @@ async function executeModelAttempt(input: {
       error: null,
       providerResult: null,
       cancelled: true,
+      researchCitations: [],
     };
   }
   try {
@@ -181,6 +194,7 @@ async function executeModelAttempt(input: {
       error,
       providerResult: null,
       cancelled: false,
+      researchCitations: [],
     };
   }
 
@@ -200,6 +214,7 @@ async function executeModelAttempt(input: {
       error,
       providerResult: null,
       cancelled,
+      researchCitations: [],
     };
   }
 
@@ -218,6 +233,7 @@ async function executeModelAttempt(input: {
   });
   await input.repository.saveModelCallLog(input.seriesId, log);
   let providerResult: ProviderChatResult | null = null;
+  let researchCitations: ResearchToolAuditCitation[] = [];
   try {
     if (input.abortSignal?.aborted) {
       const abortError = new Error("Workshop Agent call cancelled by the author");
@@ -240,46 +256,32 @@ async function executeModelAttempt(input: {
       abortError.name = "AbortError";
       throw abortError;
     }
-    for await (const event of adapter.streamChat({
+    const loop = await runWorkshopResearchLoop({
+      adapter,
+      repository: input.repository,
+      embeddingRouter: input.embeddingRouter,
+      seriesId: input.seriesId,
+      modelCallId: input.modelCallId,
+      activeDatabaseIds: input.activeResearchDatabaseIds,
       modelProfile: input.modelProfile,
       prompt: input.prompt,
       contextBundle: input.contextBundle,
       resolvedParameters,
       ...(input.history ? { history: input.history } : {}),
+      baseTools: adapter.chatCapabilities.nativeToolCalls ? workshopAgentToolDefinitions() : [],
+      returnUnhandledToolCalls: true,
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
-      ...(adapter.chatCapabilities.nativeToolCalls
-        ? { tools: workshopAgentToolDefinitions(), toolChoice: "auto" as const }
-        : {}),
-    })) {
-      if (input.abortSignal?.aborted) {
-        const abortError = new Error("Workshop Agent call cancelled by the author");
-        abortError.name = "AbortError";
-        throw abortError;
-      }
-      if (event.type === "done") {
-        if (providerResult) {
-          throw modelError("provider-error", "The Provider returned more than one terminal result.");
-        }
-        providerResult = event.result;
-        continue;
-      }
-      if (event.type === "reasoning-delta") {
-        reasoningText += event.text;
-        reasoningOutputKind = event.outputKind === "full"
-          ? "full"
-          : reasoningOutputKind === "full" ? "full" : "summary";
-      } else {
-        answerText += event.text;
-      }
-      await input.onStreamEvent?.({
-        modelCallId: input.modelCallId,
-        attempt: input.attemptNumber,
-        event,
-      });
-    }
-    if (!providerResult) {
-      throw modelError("provider-error", "The Provider stream ended without a terminal result.", true);
-    }
+      ...(input.onStreamEvent ? {
+        onStreamEvent: (event) => input.onStreamEvent?.({
+          modelCallId: input.modelCallId,
+          attempt: input.attemptNumber,
+          event,
+        }),
+      } : {}),
+      ...(input.onResearchActivity ? { onResearchActivity: input.onResearchActivity } : {}),
+    });
+    providerResult = loop.providerResult;
+    researchCitations = loop.citations;
     if (input.abortSignal?.aborted) {
       const abortError = new Error("Workshop Agent call cancelled by the author");
       abortError.name = "AbortError";
@@ -334,6 +336,7 @@ async function executeModelAttempt(input: {
       error: null,
       providerResult,
       cancelled: false,
+      researchCitations,
     };
   } catch (caught) {
     if (!rawOutput && caught && typeof caught === "object" && "rawOutput" in caught) {
@@ -362,6 +365,7 @@ async function executeModelAttempt(input: {
         error: null,
         providerResult: null,
         cancelled: true,
+        researchCitations: [],
       };
     }
     const error = typeof caught === "object" && caught !== null && "code" in caught && "retryable" in caught
@@ -381,6 +385,7 @@ async function executeModelAttempt(input: {
       error,
       providerResult,
       cancelled: false,
+      researchCitations: [],
     };
   }
 }
@@ -499,9 +504,11 @@ async function automaticTransportRetry(input: WorkshopAgentRunnerInput & {
   const attemptResult = await executeModelAttempt({
     repository: input.repository,
     providerRegistry: input.providerRegistry,
+    embeddingRouter: input.embeddingRouter,
     seriesId: input.seriesId,
     contextBundle: input.providerContextBundle,
     modelProfile: input.modelProfile,
+    activeResearchDatabaseIds: input.activeResearchDatabaseIds,
     prompt: input.prompt,
     parameters: input.parameters,
     modelCallId: retryCallId,
@@ -510,6 +517,7 @@ async function automaticTransportRetry(input: WorkshopAgentRunnerInput & {
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
     ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
+    ...(input.onResearchActivity ? { onResearchActivity: input.onResearchActivity } : {}),
     ...(input.history ? { history: input.history } : {}),
   });
   return { run, stepRecord: retryStep, attemptResult };
@@ -698,17 +706,20 @@ export interface WorkshopAgentRunnerResult {
   toolMessages: WorkshopMessage[];
   modelCall: ModelCallLog | null;
   responseText: string;
+  researchEvidence: WorkshopResearchEvidence | null;
 }
 
 export interface WorkshopAgentRunnerInput {
   repository: ProjectRepository;
   providerRegistry: ProviderRegistry;
+  embeddingRouter: EmbeddingRouter;
   seriesId: string;
   sessionId: string;
   authorMessage: WorkshopMessage;
   contextBundle: ContextBundle;
   providerContextBundle: ContextBundle;
   modelProfile: ModelProfile;
+  activeResearchDatabaseIds: string[];
   parameters: ModelParameters;
   prompt: ProviderPrompt;
   assistantMessageId?: string;
@@ -719,7 +730,33 @@ export interface WorkshopAgentRunnerInput {
     attempt: number;
     event: Exclude<ProviderChatStreamEvent, { type: "done" }>;
   }) => void | Promise<void>;
+  onResearchActivity?: (activity: {
+    phase: "listing" | "searching" | "reading";
+    status: "started" | "completed" | "failed";
+    step: number;
+  }) => void | Promise<void>;
   prepareUpdateDraft: (draft: WorkshopCodexUpdateDraft) => Promise<WorkshopCodexUpdateDraft>;
+}
+
+async function persistResearchEvidence(input: {
+  repository: ProjectRepository;
+  seriesId: string;
+  sessionId: string;
+  attempt: ModelAttemptResult;
+  assistantMessage: WorkshopMessage;
+}): Promise<WorkshopResearchEvidence | null> {
+  if (!input.attempt.log || input.attempt.researchCitations.length === 0) return null;
+  return input.repository.createWorkshopResearchEvidence(input.seriesId, input.sessionId, {
+    schemaVersion: 1,
+    id: randomUUID(),
+    seriesId: input.seriesId,
+    sessionId: input.sessionId,
+    assistantMessageId: input.assistantMessage.id,
+    modelCallId: input.attempt.log.id,
+    copiedFromEvidenceId: null,
+    citations: input.attempt.researchCitations,
+    createdAt: new Date().toISOString(),
+  });
 }
 
 async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
@@ -808,6 +845,7 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
       toolMessages: [],
       modelCall: input.attempt.log,
       responseText: message.content,
+      researchEvidence: null,
     };
   }
   if (!input.attempt.step || input.attempt.error) {
@@ -858,6 +896,7 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
       toolMessages: [],
       modelCall: input.attempt.log,
       responseText: message.content,
+      researchEvidence: null,
     };
   }
 
@@ -923,12 +962,20 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
       run,
       [assistant],
     );
+    const researchEvidence = await persistResearchEvidence({
+      repository: input.repository,
+      seriesId: input.seriesId,
+      sessionId: input.sessionId,
+      attempt: input.attempt,
+      assistantMessage: assistant,
+    });
     return {
       run: committed.run,
       assistantMessage: assistant,
       toolMessages: [],
       modelCall: input.attempt.log,
       responseText: assistant.content,
+      researchEvidence,
     };
   }
 
@@ -970,12 +1017,20 @@ async function finalizeAttempt(input: WorkshopAgentRunnerInput & {
     run,
     [assistant, tool],
   );
+  const researchEvidence = await persistResearchEvidence({
+    repository: input.repository,
+    seriesId: input.seriesId,
+    sessionId: input.sessionId,
+    attempt: input.attempt,
+    assistantMessage: assistant,
+  });
   return {
     run: committed.run,
     assistantMessage: assistant,
     toolMessages: [tool],
     modelCall: input.attempt.log,
     responseText: assistant.content,
+    researchEvidence,
   };
 }
 
@@ -1106,6 +1161,7 @@ export async function runWorkshopAgent(input: WorkshopAgentRunnerInput): Promise
 export async function continueWorkshopAgentAfterToolResult(input: {
   repository: ProjectRepository;
   providerRegistry: ProviderRegistry;
+  embeddingRouter: EmbeddingRouter;
   seriesId: string;
   sessionId: string;
   run: WorkshopAgentRunDocument;
@@ -1113,10 +1169,12 @@ export async function continueWorkshopAgentAfterToolResult(input: {
   contextBundle: ContextBundle;
   providerContextBundle: ContextBundle;
   modelProfile: ModelProfile;
+  activeResearchDatabaseIds: string[];
   assistantMessageId?: string;
   abortSignal?: AbortSignal;
   onAttemptStart?: WorkshopAgentRunnerInput["onAttemptStart"];
   onStreamEvent?: WorkshopAgentRunnerInput["onStreamEvent"];
+  onResearchActivity?: WorkshopAgentRunnerInput["onResearchActivity"];
   prepareUpdateDraft: (draft: WorkshopCodexUpdateDraft) => Promise<WorkshopCodexUpdateDraft>;
 }): Promise<WorkshopAgentRunnerResult> {
   if (
@@ -1176,9 +1234,11 @@ export async function continueWorkshopAgentAfterToolResult(input: {
   let attempt = await executeModelAttempt({
     repository: input.repository,
     providerRegistry: input.providerRegistry,
+    embeddingRouter: input.embeddingRouter,
     seriesId: input.seriesId,
     contextBundle: input.providerContextBundle,
     modelProfile: input.modelProfile,
+    activeResearchDatabaseIds: input.activeResearchDatabaseIds,
     prompt: continuationPrompt,
     parameters: input.run.run.parameters,
     modelCallId,
@@ -1188,22 +1248,26 @@ export async function continueWorkshopAgentAfterToolResult(input: {
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
     ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
+    ...(input.onResearchActivity ? { onResearchActivity: input.onResearchActivity } : {}),
   });
   const runnerInput: WorkshopAgentRunnerInput = {
     repository: input.repository,
     providerRegistry: input.providerRegistry,
+    embeddingRouter: input.embeddingRouter,
     seriesId: input.seriesId,
     sessionId: input.sessionId,
     authorMessage,
     contextBundle: input.contextBundle,
     providerContextBundle: input.providerContextBundle,
     modelProfile: input.modelProfile,
+    activeResearchDatabaseIds: input.activeResearchDatabaseIds,
     parameters: input.run.run.parameters,
     prompt: continuationPrompt,
     ...(input.assistantMessageId ? { assistantMessageId: input.assistantMessageId } : {}),
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
     ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
+    ...(input.onResearchActivity ? { onResearchActivity: input.onResearchActivity } : {}),
     prepareUpdateDraft: input.prepareUpdateDraft,
   };
   let activeStep = continuationStep;
@@ -1278,9 +1342,11 @@ export async function continueWorkshopAgentAfterToolResult(input: {
   const repairedAttempt = await executeModelAttempt({
     repository: input.repository,
     providerRegistry: input.providerRegistry,
+    embeddingRouter: input.embeddingRouter,
     seriesId: input.seriesId,
     contextBundle: input.providerContextBundle,
     modelProfile: input.modelProfile,
+    activeResearchDatabaseIds: input.activeResearchDatabaseIds,
     prompt: continuationPrompt,
     parameters: input.run.run.parameters,
     modelCallId: repairCallId,
@@ -1290,6 +1356,7 @@ export async function continueWorkshopAgentAfterToolResult(input: {
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
     ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
+    ...(input.onResearchActivity ? { onResearchActivity: input.onResearchActivity } : {}),
   });
   return finalizeAttempt({
     ...runnerInput,
@@ -1302,16 +1369,19 @@ export async function continueWorkshopAgentAfterToolResult(input: {
 export async function retryWorkshopAgent(input: {
   repository: ProjectRepository;
   providerRegistry: ProviderRegistry;
+  embeddingRouter: EmbeddingRouter;
   seriesId: string;
   sessionId: string;
   run: WorkshopAgentRunDocument;
   contextBundle: ContextBundle;
   providerContextBundle: ContextBundle;
   modelProfile: ModelProfile;
+  activeResearchDatabaseIds: string[];
   assistantMessageId?: string;
   abortSignal?: AbortSignal;
   onAttemptStart?: WorkshopAgentRunnerInput["onAttemptStart"];
   onStreamEvent?: WorkshopAgentRunnerInput["onStreamEvent"];
+  onResearchActivity?: WorkshopAgentRunnerInput["onResearchActivity"];
   prepareUpdateDraft: (draft: WorkshopCodexUpdateDraft) => Promise<WorkshopCodexUpdateDraft>;
 }): Promise<WorkshopAgentRunnerResult> {
   if (!["failed", "interrupted"].includes(input.run.run.status) || !input.run.run.retryable) {
@@ -1375,9 +1445,11 @@ export async function retryWorkshopAgent(input: {
   let attempt = await executeModelAttempt({
     repository: input.repository,
     providerRegistry: input.providerRegistry,
+    embeddingRouter: input.embeddingRouter,
     seriesId: input.seriesId,
     contextBundle: input.providerContextBundle,
     modelProfile: input.modelProfile,
+    activeResearchDatabaseIds: input.activeResearchDatabaseIds,
     prompt,
     parameters: input.run.run.parameters,
     modelCallId,
@@ -1387,22 +1459,26 @@ export async function retryWorkshopAgent(input: {
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
     ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
+    ...(input.onResearchActivity ? { onResearchActivity: input.onResearchActivity } : {}),
   });
   const runnerInput: WorkshopAgentRunnerInput = {
     repository: input.repository,
     providerRegistry: input.providerRegistry,
+    embeddingRouter: input.embeddingRouter,
     seriesId: input.seriesId,
     sessionId: input.sessionId,
     authorMessage,
     contextBundle: input.contextBundle,
     providerContextBundle: input.providerContextBundle,
     modelProfile: input.modelProfile,
+    activeResearchDatabaseIds: input.activeResearchDatabaseIds,
     parameters: input.run.run.parameters,
     prompt,
     ...(input.assistantMessageId ? { assistantMessageId: input.assistantMessageId } : {}),
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
     ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
+    ...(input.onResearchActivity ? { onResearchActivity: input.onResearchActivity } : {}),
     prepareUpdateDraft: input.prepareUpdateDraft,
   };
   let activeStep = retryStep;
@@ -1468,9 +1544,11 @@ export async function retryWorkshopAgent(input: {
   attempt = await executeModelAttempt({
     repository: input.repository,
     providerRegistry: input.providerRegistry,
+    embeddingRouter: input.embeddingRouter,
     seriesId: input.seriesId,
     contextBundle: input.providerContextBundle,
     modelProfile: input.modelProfile,
+    activeResearchDatabaseIds: input.activeResearchDatabaseIds,
     prompt,
     parameters: input.run.run.parameters,
     modelCallId: repairCallId,
@@ -1480,6 +1558,7 @@ export async function retryWorkshopAgent(input: {
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     ...(input.onAttemptStart ? { onAttemptStart: input.onAttemptStart } : {}),
     ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
+    ...(input.onResearchActivity ? { onResearchActivity: input.onResearchActivity } : {}),
   });
   return finalizeAttempt({ ...runnerInput, run, stepRecord: repairStep, attempt });
 }

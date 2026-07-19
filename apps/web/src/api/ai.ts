@@ -8,6 +8,7 @@ import type {
   PromptTemplate,
   ProviderConnectionResult,
   ProviderModelDescriptor,
+  ProviderToolCapability,
   SaveModelProfileCredentialInput,
   SaveModelProfileCredentialResult,
   UpdateModelProfileInput,
@@ -71,6 +72,9 @@ export function createAiApi(client: ApiClient) {
     listProviderModels(profileId: string) {
       return client.requestJson<ProviderModelDescriptor[]>(`/ai/model-profiles/${profileId}/models`);
     },
+    getToolCapability(profileId: string) {
+      return client.requestJson<ProviderToolCapability>(`/ai/model-profiles/${profileId}/tool-capability`);
+    },
   };
 }
 
@@ -83,6 +87,7 @@ export type {
   PromptTemplate,
   ProviderConnectionResult,
   ProviderModelDescriptor,
+  ProviderToolCapability,
   SaveModelProfileCredentialInput,
   SaveModelProfileCredentialResult,
   UpdateModelProfileInput,

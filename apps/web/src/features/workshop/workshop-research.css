@@ -1,0 +1,247 @@
+.wr7-research-popover {
+  right: auto;
+  left: 106px;
+  width: auto;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.wr5-composer-tool.is-researching {
+  color: #176455;
+  background: #e8f3ee;
+  border-color: #9cc7ba;
+}
+
+.wr7-research-sources {
+  display: grid;
+  width: min(380px, calc(100vw - 28px));
+  max-height: min(480px, calc(100vh - 190px));
+  overflow: hidden;
+  color: #24302d;
+  background: #fbfcfa;
+  border: 1px solid #b8c7c1;
+  border-radius: 6px;
+  box-shadow: 0 16px 40px rgba(32, 45, 42, 0.16);
+}
+
+.wr7-research-sources > header {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 9px;
+  min-height: 52px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #dce4e0;
+}
+
+.wr7-research-sources > header > span:nth-child(2),
+.wr7-research-copy,
+.wr7-evidence-link > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.wr7-research-sources small,
+.wr7-research-copy small,
+.wr7-evidence-link small {
+  color: #63716d;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.wr7-research-mark {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: #176455;
+  background: #e4f0ec;
+  border: 1px solid #c5ddd5;
+  border-radius: 5px;
+}
+
+.wr7-research-list {
+  min-height: 72px;
+  overflow: auto;
+  padding: 6px;
+}
+
+.wr7-research-option {
+  display: grid;
+  grid-template-columns: 18px 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.wr7-research-option:hover {
+  background: #f0f5f2;
+}
+
+.wr7-research-option.is-selected {
+  background: #edf6f2;
+  border-color: #b6d8cc;
+}
+
+.wr7-research-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.wr7-research-option:has(input:focus-visible) {
+  outline: 2px solid #16715f;
+  outline-offset: -2px;
+}
+
+.wr7-research-option:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.wr7-research-check {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  color: #fff;
+  background: #fff;
+  border: 1px solid #8fa19b;
+  border-radius: 3px;
+}
+
+.wr7-research-option.is-selected .wr7-research-check {
+  background: #176455;
+  border-color: #176455;
+}
+
+.wr7-research-notice,
+.wr7-research-empty,
+.wr7-research-sources > footer {
+  margin: 0;
+  padding: 8px 12px;
+  color: #63716d;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.wr7-research-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border-bottom: 1px solid #e3e9e6;
+}
+
+.wr7-research-notice.is-warning {
+  color: #805b18;
+  background: #fff8e8;
+}
+
+.wr7-research-notice.is-error {
+  color: #9a342f;
+  background: #fff1ef;
+}
+
+.wr7-research-sources > footer {
+  border-top: 1px solid #dce4e0;
+  background: #f5f8f6;
+}
+
+.wr7-spin {
+  animation: wr7-spin 0.8s linear infinite;
+}
+
+@keyframes wr7-spin {
+  to { transform: rotate(360deg); }
+}
+
+.wr7-evidence {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #cfddd8;
+}
+
+.wr7-evidence > header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #2d5f55;
+  font-size: 11px;
+}
+
+.wr7-evidence > header span {
+  color: #6b7975;
+  font-weight: 400;
+}
+
+.wr7-evidence-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.wr7-evidence-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 8px;
+  width: min(280px, 100%);
+  min-height: 38px;
+  padding: 5px 8px;
+  color: #24302d;
+  text-align: left;
+  background: #f3f8f5;
+  border: 1px solid #c9dbd4;
+  border-radius: 4px;
+}
+
+.wr7-evidence-link:not(:disabled):hover {
+  background: #e8f3ee;
+  border-color: #8ebcae;
+}
+
+.wr7-evidence-link:disabled {
+  color: #707a77;
+  cursor: not-allowed;
+  background: #f4f4f2;
+  border-color: #d9d9d5;
+}
+
+.wr7-evidence-link strong,
+.wr7-evidence-link small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wr7-evidence-link em,
+.wr7-evidence > footer {
+  color: #8a514a;
+  font-size: 10px;
+  font-style: normal;
+}
+
+@media (max-width: 680px) {
+  .wr7-research-popover {
+    left: 10px;
+  }
+
+  .wr7-research-sources {
+    width: calc(100vw - 20px);
+    max-height: min(420px, calc(100vh - 150px));
+  }
+
+  .wr7-evidence-links,
+  .wr7-evidence-link {
+    width: 100%;
+  }
+}

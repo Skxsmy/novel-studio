@@ -21,6 +21,7 @@ import {
   type ResearchSourceLocation,
   type ResearchSourceMediaType,
   type ResearchSourceView,
+  type ResearchToolAuditCitation,
   type ResearchVectorIndexState,
 } from "@novel-studio/contracts";
 import {
@@ -45,6 +46,7 @@ import { ApiError, api } from "../../api";
 import "./reference-research.css";
 
 interface ReferenceResearchWorkspaceProps {
+  requestedCitation?: ResearchToolAuditCitation | null;
   seriesId: string | null;
 }
 
@@ -262,7 +264,7 @@ function sortDatabases(databases: ResearchDatabaseSummary[]): ResearchDatabaseSu
   );
 }
 
-export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorkspaceProps) {
+export function ReferenceResearchWorkspace({ requestedCitation = null, seriesId }: ReferenceResearchWorkspaceProps) {
   const [databases, setDatabases] = useState<ResearchDatabaseSummary[]>([]);
   const [databaseIssues, setDatabaseIssues] = useState<ResearchDatabaseIssue[]>([]);
   const [databaseListResolved, setDatabaseListResolved] = useState(false);
@@ -315,6 +317,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
   const [sharedSpaceDeclared, setSharedSpaceDeclared] = useState(false);
   const [pendingSearchResult, setPendingSearchResult] = useState<PendingResearchResult | null>(null);
   const [highlightedPassage, setHighlightedPassage] = useState<HighlightedResearchPassage | null>(null);
+  const [pendingExternalCitation, setPendingExternalCitation] = useState<ResearchToolAuditCitation | null>(null);
   const [isCreatingDatabase, setIsCreatingDatabase] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [databaseDialogOpen, setDatabaseDialogOpen] = useState(false);
@@ -331,6 +334,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createNameRef = useRef<HTMLInputElement>(null);
   const webUrlRef = useRef<HTMLInputElement>(null);
+  const openedCitationKeyRef = useRef<string | null>(null);
 
   const sourceIsDirty = !sameValue(sourceDraft, savedSourceDraft);
   const databaseIsDirty = !sameValue(databaseDraft, savedDatabaseDraft);
@@ -399,6 +403,36 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setDatabaseDraft(null);
     setSavedDatabaseDraft(null);
   }, [seriesId]);
+
+  useEffect(() => {
+    if (!requestedCitation || !databaseListResolved) return;
+    const key = [
+      requestedCitation.researchDatabaseId,
+      requestedCitation.sourceId,
+      requestedCitation.sourceRevision,
+      requestedCitation.blockId,
+      requestedCitation.chunkHash,
+    ].join(":");
+    if (openedCitationKeyRef.current === key) return;
+    if (sourceIsDirty || isSavingSource) {
+      setError("Save or discard the open source changes before opening Workshop evidence.");
+      return;
+    }
+    if (!databases.some((database) => database.database.id === requestedCitation.researchDatabaseId)) {
+      openedCitationKeyRef.current = key;
+      setError("The Research Database for this Workshop citation is no longer available.");
+      return;
+    }
+    openedCitationKeyRef.current = key;
+    setPendingExternalCitation(requestedCitation);
+    setSelectedDatabaseId(requestedCitation.researchDatabaseId);
+    setSelectedSourceId(requestedCitation.sourceId);
+    setRailOpen(false);
+    setSearchResults(null);
+    setHighlightedPassage(null);
+    setNotice("");
+    setError("");
+  }, [databaseListResolved, databases, isSavingSource, requestedCitation, sourceIsDirty]);
 
   useEffect(() => {
     setSources([]);
@@ -617,6 +651,57 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
       setSelectedSourceId(pendingSearchResult.result.sourceId);
     }
   }, [pendingSearchResult, selectedDatabaseId, sourceShelfDatabaseId, sources]);
+
+  useEffect(() => {
+    if (
+      !pendingExternalCitation
+      || pendingExternalCitation.researchDatabaseId !== selectedDatabaseId
+      || sourceShelfDatabaseId !== selectedDatabaseId
+    ) return;
+    if (sources.some((document) => document.source.id === pendingExternalCitation.sourceId)) {
+      setSelectedSourceId(pendingExternalCitation.sourceId);
+    } else if (!isLoadingSources) {
+      setPendingExternalCitation(null);
+      setError("The Source for this Workshop citation is no longer available.");
+    }
+  }, [isLoadingSources, pendingExternalCitation, selectedDatabaseId, sourceShelfDatabaseId, sources]);
+
+  useEffect(() => {
+    if (
+      !pendingExternalCitation
+      || !detail
+      || detail.source.id !== pendingExternalCitation.sourceId
+      || selectedDatabaseId !== pendingExternalCitation.researchDatabaseId
+    ) return;
+    let cancelled = false;
+    setIsLoadingContentPage(true);
+    void api.research.getSourceContentPageForBlock(
+      pendingExternalCitation.researchDatabaseId,
+      pendingExternalCitation.sourceId,
+      pendingExternalCitation.blockId,
+    ).then((page) => {
+      if (cancelled) return;
+      setContentPage(page);
+      setHighlightedPassage({
+        blockId: pendingExternalCitation.blockId,
+        passageText: "",
+        query: "",
+      });
+      setNotice(`Opened ${formatLocation(pendingExternalCitation.location)} from Workshop evidence.`);
+      setPendingExternalCitation(null);
+      setError("");
+    }).catch((reason) => {
+      if (!cancelled) {
+        setPendingExternalCitation(null);
+        setError(errorMessage(reason, "The cited Research passage could not be opened."));
+      }
+    }).finally(() => {
+      if (!cancelled) setIsLoadingContentPage(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail, pendingExternalCitation, selectedDatabaseId]);
 
   useEffect(() => {
     if (!highlightedPassage || !contentPage?.blocks.some((block) => block.id === highlightedPassage.blockId)) return;

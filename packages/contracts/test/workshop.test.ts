@@ -59,7 +59,8 @@ describe("M5 Workshop contracts", () => {
       updatedAt: now,
     });
     expect(session.status).toBe("active");
-    expect(session.schemaVersion).toBe(2);
+    expect(session.schemaVersion).toBe(3);
+    expect(session.activeResearchDatabaseIds).toEqual([]);
     expect(session.generalChatSystemPrompt).toBe(DEFAULT_WORKSHOP_GENERAL_CHAT_SYSTEM_PROMPT);
 
     const message = WorkshopMessageSchema.parse({
@@ -145,7 +146,11 @@ describe("M5 Workshop contracts", () => {
       createdAt: now,
       updatedAt: now,
     });
-    expect(migratedAgent).toMatchObject({ schemaVersion: 2, generalChatSystemPrompt: null });
+    expect(migratedAgent).toMatchObject({
+      schemaVersion: 3,
+      generalChatSystemPrompt: null,
+      activeResearchDatabaseIds: [],
+    });
 
     const chat = WorkshopSessionSchema.parse({
       schemaVersion: 2,

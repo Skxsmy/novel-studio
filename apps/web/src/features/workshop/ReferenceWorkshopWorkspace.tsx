@@ -18,6 +18,8 @@ import type {
   ProviderModelDescriptor,
   ProviderReasoningControl,
   ProposalDocument,
+  ResearchDatabaseSummary,
+  ResearchToolAuditCitation,
   ReasoningConfiguration,
   SceneDocument,
   SeriesDetail,
@@ -31,8 +33,10 @@ import type {
   WorkshopConversationKind,
   WorkshopMessage,
   WorkshopMessageAttachment,
+  WorkshopResearchEvidence,
   WorkshopSession,
 } from "@novel-studio/contracts";
+import { Database } from "lucide-react";
 import { normalizeReasoningConfigurationForModel } from "@novel-studio/contracts";
 
 import { ApiError, api } from "../../api";
@@ -41,6 +45,11 @@ import { uiText } from "../../app/uiText";
 import { ReferenceSurface } from "../../ui/ReferenceSurface";
 import { categoryLabel } from "../codex/codexViewModel";
 import { isEligibleWorkshopBranchSource, workshopGeneralChatTurn } from "./workshopConversation";
+import { WorkshopResearchEvidence as WorkshopResearchEvidenceView } from "./WorkshopResearchEvidence";
+import {
+  WorkshopResearchSources,
+  type WorkshopResearchSupport,
+} from "./WorkshopResearchSources";
 import {
   attachmentStatusLabel,
   codexEntryMentionedInText,
@@ -52,6 +61,7 @@ import {
   type ComposerAttachment,
 } from "./workshopViewModel";
 import "./reference-workshop.css";
+import "./workshop-research.css";
 
 type SessionFilter = "all" | "chat" | "agent" | "archived";
 type ContextTab = "story" | "structure" | "codex" | "files";
@@ -102,6 +112,7 @@ export interface ReferenceWorkshopWorkspaceProps {
   onActiveSessionChange?: (sessionId: string | null) => void;
   onOpenProviderSettings?: (sessionId: string | null) => void;
   onOpenProposal?: (proposalId: string) => void;
+  onOpenResearchCitation?: (citation: ResearchToolAuditCitation) => void;
   requestedSessionId?: string | null;
   selectedMessageId?: string | null;
   session?: ProjectSessionState;
@@ -229,6 +240,7 @@ function ConnectedReferenceWorkshopWorkspace({
   onActiveSessionChange,
   onOpenProviderSettings,
   onOpenProposal,
+  onOpenResearchCitation,
   requestedSessionId = null,
   selectedMessageId = null,
   session: projectSession,
@@ -247,6 +259,14 @@ function ConnectedReferenceWorkshopWorkspace({
   const [codexDetailTypes, setCodexDetailTypes] = useState<CodexDetailTypeDocument[]>([]);
   const [codexEntries, setCodexEntries] = useState<CodexEntryDocument[]>([]);
   const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
+  const [researchDatabases, setResearchDatabases] = useState<ResearchDatabaseSummary[]>([]);
+  const [researchEvidence, setResearchEvidence] = useState<WorkshopResearchEvidence[]>([]);
+  const [researchListLoading, setResearchListLoading] = useState(false);
+  const [researchListError, setResearchListError] = useState<string | null>(null);
+  const [researchOpen, setResearchOpen] = useState(false);
+  const [researchSaving, setResearchSaving] = useState(false);
+  const [researchSupport, setResearchSupport] = useState<WorkshopResearchSupport>("unknown");
+  const [researchActivityBySession, setResearchActivityBySession] = useState<Record<string, Extract<WorkshopCallStreamEvent, { type: "research-activity" }>>>({});
   const [selectedModelProfileId, setSelectedModelProfileId] = useState<string | null>(null);
   const [pendingReasoningPreferences, setPendingReasoningPreferences] = useState<Record<string, ReasoningConfiguration>>({});
   const [selectedModelDescriptor, setSelectedModelDescriptor] = useState<ProviderModelDescriptor | null>(null);
@@ -372,6 +392,10 @@ function ConnectedReferenceWorkshopWorkspace({
     () => new Map(attachments.map((attachment) => [attachment.id, attachment])),
     [attachments],
   );
+  const researchEvidenceMap = useMemo(
+    () => new Map(researchEvidence.map((evidence) => [evidence.assistantMessageId, evidence])),
+    [researchEvidence],
+  );
   const filteredSessions = useMemo(() => {
     const query = sessionSearch.trim().toLocaleLowerCase("en-US");
     return sessions.filter((item) => {
@@ -385,6 +409,7 @@ function ConnectedReferenceWorkshopWorkspace({
     });
   }, [sessionFilter, sessionSearch, sessions]);
   const activeOperation = activeSessionId ? operationsBySession[activeSessionId] ?? null : null;
+  const activeResearchActivity = activeSessionId ? researchActivityBySession[activeSessionId] ?? null : null;
   const sendState: SendState = activeOperation?.state ?? "idle";
   const backgroundSessionBusy = Boolean(activeSessionId && backgroundActivityBySession[activeSessionId]);
   const modalOpen = Boolean(sessionDialog || toolReviewMessageId || codexDraftResolution);
@@ -416,6 +441,7 @@ function ConnectedReferenceWorkshopWorkspace({
     setNewMenuOpen(false);
     setSessionContextMenu(null);
     setContextOpen(false);
+    setResearchOpen(false);
     setContextList(null);
     setContextEntryFilter(null);
     setModelMenuOpen(false);
@@ -633,6 +659,7 @@ function ConnectedReferenceWorkshopWorkspace({
     setReadySessionKey(null);
     setLoadingSession(Boolean(sessionId));
     setMessages([]);
+    setResearchEvidence([]);
     setBasket(null);
     setAttachments([]);
     setAgentRuns([]);
@@ -660,6 +687,22 @@ function ConnectedReferenceWorkshopWorkspace({
   function updateSessionRecord(updated: WorkshopSession) {
     if (sessionsSeriesIdRef.current !== updated.seriesId) return;
     replaceSessions((current) => current.map((item) => item.id === updated.id ? updated : item));
+  }
+
+  async function updateResearchDatabases(databaseIds: string[]) {
+    if (!seriesId || !activeSession || activeSession.status === "archived" || researchSaving) return;
+    setResearchSaving(true);
+    setResearchListError(null);
+    try {
+      const updated = await api.workshop.updateSession(seriesId, activeSession.id, {
+        activeResearchDatabaseIds: databaseIds,
+      });
+      updateSessionRecord(updated);
+    } catch (caught) {
+      setResearchListError(apiErrorMessage(caught));
+    } finally {
+      setResearchSaving(false);
+    }
   }
 
   function updateSessionMessages(
@@ -718,6 +761,7 @@ function ConnectedReferenceWorkshopWorkspace({
       setBasket(detail.basket);
       setAttachments(detail.attachments ?? []);
       setAgentRuns(detail.agentRuns?.runs ?? []);
+      setResearchEvidence(detail.researchEvidence ?? []);
       setProposals(inbox.items);
       setCodexCategories(categories);
       setCodexDetailTypes(detailTypes);
@@ -812,6 +856,7 @@ function ConnectedReferenceWorkshopWorkspace({
     setActiveSessionId(null);
     onActiveSessionChange?.(null);
     setMessages([]);
+    setResearchEvidence([]);
     setAttachments([]);
     setDraftAttachments([]);
     setAgentRuns([]);
@@ -862,6 +907,33 @@ function ConnectedReferenceWorkshopWorkspace({
   }, [modelProfilesRevision, seriesId]);
 
   useEffect(() => {
+    if (!seriesId) {
+      setResearchDatabases([]);
+      setResearchListError(null);
+      setResearchListLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setResearchListLoading(true);
+    setResearchListError(null);
+    void api.research.listDatabases()
+      .then((result) => {
+        if (cancelled) return;
+        setResearchDatabases(result.databases);
+        setResearchListError(result.issues.length ? text.research.unavailableSelection(result.issues.length) : null);
+      })
+      .catch((caught) => {
+        if (!cancelled) setResearchListError(apiErrorMessage(caught));
+      })
+      .finally(() => {
+        if (!cancelled) setResearchListLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [seriesId]);
+
+  useEffect(() => {
     if (!requestedSessionId || requestedSessionId === activeSessionIdRef.current) return;
     if (sessions.some((item) => item.id === requestedSessionId)) activateSession(requestedSessionId);
     // The explicit return target is owned by the app shell and is only applied when it exists in this Series.
@@ -892,6 +964,25 @@ function ConnectedReferenceWorkshopWorkspace({
           setDescriptorProfileId(null);
           setDescriptorLoading(false);
         }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedModelProfile]);
+
+  useEffect(() => {
+    if (!selectedModelProfile) {
+      setResearchSupport("unknown");
+      return;
+    }
+    let cancelled = false;
+    setResearchSupport("loading");
+    void api.ai.getToolCapability(selectedModelProfile.id)
+      .then((capability) => {
+        if (!cancelled) setResearchSupport(capability.nativeToolCalls ? "supported" : "unsupported");
+      })
+      .catch(() => {
+        if (!cancelled) setResearchSupport("unknown");
       });
     return () => {
       cancelled = true;
@@ -1366,6 +1457,17 @@ function ConnectedReferenceWorkshopWorkspace({
     clearLiveMessages(sessionId);
     bindAttachmentsToMessage(result.authorMessage);
     updateSessionFromMessage(result.assistantMessage);
+    if (result.researchEvidence && activeSessionIdRef.current === sessionId) {
+      setResearchEvidence((current) => [
+        ...current.filter((evidence) => evidence.id !== result.researchEvidence!.id),
+        result.researchEvidence!,
+      ]);
+    }
+    setResearchActivityBySession((current) => {
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
     if (result.agentRun && activeSessionIdRef.current === sessionId) {
       setAgentRuns((current) => [
         ...current.filter((item) => item.run.id !== result.agentRun!.run.id),
@@ -1596,6 +1698,11 @@ function ConnectedReferenceWorkshopWorkspace({
             acceptAssistantStart(sendingSession.id, operation.id, event);
           } else if (event.type === "reasoning-delta" || event.type === "delta") {
             acceptScopedDelta(sendingSession.id, operation.id, event);
+          } else if (event.type === "research-activity") {
+            setResearchActivityBySession((current) => ({
+              ...current,
+              [sendingSession.id]: event,
+            }));
           } else if (event.type === "assistant-message") {
             updateSessionMessages(sendingSession.id, (current) => replaceMessage(current, event.message.id, event.message));
           } else if (event.type === "error") {
@@ -1629,6 +1736,11 @@ function ConnectedReferenceWorkshopWorkspace({
         await reconcileOperationFailure(seriesId, seriesGeneration, operation);
       }
     } finally {
+      setResearchActivityBySession((current) => {
+        const next = { ...current };
+        delete next[sendingSession.id];
+        return next;
+      });
       const current = operationsBySessionRef.current[sendingSession.id];
       if (current?.id === operation.id && (terminal || current.state !== "stopping")) {
         setSessionOperation(sendingSession.id, null);
@@ -2306,6 +2418,7 @@ function ConnectedReferenceWorkshopWorkspace({
       const messageActionCount = (canResend ? 3 : 0) + (canBranch ? 1 : 0);
       const historyActionsDisabled = sendState !== "idle" || backgroundSessionBusy;
       const collapsed = collapsedReasoningIds.has(message.id);
+      const evidence = message.role === "assistant" ? researchEvidenceMap.get(message.id) ?? null : null;
       return (
         <article className={`wr5-message${message.role === "author" ? " author" : ""}`} data-message-id={message.id} data-status={messageStatus(message)} key={message.id}>
           <div className="wr5-message-avatar">{message.role === "author" ? "YOU" : message.role === "assistant" ? "AI" : message.role.slice(0, 2).toUpperCase()}</div>
@@ -2329,6 +2442,11 @@ function ConnectedReferenceWorkshopWorkspace({
               const proposal = proposalMap.get(proposalId);
               return <button className="wr5-button" disabled={!proposal || !onOpenProposal} key={proposalId} onClick={() => onOpenProposal?.(proposalId)} type="button">{proposal ? proposal.proposal.title : text.proposals.unavailable}</button>;
             })}</div> : null}
+            {evidence ? <WorkshopResearchEvidenceView
+              availableDatabaseIds={researchDatabases.map((database) => database.database.id)}
+              evidence={evidence}
+              {...(onOpenResearchCitation ? { onOpenCitation: onOpenResearchCitation } : {})}
+            /> : null}
             {message.status === "failed" ? <p className="wr5-message-error">{message.errorMessage ?? text.labels.assistantFailed}</p> : null}
             {message.status === "cancelled" ? <p className="wr5-message-cancelled">{text.statusLabels.cancelled}</p> : null}
             {hasActions ? <div className="wr5-message-actions" data-wr5-floating>
@@ -2362,6 +2480,7 @@ function ConnectedReferenceWorkshopWorkspace({
         <div className="wr5-thread-scroll" ref={threadScrollRef}><section className="wr5-thread">{loadingSession ? <div className="wr5-empty-state"><p>{text.labels.loadingSession}</p></div> : messages.length ? messages.map(renderMessage) : <article className="wr5-empty-state"><p>{text.labels.noMessages}</p></article>}{latestAgentRun && ["failed", "interrupted"].includes(latestAgentRun.run.status) ? <div className="wr5-run-state"><h3>{text.agentRun.status[latestAgentRun.run.status]}</h3>{!archived ? <div className="wr5-run-actions"><button className="wr5-button primary" disabled={busyMessageId === latestAgentRun.run.id || sendState !== "idle" || backgroundSessionBusy} onClick={() => void retryAgentRun(latestAgentRun)} type="button">{text.agentRun.retry}</button><button className="wr5-button danger" disabled={busyMessageId === latestAgentRun.run.id || sendState !== "idle" || backgroundSessionBusy} onClick={() => void abandonAgentRun(latestAgentRun)} type="button">{text.agentRun.abandon}</button></div> : null}</div> : null}</section></div>
         <footer className="wr5-composer-shell"><div className="wr5-composer"><div className="wr5-context-line">{basket?.items.map((item) => <span className={`wr5-context-chip${item.note === LINKED_CODEX_NOTE ? " linked" : ""}`} key={item.id}>{item.label}</span>)}</div><div className="wr5-composer-box"><div className="wr5-composer-toolbar"><div className="wr5-composer-tools">
           <button aria-expanded={contextOpen} className="wr5-composer-tool" disabled={archived || !sessionReady} onClick={() => { setContextOpen((current) => !current); setModelMenuOpen(false); setRuntimeOptionsOpen(false); }} type="button"><Icon><path d="M5 6h14M5 12h14M5 18h8" /></Icon>{text.contextTrigger} <strong>{basket?.items.length ?? 0}</strong></button>
+          <button aria-expanded={researchOpen} className={`wr5-composer-tool${activeResearchActivity?.status === "started" ? " is-researching" : ""}`} disabled={archived || !sessionReady || sendState !== "idle" || backgroundSessionBusy} onClick={() => { setResearchOpen((current) => !current); setContextOpen(false); setModelMenuOpen(false); setRuntimeOptionsOpen(false); }} type="button"><Database aria-hidden="true" size={15} />{activeResearchActivity?.status === "started" ? text.research.activity[activeResearchActivity.phase] : text.research.trigger} <strong>{currentSession.activeResearchDatabaseIds.length}</strong></button>
           <button aria-expanded={modelMenuOpen} className="wr5-composer-tool" disabled={archived || !sessionReady} onClick={() => { setModelMenuOpen((current) => !current); setContextOpen(false); setRuntimeOptionsOpen(false); }} title={!selectedModelProfile ? text.labels.configureModelToSend : text.labels.chooseModel} type="button"><Icon><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M3 12h3M18 12h3" /></Icon><span>{selectedModelProfile?.model ?? text.labels.modelProfileEmpty}</span></button>
           <button aria-expanded={runtimeOptionsOpen} aria-label={text.labels.runtimeOptions} className="wr5-composer-tool wr5-icon-tool" disabled={!sessionReady || !descriptorReady || archived} onClick={() => { setRuntimeOptionsOpen((current) => !current); setContextOpen(false); setModelMenuOpen(false); }} title={!selectedModelProfile ? text.labels.configureModelToSend : descriptorLoading ? text.labels.modelListLoading : !descriptorReady ? text.labels.modelListUnavailable : text.labels.runtimeOptions} type="button"><Icon><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6" /></Icon></button>
           <button aria-label={text.labels.providerSettings} className="wr5-composer-tool wr5-icon-tool" disabled={archived || !onOpenProviderSettings} onClick={() => onOpenProviderSettings?.(currentSession.id)} title={onOpenProviderSettings ? text.labels.providerSettings : text.labels.modelListUnavailable} type="button"><Icon><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.5 1A8 8 0 0 0 14.4 6L14 3h-4l-.4 3a8 8 0 0 0-2 .9l-2.5-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.5-1a8 8 0 0 0 2 .9l.4 3h4l.4-3a8 8 0 0 0 2-.9l2.5 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z" /></Icon></button>
@@ -2369,7 +2488,17 @@ function ConnectedReferenceWorkshopWorkspace({
           {draftAttachments.length ? <div className="wr5-draft-attachments">{draftAttachments.map((attachment) => <span className={`wr5-draft-attachment is-${attachment.parseStatus}`} key={attachment.id}>{attachment.fileName} · {attachmentStatusLabel(attachment.parseStatus, text)}<button aria-label={`${text.labels.removeAttachment}: ${attachment.fileName}`} onClick={() => void removeDraftAttachment(attachment)} type="button">×</button></span>)}</div> : null}
           {!archived && sessionReady && !selectedModelProfile ? <p className="wr5-model-required" id="wr5-model-required" role="status">{text.labels.configureModelToSend}</p> : null}
           <div className="wr5-composer-body"><textarea aria-describedby={!selectedModelProfile ? "wr5-model-required" : undefined} aria-label={text.labels.messageInput} disabled={archived || !sessionReady} onChange={(event) => updateComposerDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !(event.nativeEvent as { isComposing?: boolean }).isComposing) { event.preventDefault(); if (canSend) void sendMessage(); } }} placeholder={archived ? text.statusLabels.archived : text.inputPlaceholder} value={composer} /><div className="wr5-send-actions"><button className={`wr5-button wr5-merged-send ${sendState === "idle" ? "primary" : sendState === "active" ? "danger" : "is-busy"}`} disabled={sendState === "idle" ? !canSend : sendState === "stopping"} onClick={() => sendState === "idle" ? void sendMessage() : void stopSending()} title={sendState === "idle" && !modelCallReady ? text.labels.configureModelToSend : undefined} type="button">{sendState === "sending" || sendState === "stopping" ? <span aria-hidden="true" className="wr5-send-spinner" /> : null}<span>{operationLabel}</span></button></div></div>
-        </div>{renderContextPopover()}{modelMenuOpen ? <section aria-label={text.labels.chooseModel} className="wr5-popover wr5-agent-popover is-open" data-wr5-floating role="dialog"><div className="wr5-model-list">{activeModelProfiles.length ? activeModelProfiles.map((profile) => <label className="wr5-model" key={profile.id}><input checked={selectedModelProfile?.id === profile.id} name="wr5-model" onChange={() => void selectModel(profile.id)} type="radio" /><strong>{profile.model}</strong></label>) : <div className="wr5-model-empty"><strong>{text.labels.modelProfileEmpty}</strong><p>{text.labels.configureModelToSend}</p><button className="wr5-button primary" disabled={!onOpenProviderSettings} onClick={() => { setModelMenuOpen(false); onOpenProviderSettings?.(currentSession.id); }} type="button">{text.labels.openModelConnections}</button></div>}</div></section> : null}{runtimeOptionsOpen ? <section aria-label={text.labels.runtimeOptions} className="wr5-popover wr5-agent-popover wr5-runtime-popover is-open" data-wr5-floating role="dialog"><div className="wr5-agent-options"><label className="wr5-agent-option"><input checked={useStreamingResponses} onChange={(event) => setUseStreamingResponses(event.currentTarget.checked)} type="checkbox" /> {text.labels.streamResponsesFull}</label>{renderReasoningControls()}</div></section> : null}</div></footer>
+        </div>{renderContextPopover()}{researchOpen ? <div className="wr5-popover wr7-research-popover is-open" data-wr5-floating><WorkshopResearchSources
+          activeDatabaseIds={currentSession.activeResearchDatabaseIds}
+          currentSeriesId={currentSeries.manifest.id}
+          databases={researchDatabases}
+          disabled={archived || sendState !== "idle" || backgroundSessionBusy}
+          error={researchListError}
+          loading={researchListLoading}
+          onChange={(databaseIds) => void updateResearchDatabases(databaseIds)}
+          saving={researchSaving}
+          support={researchSupport}
+        /></div> : null}{modelMenuOpen ? <section aria-label={text.labels.chooseModel} className="wr5-popover wr5-agent-popover is-open" data-wr5-floating role="dialog"><div className="wr5-model-list">{activeModelProfiles.length ? activeModelProfiles.map((profile) => <label className="wr5-model" key={profile.id}><input checked={selectedModelProfile?.id === profile.id} name="wr5-model" onChange={() => void selectModel(profile.id)} type="radio" /><strong>{profile.model}</strong></label>) : <div className="wr5-model-empty"><strong>{text.labels.modelProfileEmpty}</strong><p>{text.labels.configureModelToSend}</p><button className="wr5-button primary" disabled={!onOpenProviderSettings} onClick={() => { setModelMenuOpen(false); onOpenProviderSettings?.(currentSession.id); }} type="button">{text.labels.openModelConnections}</button></div>}</div></section> : null}{runtimeOptionsOpen ? <section aria-label={text.labels.runtimeOptions} className="wr5-popover wr5-agent-popover wr5-runtime-popover is-open" data-wr5-floating role="dialog"><div className="wr5-agent-options"><label className="wr5-agent-option"><input checked={useStreamingResponses} onChange={(event) => setUseStreamingResponses(event.currentTarget.checked)} type="checkbox" /> {text.labels.streamResponsesFull}</label>{renderReasoningControls()}</div></section> : null}</div></footer>
       </main>
     </>;
   }

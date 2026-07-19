@@ -131,6 +131,7 @@ function callResult(
     estimatedUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
     actualUsage: null,
     agentRun: null,
+    researchEvidence: null,
   };
 }
 
@@ -1236,6 +1237,7 @@ describe("NS-514 A29-A34 connected Workshop workspace", () => {
         estimatedUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
         actualUsage: null,
         agentRun: null,
+        researchEvidence: null,
       };
       return { operationId, result };
     });

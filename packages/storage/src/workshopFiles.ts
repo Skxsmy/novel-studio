@@ -14,7 +14,14 @@ import {
   WorkshopMessageRoutingEnvelopeSchema,
   WorkshopMessageSchema,
   RollbackWorkshopAuthorityV2MigrationResultSchema,
+  RollbackWorkshopSessionV3MigrationResultSchema,
+  WorkshopResearchEvidenceSchema,
+  WorkshopSessionAuthoritySchema,
+  WorkshopSessionListResultSchema,
   WorkshopSessionSchema,
+  WorkshopSessionV3MigrationBackupSchema,
+  WorkshopSessionV3MigrationResultSchema,
+  WorkshopSessionV3Schema,
   type WorkshopAgentRun,
   type WorkshopAgentRunDiagnostic,
   type WorkshopAgentRunDocument,
@@ -26,6 +33,11 @@ import {
   type WorkshopMessage,
   type WorkshopSession,
   type RollbackWorkshopAuthorityV2MigrationResult,
+  type RollbackWorkshopSessionV3MigrationResult,
+  type WorkshopResearchEvidence,
+  type WorkshopSessionListResult,
+  type WorkshopSessionV3MigrationBackup,
+  type WorkshopSessionV3MigrationResult,
 } from "@novel-studio/contracts";
 import { StorageError } from "./errors.js";
 import { runSeriesFileTransaction } from "./fileTransactions.js";
@@ -45,6 +57,7 @@ const MESSAGES_DIR = "messages";
 const ATTACHMENTS_DIR = "attachments";
 const CONTEXT_BASKETS_DIR = "context-baskets";
 const AGENT_RUNS_DIR = "agent-runs";
+const RESEARCH_EVIDENCE_DIR = "research-evidence";
 const MIGRATIONS_DIR = "migrations";
 
 function workshopRoot(seriesRoot: string): string {
@@ -75,6 +88,10 @@ function agentRunsRoot(seriesRoot: string): string {
   return assertInside(seriesRoot, path.join(workshopRoot(seriesRoot), AGENT_RUNS_DIR));
 }
 
+function researchEvidenceRoot(seriesRoot: string): string {
+  return assertInside(seriesRoot, path.join(workshopRoot(seriesRoot), RESEARCH_EVIDENCE_DIR));
+}
+
 function migrationsRoot(seriesRoot: string): string {
   return assertInside(seriesRoot, path.join(workshopRoot(seriesRoot), MIGRATIONS_DIR));
 }
@@ -83,6 +100,13 @@ function workshopAuthorityMigrationBackupPath(seriesRoot: string, migrationId: s
   return assertInside(
     seriesRoot,
     path.join(migrationsRoot(seriesRoot), `adr-0017-${migrationId}.json`),
+  );
+}
+
+function workshopSessionV3MigrationBackupPath(seriesRoot: string, migrationId: string): string {
+  return assertInside(
+    seriesRoot,
+    path.join(migrationsRoot(seriesRoot), `adr-0023-session-${migrationId}.json`),
   );
 }
 
@@ -110,6 +134,13 @@ export function workshopAgentRunPath(seriesRoot: string, runId: string): string 
   return assertInside(seriesRoot, path.join(agentRunsRoot(seriesRoot), `${runId}.json`));
 }
 
+export function workshopResearchEvidencePath(seriesRoot: string, assistantMessageId: string): string {
+  return assertInside(
+    seriesRoot,
+    path.join(researchEvidenceRoot(seriesRoot), `${assistantMessageId}.json`),
+  );
+}
+
 async function listJsonFiles(directory: string): Promise<string[]> {
   let entries;
   try {
@@ -130,6 +161,16 @@ async function readSessionFile(filePath: string): Promise<WorkshopSession> {
     filePath,
     (value) => WorkshopSessionSchema.parse(value),
     "Workshop session file",
+  );
+  return document.data;
+}
+
+async function readResearchEvidenceFile(filePath: string): Promise<WorkshopResearchEvidence> {
+  const document = await readJsonAuthorityFile(
+    path.dirname(filePath),
+    filePath,
+    (value) => WorkshopResearchEvidenceSchema.parse(value),
+    "Workshop Research evidence file",
   );
   return document.data;
 }
@@ -473,9 +514,190 @@ export async function rollbackWorkshopAuthorityV2Migration(
   });
 }
 
+export async function migrateWorkshopSessionsToV3(
+  seriesRoot: string,
+  seriesId: string,
+): Promise<WorkshopSessionV3MigrationResult> {
+  return runSeriesFileTransaction(seriesRoot, async (commit) => {
+    const migrationId = randomUUID();
+    const documents: WorkshopSessionV3MigrationBackup["documents"] = [];
+    const mutations: Array<{ targetPath: string; content: string }> = [];
+    const seenSessionIds = new Set<string>();
+
+    for (const filePath of await listJsonFiles(sessionsRoot(seriesRoot))) {
+      const raw = await readFile(filePath, "utf8");
+      const authority = parseJsonAuthorityText(
+        raw,
+        (value) => WorkshopSessionAuthoritySchema.parse(value),
+        "Workshop session version 3 migration source",
+      );
+      const fileId = path.basename(filePath, ".json");
+      if (authority.id !== fileId || seenSessionIds.has(authority.id)) {
+        throw new StorageError(
+          "Workshop session migration found an invalid or duplicate identity",
+          "INVALID_DATA",
+          { fileName: path.basename(filePath), sessionId: authority.id },
+        );
+      }
+      seenSessionIds.add(authority.id);
+      if (authority.seriesId !== seriesId) {
+        throw new StorageError(
+          "Workshop session migration found another Series identity",
+          "INVALID_DATA",
+          { sessionId: authority.id },
+        );
+      }
+      if (authority.schemaVersion === 3) continue;
+
+      const migrated = WorkshopSessionSchema.parse(authority);
+      const migratedRaw = serializeJsonAuthority(migrated);
+      documents.push({
+        id: authority.id,
+        sourceSchemaVersion: authority.schemaVersion,
+        relativePath: path.posix.join(WORKSHOP_DIR, SESSIONS_DIR, `${authority.id}.json`),
+        raw,
+        revision: jsonAuthorityRevision(raw),
+        migratedRevision: jsonAuthorityRevision(migratedRaw),
+      });
+      mutations.push({ targetPath: filePath, content: migratedRaw });
+    }
+
+    const result = WorkshopSessionV3MigrationResultSchema.parse({
+      migrationId,
+      migratedSessionIds: documents.map((document) => document.id),
+    });
+    if (documents.length === 0) return result;
+
+    const backup = WorkshopSessionV3MigrationBackupSchema.parse({
+      schemaVersion: 1,
+      migrationId,
+      seriesId,
+      createdAt: new Date().toISOString(),
+      documents,
+    });
+    await mkdir(migrationsRoot(seriesRoot), { recursive: true });
+    await commit([{
+      targetPath: workshopSessionV3MigrationBackupPath(seriesRoot, migrationId),
+      content: serializeJsonAuthority(backup),
+    }, ...mutations]);
+    return result;
+  });
+}
+
+export async function rollbackWorkshopSessionsV3Migration(
+  seriesRoot: string,
+  seriesId: string,
+  migrationId: string,
+): Promise<RollbackWorkshopSessionV3MigrationResult> {
+  return runSeriesFileTransaction(seriesRoot, async (commit) => {
+    const backupPath = workshopSessionV3MigrationBackupPath(seriesRoot, migrationId);
+    let rawBackup: string;
+    try {
+      rawBackup = await readFile(backupPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new StorageError("Workshop session migration backup does not exist", "NOT_FOUND", {
+          migrationId,
+        });
+      }
+      throw error;
+    }
+    const backup = parseJsonAuthorityText(
+      rawBackup,
+      (value) => WorkshopSessionV3MigrationBackupSchema.parse(value),
+      "Workshop session version 3 migration backup",
+    );
+    if (backup.migrationId !== migrationId || backup.seriesId !== seriesId) {
+      throw new StorageError("Workshop session migration backup identity does not match", "INVALID_DATA", {
+        migrationId,
+      });
+    }
+
+    const mutations: Array<{ targetPath: string; content: string }> = [];
+    for (const document of backup.documents) {
+      if (jsonAuthorityRevision(document.raw) !== document.revision) {
+        throw new StorageError("Workshop session migration backup document is invalid", "INVALID_DATA", {
+          migrationId,
+          sessionId: document.id,
+        });
+      }
+      const original = parseJsonAuthorityText(
+        document.raw,
+        (value) => WorkshopSessionAuthoritySchema.parse(value),
+        "Workshop session version 3 rollback source",
+      );
+      if (
+        original.schemaVersion !== document.sourceSchemaVersion ||
+        original.id !== document.id ||
+        original.seriesId !== seriesId ||
+        document.relativePath !== path.posix.join(WORKSHOP_DIR, SESSIONS_DIR, `${document.id}.json`)
+      ) {
+        throw new StorageError("Workshop session rollback source is not exact prior authority", "INVALID_DATA", {
+          migrationId,
+          sessionId: document.id,
+        });
+      }
+      const targetPath = workshopSessionPath(seriesRoot, document.id);
+      let currentRaw: string;
+      try {
+        currentRaw = await readFile(targetPath, "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new StorageError("Workshop session changed after migration", "CONFLICT", {
+            migrationId,
+            sessionId: document.id,
+            currentRevision: null,
+          });
+        }
+        throw error;
+      }
+      if (jsonAuthorityRevision(currentRaw) !== document.migratedRevision) {
+        throw new StorageError("Workshop session changed after migration", "CONFLICT", {
+          migrationId,
+          sessionId: document.id,
+          currentRevision: jsonAuthorityRevision(currentRaw),
+        });
+      }
+      mutations.push({ targetPath, content: document.raw });
+    }
+    await commit(mutations);
+    return RollbackWorkshopSessionV3MigrationResultSchema.parse({
+      migrationId,
+      restoredSessionIds: backup.documents.map((document) => document.id),
+    });
+  });
+}
+
 export async function listWorkshopSessionFiles(seriesRoot: string): Promise<WorkshopSession[]> {
   const sessions = await Promise.all((await listJsonFiles(sessionsRoot(seriesRoot))).map(readSessionFile));
   return sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+export async function listWorkshopSessionFilesWithDiagnostics(
+  seriesRoot: string,
+): Promise<WorkshopSessionListResult> {
+  const sessions: WorkshopSession[] = [];
+  const diagnostics: WorkshopSessionListResult["diagnostics"] = [];
+  for (const filePath of await listJsonFiles(sessionsRoot(seriesRoot))) {
+    try {
+      const session = await readSessionFile(filePath);
+      if (session.id !== path.basename(filePath, ".json")) {
+        throw new StorageError("Workshop session file name does not match its identity", "INVALID_DATA", {
+          fileName: path.basename(filePath),
+          sessionId: session.id,
+        });
+      }
+      sessions.push(session);
+    } catch (error) {
+      diagnostics.push({
+        fileName: path.basename(filePath),
+        code: error instanceof StorageError ? error.code : "UNKNOWN",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  return WorkshopSessionListResultSchema.parse({ sessions, diagnostics });
 }
 
 export async function readWorkshopSessionFile(
@@ -516,6 +738,57 @@ export async function writeWorkshopSessionFile(
     workshopSessionPath(seriesRoot, session.id),
     session,
     (value) => WorkshopSessionSchema.parse(value),
+  );
+  return document.data;
+}
+
+export async function listWorkshopResearchEvidenceFiles(
+  seriesRoot: string,
+  sessionId?: string,
+): Promise<WorkshopResearchEvidence[]> {
+  const evidence = await Promise.all(
+    (await listJsonFiles(researchEvidenceRoot(seriesRoot))).map(readResearchEvidenceFile),
+  );
+  return evidence
+    .filter((record) => !sessionId || record.sessionId === sessionId)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+export async function readWorkshopResearchEvidenceFile(
+  seriesRoot: string,
+  assistantMessageId: string,
+): Promise<WorkshopResearchEvidence> {
+  try {
+    return await readResearchEvidenceFile(
+      workshopResearchEvidencePath(seriesRoot, assistantMessageId),
+    );
+  } catch (error) {
+    if (error instanceof StorageError && error.code === "NOT_FOUND") {
+      throw new StorageError("Workshop Research evidence does not exist", "NOT_FOUND", {
+        assistantMessageId,
+      });
+    }
+    throw error;
+  }
+}
+
+export async function createWorkshopResearchEvidenceFile(
+  seriesRoot: string,
+  rawEvidence: WorkshopResearchEvidence,
+): Promise<WorkshopResearchEvidence> {
+  const evidence = WorkshopResearchEvidenceSchema.parse(rawEvidence);
+  const filePath = workshopResearchEvidencePath(seriesRoot, evidence.assistantMessageId);
+  if (await pathExists(filePath)) {
+    throw new StorageError("Workshop Research evidence already exists", "INVALID_DATA", {
+      assistantMessageId: evidence.assistantMessageId,
+    });
+  }
+  await mkdir(researchEvidenceRoot(seriesRoot), { recursive: true });
+  const document = await writeJsonAuthorityFile(
+    seriesRoot,
+    filePath,
+    evidence,
+    (value) => WorkshopResearchEvidenceSchema.parse(value),
   );
   return document.data;
 }

@@ -33,7 +33,9 @@ import type {
   WorkshopMessageAttachment,
   WorkshopMessage,
   WorkshopMessageSource,
+  WorkshopResearchEvidence,
   WorkshopSession,
+  WorkshopSessionListResult,
 } from "@novel-studio/contracts";
 import type { ApiClient } from "./client";
 
@@ -43,6 +45,7 @@ export interface WorkshopSessionDetail {
   messages: WorkshopMessage[];
   attachments: WorkshopMessageAttachment[];
   agentRuns: WorkshopAgentRunListResult;
+  researchEvidence: WorkshopResearchEvidence[];
 }
 
 export interface WorkshopBranchResult {
@@ -52,8 +55,13 @@ export interface WorkshopBranchResult {
 
 export function createWorkshopApi(client: ApiClient) {
   return {
-    listSessions(seriesId: string) {
-      return client.requestJson<WorkshopSession[]>(`/series/${seriesId}/workshop/sessions`);
+    listSessionRecords(seriesId: string) {
+      return client.requestJson<WorkshopSessionListResult>(`/series/${seriesId}/workshop/sessions`);
+    },
+    async listSessions(seriesId: string) {
+      return (await client.requestJson<WorkshopSessionListResult>(
+        `/series/${seriesId}/workshop/sessions`,
+      )).sessions;
     },
     createSession(seriesId: string, input: CreateWorkshopSessionInput) {
       return client.requestJson<WorkshopSession>(`/series/${seriesId}/workshop/sessions`, {

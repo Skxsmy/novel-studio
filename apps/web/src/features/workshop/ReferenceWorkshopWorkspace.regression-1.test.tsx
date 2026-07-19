@@ -24,7 +24,7 @@ const timestamp = "2026-07-18T02:00:00.000Z";
 
 function workshopSession(): WorkshopSession {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: sessionId,
     seriesId,
     kind: "chat",
@@ -36,6 +36,7 @@ function workshopSession(): WorkshopSession {
     updatedAt: timestamp,
     archivedAt: null,
     lastMessageAt: timestamp,
+    activeResearchDatabaseIds: [],
   };
 }
 
@@ -255,6 +256,7 @@ describe("NS-514 Workshop zero-model and composer regression", () => {
         estimatedUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
         actualUsage: null,
         agentRun: null,
+        researchEvidence: null,
       };
       onEvent({ type: "done", result });
     });

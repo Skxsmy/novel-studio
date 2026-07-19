@@ -33,6 +33,7 @@ import {
   type ModelParameters,
   type ModelProfile,
   type ReasoningOutputKind,
+  type ResearchToolAuditCitation,
   type TokenUsage,
   type WorkshopContextBasket,
   type WorkshopAgentRunDocument,
@@ -40,6 +41,7 @@ import {
   type WorkshopCodexDraftDetailMapping,
   type WorkshopCodexDraftMissingDetailType,
   type WorkshopMessage,
+  type WorkshopResearchEvidence,
   type WorkshopSession,
 } from "@novel-studio/contracts";
 import type {
@@ -83,6 +85,7 @@ import {
   workshopPromptDefinition,
   workshopProviderPrompt as workshopModeProviderPrompt,
 } from "../workshop/workshopPrompts.js";
+import { runWorkshopResearchLoop } from "../workshop/workshopResearchLoop.js";
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -390,6 +393,7 @@ interface WorkshopPreflightResult {
   responseText: string;
   reasoningText: string;
   reasoningOutputKind: ReasoningOutputKind;
+  researchCitations: ResearchToolAuditCitation[];
 }
 
 type WorkshopExecutionResult = WorkshopPreflightResult | {
@@ -397,6 +401,7 @@ type WorkshopExecutionResult = WorkshopPreflightResult | {
   responseText: string;
   reasoningText: string;
   reasoningOutputKind: ReasoningOutputKind;
+  researchCitations: ResearchToolAuditCitation[];
 };
 
 function preflightResult(
@@ -412,17 +417,20 @@ function preflightResult(
     responseText: "",
     reasoningText: "",
     reasoningOutputKind: "none",
+    researchCitations: [],
   };
 }
 
 async function executeWorkshopCall(input: {
   repository: ProjectRepository;
   providerRegistry: ProviderRegistry;
+  embeddingRouter: EmbeddingRouter;
   seriesId: string;
   sessionId: string;
   contextBundle: ContextBundle;
   providerContextBundle?: ContextBundle;
   modelProfile: ModelProfile;
+  activeResearchDatabaseIds: string[];
   prompt?: ProviderPrompt;
   parameters: ModelParameters;
   abortSignal?: AbortSignal;
@@ -430,6 +438,11 @@ async function executeWorkshopCall(input: {
     event: Exclude<ProviderChatStreamEvent, { type: "done" }>,
   ) => void | Promise<void>;
   onStreamingLog?: (log: ModelCallLog) => void | Promise<void>;
+  onResearchActivity?: (activity: {
+    phase: "listing" | "searching" | "reading";
+    status: "started" | "completed" | "failed";
+    step: number;
+  }) => void | Promise<void>;
 }): Promise<WorkshopExecutionResult> {
   const { repository, providerRegistry, seriesId, contextBundle, modelProfile, parameters } = input;
   const prompt = input.prompt ?? contextPrompt(contextBundle);
@@ -490,7 +503,13 @@ async function executeWorkshopCall(input: {
   if (input.abortSignal?.aborted) {
     const log = cancelledLog(baseLog, "", "");
     await repository.saveModelCallLog(seriesId, log);
-    return { log, responseText: "", reasoningText: "", reasoningOutputKind: "none" };
+    return {
+      log,
+      responseText: "",
+      reasoningText: "",
+      reasoningOutputKind: "none",
+      researchCitations: [],
+    };
   }
   let latestLog = ModelCallLogSchema.parse({ ...baseLog, status: "streaming" });
   await repository.saveModelCallLog(seriesId, latestLog);
@@ -498,48 +517,36 @@ async function executeWorkshopCall(input: {
   let responseText = "";
   let reasoningText = "";
   let reasoningOutputKind: ReasoningOutputKind = "none";
-  let providerResult: ProviderChatResult | null = null;
+  let researchCitations: ResearchToolAuditCitation[] = [];
   try {
     if (input.abortSignal?.aborted) {
       const abortError = new Error("Workshop call cancelled by the author");
       abortError.name = "AbortError";
       throw abortError;
     }
-    for await (const event of adapter.streamChat({
+    const loop = await runWorkshopResearchLoop({
+      adapter,
+      repository,
+      embeddingRouter: input.embeddingRouter,
+      seriesId,
+      modelCallId: baseLog.id,
+      activeDatabaseIds: input.activeResearchDatabaseIds,
       modelProfile,
       prompt,
       contextBundle: providerContextBundle,
       resolvedParameters,
+      returnUnhandledToolCalls: false,
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
-    })) {
-      if (input.abortSignal?.aborted) {
-        const abortError = new Error("Workshop call cancelled by the author");
-        abortError.name = "AbortError";
-        throw abortError;
-      }
-      if (event.type === "done") {
-        if (providerResult) {
-          throw modelError("provider-error", "The Provider returned more than one terminal result.");
-        }
-        providerResult = event.result;
-        continue;
-      }
-      if (event.type === "reasoning-delta") {
-        reasoningText += event.text;
-        reasoningOutputKind = event.outputKind === "full" ? "full" : reasoningOutputKind === "full" ? "full" : "summary";
-      } else {
-        responseText += event.text;
-      }
-      await input.onStreamEvent?.(event);
-    }
+      ...(input.onStreamEvent ? { onStreamEvent: input.onStreamEvent } : {}),
+      ...(input.onResearchActivity ? { onResearchActivity: input.onResearchActivity } : {}),
+    });
     if (input.abortSignal?.aborted) {
       const abortError = new Error("Workshop call cancelled by the author");
       abortError.name = "AbortError";
       throw abortError;
     }
-    if (!providerResult) {
-      throw modelError("provider-error", "The Provider stream ended without a terminal result.", true);
-    }
+    const providerResult = loop.providerResult;
+    researchCitations = loop.citations;
     responseText = providerResult.text;
     reasoningText = providerResult.reasoningContent;
     reasoningOutputKind = providerResult.reasoningOutputKind;
@@ -554,16 +561,16 @@ async function executeWorkshopCall(input: {
       completedAt: new Date().toISOString(),
     });
     await repository.saveModelCallLog(seriesId, latestLog);
-    return { log: latestLog, responseText, reasoningText, reasoningOutputKind };
+    return { log: latestLog, responseText, reasoningText, reasoningOutputKind, researchCitations };
   } catch (caught) {
     if (input.abortSignal?.aborted || (caught instanceof Error && caught.name === "AbortError")) {
       const log = cancelledLog(baseLog, responseText, reasoningText);
       await repository.saveModelCallLog(seriesId, log);
-      return { log, responseText, reasoningText, reasoningOutputKind };
+      return { log, responseText, reasoningText, reasoningOutputKind, researchCitations: [] };
     }
     const log = failedLog(baseLog, adapter.classifyError(caught), responseText, reasoningText);
     await repository.saveModelCallLog(seriesId, log);
-    return { log, responseText, reasoningText, reasoningOutputKind };
+    return { log, responseText, reasoningText, reasoningOutputKind, researchCitations: [] };
   }
 }
 
@@ -999,6 +1006,7 @@ export function registerWorkshopRoutes(
       const continuation = await agentCoordinator.continueAfterToolResult({
         repository,
         providerRegistry,
+        embeddingRouter,
         seriesId: input.seriesId,
         sessionId: input.sessionId,
         run: input.result.agentRun,
@@ -1006,6 +1014,9 @@ export function registerWorkshopRoutes(
         contextBundle,
         providerContextBundle: workshopProviderContextBundle(contextBundle, "agent"),
         modelProfile,
+        activeResearchDatabaseIds: (
+          await repository.getWorkshopSession(input.seriesId, input.sessionId)
+        ).activeResearchDatabaseIds,
         prepareUpdateDraft: (draft) => captureCodexUpdateDraftBaselines({
           draft,
           repository,
@@ -1057,12 +1068,16 @@ export function registerWorkshopRoutes(
       const result = await agentCoordinator.retry({
         repository,
         providerRegistry,
+        embeddingRouter,
         seriesId: request.params.seriesId,
         sessionId: request.params.sessionId,
         run,
         contextBundle,
         providerContextBundle: workshopProviderContextBundle(contextBundle, "agent"),
         modelProfile,
+        activeResearchDatabaseIds: (
+          await repository.getWorkshopSession(request.params.seriesId, request.params.sessionId)
+        ).activeResearchDatabaseIds,
         prepareUpdateDraft: (draft) => captureCodexUpdateDraftBaselines({
           draft,
           repository,
@@ -1075,6 +1090,7 @@ export function registerWorkshopRoutes(
         toolMessages: result.toolMessages,
         modelCallId: result.modelCall?.id ?? null,
         responseText: result.responseText,
+        researchEvidence: result.researchEvidence,
       });
       },
     ),
@@ -1191,11 +1207,13 @@ export function registerWorkshopRoutes(
       const execution = await executeWorkshopCall({
         repository,
         providerRegistry,
+        embeddingRouter,
         seriesId: request.params.seriesId,
         sessionId: request.params.sessionId,
         contextBundle,
         providerContextBundle,
         modelProfile,
+        activeResearchDatabaseIds: replacement.session.activeResearchDatabaseIds,
         prompt,
         parameters: callInput.parameters,
         abortSignal: callHandle.abortSignal,
@@ -1207,6 +1225,7 @@ export function registerWorkshopRoutes(
         responseText: finalResponseText,
         estimatedUsage,
         actualUsage,
+        researchEvidence,
       } = await saveWorkshopAssistantTurn({
         seriesId: request.params.seriesId,
         sessionId: request.params.sessionId,
@@ -1228,6 +1247,7 @@ export function registerWorkshopRoutes(
         responseText: finalResponseText,
         estimatedUsage,
         actualUsage,
+        researchEvidence,
         deletedAttachmentIds: replacement.deletedAttachmentIds,
         deletedBranchIds: replacement.deletedBranchIds,
         deletedMessageIds: replacement.deletedMessageIds,
@@ -1680,6 +1700,7 @@ export function registerWorkshopRoutes(
     responseText: string;
     estimatedUsage: TokenUsage;
     actualUsage: TokenUsage | null;
+    researchEvidence: WorkshopResearchEvidence | null;
   }> {
     const execution = input.execution;
     const preflight = execution.log === null ? execution : null;
@@ -1724,6 +1745,19 @@ export function registerWorkshopRoutes(
         createdAt: new Date().toISOString(),
       }),
     );
+    const researchEvidence = status === "succeeded" && log && execution.researchCitations.length > 0
+      ? await repository.createWorkshopResearchEvidence(input.seriesId, input.sessionId, {
+        schemaVersion: 1,
+        id: randomUUID(),
+        seriesId: input.seriesId,
+        sessionId: input.sessionId,
+        assistantMessageId: assistantMessage.id,
+        modelCallId: log.id,
+        copiedFromEvidenceId: null,
+        citations: execution.researchCitations,
+        createdAt: new Date().toISOString(),
+      })
+      : null;
     return {
       log,
       assistantMessage,
@@ -1731,6 +1765,7 @@ export function registerWorkshopRoutes(
       responseText: execution.responseText,
       estimatedUsage,
       actualUsage,
+      researchEvidence,
     };
   }
 
@@ -1948,12 +1983,14 @@ export function registerWorkshopRoutes(
         const agent = await agentCoordinator.start({
           repository,
           providerRegistry,
+          embeddingRouter,
           seriesId: request.params.seriesId,
           sessionId: request.params.sessionId,
           authorMessage,
           contextBundle,
           providerContextBundle,
           modelProfile,
+          activeResearchDatabaseIds: session.activeResearchDatabaseIds,
           parameters: input.parameters,
           prompt,
           assistantMessageId,
@@ -1997,6 +2034,13 @@ export function registerWorkshopRoutes(
               text: event.text,
             });
           },
+          onResearchActivity: (activity) => {
+            emit({
+              type: "research-activity",
+              operationId,
+              ...activity,
+            });
+          },
           prepareUpdateDraft: (draft) => captureCodexUpdateDraftBaselines({
             draft,
             repository,
@@ -2026,6 +2070,7 @@ export function registerWorkshopRoutes(
           estimatedUsage: agent.modelCall?.estimatedUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
           actualUsage: agent.modelCall?.actualUsage ?? null,
           agentRun: agent.run,
+          researchEvidence: agent.researchEvidence,
         });
         callHandle.complete(result);
         emit({ type: "assistant-message", operationId, message: agent.assistantMessage });
@@ -2046,11 +2091,13 @@ export function registerWorkshopRoutes(
       const execution = await executeWorkshopCall({
         repository,
         providerRegistry,
+        embeddingRouter,
         seriesId: request.params.seriesId,
         sessionId: request.params.sessionId,
         contextBundle,
         providerContextBundle,
         modelProfile,
+        activeResearchDatabaseIds: session.activeResearchDatabaseIds,
         prompt,
         parameters: input.parameters,
         abortSignal: callHandle.abortSignal,
@@ -2095,6 +2142,13 @@ export function registerWorkshopRoutes(
             text: event.text,
           });
         },
+        onResearchActivity: (activity) => {
+          emit({
+            type: "research-activity",
+            operationId,
+            ...activity,
+          });
+        },
       });
       const { log } = execution;
       if (!metadataSent && log) {
@@ -2116,6 +2170,7 @@ export function registerWorkshopRoutes(
         responseText: finalResponseText,
         estimatedUsage,
         actualUsage,
+        researchEvidence,
       } = await saveWorkshopAssistantTurn({
         seriesId: request.params.seriesId,
         sessionId: request.params.sessionId,
@@ -2137,6 +2192,7 @@ export function registerWorkshopRoutes(
         responseText: finalResponseText,
         estimatedUsage,
         actualUsage,
+        researchEvidence,
       });
       callHandle.complete(result);
       emit({ type: "assistant-message", operationId, message: assistantMessage });
@@ -2242,12 +2298,14 @@ export function registerWorkshopRoutes(
         const agent = await agentCoordinator.start({
           repository,
           providerRegistry,
+          embeddingRouter,
           seriesId: request.params.seriesId,
           sessionId: request.params.sessionId,
           authorMessage,
           contextBundle,
           providerContextBundle,
           modelProfile,
+          activeResearchDatabaseIds: session.activeResearchDatabaseIds,
           parameters: input.parameters,
           prompt,
           assistantMessageId,
@@ -2270,6 +2328,7 @@ export function registerWorkshopRoutes(
           estimatedUsage: agent.modelCall?.estimatedUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
           actualUsage: agent.modelCall?.actualUsage ?? null,
           agentRun: agent.run,
+          researchEvidence: agent.researchEvidence,
         });
         callHandle.complete(result);
         return result;
@@ -2277,11 +2336,13 @@ export function registerWorkshopRoutes(
       const execution = await executeWorkshopCall({
         repository,
         providerRegistry,
+        embeddingRouter,
         seriesId: request.params.seriesId,
         sessionId: request.params.sessionId,
         contextBundle,
         providerContextBundle,
         modelProfile,
+        activeResearchDatabaseIds: session.activeResearchDatabaseIds,
         prompt,
         parameters: input.parameters,
         abortSignal: callHandle.abortSignal,
@@ -2293,6 +2354,7 @@ export function registerWorkshopRoutes(
         responseText: finalResponseText,
         estimatedUsage,
         actualUsage,
+        researchEvidence,
       } = await saveWorkshopAssistantTurn({
         seriesId: request.params.seriesId,
         sessionId: request.params.sessionId,
@@ -2314,6 +2376,7 @@ export function registerWorkshopRoutes(
         responseText: finalResponseText,
         estimatedUsage,
         actualUsage,
+        researchEvidence,
       });
       callHandle.complete(result);
       return result;

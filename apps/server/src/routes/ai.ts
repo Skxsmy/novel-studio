@@ -11,6 +11,7 @@ import {
   normalizeReasoningConfigurationForModel,
   ProviderConnectionResultSchema,
   ProviderModelDescriptorSchema,
+  ProviderToolCapabilitySchema,
   SaveModelProfileCredentialInputSchema,
   SaveModelProfileCredentialResultSchema,
   SetEmbeddingUseCaseBindingInputSchema,
@@ -457,6 +458,19 @@ export function registerAiRoutes(
           error,
         });
       }
+    },
+  );
+
+  app.get<{ Params: { profileId: string } }>(
+    "/api/v1/ai/model-profiles/:profileId/tool-capability",
+    async (request) => {
+      const profile = await repository.getModelProfile(request.params.profileId);
+      const adapter = providerRegistry.get(profile.provider);
+      return ProviderToolCapabilitySchema.parse({
+        nativeToolCalls: adapter.chatCapabilities.nativeToolCalls,
+        parallelToolCalls: adapter.chatCapabilities.parallelToolCalls,
+        strictToolSchema: adapter.chatCapabilities.strictToolSchema,
+      });
     },
   );
 }

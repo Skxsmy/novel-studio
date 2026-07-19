@@ -219,6 +219,17 @@ export function registerResearchRoutes(
     ),
   );
 
+  app.get<{ Params: { databaseId: string; sourceId: string; blockId: string } }>(
+    "/api/v1/research/databases/:databaseId/sources/:sourceId/content/blocks/:blockId",
+    async (request) => ResearchSourceContentPageSchema.parse(
+      await repository.getResearchSourceContentPageForBlock(
+        request.params.databaseId,
+        request.params.sourceId,
+        request.params.blockId,
+      ),
+    ),
+  );
+
   app.post<{ Params: { databaseId: string } }>(
     "/api/v1/research/databases/:databaseId/sources",
     { bodyLimit: RESEARCH_UPLOAD_BODY_LIMIT },
