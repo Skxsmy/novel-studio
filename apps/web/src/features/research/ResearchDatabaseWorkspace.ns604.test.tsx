@@ -318,6 +318,7 @@ describe("NS-604 original-language Research workspace", () => {
     expect(within(root).getByText("用語 · paragraph 3")).toBeTruthy();
     fireEvent.click(within(root).getByRole("button", { name: /月守（つきもり）/u }));
     await waitFor(() => expect(root.querySelector(`#research-block-${blockId}`)?.classList.contains("is-highlighted")).toBe(true));
+    expect(root.querySelector(`#research-match-${blockId}`)?.textContent).toBe("月守");
     expect(within(root).getByRole("status").textContent).toContain("Opened 用語 · paragraph 3");
   });
 

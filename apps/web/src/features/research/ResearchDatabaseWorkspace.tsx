@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import {
   MAX_RESEARCH_SOURCE_BYTES,
   type LegacyResearchSourceGroup,
@@ -50,6 +50,17 @@ interface DatabaseDraft {
   name: string;
   description: string;
   linkedToCurrentSeries: boolean;
+}
+
+interface PendingResearchResult {
+  query: string;
+  result: ResearchKeywordSearchResult;
+}
+
+interface HighlightedResearchPassage {
+  blockId: string;
+  passageText: string;
+  query: string;
 }
 
 const DATABASE_SELECTION_KEY = "novel-studio.research.database.selected";
@@ -178,16 +189,46 @@ function matchChannelLabel(channel: ResearchKeywordSearchResult["matchChannels"]
   return "Word";
 }
 
-function ResearchTextBlock({ block, highlighted }: { block: ResearchSourceBlock; highlighted: boolean }) {
-  const className = `rs10-text-block is-${block.kind}${highlighted ? " is-highlighted" : ""}`;
+function findResearchMatchRange(
+  blockText: string,
+  highlighted: HighlightedResearchPassage | null,
+): { start: number; end: number } | null {
+  if (!highlighted) return null;
+  for (const candidate of [highlighted.query.trim(), highlighted.passageText]) {
+    if (!candidate) continue;
+    const exactIndex = blockText.indexOf(candidate);
+    if (exactIndex >= 0) return { start: exactIndex, end: exactIndex + candidate.length };
+    if (/^[\u0000-\u007f]+$/u.test(candidate)) {
+      const foldedIndex = blockText.toLocaleLowerCase().indexOf(candidate.toLocaleLowerCase());
+      if (foldedIndex >= 0) return { start: foldedIndex, end: foldedIndex + candidate.length };
+    }
+  }
+  return null;
+}
+
+function ResearchTextBlock({
+  block,
+  highlighted,
+}: {
+  block: ResearchSourceBlock;
+  highlighted: HighlightedResearchPassage | null;
+}) {
+  const isHighlighted = highlighted?.blockId === block.id;
+  const range = isHighlighted ? findResearchMatchRange(block.text, highlighted) : null;
+  const content: ReactNode = range ? <>
+    {block.text.slice(0, range.start)}
+    <mark className="rs10-search-match" id={`research-match-${block.id}`}>{block.text.slice(range.start, range.end)}</mark>
+    {block.text.slice(range.end)}
+  </> : block.text;
+  const className = `rs10-text-block is-${block.kind}${isHighlighted ? " is-highlighted" : ""}`;
   const shared = {
     className,
     id: `research-block-${block.id}`,
   };
-  if (block.kind === "heading") return <h3 {...shared}>{block.text}</h3>;
-  if (block.kind === "quote") return <blockquote {...shared}>{block.text}</blockquote>;
-  if (block.kind === "list-item") return <p {...shared}><span aria-hidden="true">•</span>{block.text}</p>;
-  return <p {...shared}>{block.text}</p>;
+  if (block.kind === "heading") return <h3 {...shared}>{content}</h3>;
+  if (block.kind === "quote") return <blockquote {...shared}>{content}</blockquote>;
+  if (block.kind === "list-item") return <p {...shared}><span aria-hidden="true">•</span>{content}</p>;
+  return <p {...shared}>{content}</p>;
 }
 
 async function fileToBase64(file: File): Promise<string> {
@@ -237,8 +278,8 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<ResearchKeywordSearchResult[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
-  const [pendingSearchResult, setPendingSearchResult] = useState<ResearchKeywordSearchResult | null>(null);
-  const [highlightedBlockId, setHighlightedBlockId] = useState<string | null>(null);
+  const [pendingSearchResult, setPendingSearchResult] = useState<PendingResearchResult | null>(null);
+  const [highlightedPassage, setHighlightedPassage] = useState<HighlightedResearchPassage | null>(null);
   const [isCreatingDatabase, setIsCreatingDatabase] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [databaseDialogOpen, setDatabaseDialogOpen] = useState(false);
@@ -330,7 +371,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setSearchQuery("");
     setSearchResults(null);
     setPendingSearchResult(null);
-    setHighlightedBlockId(null);
+    setHighlightedPassage(null);
     setSourceMenuOpen(false);
     setWebDialogOpen(false);
     setError("");
@@ -424,23 +465,25 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
 
   useEffect(() => {
     if (!detail || detail.source.schemaVersion !== 3 || !pendingSearchResult || !selectedDatabaseId) return;
-    if (detail.source.id !== pendingSearchResult.sourceId) return;
+    const target = pendingSearchResult.result;
+    if (detail.source.id !== target.sourceId) return;
     let cancelled = false;
-    const offset = Math.floor(pendingSearchResult.blockOrder / SOURCE_PAGE_SIZE) * SOURCE_PAGE_SIZE;
+    const offset = Math.floor(target.blockOrder / SOURCE_PAGE_SIZE) * SOURCE_PAGE_SIZE;
     setIsLoadingContentPage(true);
     void api.research.getSourceContentPage(
       selectedDatabaseId,
-      pendingSearchResult.sourceId,
+      target.sourceId,
       offset,
       SOURCE_PAGE_SIZE,
     ).then((page) => {
       if (cancelled) return;
       setContentPage(page);
-      setHighlightedBlockId(pendingSearchResult.blockId);
+      setHighlightedPassage({
+        blockId: target.blockId,
+        passageText: target.originalText,
+        query: pendingSearchResult.query,
+      });
       setPendingSearchResult(null);
-      globalThis.setTimeout(() => {
-        document.getElementById(`research-block-${pendingSearchResult.blockId}`)?.scrollIntoView?.({ block: "center" });
-      }, 0);
     }).catch((reason) => {
       if (!cancelled) setError(errorMessage(reason, "The matching source page could not be opened."));
     }).finally(() => {
@@ -451,6 +494,16 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     };
   }, [detail, pendingSearchResult, selectedDatabaseId]);
 
+  useEffect(() => {
+    if (!highlightedPassage || !contentPage?.blocks.some((block) => block.id === highlightedPassage.blockId)) return;
+    const timeout = globalThis.setTimeout(() => {
+      const match = document.getElementById(`research-match-${highlightedPassage.blockId}`);
+      const block = document.getElementById(`research-block-${highlightedPassage.blockId}`);
+      (match ?? block)?.scrollIntoView?.({ block: "center" });
+    }, 0);
+    return () => globalThis.clearTimeout(timeout);
+  }, [contentPage, highlightedPassage]);
+
   function chooseDatabase(databaseId: string) {
     if (sourceIsDirty || isSavingSource) {
       setError("Save or discard the open source changes before switching Research Databases.");
@@ -460,7 +513,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setRailOpen(false);
     setNotice("");
     setSearchResults(null);
-    setHighlightedBlockId(null);
+    setHighlightedPassage(null);
     setPendingSearchResult(null);
     setIsLoadingContentPage(false);
   }
@@ -474,7 +527,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setRailOpen(false);
     setNotice("");
     setSearchResults(null);
-    setHighlightedBlockId(null);
+    setHighlightedPassage(null);
     setPendingSearchResult(null);
     setIsLoadingContentPage(false);
   }
@@ -665,7 +718,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
         offset,
         SOURCE_PAGE_SIZE,
       ));
-      setHighlightedBlockId(null);
+      setHighlightedPassage(null);
     } catch (reason) {
       setError(errorMessage(reason, "The source page could not be opened."));
     } finally {
@@ -740,6 +793,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setIsSearching(true);
     setError("");
     setNotice("");
+    setHighlightedPassage(null);
     try {
       const response = await api.research.search(selectedDatabaseId, {
         query: searchQuery.trim(),
@@ -760,7 +814,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
       setError("Save or discard the open source changes before opening a search result.");
       return;
     }
-    setPendingSearchResult(result);
+    setPendingSearchResult({ query: searchQuery.trim(), result });
     setSearchResults(null);
     setSelectedSourceId(result.sourceId);
     setRailOpen(false);
@@ -909,7 +963,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
           {databaseIssues.length > 0 ? <div className="rs8-banner is-error" role="alert">{databaseIssues.length} Research Database {databaseIssues.length === 1 ? "directory could" : "directories could"} not be opened. Other databases remain available.</div> : null}
           {selectedDatabaseId ? <form className="rs10-searchbar" onSubmit={(event) => void searchDatabase(event)} role="search"><Search aria-hidden="true" size={17} /><label><span className="rs10-visually-hidden">Search selected Research Database</span><input aria-label="Search selected Research Database" disabled={isSearching || sourceIsDirty} maxLength={500} onChange={(event) => setSearchQuery(event.target.value)} placeholder={`Search ${databaseDocument?.database.name ?? "this database"} in any original language`} value={searchQuery} /></label>{searchQuery || searchResults !== null ? <button aria-label="Clear search" className="rs10-search-clear" onClick={() => { setSearchQuery(""); setSearchResults(null); }} title="Clear search" type="button"><X aria-hidden="true" size={15} /></button> : null}<button className="rs10-search-submit" disabled={isSearching || sourceIsDirty || !searchQuery.trim()} type="submit">{isSearching ? "Searching" : "Search"}</button></form> : null}
           {indexState && indexState.status !== "ready" && sources.length > 0 ? <div className={`rs10-index-callout is-${indexState.status}`}><div><strong>{indexState.status === "damaged" ? "Search needs repair" : indexState.status === "stale" ? "Sources changed since the last index" : "Search will be built when needed"}</strong><span>{indexState.reason ?? "The original sources remain available."}</span></div>{indexState.status !== "missing" ? <button disabled={isRebuildingIndex || sourceIsDirty} onClick={() => void rebuildIndex()} type="button"><RefreshCw aria-hidden="true" size={14} />{isRebuildingIndex ? "Rebuilding" : "Rebuild"}</button> : null}</div> : null}
-          {searchResults !== null ? <section aria-label="Search results" className="rs10-search-results"><header><div><p>Selected database only</p><h2>{searchResults.length} result{searchResults.length === 1 ? "" : "s"} for “{searchQuery}”</h2></div><span>{databaseDocument?.database.name}</span></header>{searchResults.length === 0 ? <div className="rs10-no-results"><Search aria-hidden="true" size={22} /><strong>No matching passage</strong><p>Try the term in its original spelling or a shorter exact phrase.</p></div> : <ol>{searchResults.map((result) => <li key={`${result.sourceId}:${result.chunkId}`}><button onClick={() => openSearchResult(result)} type="button"><span className="rs10-location-ribbon"><BookOpenText aria-hidden="true" size={14} /><strong>{formatLocation(result.location)}</strong><em>{result.languageTag}</em></span><span className="rs10-result-source">{result.sourceDisplayName}<small>{sourceKindLabel(result.sourceKind)}</small></span><span className="rs10-result-text">{result.originalText}</span><span className="rs10-match-channels">{result.matchChannels.map((channel) => <small key={channel}>{matchChannelLabel(channel)}</small>)}</span></button></li>)}</ol>}</section> : isLoadingDatabases ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening Research Databases</p></div> : !selectedDatabaseId ? <div className="rs8-empty"><Database aria-hidden="true" size={23} /><h2>Create your first Research Database</h2><p>Each database keeps its own sources, originals, permissions, and search index. It does not belong to a Series.</p><button onClick={openCreateDialog} type="button">Create Research Database</button></div> : isLoadingDetail ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source</p></div> : detail ? <article className="rs8-document"><header><div className="rs8-document-mark"><span aria-hidden="true" /><em>{sourceKindMark(detail.source.kind)}</em></div><div><p>{detail.source.originalFileName}</p><h2>{detail.source.displayName}</h2><span>{databaseDocument?.database.name} · Imported {formatImportedAt(detail.source.importedAt)} · {formatBytes(detail.source.sizeBytes)}</span></div></header>{detail.source.schemaVersion === 3 && detail.source.parseWarnings.length > 0 ? <div className="rs10-parse-warning"><strong>Imported with {detail.source.parseWarnings.length} warning{detail.source.parseWarnings.length === 1 ? "" : "s"}</strong><span>{detail.source.parseWarnings.join(" ")}</span></div> : null}<div className="rs8-preview-label"><strong>{"originalText" in detail ? "Original text" : "Parsed text"}</strong><span>{"originalText" in detail ? "Upgrade this source to add locations" : `${detail.contentSummary.blockCount} blocks · locations preserved from the original`}</span></div>{"originalText" in detail ? <pre className="rs8-preview">{detail.originalText}</pre> : isLoadingContentPage && !contentPage ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source page</p></div> : contentPage ? <><div className="rs10-text-blocks">{contentPage.blocks.map((block) => <ResearchTextBlock block={block} highlighted={block.id === highlightedBlockId} key={block.id} />)}</div><nav aria-label="Source pages" className="rs10-source-pages"><button disabled={contentPage.previousOffset === null || isLoadingContentPage} onClick={() => void openContentPage(contentPage.previousOffset ?? 0)} type="button">Previous</button><span>Blocks {contentPage.offset + 1}-{contentPage.offset + contentPage.blocks.length} of {contentPage.totalBlocks}</span><button disabled={contentPage.nextOffset === null || isLoadingContentPage} onClick={() => void openContentPage(contentPage.nextOffset ?? 0)} type="button">Next</button></nav></> : <div className="rs8-empty"><FileText aria-hidden="true" size={20} /><h2>Source page unavailable</h2><p>Reload the source to try again.</p></div>}</article> : <div className="rs8-empty"><FileText aria-hidden="true" size={23} /><h2>Add a source to {databaseDocument?.database.name ?? "this database"}</h2><p>Import text, Markdown, Word (.docx), text PDF, EPUB, HTML, XHTML, or a controlled web-page snapshot.</p><button disabled={isUploading || isImportingWeb} onClick={openFilePicker} type="button">Choose file</button></div>}
+          {searchResults !== null ? <section aria-label="Search results" className="rs10-search-results"><header><div><p>Selected database only</p><h2>{searchResults.length} result{searchResults.length === 1 ? "" : "s"} for “{searchQuery}”</h2></div><span>{databaseDocument?.database.name}</span></header>{searchResults.length === 0 ? <div className="rs10-no-results"><Search aria-hidden="true" size={22} /><strong>No matching passage</strong><p>Try the term in its original spelling or a shorter exact phrase.</p></div> : <ol>{searchResults.map((result) => <li key={`${result.sourceId}:${result.chunkId}`}><button onClick={() => openSearchResult(result)} type="button"><span className="rs10-location-ribbon"><BookOpenText aria-hidden="true" size={14} /><strong>{formatLocation(result.location)}</strong><em>{result.languageTag}</em></span><span className="rs10-result-source">{result.sourceDisplayName}<small>{sourceKindLabel(result.sourceKind)}</small></span><span className="rs10-result-text">{result.originalText}</span><span className="rs10-match-channels">{result.matchChannels.map((channel) => <small key={channel}>{matchChannelLabel(channel)}</small>)}</span></button></li>)}</ol>}</section> : isLoadingDatabases ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening Research Databases</p></div> : !selectedDatabaseId ? <div className="rs8-empty"><Database aria-hidden="true" size={23} /><h2>Create your first Research Database</h2><p>Each database keeps its own sources, originals, permissions, and search index. It does not belong to a Series.</p><button onClick={openCreateDialog} type="button">Create Research Database</button></div> : isLoadingDetail ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source</p></div> : detail ? <article className="rs8-document"><header><div className="rs8-document-mark"><span aria-hidden="true" /><em>{sourceKindMark(detail.source.kind)}</em></div><div><p>{detail.source.originalFileName}</p><h2>{detail.source.displayName}</h2><span>{databaseDocument?.database.name} · Imported {formatImportedAt(detail.source.importedAt)} · {formatBytes(detail.source.sizeBytes)}</span></div></header>{detail.source.schemaVersion === 3 && detail.source.parseWarnings.length > 0 ? <div className="rs10-parse-warning"><strong>Imported with {detail.source.parseWarnings.length} warning{detail.source.parseWarnings.length === 1 ? "" : "s"}</strong><span>{detail.source.parseWarnings.join(" ")}</span></div> : null}<div className="rs8-preview-label"><strong>{"originalText" in detail ? "Original text" : "Parsed text"}</strong><span>{"originalText" in detail ? "Upgrade this source to add locations" : `${detail.contentSummary.blockCount} blocks · locations preserved from the original`}</span></div>{"originalText" in detail ? <pre className="rs8-preview">{detail.originalText}</pre> : isLoadingContentPage && !contentPage ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source page</p></div> : contentPage ? <><div className="rs10-text-blocks">{contentPage.blocks.map((block) => <ResearchTextBlock block={block} highlighted={block.id === highlightedPassage?.blockId ? highlightedPassage : null} key={block.id} />)}</div><nav aria-label="Source pages" className="rs10-source-pages"><button disabled={contentPage.previousOffset === null || isLoadingContentPage} onClick={() => void openContentPage(contentPage.previousOffset ?? 0)} type="button">Previous</button><span>Blocks {contentPage.offset + 1}-{contentPage.offset + contentPage.blocks.length} of {contentPage.totalBlocks}</span><button disabled={contentPage.nextOffset === null || isLoadingContentPage} onClick={() => void openContentPage(contentPage.nextOffset ?? 0)} type="button">Next</button></nav></> : <div className="rs8-empty"><FileText aria-hidden="true" size={20} /><h2>Source page unavailable</h2><p>Reload the source to try again.</p></div>}</article> : <div className="rs8-empty"><FileText aria-hidden="true" size={23} /><h2>Add a source to {databaseDocument?.database.name ?? "this database"}</h2><p>Import text, Markdown, Word (.docx), text PDF, EPUB, HTML, XHTML, or a controlled web-page snapshot.</p><button disabled={isUploading || isImportingWeb} onClick={openFilePicker} type="button">Choose file</button></div>}
         </main>
 
         <aside aria-label="Source properties" className="rs8-inspector">

@@ -489,7 +489,8 @@
 .rs10-text-block.is-list-item > span { position: absolute; left: .25em; color: var(--green); }
 .rs10-text-block.is-quote { margin-left: 0; padding: .2em 0 .2em 1.2em; border-left: 2px solid var(--green); color: #4f5b56; font-style: italic; }
 .rs10-text-block.is-table-cell { padding: .55em .7em; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-family: var(--sans); font-size: 13px; line-height: 1.55; }
-.rs10-text-block.is-highlighted { background: #fff3b7; box-shadow: 0 0 0 5px #fff3b7; }
+.rs10-text-block.is-highlighted { background: transparent; box-shadow: none; }
+.rs10-search-match { padding: 0 2px; background: #ffd95c; color: inherit; box-shadow: 0 0 0 2px #ffd95c; scroll-margin-block: 96px; }
 .rs10-source-pages { max-width: 82ch; margin: 30px auto 0; padding-top: 14px; display: grid; grid-template-columns: 72px minmax(0, 1fr) 72px; align-items: center; gap: 12px; border-top: 1px solid var(--line); }
 .rs10-source-pages span { color: var(--muted); font-size: 11px; text-align: center; }
 .rs10-source-pages button { min-height: 32px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--paper); color: var(--ink); font-size: 11px; font-weight: 700; }

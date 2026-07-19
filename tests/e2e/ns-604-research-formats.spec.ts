@@ -163,5 +163,7 @@ test("imports and navigates a three-megabyte text source without loading every b
   await result.click();
 
   await expect(workspace.locator(".rs10-text-block.is-highlighted")).toContainText(marker);
+  await expect(workspace.locator(".rs10-search-match")).toHaveText("NS604_E2E_FINAL_PASSAGE");
+  await expect(workspace.locator(".rs10-search-match")).toBeInViewport();
   await expect(workspace.getByText(/Blocks (?!1-40)\d+-\d+ of \d+/u)).toBeVisible();
 });
