@@ -216,16 +216,21 @@ function traceProvider(adapter, trace) {
     get(target, property) {
       if (property === "streamChat") {
         return async function* tracedStreamChat(request) {
+          const record = {
+            started: true,
+            completed: false,
+            toolChoice: request.toolChoice ?? null,
+            availableTools: request.tools?.map((tool) => tool.name) ?? [],
+            returnedTools: [],
+          };
+          trace.push(record);
           for await (const event of target.streamChat(request)) {
             if (event.type === "done") {
-              trace.push({
-                toolChoice: request.toolChoice ?? null,
-                availableTools: request.tools?.map((tool) => tool.name) ?? [],
-                returnedTools: event.result.toolCalls.map((call) => ({
-                  name: call.name,
-                  arguments: call.arguments,
-                })),
-              });
+              record.completed = true;
+              record.returnedTools = event.result.toolCalls.map((call) => ({
+                name: call.name,
+                arguments: call.arguments,
+              }));
             }
             yield event;
           }

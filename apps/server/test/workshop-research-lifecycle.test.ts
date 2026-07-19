@@ -204,6 +204,12 @@ describe("NS-607 Workshop Research lifecycle", () => {
   });
 
   it("withdraws Research tools after the no-progress budget and rejects a model that keeps calling them", async () => {
+    const observations: Array<{
+      toolsWithdrawn: boolean;
+      toolHistoryOmitted: boolean;
+      retrievalClosedInPrompt: boolean;
+      noMatchingEvidenceInPrompt: boolean;
+    }> = [];
     const provider = new ScriptedWorkshopProvider([
       {
         name: "first empty search",
@@ -216,17 +222,24 @@ describe("NS-607 Workshop Research lifecycle", () => {
       {
         name: "model ignores withdrawn tools",
         expect(request) {
-          expect(request.tools).toBeUndefined();
+          observations.push({
+            toolsWithdrawn: request.tools === undefined,
+            toolHistoryOmitted: request.history === undefined,
+            retrievalClosedInPrompt: request.prompt.user.includes("Research retrieval is closed"),
+            noMatchingEvidenceInPrompt: request.prompt.user.includes("No matching passages were returned"),
+          });
         },
         result: scriptedToolResult({ name: "research.search", arguments: { query: "missing term three", mode: "exact" } }),
       },
       {
         name: "model accepts budget boundary",
         expect(request) {
-          expect(request.tools).toBeUndefined();
-          const latest = request.history?.at(-1);
-          expect(latest?.role).toBe("tool");
-          expect(latest?.content).toContain("BUDGET_EXHAUSTED");
+          observations.push({
+            toolsWithdrawn: request.tools === undefined,
+            toolHistoryOmitted: request.history === undefined,
+            retrievalClosedInPrompt: request.prompt.user.includes("Research retrieval is closed"),
+            noMatchingEvidenceInPrompt: request.prompt.user.includes("No matching passages were returned"),
+          });
         },
         result: scriptedAnswer("No matching source was found within the bounded search budget."),
       },
@@ -244,6 +257,20 @@ describe("NS-607 Workshop Research lifecycle", () => {
     });
     expect(response.statusCode, response.payload).toBe(200);
     expect(response.json()).toMatchObject({ status: "succeeded", researchEvidence: null });
+    expect(observations).toEqual([
+      {
+        toolsWithdrawn: true,
+        toolHistoryOmitted: true,
+        retrievalClosedInPrompt: true,
+        noMatchingEvidenceInPrompt: true,
+      },
+      {
+        toolsWithdrawn: true,
+        toolHistoryOmitted: true,
+        retrievalClosedInPrompt: true,
+        noMatchingEvidenceInPrompt: true,
+      },
+    ]);
     expect(provider.requests).toHaveLength(4);
     provider.assertExhausted();
     await app.close();

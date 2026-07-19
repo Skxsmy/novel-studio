@@ -29,6 +29,7 @@
     "probe:ns608:balanced": "node scripts/ns-608-real-author-harness.mjs --scenario=balanced-triggering",
     "probe:ns608:conflict": "node scripts/ns-608-real-author-harness.mjs --scenario=conflicting-sources",
     "probe:ns608:injection": "node scripts/ns-608-real-author-harness.mjs --scenario=prompt-injection",
+    "probe:ns608:cancellation": "node scripts/ns-608-real-author-harness.mjs --scenario=real-cancellation",
     "fixture:ns607-browser": "node scripts/ns-607-browser-fixture-server.mjs",
     "test:harness:ns607": "node --test scripts/harness/workshop-behavior-harness.test.mjs",
     "test:harness:ns608": "node --test scripts/harness/ns-608-live-workshop.test.mjs",
