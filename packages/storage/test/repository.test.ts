@@ -1636,7 +1636,7 @@ describe("ProjectRepository", () => {
     >({ code: "INVALID_DATA" });
   });
 
-  it("physically rebuilds Codex search, mentions and ambiguity after deleting SQLite", async () => {
+  it("self-rebuilds Codex search after deleting SQLite and preserves explicit rebuild results", async () => {
     const store = await repository();
     const title = "重建故事记忆";
     const series = await store.createSeries({ title });
@@ -1658,7 +1658,7 @@ describe("ProjectRepository", () => {
     });
     const root = seriesRoot(store, title, series.manifest.id);
     await rm(path.join(root, ".studio", "index.sqlite"));
-    expect(await store.searchCodex(series.manifest.id, "看守者")).toEqual([]);
+    expect(await store.searchCodex(series.manifest.id, "看守者")).toHaveLength(1);
 
     const rebuilt = await store.rebuildIndex(series.manifest.id);
     expect(rebuilt).toMatchObject({

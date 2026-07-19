@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -70,6 +70,73 @@ describe("NS-602 Research source authority files", () => {
     expect((await store.listResearchSources(series.manifest.id)).map((item) => item.source.id)).toEqual([
       first.source.id,
     ]);
+  });
+
+  it("serializes concurrent duplicate imports so exactly one source is created", async () => {
+    const store = await createRepository();
+    const series = await store.createSeries({ title: "ResearchConcurrentDuplicate" });
+    const attempts = await Promise.allSettled(Array.from({ length: 12 }, (_, index) =>
+      store.importResearchSource(series.manifest.id, {
+        ...preparedImport(),
+        originalFileName: `same-content-${index}.md`,
+      })));
+
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(11);
+    expect(await store.listResearchSources(series.manifest.id)).toHaveLength(1);
+  });
+
+  it("rejects an authority record redirected away from its canonical managed original", async () => {
+    const store = await createRepository();
+    const series = await store.createSeries({ title: "ResearchCanonicalOriginal" });
+    const created = await store.importResearchSource(series.manifest.id, preparedImport());
+    const seriesRoot = path.join(store.libraryRoot, `ResearchCanonicalOriginal-${series.manifest.id.slice(0, 8)}`);
+    const redirectedRelativePath = "research/originals/redirected.md";
+    await writeFile(path.join(seriesRoot, redirectedRelativePath), created.originalText, "utf8");
+    const authorityPath = path.join(seriesRoot, "research", "sources", `${created.source.id}.json`);
+    const authority = JSON.parse(await readFile(authorityPath, "utf8")) as Record<string, unknown>;
+    authority.originalRelativePath = redirectedRelativePath;
+    await writeFile(authorityPath, `${JSON.stringify(authority, null, 2)}\n`, "utf8");
+
+    await expect(store.getResearchSource(series.manifest.id, created.source.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+  });
+
+  it("rejects a cross-Series authority before listing or updating it and leaves bytes unchanged", async () => {
+    const store = await createRepository();
+    const series = await store.createSeries({ title: "ResearchSeriesBoundary" });
+    const created = await store.importResearchSource(series.manifest.id, preparedImport());
+    const seriesRoot = path.join(store.libraryRoot, `ResearchSeriesBoundary-${series.manifest.id.slice(0, 8)}`);
+    const authorityPath = path.join(seriesRoot, "research", "sources", `${created.source.id}.json`);
+    const authority = JSON.parse(await readFile(authorityPath, "utf8")) as Record<string, unknown>;
+    authority.seriesId = "00000000-0000-4000-8000-000000000001";
+    const damagedRaw = `${JSON.stringify(authority, null, 2)}\n`;
+    await writeFile(authorityPath, damagedRaw, "utf8");
+    const damagedRevision = createHash("sha256").update(damagedRaw, "utf8").digest("hex");
+
+    await expect(store.listResearchSources(series.manifest.id))
+      .rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    await expect(store.updateResearchSource(series.manifest.id, created.source.id, {
+      baseRevision: damagedRevision,
+      displayName: "Must not be written",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    expect(await readFile(authorityPath, "utf8")).toBe(damagedRaw);
+  });
+
+  it("rejects a property update before writing when the managed original is damaged", async () => {
+    const store = await createRepository();
+    const series = await store.createSeries({ title: "ResearchDamagedOriginal" });
+    const created = await store.importResearchSource(series.manifest.id, preparedImport());
+    const seriesRoot = path.join(store.libraryRoot, `ResearchDamagedOriginal-${series.manifest.id.slice(0, 8)}`);
+    const authorityPath = path.join(seriesRoot, "research", "sources", `${created.source.id}.json`);
+    const authorityBefore = await readFile(authorityPath, "utf8");
+    await writeFile(path.join(seriesRoot, created.source.originalRelativePath), "tampered source", "utf8");
+
+    await expect(store.updateResearchSource(series.manifest.id, created.source.id, {
+      baseRevision: created.revision,
+      displayName: "Must not be committed",
+    })).rejects.toMatchObject<Partial<StorageError>>({ code: "INVALID_DATA" });
+    expect(await readFile(authorityPath, "utf8")).toBe(authorityBefore);
   });
 
   it("survives repository restart and preserves immutable facts and original bytes across revision-safe updates", async () => {

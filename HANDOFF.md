@@ -5,10 +5,18 @@ Purpose: resume incomplete work only
 
 ## Resume Point
 
-- Paused product task: `NS-602 / M6.1 Database Kernel And Research Source Vertical Slice` on the existing `codex/ns-514-overview` worktree; only explicit author visual acceptance remains open after repository closure.
+- Active support task: none; `GOV-002 Database Implementation Review And Hardening` is complete on the existing `codex/ns-514-overview` worktree.
+- Paused product task: `NS-602 / M6.1 Database Kernel And Research Source Vertical Slice`; explicit author visual acceptance remains open and GOV-002 does not claim that decision.
 - NS-514 is paused with P0-P6 and automated A15 passed; only explicit author visual acceptance A16 remains open.
 - NS-601 changes documentation only and is complete. NS-514 follow-up work is separately committed at `b7ae1be`; preserve `data/library/` while reviewing NS-602.
-- NS-602 follows `b7ae1be` as its own task-scoped implementation commit.
+- NS-602 follows `b7ae1be` at `bb37126`; this clean commit is the GOV-002 review baseline.
+
+## GOV-002 Closure
+
+- Reviewed every production SQLite opener, SQL/rebuild path, Research file transaction, Research route, and connected Research UI state using source inspection, official SQLite documentation, new failure reproductions, independent Fastify/disk probes, and a 20,000-row performance probe rather than relying on existing tests alone.
+- Fixed fifteen confirmed defects covering foreign/cross-Series identity, corrupt index replacement, WAL/journal bundles, cancellation, reader gaps, duplicate imports, canonical originals, literal short search, pre-journal cleanup, FTS/core drift, FTS secure delete, second-failure rollback preservation, damaged-original updates, and unsaved property drafts.
+- Full typecheck, 49 files/523 tests, production build, 174-file documentation check, and diff check pass. The in-app Browser blocked the local URL by policy, so no diagnostic visual pass or author acceptance is claimed.
+- Read `docs/testing/GOV-002_DATABASE_REVIEW.md` before NS-603. Process-local coordination, durable projector freshness, bounded deep-FTS diagnosis, symlink-safe containment, schema-v2 constraints, backups, scaling, and multilingual retrieval remain explicit recommendations or risks rather than completed features.
 
 ## Work Completed In This Task
 

@@ -354,6 +354,7 @@ import {
   openIndexDatabase,
   rebuildIndexDatabase,
   runIndexWriteLane,
+  waitForIndexWriteLane,
   type IndexDatabaseHealth,
   type IndexRebuildOptions,
 } from "./indexDatabase.js";
@@ -390,6 +391,7 @@ export {
   openIndexDatabase,
   rebuildIndexDatabase,
   runIndexWriteLane,
+  waitForIndexWriteLane,
   type IndexDatabaseHealth,
   type IndexDatabaseHealthStatus,
   type IndexRebuildContext,
@@ -431,6 +433,10 @@ const FRONTMATTER_MARKER = "---";
 const SCENE_JSON_EXTENSION = ".json";
 const WORKSHOP_LINKED_CODEX_NOTE = "Linked from selected context.";
 const SERIES_FILE = "series.json";
+
+function literalLikePattern(value: string): string {
+  return `%${value.replace(/[\\%_]/gu, "\\$&")}%`;
+}
 const BOOK_FILE = "book.json";
 const ACTS_DIR = "acts";
 const CHAPTERS_DIR = "chapters";
@@ -1652,6 +1658,7 @@ function assertWorkshopAgentRunEvolution(current: WorkshopAgentRun, next: Worksh
 export class ProjectRepository {
   readonly libraryRoot: string;
   private readonly recoveredSeriesRoots = new Set<string>();
+  private readonly seriesIdsByRoot = new Map<string, string>();
 
   constructor(libraryRoot: string) {
     this.libraryRoot = path.resolve(libraryRoot);
@@ -1662,20 +1669,16 @@ export class ProjectRepository {
   }
 
   async getIndexDatabaseHealth(seriesId: string): Promise<IndexDatabaseHealth> {
-    return inspectIndexDatabase(await this.findSeriesRoot(seriesId));
+    return inspectIndexDatabase(await this.findSeriesRoot(seriesId), seriesId);
   }
 
   async listResearchSources(seriesId: string): Promise<ResearchSourceDocument[]> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    return listResearchSourceFiles(seriesRoot);
+    return listResearchSourceFiles(seriesRoot, seriesId);
   }
 
   async getResearchSource(seriesId: string, sourceId: string): Promise<ResearchSourceDetail> {
-    const source = await readResearchSourceFile(await this.findSeriesRoot(seriesId), sourceId);
-    if (source.source.seriesId !== seriesId) {
-      throw new StorageError("Research source belongs to another Series", "INVALID_DATA", { sourceId });
-    }
-    return source;
+    return readResearchSourceFile(await this.findSeriesRoot(seriesId), seriesId, sourceId);
   }
 
   async importResearchSource(
@@ -1712,11 +1715,7 @@ export class ProjectRepository {
     sourceId: string,
     input: UpdateResearchSourceInput,
   ): Promise<ResearchSourceDetail> {
-    const updated = await updateResearchSourceFile(await this.findSeriesRoot(seriesId), sourceId, input);
-    if (updated.source.seriesId !== seriesId) {
-      throw new StorageError("Research source belongs to another Series", "INVALID_DATA", { sourceId });
-    }
-    return updated;
+    return updateResearchSourceFile(await this.findSeriesRoot(seriesId), seriesId, sourceId, input);
   }
 
   private async recoverSeriesRootOnce(seriesRoot: string): Promise<void> {
@@ -1831,7 +1830,6 @@ export class ProjectRepository {
       actId,
       chapterId,
     });
-    await this.rebuildIndex(seriesId);
     return this.getSeries(seriesId);
   }
 
@@ -4453,8 +4451,7 @@ export class ProjectRepository {
   ): Promise<CodexMention[]> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     await this.findCodexEntry(seriesRoot, entryId);
-    const database = this.openIndex(seriesRoot);
-    try {
+    return this.withIndexRead(seriesRoot, (database) => {
       return database
         .prepare(
           `SELECT scene_id AS sceneId, entry_id AS entryId, start, end,
@@ -4468,9 +4465,7 @@ export class ProjectRepository {
             isAlias: Boolean((row as { isAlias: number }).isAlias),
           }),
         );
-    } finally {
-      database.close();
-    }
+    });
   }
 
   async listCodexMentionsForScene(
@@ -4479,8 +4474,7 @@ export class ProjectRepository {
   ): Promise<SceneCodexMentions> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     await this.getScene(seriesId, sceneId);
-    const database = this.openIndex(seriesRoot);
-    try {
+    return this.withIndexRead(seriesRoot, (database) => {
       const mentions = database
         .prepare(
           `SELECT scene_id AS sceneId, entry_id AS entryId, start, end,
@@ -4509,9 +4503,7 @@ export class ProjectRepository {
           });
         });
       return SceneCodexMentionsSchema.parse({ sceneId, mentions, ambiguities });
-    } finally {
-      database.close();
-    }
+    });
   }
 
   async previewCodexContext(
@@ -6929,32 +6921,43 @@ export class ProjectRepository {
     indexedModelCalls: number;
   }> {
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    return runIndexWriteLane(seriesRoot, async () => {
-      const database = this.openIndex(seriesRoot);
-      try {
-        return await rebuildAiIndex(seriesRoot, database);
-      } finally {
-        database.close();
-      }
-    });
+    try {
+      return await runIndexWriteLane(seriesRoot, async () => {
+        const database = this.openIndex(seriesRoot);
+        try {
+          return await rebuildAiIndex(seriesRoot, database);
+        } finally {
+          database.close();
+        }
+      });
+    } catch (error) {
+      const rebuilt = await this.rebuildIndexIfUnhealthy(seriesRoot, error);
+      return {
+        indexedContextBundles: rebuilt.indexedContextBundles,
+        indexedModelCalls: rebuilt.indexedModelCalls,
+      };
+    }
   }
 
   async searchCodex(seriesId: string, query: string): Promise<CodexSearchResult[]> {
     const trimmed = query.trim();
     if (!trimmed) return [];
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const database = this.openIndex(seriesRoot);
-    try {
+    return this.withIndexRead(seriesRoot, (database) => {
       if (Array.from(trimmed).length < 3) {
+        const pattern = literalLikePattern(trimmed);
         return database
           .prepare(
             `SELECT id AS entryId, name, category_id AS categoryId,
                     substr(description, 1, 180) AS excerpt
              FROM codex_entries
-             WHERE name LIKE ? OR aliases LIKE ? OR description LIKE ? OR research LIKE ?
+             WHERE name LIKE ? ESCAPE '\\'
+                OR aliases LIKE ? ESCAPE '\\'
+                OR description LIKE ? ESCAPE '\\'
+                OR research LIKE ? ESCAPE '\\'
              ORDER BY updated_at DESC LIMIT 30`,
           )
-          .all(`%${trimmed}%`, `%${trimmed}%`, `%${trimmed}%`, `%${trimmed}%`)
+          .all(pattern, pattern, pattern, pattern)
           .map((row) => CodexSearchResultSchema.parse(row));
       }
       const phrase = `"${trimmed.replace(/"/gu, '""')}"`;
@@ -6969,9 +6972,7 @@ export class ProjectRepository {
         )
         .all(phrase)
         .map((row) => CodexSearchResultSchema.parse(row));
-    } finally {
-      database.close();
-    }
+    });
   }
 
   async rebuildIndex(seriesId: string): Promise<{
@@ -7001,10 +7002,15 @@ export class ProjectRepository {
     const seriesRoot = await this.findSeriesRoot(seriesId);
     return rebuildIndexDatabase(seriesRoot, seriesId, async ({ databasePath, throwIfCancelled }) => {
       const sceneFiles = await walkSceneFiles(path.join(seriesRoot, "books"));
-      for (const filePath of sceneFiles) {
-        throwIfCancelled();
-        const scene = parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath));
-        await this.indexSceneProjection(seriesRoot, scene, databasePath);
+      const sceneDatabase = this.openIndex(seriesRoot, databasePath);
+      try {
+        for (const filePath of sceneFiles) {
+          throwIfCancelled();
+          const scene = parseSceneText(await readFile(filePath, "utf8"), path.relative(seriesRoot, filePath));
+          this.writeSceneProjection(sceneDatabase, scene);
+        }
+      } finally {
+        sceneDatabase.close();
       }
       const codex = await this.rebuildCodexIndexProjection(seriesRoot, databasePath);
       throwIfCancelled();
@@ -7023,16 +7029,18 @@ export class ProjectRepository {
     const trimmed = query.trim();
     if (!trimmed) return [];
     const seriesRoot = await this.findSeriesRoot(seriesId);
-    const database = this.openIndex(seriesRoot);
-    try {
+    return this.withIndexRead(seriesRoot, (database) => {
       if (Array.from(trimmed).length < 3) {
+        const pattern = literalLikePattern(trimmed);
         return database
           .prepare(
             `SELECT id AS sceneId, title, substr(content, 1, 180) AS excerpt,
                     relative_path AS relativePath
-             FROM scenes WHERE title LIKE ? OR content LIKE ? ORDER BY updated_at DESC LIMIT 30`,
+             FROM scenes
+             WHERE title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\'
+             ORDER BY updated_at DESC LIMIT 30`,
           )
-          .all(`%${trimmed}%`, `%${trimmed}%`) as SearchResult[];
+          .all(pattern, pattern) as SearchResult[];
       }
       const phrase = `"${trimmed.replace(/"/gu, '""')}"`;
       return database
@@ -7044,9 +7052,7 @@ export class ProjectRepository {
            WHERE scene_fts MATCH ? LIMIT 30`,
         )
         .all(phrase) as SearchResult[];
-    } finally {
-      database.close();
-    }
+    });
   }
 
   async getPlanningBoard(seriesId: string): Promise<PlanningBoard> {
@@ -8835,7 +8841,10 @@ export class ProjectRepository {
         const manifest = await readJson(path.join(root, SERIES_FILE), (value) =>
           SeriesManifestSchema.parse(value),
         );
-        if (manifest.id === seriesId) return root;
+        if (manifest.id === seriesId) {
+          this.seriesIdsByRoot.set(path.resolve(root), seriesId);
+          return root;
+        }
       } catch (error) {
         if (error instanceof StorageError && error.code === "NOT_FOUND") continue;
         throw error;
@@ -10404,7 +10413,16 @@ export class ProjectRepository {
     indexedMentions: number;
     ambiguousMentions: number;
   }> {
-    return runIndexWriteLane(seriesRoot, () => this.rebuildCodexIndexProjection(seriesRoot));
+    try {
+      return await runIndexWriteLane(seriesRoot, () => this.rebuildCodexIndexProjection(seriesRoot));
+    } catch (error) {
+      const rebuilt = await this.rebuildIndexIfUnhealthy(seriesRoot, error);
+      return {
+        indexedCodexEntries: rebuilt.indexedCodexEntries,
+        indexedMentions: rebuilt.indexedMentions,
+        ambiguousMentions: rebuilt.ambiguousMentions,
+      };
+    }
   }
 
   private async rebuildCodexIndexProjection(
@@ -10531,27 +10549,72 @@ export class ProjectRepository {
     const targetPath = databasePath
       ? assertInside(seriesRoot, databasePath)
       : assertInside(seriesRoot, path.join(seriesRoot, ".studio", "index.sqlite"));
-    return openIndexDatabase(targetPath, { allowLegacy: databasePath === undefined });
+    const seriesId = this.seriesIdsByRoot.get(path.resolve(seriesRoot));
+    if (!seriesId) {
+      throw new StorageError("Series identity is unavailable for the SQLite index", "INVALID_DATA", { seriesRoot });
+    }
+    return openIndexDatabase(targetPath, { seriesId });
+  }
+
+  private async rebuildIndexIfUnhealthy(seriesRoot: string, originalError: unknown): Promise<{
+    indexedScenes: number;
+    indexedCodexEntries: number;
+    indexedMentions: number;
+    ambiguousMentions: number;
+    indexedContextBundles: number;
+    indexedModelCalls: number;
+  }> {
+    const expectedSeriesId = this.seriesIdsByRoot.get(path.resolve(seriesRoot));
+    const health = await inspectIndexDatabase(seriesRoot, expectedSeriesId);
+    if (health.status === "ready") throw originalError;
+    const manifest = await readJson(path.join(seriesRoot, SERIES_FILE), (value) => SeriesManifestSchema.parse(value));
+    return this.rebuildIndex(manifest.id);
+  }
+
+  private async withIndexRead<T>(
+    seriesRoot: string,
+    read: (database: Database.Database) => T,
+  ): Promise<T> {
+    const execute = () => {
+      const database = this.openIndex(seriesRoot);
+      try {
+        return read(database);
+      } finally {
+        database.close();
+      }
+    };
+    await waitForIndexWriteLane(seriesRoot);
+    try {
+      return execute();
+    } catch (error) {
+      await this.rebuildIndexIfUnhealthy(seriesRoot, error);
+      await waitForIndexWriteLane(seriesRoot);
+      return execute();
+    }
   }
 
   private async unindexScenes(seriesRoot: string, sceneIds: string[]): Promise<void> {
     if (sceneIds.length === 0) return;
-    await runIndexWriteLane(seriesRoot, async () => {
-      const database = this.openIndex(seriesRoot);
-      const transaction = database.transaction(() => {
-        for (const sceneId of sceneIds) {
-          database.prepare("DELETE FROM scene_fts WHERE id = ?").run(sceneId);
-          database.prepare("DELETE FROM scenes WHERE id = ?").run(sceneId);
-          database.prepare("DELETE FROM codex_mentions WHERE scene_id = ?").run(sceneId);
-          database.prepare("DELETE FROM codex_ambiguities WHERE scene_id = ?").run(sceneId);
+    try {
+      await runIndexWriteLane(seriesRoot, async () => {
+        const database = this.openIndex(seriesRoot);
+        const transaction = database.transaction(() => {
+          for (const sceneId of sceneIds) {
+            database.prepare("DELETE FROM scene_fts WHERE id = ?").run(sceneId);
+            database.prepare("DELETE FROM scenes WHERE id = ?").run(sceneId);
+            database.prepare("DELETE FROM codex_mentions WHERE scene_id = ?").run(sceneId);
+            database.prepare("DELETE FROM codex_ambiguities WHERE scene_id = ?").run(sceneId);
+          }
+        });
+        try {
+          transaction();
+        } finally {
+          database.close();
         }
       });
-      try {
-        transaction();
-      } finally {
-        database.close();
-      }
-    });
+    } catch (error) {
+      await this.rebuildIndexIfUnhealthy(seriesRoot, error);
+    }
   }
 
   private async indexScene(
@@ -10559,10 +10622,14 @@ export class ProjectRepository {
     scene: SceneDocument,
     refreshCodex = true,
   ): Promise<void> {
-    await runIndexWriteLane(seriesRoot, async () => {
-      await this.indexSceneProjection(seriesRoot, scene);
-      if (refreshCodex) await this.reindexSceneCodexMentions(seriesRoot, scene);
-    });
+    try {
+      await runIndexWriteLane(seriesRoot, async () => {
+        await this.indexSceneProjection(seriesRoot, scene);
+        if (refreshCodex) await this.reindexSceneCodexMentions(seriesRoot, scene);
+      });
+    } catch (error) {
+      await this.rebuildIndexIfUnhealthy(seriesRoot, error);
+    }
   }
 
   private async indexSceneProjection(
@@ -10571,6 +10638,14 @@ export class ProjectRepository {
     databasePath?: string,
   ): Promise<void> {
     const database = this.openIndex(seriesRoot, databasePath);
+    try {
+      this.writeSceneProjection(database, scene);
+    } finally {
+      database.close();
+    }
+  }
+
+  private writeSceneProjection(database: Database.Database, scene: SceneDocument): void {
     const transaction = database.transaction(() => {
       database.prepare("DELETE FROM scene_fts WHERE id = ?").run(scene.metadata.id);
       database.prepare("DELETE FROM scenes WHERE id = ?").run(scene.metadata.id);
@@ -10591,11 +10666,7 @@ export class ProjectRepository {
         .prepare("INSERT INTO scene_fts (id, title, content) VALUES (?, ?, ?)")
         .run(scene.metadata.id, scene.metadata.title, scene.plainText);
     });
-    try {
-      transaction();
-    } finally {
-      database.close();
-    }
+    transaction();
   }
 }
 

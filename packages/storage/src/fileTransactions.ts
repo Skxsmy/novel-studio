@@ -176,30 +176,38 @@ async function applyFileTransactionUnlocked(
   await mkdir(transactionRoot, { recursive: true });
   const journalPath = path.join(transactionRoot, `${id}.json`);
   const entries: TransactionEntry[] = [];
+  const preparedTemporaryPaths: string[] = [];
 
-  for (const mutation of mutations) {
-    const targetPath = assertInside(seriesRoot, mutation.targetPath);
-    await mkdir(path.dirname(targetPath), { recursive: true });
-    const temporary = mutation.delete ? null : `${targetPath}.${id}.tmp`;
-    if (temporary) {
-      if (mutation.content === undefined) {
-        throw new StorageError("文件事务缺少写入内容", "INVALID_DATA", { targetPath });
+  try {
+    for (const mutation of mutations) {
+      const targetPath = assertInside(seriesRoot, mutation.targetPath);
+      await mkdir(path.dirname(targetPath), { recursive: true });
+      const temporary = mutation.delete ? null : `${targetPath}.${id}.tmp`;
+      if (temporary) {
+        preparedTemporaryPaths.push(temporary);
+        if (mutation.content === undefined) {
+          throw new StorageError("文件事务缺少写入内容", "INVALID_DATA", { targetPath });
+        }
+        await writeFileDurably(temporary, mutation.content, "wx");
       }
-      await writeFileDurably(temporary, mutation.content, "wx");
+      entries.push({
+        target: path.relative(seriesRoot, targetPath),
+        temporary: temporary ? path.relative(seriesRoot, temporary) : null,
+        backup: path.relative(seriesRoot, `${targetPath}.${id}.bak`),
+        hadOriginal: await pathExists(targetPath),
+        delete: mutation.delete ?? false,
+      });
     }
-    entries.push({
-      target: path.relative(seriesRoot, targetPath),
-      temporary: temporary ? path.relative(seriesRoot, temporary) : null,
-      backup: path.relative(seriesRoot, `${targetPath}.${id}.bak`),
-      hadOriginal: await pathExists(targetPath),
-      delete: mutation.delete ?? false,
-    });
+
+    await atomicWrite(journalPath, JSON.stringify({ id, status: "prepared", entries } satisfies TransactionJournal));
+  } catch (error) {
+    await Promise.all(preparedTemporaryPaths.map((temporaryPath) => rm(temporaryPath, { force: true })));
+    await rm(journalPath, { force: true });
+    throw error;
   }
 
   const writeJournal = async (status: TransactionJournal["status"]) =>
     atomicWrite(journalPath, JSON.stringify({ id, status, entries } satisfies TransactionJournal));
-
-  await writeJournal("prepared");
   try {
     await writeJournal("committing");
     for (const [index, entry] of entries.entries()) {
@@ -224,6 +232,7 @@ async function applyFileTransactionUnlocked(
 export async function runSeriesFileTransaction<T>(
   seriesRoot: string,
   operation: (commit: FileTransactionCommit) => Promise<T>,
+  options: FileTransactionOptions = {},
 ): Promise<T> {
   return withSeriesTransactionCoordinator(seriesRoot, async () => {
     await recoverFileTransactionsUnlocked(seriesRoot);
@@ -233,7 +242,7 @@ export async function runSeriesFileTransaction<T>(
         throw new StorageError("A coordinated file transaction can commit only once", "INVALID_DATA");
       }
       committed = true;
-      await applyFileTransactionUnlocked(seriesRoot, mutations);
+      await applyFileTransactionUnlocked(seriesRoot, mutations, options);
     };
     return operation(commit);
   });

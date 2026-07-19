@@ -20,6 +20,7 @@ This changelog records user-visible product changes. Task status, command logs, 
 
 ### Changed
 
+- Database recovery now rejects foreign or cross-Series indexes before mutation, rebuilds missing or drifted projections from JSON authority, preserves WAL/journal bundles and rollback recovery artifacts, validates full build integrity, and prevents readers from entering replacement gaps. Research imports serialize duplicate detection, damaged originals cannot receive property writes, literal short search no longer treats SQL wildcards as author input, and unsaved Research properties cannot be lost by switching sources or importing during a save.
 - Project Library now creates real Series authority from an empty library, immediately opens the new Series, and lists other real Series for selection instead of reporting fixture-only success.
 - Overview is now the initial workspace when no previous workspace can be restored. Its approved header, Continue Scene panel, project progress, recent Scene list, attention area, and Review queue now use the open Series and current Write Scene instead of reference fixtures; unavailable continuity analysis and missing targets remain visibly honest and disabled.
 - Workshop now loads each conversation independently: a routeable legacy or schema-invalid message owned by another conversation no longer disables Context, model selection, attachments, or message editing in the current conversation. The damaged conversation still reports its own validation error, and no authority file is silently rewritten.

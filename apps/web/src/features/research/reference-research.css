@@ -38,7 +38,8 @@
 
 .rs8-upload,
 .rs8-empty button,
-.rs8-save {
+.rs8-save,
+.rs8-discard {
   min-height: 36px;
   border: 1px solid var(--dark);
   border-radius: var(--radius);
@@ -53,10 +54,12 @@
 .rs8-upload span { font-size: 19px; font-weight: 400; }
 .rs8-upload:disabled,
 .rs8-empty button:disabled,
-.rs8-save:disabled { cursor: not-allowed; opacity: .46; }
+.rs8-save:disabled,
+.rs8-discard:disabled { cursor: not-allowed; opacity: .46; }
 .rs8-upload:focus-visible,
 .rs8-empty button:focus-visible,
 .rs8-save:focus-visible,
+.rs8-discard:focus-visible,
 .rs8-rail-toggle:focus-visible,
 .rs8-source:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 
@@ -106,6 +109,7 @@
   cursor: pointer;
 }
 .rs8-source:hover { background: var(--green-soft); }
+.rs8-source:disabled { cursor: not-allowed; opacity: .55; }
 .rs8-source.is-selected { background: var(--paper); }
 .rs8-spine { position: relative; align-self: stretch; }
 .rs8-spine::before { content: ""; position: absolute; top: -9px; bottom: -9px; left: 8px; width: 1px; background: var(--line-strong); }
@@ -143,6 +147,7 @@
 .rs8-inspector > header { min-height: 58px; }
 .rs8-inspector header h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
 .rs8-status { padding: 3px 7px; border: 1px solid #bcd8ca; border-radius: 999px; color: var(--green); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.rs8-dirty { color: #8b5e12; font-size: 10px; font-weight: 700; text-transform: uppercase; }
 .rs8-inspector form { padding: 15px 16px 30px; }
 .rs8-inspector form > label { display: block; margin-bottom: 13px; }
 .rs8-inspector form > label > span,
@@ -161,7 +166,8 @@
 .rs8-permission span { min-height: 36px; padding: 7px; display: grid; place-items: center; color: var(--muted); background: var(--paper); font-size: 10px; text-align: center; cursor: pointer; }
 .rs8-permission input:checked + span { color: var(--green); background: var(--green-soft); font-weight: 700; }
 .rs8-permission input:focus-visible + span { outline: 2px solid var(--blue); outline-offset: -2px; }
-.rs8-save { width: 100%; }
+.rs8-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.rs8-discard { border-color: var(--line-strong); background: var(--paper); color: var(--ink); }
 .rs8-facts { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
 .rs8-facts summary { color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; }
 .rs8-facts dl { margin: 10px 0 0; }
@@ -180,7 +186,7 @@
   .rs8-inspector form > label,
   .rs8-inspector fieldset { min-width: 0; }
   .rs8-inspector form > label:last-of-type,
-  .rs8-save,
+  .rs8-actions,
   .rs8-facts { grid-column: 1 / -1; }
 }
 

@@ -168,6 +168,10 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !seriesId) return;
+    if (isDirty || isSaving) {
+      setError("Unsaved property changes are still open.");
+      return;
+    }
     setError("");
     setNotice("");
     const lowerName = file.name.toLocaleLowerCase("en-US");
@@ -265,6 +269,13 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     }
   }
 
+  function discardDraft() {
+    if (!savedDraft) return;
+    setDraft(savedDraft);
+    setError("");
+    setNotice("");
+  }
+
   return (
     <section aria-label="Research workspace" className="rs8 workspace-view" data-workspace-view="Research" hidden id="research-workspace">
       <header className="rs8-toolbar">
@@ -282,7 +293,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
         </div>
         <button
           className="rs8-upload"
-          disabled={!seriesId || isUploading}
+          disabled={!seriesId || isUploading || isSaving || isDirty}
           onClick={() => fileInputRef.current?.click()}
           type="button"
         >
@@ -317,6 +328,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
                   <button
                     aria-current={selected ? "true" : undefined}
                     className={`rs8-source${selected ? " is-selected" : ""}`}
+                    disabled={isSaving || (isDirty && !selected)}
                     key={source.id}
                     onClick={() => chooseSource(source.id)}
                     title={source.displayName}
@@ -353,22 +365,25 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
         </main>
 
         <aside aria-label="Source properties" className="rs8-inspector">
-          <header><div><p>Selected source</p><h2>Properties</h2></div>{detail ? <span className="rs8-status">Parsed</span> : null}</header>
+          <header><div><p>Selected source</p><h2>Properties</h2></div>{isDirty ? <span className="rs8-dirty">Unsaved changes</span> : detail ? <span className="rs8-status">Parsed</span> : null}</header>
           {detail && draft ? (
             <form onSubmit={(event) => void saveProperties(event)}>
-              <label><span>Display name</span><input maxLength={240} onChange={(event) => setDraft({ ...draft, displayName: event.target.value })} required value={draft.displayName} /></label>
-              <label><span>Author</span><input maxLength={240} onChange={(event) => setDraft({ ...draft, author: event.target.value })} value={draft.author} /></label>
-              <label><span>Declared language</span><input maxLength={64} onChange={(event) => setDraft({ ...draft, declaredLanguage: event.target.value })} placeholder="zh-CN, ja-JP, en" value={draft.declaredLanguage} /></label>
-              <label><span>Tags</span><input maxLength={1200} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} placeholder="history, folklore" value={draft.tags} /></label>
+              <label><span>Display name</span><input disabled={isSaving} maxLength={240} onChange={(event) => setDraft({ ...draft, displayName: event.target.value })} required value={draft.displayName} /></label>
+              <label><span>Author</span><input disabled={isSaving} maxLength={240} onChange={(event) => setDraft({ ...draft, author: event.target.value })} value={draft.author} /></label>
+              <label><span>Declared language</span><input disabled={isSaving} maxLength={64} onChange={(event) => setDraft({ ...draft, declaredLanguage: event.target.value })} placeholder="zh-CN, ja-JP, en" value={draft.declaredLanguage} /></label>
+              <label><span>Tags</span><input disabled={isSaving} maxLength={1200} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} placeholder="history, folklore" value={draft.tags} /></label>
               <fieldset>
                 <legend>AI context permission</legend>
                 <div className="rs8-permission">
-                  <label><input checked={draft.aiPermission === "never"} name="research-ai-permission" onChange={() => setDraft({ ...draft, aiPermission: "never" })} type="radio" /><span>Never send</span></label>
-                  <label><input checked={draft.aiPermission === "allowed"} name="research-ai-permission" onChange={() => setDraft({ ...draft, aiPermission: "allowed" })} type="radio" /><span>Allow when selected</span></label>
+                  <label><input checked={draft.aiPermission === "never"} disabled={isSaving} name="research-ai-permission" onChange={() => setDraft({ ...draft, aiPermission: "never" })} type="radio" /><span>Never send</span></label>
+                  <label><input checked={draft.aiPermission === "allowed"} disabled={isSaving} name="research-ai-permission" onChange={() => setDraft({ ...draft, aiPermission: "allowed" })} type="radio" /><span>Allow when selected</span></label>
                 </div>
               </fieldset>
-              <label><span>Copyright / use notes</span><textarea maxLength={8000} onChange={(event) => setDraft({ ...draft, useNotes: event.target.value })} rows={4} value={draft.useNotes} /></label>
-              <button className="rs8-save" disabled={!isDirty || isSaving || !draft.displayName.trim()} type="submit">{isSaving ? "Saving" : "Save properties"}</button>
+              <label><span>Copyright / use notes</span><textarea disabled={isSaving} maxLength={8000} onChange={(event) => setDraft({ ...draft, useNotes: event.target.value })} rows={4} value={draft.useNotes} /></label>
+              <div className="rs8-actions">
+                <button className="rs8-discard" disabled={!isDirty || isSaving} onClick={discardDraft} type="button">Discard changes</button>
+                <button className="rs8-save" disabled={!isDirty || isSaving || !draft.displayName.trim()} type="submit">{isSaving ? "Saving" : "Save properties"}</button>
+              </div>
               <details className="rs8-facts">
                 <summary>Import facts</summary>
                 <dl>

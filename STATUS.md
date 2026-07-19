@@ -6,26 +6,27 @@ Authority: current operational state only
 ## Project Mainline
 
 - Active milestone: `M6 Reference Library And Retrieval`.
-- Active task: `NS-602 / M6.1 Database Kernel And Research Source Vertical Slice` (`in_progress`).
-- Task record: `docs/tasks/NS-602.md`.
-- Acceptance record: `docs/testing/NS-602_ACCEPTANCE.md`.
-- Last reached mainline task: `NS-601 / M6.0 Database Architecture Planning` at `e889c4c`.
-- Next mainline task: `NS-602 / M6.1 Database Kernel And Research Source Vertical Slice`; automated implementation and repository closure are complete, while author visual acceptance remains open.
+- Active task: `NS-602 / M6.1 Database Kernel And Research Source Vertical Slice`; status remains in progress because explicit author visual acceptance is open.
+- Last reached mainline task: `NS-601 / M6.0 Database Architecture Planning` at `e889c4c`; NS-602 is implemented but not completed while its author visual gate remains open.
+- Next mainline task: `NS-602 / M6.1 Database Kernel And Research Source Vertical Slice`; its author visual decision must be recorded before NS-603 is opened.
+- Next mainline action: obtain the author's explicit Research visual decision for NS-602; after that gate closes, scope NS-603 without assuming the GOV-002 recommendations are approved.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; NS-514 is paused with only A16 author visual acceptance open. No task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
-- Mainline state: NS-602 automated implementation evidence and task-scoped repository closure are complete for the versioned/atomic database kernel and the first real TXT/Markdown Research source workflow. The author rejected the obsolete Figma Research path; the page uses the pinned `ui-design` Skill and the named React design checklist. Explicit author visual acceptance remains open.
+- Mainline state: GOV-002 is complete and does not consume, complete, or renumber an NS task. Its diagnostic UI work does not satisfy NS-602 author visual acceptance.
 
 ## Active Support Work
 
 - Active task: none.
-- Last completed support task: `GOV-001 Documentation Governance And Delivery Skeleton`.
-- Task record: `docs/tasks/GOV-001.md`.
-- Acceptance record: `docs/testing/GOV-001_ACCEPTANCE.md`.
-- Next action: perform the user-requested database implementation review as separate support work without treating it as NS-602 visual acceptance. NS-514 A16 and NS-602 A12 remain separate paused visual gates.
+- Last completed support task: `GOV-002 Database Implementation Review And Hardening`.
+- Task record: `docs/tasks/GOV-002.md`.
+- Acceptance and report: `docs/testing/GOV-002_ACCEPTANCE.md`; `docs/testing/GOV-002_DATABASE_REVIEW.md`.
+- State: complete; fifteen confirmed defects were fixed, full verification passed, and unresolved risks/recommendations remain explicitly unapproved.
 
 ## Repository State
 
 - Branch: `codex/ns-514-overview`; NS-601 base is `e889c4c` and the separate NS-514 follow-up commit is `b7ae1be`.
+- Review baseline: `bb37126 NS-602 feat(research): add source workspace and index kernel`; the worktree was clean when GOV-002 opened.
+- GOV-002 hardens SQLite identity, health, recovery, FTS policy, Research transactions, literal search, and Research dirty-state handling in its own task-scoped closure commit.
 - Rewritten pre-GOV-001 mainline tip: `6fbabac NS-506 fix(workshop): close tool execution lifecycle gaps`.
 - Numbering-repair verification tip before closure: `578a74a GOV-001 docs(governance): separate support work from product mainline`.
 - Local recovery ref: `backup/gov-001-before-numbering-rewrite-20260710` preserves the original pre-rewrite history; the rewritten and backup tips have identical tree `deae3c9fae1f797239b975c464106126df530765`.
@@ -50,6 +51,7 @@ Authority: current operational state only
 
 ## Known Risks
 
+- GOV-002 leaves process-local writer coordination, durable projector freshness, bounded deep-FTS diagnosis, symlink-safe filesystem containment, schema-v2 foreign keys, authority backup drills, and author-scale performance as explicit residual risks. See `docs/testing/GOV-002_DATABASE_REVIEW.md` before scoping NS-603.
 - Current limited Workshop Codex tools are atomic, stale/target-bound, and connected to durable Agent continuation; Tool Plans/Grants, broader tools, and Proposal fallback remain unfinished.
 - Workshop call and lifecycle mutual exclusion is local to one server process. Restart reconciliation marks unfinished work without replay, but durable cross-process wake/join, cross-process cancellation, and unknown-side-effect recovery remain open architecture work.
 - Embedding profile Settings UI and model lifecycle controls remain deferred; NS-508 exposes the persisted binding/API and manual planner degradation without pretending that Settings UI exists.

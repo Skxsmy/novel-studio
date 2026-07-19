@@ -77,4 +77,18 @@ describe("series file transaction coordination", () => {
     expect(await transactionArtifacts(root)).toEqual([]);
     expect((await readdir(root)).some((name) => /\.(?:tmp|bak)$/u.test(name))).toBe(false);
   });
+
+  it("removes prepared plaintext temporaries when setup fails before a journal exists", async () => {
+    const root = await seriesRoot();
+    const firstPath = path.join(root, "first.json");
+    const invalidPath = path.join(root, "missing-content.json");
+
+    await expect(applyFileTransaction(root, [
+      { targetPath: firstPath, content: "private prepared text" },
+      { targetPath: invalidPath },
+    ])).rejects.toThrow("文件事务缺少写入内容");
+
+    expect(await transactionArtifacts(root)).toEqual([]);
+    expect((await readdir(root)).some((name) => /\.(?:tmp|bak)$/u.test(name))).toBe(false);
+  });
 });

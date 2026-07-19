@@ -6,7 +6,7 @@ This file is an index. Scope, implementation detail, acceptance IDs, and evidenc
 
 ## Active Support Work
 
-No support task is active.
+None.
 
 ## Project Mainline
 
@@ -23,7 +23,7 @@ No support task is active.
 | NS-513 / M5.7 | todo | Council, conflict/failure states, responsive/copy review, and user visual acceptance | `docs/tasks/M5.md` |
 | NS-514 | paused | P0-P6 and automated P7 evidence complete; explicit author visual acceptance A16 remains while database planning proceeds by user direction | `docs/tasks/NS-514.md`; `docs/testing/NS-514_ACCEPTANCE.md` |
 | NS-601 | complete | M6.0 plans the rebuildable novel-text/narrative database, language-aware FTS, explainable Chinese-to-Japanese/English retrieval, atomic rebuild, Reference Library, and vector boundary without changing JSON authority | `docs/tasks/NS-601.md`; `docs/testing/NS-601_ACCEPTANCE.md` |
-| NS-602 | in_progress | M6.1 adds the versioned atomic index kernel and a real TXT/Markdown Research source upload, preview, and property-management workflow designed directly in React with the installed UI Skill; explicit author visual acceptance remains open | `docs/tasks/NS-602.md`; `docs/testing/NS-602_ACCEPTANCE.md` |
+| NS-602 | in_progress | M6.1 adds the versioned atomic index kernel and a real TXT/Markdown Research source upload, preview, and property-management workflow designed directly in React with the installed UI Skill; GOV-002 hardening is complete and explicit author visual acceptance remains open | `docs/tasks/NS-602.md`; `docs/testing/NS-602_ACCEPTANCE.md` |
 
 ## Incomplete Existing Lines
 
@@ -49,5 +49,6 @@ No support task is active.
 | Task | Status | Summary | Records |
 | --- | --- | --- | --- |
 | GOV-001 | complete | Documentation governance, mainline/support numbering separation, canonical hierarchy mapping, and unpublished commit-prefix repair | `docs/tasks/GOV-001.md`; `docs/testing/GOV-001_ACCEPTANCE.md` |
+| GOV-002 | complete | Full database/source/UI implementation review, fifteen confirmed defect fixes, adversarial recovery and concurrency proof, performance probe, residual risks, and prioritized unapproved recommendations | `docs/tasks/GOV-002.md`; `docs/testing/GOV-002_ACCEPTANCE.md`; `docs/testing/GOV-002_DATABASE_REVIEW.md` |
 
 Historical task details remain in `docs/tasks/` and their acceptance records. They are not part of the default reading path unless an active task names them.

@@ -122,6 +122,34 @@ describe("NS-602 Research workspace", () => {
     expect(within(root).getAllByText("interview.txt")).toHaveLength(2);
   });
 
+  it("keeps an unsaved property draft until the author saves or discards it", async () => {
+    const txt = detail();
+    const markdown = detail(mdId, { kind: "markdown" });
+    vi.spyOn(api.research, "listSources").mockResolvedValue([listed(txt), listed(markdown)]);
+    const getSource = vi.spyOn(api.research, "getSource").mockImplementation(async (_seriesId, sourceId) =>
+      sourceId === mdId ? markdown : txt,
+    );
+
+    const { container } = render(<ReferenceResearchWorkspace seriesId={seriesId} />);
+    const root = container.querySelector<HTMLElement>("#research-workspace")!;
+    root.hidden = false;
+    const displayName = await within(root).findByLabelText("Display name");
+    fireEvent.change(displayName, { target: { value: "Uncommitted author title" } });
+
+    expect(within(root).getByText("Unsaved changes")).toBeTruthy();
+    expect((within(root).getByRole("button", { name: /Japanese terms/u }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(root).getByRole("button", { name: "Add source" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(root).getByLabelText("Display name") as HTMLInputElement).value).toBe("Uncommitted author title");
+
+    fireEvent.click(within(root).getByRole("button", { name: "Discard changes" }));
+    expect((within(root).getByLabelText("Display name") as HTMLInputElement).value).toBe("Harbor interview");
+    const markdownButton = within(root).getByRole("button", { name: /Japanese terms/u });
+    expect((markdownButton as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(markdownButton);
+    await waitFor(() => expect(getSource).toHaveBeenCalledWith(seriesId, mdId));
+    await waitFor(() => expect(within(root).getByText("月守（つきもり）", { exact: false })).toBeTruthy());
+  });
+
   it("falls back safely when the restored source no longer exists", async () => {
     const txt = detail();
     localStorage.setItem(`novel-studio.research.selected.${seriesId}`, mdId);
