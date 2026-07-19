@@ -6,10 +6,10 @@ Authority: current operational state only
 ## Project Mainline
 
 - Active milestone: `M6 Reference Library And Retrieval`.
-- Active task: `NS-604 / M6.3 Durable Research Source And Original-language Lexical Index`; A01-A13 are committed through `d655ad8`, while A14 author visual acceptance remains pending.
-- Last reached mainline task: `NS-603 / M6.2 Library-scoped Research Database Authority And Isolation`; A01-A11 passed in committed evidence and the author separately accepted A12 on 2026-07-19.
-- Next mainline task: `NS-604 / M6.3 Durable Research Source And Original-language Lexical Index`; it remains active until the separate A14 decision is recorded. The first unstarted successor is NS-605, followed independently by NS-606, NS-607, and NS-608.
-- Next mainline action: present the connected `d655ad8` Research page for the author's A14 decision. Do not begin hybrid retrieval, model tools, or Workshop integration inside NS-604.
+- Active task: `NS-605 / M6.4 Multi-database Hybrid And Cross-language Retrieval`; specification, ADR, acceptance mapping, and dependency validation are in progress before runtime edits.
+- Last reached mainline task: `NS-604 / M6.3 Durable Research Source And Original-language Lexical Index`; A01-A13 are committed through `d655ad8`, while A14 author visual acceptance remains open without blocking NS-605 by the author's explicit 2026-07-19 direction to continue.
+- Next mainline task: `NS-605 / M6.4 Multi-database Hybrid And Cross-language Retrieval`; NS-606, NS-607, and NS-608 remain separate unstarted successors.
+- Next mainline action: freeze NS-605 acceptance and the isolated vector-engine decision, then implement explicit multi-database search, durable alias/transliteration provenance, validated multilingual vectors, deterministic fusion, and the author-facing Research workflow. Do not add model tools or Workshop activation inside NS-605.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; NS-514 is paused with only A16 author visual acceptance open. No task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
 - Mainline state: GOV-002 is complete and does not consume, complete, or renumber an NS task. NS-602 author visual acceptance was supplied separately by the author.

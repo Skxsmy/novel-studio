@@ -766,6 +766,12 @@ Provisional acceptance targets:
   optional permission-gated result translation.
 - Keep Embedding profile routing, language-pair validation, and vector
   provenance explicit. No model or translation Provider is selected silently.
+- ADR-0022 resolves the initial engine/catalog boundary: NS-605 does not add a
+  global catalog, stores author alias/transliteration authority inside each
+  database, and uses a per-database `sqlite-vec` 0.1.9 sidecar loaded only from
+  the pinned package path. Flat KNN remains replaceable behind the adapter and
+  must pass Windows deletion, rebuild, cancellation, isolation, and corpus
+  performance gates before NS-605 closes.
 
 ### NS-606: Artificial-intelligence retrieval gateway
 
@@ -847,16 +853,18 @@ program must eventually prove:
 
 ## 21. Open Decisions Before Runtime Implementation
 
-- Decide whether `catalog.sqlite` is needed in NS-605 or whether bounded file
-  scanning remains sufficient for the first Library release.
+- ADR-0022 decides that NS-605 uses bounded explicit database fan-out without
+  `catalog.sqlite`; measured performance may justify a later separately reviewed
+  catalog.
 - Benchmark trigram size and one/two-character fallback before considering a
   reviewed custom Chinese tokenizer.
 - Freeze the `TextAnalyzer` normalization/segmentation versions and decide
   whether deterministic ICU transforms require a new dependency after the
   Chinese/Japanese/English mixed-text benchmark.
-- Select the vector engine and default multilingual profile only after the
-  Reference Library chunk fixture, real Embedding profiles, local Windows
-  resource measurements, and cross-language quality gates exist.
+- ADR-0022 selects exactly pinned `sqlite-vec` 0.1.9 flat KNN for the first
+  isolated sidecar. No default multilingual profile is selected: the existing
+  Embedding profile/use-case binding must pass an exact-profile capability
+  fixture before semantic retrieval is enabled.
 - Decide whether optional at-rest encryption belongs in a later security
   milestone. It is not silently added to the database dependency chain.
 

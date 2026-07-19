@@ -83,7 +83,7 @@ packages/
 
 删除全部可重建数据后，应用仍能打开和编辑作品，并可重新索引。
 
-M6 的详细数据库目标见 `docs/architecture/DATABASE_ARCHITECTURE.md`、ADR-0018、ADR-0019、ADR-0020 和 ADR-0021。每个 Series 保留一个派生 `index.sqlite` 作为小说投影；每个作品库级 Research Database 另有独立权威目录和独立可重建索引，数据库之间不共享来源、行、权限或生命周期状态。NS-602 交付 Series 索引内核和旧的 Series-owned TXT/Markdown 来源路径；NS-603 迁移到多个隔离 Research Database。NS-604 的独立边界是 SourceDocument version 3、完整原语言格式、受控网页快照、大文件有界读取与单库关键词索引。显式多库混合检索和无共享词项的跨语言召回属于 NS-605；模型只读工具属于 NS-606；Workshop 会话激活与迭代检索属于 NS-607；真实作者工作流强化属于 NS-608。任一前置任务通过都不得表示后续能力已经实现。向量仍由可替换适配器管理，任何 SQLite 正文都不是唯一权威。
+M6 的详细数据库目标见 `docs/architecture/DATABASE_ARCHITECTURE.md`、ADR-0018、ADR-0019、ADR-0020、ADR-0021 和 ADR-0022。每个 Series 保留一个派生 `index.sqlite` 作为小说投影；每个作品库级 Research Database 另有独立权威目录和独立可重建索引，数据库之间不共享来源、行、权限或生命周期状态。NS-602 交付 Series 索引内核和旧的 Series-owned TXT/Markdown 来源路径；NS-603 迁移到多个隔离 Research Database。NS-604 的独立边界是 SourceDocument version 3、完整原语言格式、受控网页快照、大文件有界读取与单库关键词索引。ADR-0022 为 NS-605 选择每库持久别名权威、固定 `sqlite-vec` 0.1.9 的独立向量 sidecar 和无全局目录的显式多库 fan-out；无共享词项的跨语言召回仍必须通过当前 Embedding profile 的语言夹具。模型只读工具属于 NS-606；Workshop 会话激活与迭代检索属于 NS-607；真实作者工作流强化属于 NS-608。任一前置任务通过都不得表示后续能力已经实现。向量仍由可替换适配器管理，任何 SQLite 正文都不是唯一权威。
 
 小说检索投影必须保留段落、句子、对白、叙述、POV、故事时间、情节线、语言片段和原文偏移，不能把 Scene 仅作为无结构长字符串。统一 Search Service 的物理索引按 manuscript/reference/Codex/Workshop 领域和 CJK/词项分析方式分开，先在各通道内排序再确定性融合。中文查询跨语言召回日文/英文原文时，优先使用经过中/日/英 fixture 验证的同空间多语言 Embedding；作者确认别名、确定性转写和显式的版本化查询翻译只扩展召回。任何译文或语义命中都必须保留 BCP 47 语言、原文 hash/offset/SourceLocation 和命中通道，不得替代 Evidence。
 
