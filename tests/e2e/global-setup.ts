@@ -39,6 +39,24 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     commit: process.env.NOVEL_STUDIO_COMMIT ?? "browser-acceptance",
     startedAt: process.env.NOVEL_STUDIO_STARTED_AT ?? new Date().toISOString(),
     workspaceRoot: process.env.NOVEL_STUDIO_WORKSPACE_ROOT ?? projectRoot,
+    researchWebAcquire: async (submittedUrl) => {
+      const url = new URL(submittedUrl);
+      if (url.hostname !== "research.example.test") {
+        throw new Error("Browser acceptance only permits the controlled Research fixture host");
+      }
+      const fetchedAt = new Date().toISOString();
+      return {
+        bytes: Buffer.from("<html><head><title>Harbor web archive</title></head><body><h1>Web log</h1><p>灯台守の記録: the western light failed at dusk.</p><script>throw new Error('must not execute')</script></body></html>", "utf8"),
+        origin: {
+          type: "web",
+          requestedUrl: url.toString(),
+          finalUrl: url.toString(),
+          redirectChain: [],
+          fetchedAt,
+          responseMediaType: "text/html",
+        },
+      };
+    },
   });
   await app.listen({ host: "127.0.0.1", port });
 

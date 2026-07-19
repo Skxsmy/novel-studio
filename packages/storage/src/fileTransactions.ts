@@ -8,7 +8,7 @@ import { assertInside, atomicWrite, flushDirectory, pathExists, writeFileDurably
 
 export interface FileMutation {
   targetPath: string;
-  content?: string;
+  content?: string | Uint8Array;
   delete?: boolean;
 }
 

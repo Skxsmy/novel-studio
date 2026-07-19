@@ -7,6 +7,7 @@ This changelog records user-visible product changes. Task status, command logs, 
 ### Added
 
 - Library-wide Research workspace with multiple isolated Research Databases, real UTF-8 TXT/Markdown import, unchanged original preview, persisted per-database source selection, revision-safe properties, explicit AI context permission, optional links from one database to multiple Series, and honest format/lifecycle limits.
+- Original-language Research sources now accept TXT, Markdown, DOCX, text PDF, EPUB, HTML, and one controlled web snapshot; exact originals and structured locations remain versioned authority, while each isolated database has its own rebuildable Chinese/Japanese/English keyword index and result-to-source navigation.
 - Versioned per-Series SQLite index kernel with fixed application identity, migration checksum and health classification, serialized writes, and validated temporary-build replacement that preserves the live index on failure.
 - Connected Codex workspace with real categories and Entries, Archived Entries, keyboard-reachable lifecycle menus, appended Detail editing, the original three-column Detail Type Library with persisted descriptions and row-context Rename/Delete, description-only Relation creation, Current Scene projection, real Write navigation, and separate Manuscript/Codex mentions with Canon previews.
 - Relation authority v2 migration with exact v1 rollback artifacts and guarded permanent deletion.

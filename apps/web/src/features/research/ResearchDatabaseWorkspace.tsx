@@ -5,10 +5,30 @@ import {
   type ResearchDatabaseDocument,
   type ResearchDatabaseIssue,
   type ResearchDatabaseSummary,
+  type ResearchIndexState,
+  type ResearchKeywordSearchResult,
   type ResearchSourceAiPermission,
+  type ResearchSourceBlock,
   type ResearchSourceDetail,
   type ResearchSourceDocument,
+  type ResearchSourceKind,
+  type ResearchSourceLocation,
+  type ResearchSourceMediaType,
 } from "@novel-studio/contracts";
+import {
+  BookOpenText,
+  ChevronDown,
+  Database,
+  FileText,
+  FileUp,
+  Globe2,
+  Menu,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings2,
+  X,
+} from "lucide-react";
 import { ApiError, api } from "../../api";
 import "./reference-research.css";
 
@@ -32,6 +52,23 @@ interface DatabaseDraft {
 }
 
 const DATABASE_SELECTION_KEY = "novel-studio.research.database.selected";
+
+const SOURCE_MEDIA_TYPES: Record<string, ResearchSourceMediaType> = {
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".epub": "application/epub+zip",
+  ".htm": "text/html",
+  ".html": "text/html",
+  ".markdown": "text/markdown",
+  ".md": "text/markdown",
+  ".pdf": "application/pdf",
+  ".txt": "text/plain",
+  ".xhtml": "application/xhtml+xml",
+};
+
+const SOURCE_FILE_ACCEPT = [
+  ".txt", ".md", ".markdown", ".docx", ".pdf", ".epub", ".html", ".htm", ".xhtml",
+  ...Object.values(SOURCE_MEDIA_TYPES),
+].join(",");
 
 function sourceSelectionKey(databaseId: string): string {
   return `novel-studio.research.source.selected.${databaseId}`;
@@ -85,6 +122,72 @@ function formatImportedAt(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
+function sourceKindLabel(kind: ResearchSourceKind): string {
+  const labels: Record<ResearchSourceKind, string> = {
+    docx: "Word",
+    epub: "EPUB",
+    html: "HTML",
+    markdown: "Markdown",
+    pdf: "PDF",
+    txt: "Text",
+    "web-snapshot": "Web snapshot",
+  };
+  return labels[kind];
+}
+
+function sourceKindMark(kind: ResearchSourceKind): string {
+  const marks: Record<ResearchSourceKind, string> = {
+    docx: "DOCX",
+    epub: "EPUB",
+    html: "HTML",
+    markdown: "MD",
+    pdf: "PDF",
+    txt: "TXT",
+    "web-snapshot": "WEB",
+  };
+  return marks[kind];
+}
+
+function mediaTypeForFile(fileName: string): ResearchSourceMediaType | null {
+  const lowerName = fileName.toLocaleLowerCase("en-US");
+  const extension = Object.keys(SOURCE_MEDIA_TYPES).find((candidate) => lowerName.endsWith(candidate));
+  return extension ? SOURCE_MEDIA_TYPES[extension]! : null;
+}
+
+function formatLocation(location: ResearchSourceLocation): string {
+  if (location.kind === "text") {
+    return location.startLine === location.endLine
+      ? `Line ${location.startLine}`
+      : `Lines ${location.startLine}-${location.endLine}`;
+  }
+  if (location.kind === "pdf") return `Page ${location.page} · paragraph ${location.paragraph}`;
+  if (location.kind === "docx") {
+    return `${location.sectionPath.join(" › ") || "Document"} · paragraph ${location.paragraph}`;
+  }
+  if (location.kind === "epub") {
+    return `${location.sectionPath.join(" › ") || `Spine ${location.spineIndex + 1}`} · paragraph ${location.paragraph}`;
+  }
+  return `${location.sectionPath.join(" › ") || "Page"} · paragraph ${location.paragraph}`;
+}
+
+function matchChannelLabel(channel: ResearchKeywordSearchResult["matchChannels"][number]): string {
+  if (channel === "keyword-cjk") return "CJK";
+  if (channel === "keyword-literal") return "Literal";
+  return "Word";
+}
+
+function ResearchTextBlock({ block, highlighted }: { block: ResearchSourceBlock; highlighted: boolean }) {
+  const className = `rs10-text-block is-${block.kind}${highlighted ? " is-highlighted" : ""}`;
+  const shared = {
+    className,
+    id: `research-block-${block.id}`,
+  };
+  if (block.kind === "heading") return <h3 {...shared}>{block.text}</h3>;
+  if (block.kind === "quote") return <blockquote {...shared}>{block.text}</blockquote>;
+  if (block.kind === "list-item") return <p {...shared}><span aria-hidden="true">•</span>{block.text}</p>;
+  return <p {...shared}>{block.text}</p>;
+}
+
 async function fileToBase64(file: File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
@@ -123,9 +226,22 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
   const [isSavingSource, setIsSavingSource] = useState(false);
   const [isSavingDatabase, setIsSavingDatabase] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
+  const [isMigratingSources, setIsMigratingSources] = useState(false);
+  const [indexState, setIndexState] = useState<ResearchIndexState | null>(null);
+  const [isLoadingIndex, setIsLoadingIndex] = useState(false);
+  const [isRebuildingIndex, setIsRebuildingIndex] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<ResearchKeywordSearchResult[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [pendingSearchResult, setPendingSearchResult] = useState<ResearchKeywordSearchResult | null>(null);
+  const [highlightedBlockId, setHighlightedBlockId] = useState<string | null>(null);
   const [isCreatingDatabase, setIsCreatingDatabase] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [databaseDialogOpen, setDatabaseDialogOpen] = useState(false);
+  const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
+  const [webDialogOpen, setWebDialogOpen] = useState(false);
+  const [webUrl, setWebUrl] = useState("");
+  const [isImportingWeb, setIsImportingWeb] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createDescription, setCreateDescription] = useState("");
   const [error, setError] = useState("");
@@ -134,6 +250,7 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
   const [railOpen, setRailOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createNameRef = useRef<HTMLInputElement>(null);
+  const webUrlRef = useRef<HTMLInputElement>(null);
 
   const sourceIsDirty = !sameValue(sourceDraft, savedSourceDraft);
   const databaseIsDirty = !sameValue(databaseDraft, savedDatabaseDraft);
@@ -144,6 +261,10 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
   const selectedListDocument = useMemo(
     () => sources.find((document) => document.source.id === selectedSourceId) ?? null,
     [selectedSourceId, sources],
+  );
+  const versionTwoSources = useMemo(
+    () => sources.filter((document) => document.source.schemaVersion === 2),
+    [sources],
   );
   const currentLegacyGroup = useMemo(
     () => seriesId ? legacyGroups.find((group) => group.seriesId === seriesId) ?? null : null,
@@ -200,6 +321,13 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setSourceDraft(null);
     setSavedSourceDraft(null);
     setDatabaseDocument(null);
+    setIndexState(null);
+    setSearchQuery("");
+    setSearchResults(null);
+    setPendingSearchResult(null);
+    setHighlightedBlockId(null);
+    setSourceMenuOpen(false);
+    setWebDialogOpen(false);
     setError("");
     if (!selectedDatabaseId) {
       if (databaseListResolved) globalThis.localStorage?.removeItem(DATABASE_SELECTION_KEY);
@@ -231,6 +359,22 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
       cancelled = true;
     };
   }, [databaseListResolved, selectedDatabaseId]);
+
+  useEffect(() => {
+    if (!selectedDatabaseId) return;
+    let cancelled = false;
+    setIsLoadingIndex(true);
+    void api.research.getIndexState(selectedDatabaseId).then((state) => {
+      if (!cancelled) setIndexState(state);
+    }).catch((reason) => {
+      if (!cancelled) setError(errorMessage(reason, "The search index state could not be read."));
+    }).finally(() => {
+      if (!cancelled) setIsLoadingIndex(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDatabaseId]);
 
   useEffect(() => {
     if (!selectedDatabaseId || !selectedSourceId || sourceShelfDatabaseId !== selectedDatabaseId) {
@@ -267,6 +411,18 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     };
   }, [selectedDatabaseId, selectedSourceId, sourceShelfDatabaseId]);
 
+  useEffect(() => {
+    if (!detail || !("content" in detail) || !pendingSearchResult) return;
+    if (detail.source.id !== pendingSearchResult.sourceId) return;
+    const chunk = detail.content.chunks.find((item) => item.id === pendingSearchResult.chunkId);
+    if (!chunk) return;
+    setHighlightedBlockId(chunk.blockId);
+    setPendingSearchResult(null);
+    globalThis.setTimeout(() => {
+      document.getElementById(`research-block-${chunk.blockId}`)?.scrollIntoView?.({ block: "center" });
+    }, 0);
+  }, [detail, pendingSearchResult]);
+
   function chooseDatabase(databaseId: string) {
     if (sourceIsDirty || isSavingSource) {
       setError("Save or discard the open source changes before switching Research Databases.");
@@ -275,6 +431,8 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setSelectedDatabaseId(databaseId || null);
     setRailOpen(false);
     setNotice("");
+    setSearchResults(null);
+    setHighlightedBlockId(null);
   }
 
   function chooseSource(sourceId: string) {
@@ -285,6 +443,29 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     setSelectedSourceId(sourceId);
     setRailOpen(false);
     setNotice("");
+    setSearchResults(null);
+    setHighlightedBlockId(null);
+  }
+
+  function openFilePicker() {
+    if (sourceIsDirty || isSavingSource) {
+      setError("Save or discard the open source changes before importing another source.");
+      return;
+    }
+    setSourceMenuOpen(false);
+    fileInputRef.current?.click();
+  }
+
+  function openWebDialog() {
+    if (sourceIsDirty || isSavingSource) {
+      setError("Save or discard the open source changes before importing another source.");
+      return;
+    }
+    setSourceMenuOpen(false);
+    setWebUrl("");
+    setDialogError("");
+    setWebDialogOpen(true);
+    globalThis.setTimeout(() => webUrlRef.current?.focus(), 0);
   }
 
   function openCreateDialog() {
@@ -415,6 +596,31 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     }
   }
 
+  function applyImportedDetail(created: ResearchSourceDetail, message: string) {
+    setSources((current) => [
+      { source: created.source, revision: created.revision },
+      ...current.filter((document) => document.source.id !== created.source.id),
+    ]);
+    setDatabases((current) => current.map((item) => item.database.id === created.source.researchDatabaseId
+      ? { ...item, sourceCount: item.sourceCount + 1 }
+      : item));
+    setSelectedSourceId(created.source.id);
+    const nextDraft = sourceDraftFromDetail(created);
+    setDetail(created);
+    setSourceDraft(nextDraft);
+    setSavedSourceDraft(nextDraft);
+    setSearchResults(null);
+    setNotice(message);
+  }
+
+  async function refreshIndexState(databaseId: string) {
+    try {
+      setIndexState(await api.research.getIndexState(databaseId));
+    } catch {
+      setIndexState(null);
+    }
+  }
+
   async function importFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -425,10 +631,9 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     }
     setError("");
     setNotice("");
-    const lowerName = file.name.toLocaleLowerCase("en-US");
-    const isMarkdown = lowerName.endsWith(".md");
-    if (!isMarkdown && !lowerName.endsWith(".txt")) {
-      setError("Choose a UTF-8 TXT or Markdown file.");
+    const mediaType = mediaTypeForFile(file.name);
+    if (!mediaType) {
+      setError("Choose a TXT, Markdown, Word (.docx), text PDF, EPUB, HTML, or XHTML file.");
       return;
     }
     if (file.size === 0) {
@@ -443,27 +648,122 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     try {
       const created = await api.research.importSource(selectedDatabaseId, {
         fileName: file.name,
-        mediaType: isMarkdown ? "text/markdown" : "text/plain",
+        mediaType,
         sizeBytes: file.size,
         contentBase64: await fileToBase64(file),
       });
-      setSources((current) => [
-        { source: created.source, revision: created.revision },
-        ...current.filter((document) => document.source.id !== created.source.id),
-      ]);
-      setDatabases((current) => current.map((item) => item.database.id === selectedDatabaseId
-        ? { ...item, sourceCount: item.sourceCount + 1 }
-        : item));
-      setSelectedSourceId(created.source.id);
-      const nextDraft = sourceDraftFromDetail(created);
-      setDetail(created);
-      setSourceDraft(nextDraft);
-      setSavedSourceDraft(nextDraft);
-      setNotice(`Imported ${created.source.originalFileName}.`);
+      applyImportedDetail(created, `Imported ${created.source.originalFileName}.`);
+      await refreshIndexState(selectedDatabaseId);
     } catch (reason) {
       setError(errorMessage(reason, "The Research source could not be imported."));
     } finally {
       setIsUploading(false);
+    }
+  }
+
+  async function importWebSource(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedDatabaseId || !webUrl.trim()) return;
+    setIsImportingWeb(true);
+    setDialogError("");
+    try {
+      const created = await api.research.importWebSource(selectedDatabaseId, { url: webUrl.trim() });
+      applyImportedDetail(created, `Saved a snapshot of ${created.source.displayName}.`);
+      setWebDialogOpen(false);
+      await refreshIndexState(selectedDatabaseId);
+    } catch (reason) {
+      setDialogError(errorMessage(reason, "The web page could not be imported."));
+    } finally {
+      setIsImportingWeb(false);
+    }
+  }
+
+  async function searchDatabase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedDatabaseId || !searchQuery.trim()) return;
+    if (sourceIsDirty || isSavingSource) {
+      setError("Save or discard the open source changes before searching this database.");
+      return;
+    }
+    setIsSearching(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await api.research.search(selectedDatabaseId, {
+        query: searchQuery.trim(),
+        purpose: "local",
+        limit: 30,
+      });
+      setSearchResults(response.results);
+      await refreshIndexState(selectedDatabaseId);
+    } catch (reason) {
+      setError(errorMessage(reason, "This Research Database could not be searched."));
+    } finally {
+      setIsSearching(false);
+    }
+  }
+
+  function openSearchResult(result: ResearchKeywordSearchResult) {
+    if (sourceIsDirty || isSavingSource) {
+      setError("Save or discard the open source changes before opening a search result.");
+      return;
+    }
+    setPendingSearchResult(result);
+    setSearchResults(null);
+    setSelectedSourceId(result.sourceId);
+    setRailOpen(false);
+    setNotice(`Opened ${formatLocation(result.location)} in ${result.sourceDisplayName}.`);
+  }
+
+  async function rebuildIndex() {
+    if (!selectedDatabaseId || isRebuildingIndex) return;
+    if (sourceIsDirty || isSavingSource) {
+      setError("Save or discard the open source changes before rebuilding search.");
+      return;
+    }
+    setIsRebuildingIndex(true);
+    setError("");
+    try {
+      const rebuilt = await api.research.rebuildIndex(selectedDatabaseId);
+      setIndexState(rebuilt);
+      setNotice(`Search rebuilt for ${rebuilt.indexedSourceCount} source${rebuilt.indexedSourceCount === 1 ? "" : "s"}.`);
+    } catch (reason) {
+      setError(errorMessage(reason, "Search could not be rebuilt."));
+    } finally {
+      setIsRebuildingIndex(false);
+    }
+  }
+
+  async function migrateVersionTwoSources() {
+    if (!selectedDatabaseId || versionTwoSources.length === 0 || isMigratingSources) return;
+    if (sourceIsDirty || isSavingSource) {
+      setError("Save or discard the open source changes before upgrading older sources.");
+      return;
+    }
+    setIsMigratingSources(true);
+    setError("");
+    try {
+      const result = await api.research.migrateSourcesV2(selectedDatabaseId, {
+        sources: versionTwoSources.map((document) => ({
+          sourceId: document.source.id,
+          baseRevision: document.revision,
+        })),
+      });
+      const listed = await api.research.listSources(selectedDatabaseId);
+      setSources(listed);
+      setIndexState(result.indexState);
+      if (selectedSourceId) {
+        const loaded = await api.research.getSource(selectedDatabaseId, selectedSourceId);
+        const nextDraft = sourceDraftFromDetail(loaded);
+        setDetail(loaded);
+        setSourceDraft(nextDraft);
+        setSavedSourceDraft(nextDraft);
+      }
+      setNotice(`Upgraded ${result.migratedSourceIds.length} older source${result.migratedSourceIds.length === 1 ? "" : "s"}.`);
+    } catch (reason) {
+      setError(errorMessage(reason, "Older Research sources could not be upgraded."));
+    } finally {
+      setIsMigratingSources(false);
     }
   }
 
@@ -529,39 +829,48 @@ export function ReferenceResearchWorkspace({ seriesId }: ReferenceResearchWorksp
     <section aria-label="Research workspace" className="rs8 rs9 workspace-view" data-workspace-view="Research" hidden id="research-workspace">
       <header className="rs8-toolbar rs9-toolbar">
         <div className="rs8-heading">
-          <button aria-expanded={railOpen} aria-label="Toggle source shelf" className="rs8-rail-toggle" onClick={() => setRailOpen((open) => !open)} type="button"><span aria-hidden="true">=</span></button>
+          <button aria-expanded={railOpen} aria-label="Toggle source shelf" className="rs8-rail-toggle" onClick={() => setRailOpen((open) => !open)} title="Toggle source shelf" type="button"><Menu aria-hidden="true" size={17} /></button>
           <div><p>Reference library</p><h1>Research</h1></div>
         </div>
         <div className="rs9-database-controls">
           <label className="rs9-database-select"><span>Research Database</span><select aria-label="Research Database" disabled={isLoadingDatabases || databases.length === 0} onChange={(event) => chooseDatabase(event.target.value)} value={selectedDatabaseId ?? ""}><option value="">{isLoadingDatabases ? "Loading databases" : "No databases"}</option>{databases.map((item) => <option key={item.database.id} value={item.database.id}>{item.database.name}</option>)}</select></label>
-          <button aria-label="Create Research Database" className="rs9-icon-button" onClick={openCreateDialog} title="Create Research Database" type="button">+</button>
-          <button aria-label="Database settings" className="rs9-settings-button" disabled={!databaseDocument} onClick={openDatabaseDialog} type="button"><span className="rs9-settings-wide">Database settings</span><span aria-hidden="true" className="rs9-settings-compact">Settings</span></button>
+          <button aria-label="Create Research Database" className="rs9-icon-button" onClick={openCreateDialog} title="Create Research Database" type="button"><Plus aria-hidden="true" size={17} /></button>
+          <button aria-label="Database settings" className="rs9-settings-button" disabled={!databaseDocument} onClick={openDatabaseDialog} type="button"><Settings2 aria-hidden="true" size={14} /><span className="rs9-settings-wide">Database settings</span><span className="rs9-settings-compact">Settings</span></button>
         </div>
-        <button className="rs8-upload" disabled={!selectedDatabaseId || isUploading || isSavingSource || sourceIsDirty} onClick={() => fileInputRef.current?.click()} type="button"><span aria-hidden="true">+</span>{isUploading ? "Importing" : "Add source"}</button>
-        <input accept=".txt,.md,text/plain,text/markdown" aria-label="Choose a TXT or Markdown Research source" hidden onChange={(event) => void importFile(event)} ref={fileInputRef} type="file" />
+        <div className="rs10-add-source">
+          <button aria-expanded={sourceMenuOpen} aria-haspopup="menu" className="rs8-upload" disabled={!selectedDatabaseId || isUploading || isImportingWeb || isSavingSource || sourceIsDirty} onClick={() => setSourceMenuOpen((open) => !open)} type="button"><Plus aria-hidden="true" size={15} />{isUploading || isImportingWeb ? "Importing" : "Add source"}<ChevronDown aria-hidden="true" size={13} /></button>
+          {sourceMenuOpen ? <div aria-label="Add source" className="rs10-source-menu" role="menu"><button onClick={openFilePicker} role="menuitem" type="button"><FileUp aria-hidden="true" size={16} /><span><strong>File</strong><small>Text, Word, PDF, EPUB, or HTML</small></span></button><button onClick={openWebDialog} role="menuitem" type="button"><Globe2 aria-hidden="true" size={16} /><span><strong>Web address</strong><small>Save a controlled page snapshot</small></span></button></div> : null}
+        </div>
+        <input accept={SOURCE_FILE_ACCEPT} aria-label="Choose a Research source file" hidden onChange={(event) => void importFile(event)} ref={fileInputRef} type="file" />
       </header>
 
       <div className={`rs8-layout${railOpen ? " is-rail-open" : ""}`}>
         <aside aria-label="Research sources" className="rs8-rail">
           <div className="rs8-rail-head"><strong>{selectedDatabaseSummary?.database.name ?? "Sources"}</strong><span>{sources.length}</span></div>
-          {!selectedDatabaseId ? <div className="rs8-rail-empty"><strong>No Research Database selected</strong><p>Create a database to start an isolated source shelf.</p></div> : isLoadingSources ? <div aria-live="polite" className="rs8-loading">Loading source shelf</div> : sources.length === 0 ? <div className="rs8-rail-empty"><strong>This source shelf is empty</strong><p>Add a UTF-8 TXT or Markdown file to this database.</p></div> : <div className="rs8-source-list">{sources.map((document) => { const source = document.source; const selected = source.id === selectedSourceId; return <button aria-current={selected ? "true" : undefined} className={`rs8-source${selected ? " is-selected" : ""}`} disabled={isSavingSource || (sourceIsDirty && !selected)} key={source.id} onClick={() => chooseSource(source.id)} title={source.displayName} type="button"><span aria-hidden="true" className="rs8-spine"><i /></span><span className="rs8-source-copy"><strong>{source.displayName}</strong><span>{source.kind === "markdown" ? "Markdown" : "Text"} · {source.declaredLanguage ?? "Language not set"}</span></span><span aria-label="Parsed" className="rs8-ready">Ready</span></button>; })}</div>}
+          {selectedDatabaseId ? <section aria-label="Search index" className={`rs10-index-state is-${indexState?.status ?? "unknown"}`}><Database aria-hidden="true" size={15} /><div><strong>{isLoadingIndex ? "Checking search" : indexState?.status === "ready" ? "Search ready" : indexState?.status === "damaged" ? "Search damaged" : indexState?.status === "stale" ? "Search out of date" : indexState?.status === "missing" ? "Search not built" : "Search unavailable"}</strong><span>{indexState?.status === "ready" ? `${indexState.indexedChunkCount} searchable passages` : indexState?.reason ?? "Rebuild to prepare this database."}</span></div><button aria-label="Rebuild search index" disabled={isRebuildingIndex || isLoadingSources || sourceIsDirty} onClick={() => void rebuildIndex()} title="Rebuild search index" type="button"><RefreshCw aria-hidden="true" className={isRebuildingIndex ? "is-spinning" : ""} size={15} /></button></section> : null}
+          {versionTwoSources.length > 0 ? <button className="rs10-upgrade" disabled={isMigratingSources || sourceIsDirty} onClick={() => void migrateVersionTwoSources()} type="button"><RefreshCw aria-hidden="true" size={14} /><span><strong>{isMigratingSources ? "Upgrading sources" : "Upgrade older sources"}</strong><small>{versionTwoSources.length} source{versionTwoSources.length === 1 ? "" : "s"} need location-aware text</small></span></button> : null}
+          {!selectedDatabaseId ? <div className="rs8-rail-empty"><strong>No Research Database selected</strong><p>Create a database to start an isolated source shelf.</p></div> : isLoadingSources ? <div aria-live="polite" className="rs8-loading">Loading source shelf</div> : sources.length === 0 ? <div className="rs8-rail-empty"><strong>This source shelf is empty</strong><p>Add a file or save a web page to this isolated database.</p></div> : <div className="rs8-source-list">{sources.map((document) => { const source = document.source; const selected = source.id === selectedSourceId; return <button aria-current={selected ? "true" : undefined} className={`rs8-source${selected ? " is-selected" : ""}`} disabled={isSavingSource || (sourceIsDirty && !selected)} key={source.id} onClick={() => chooseSource(source.id)} title={source.displayName} type="button"><span aria-hidden="true" className="rs8-spine"><i /></span><span className="rs8-source-copy"><strong>{source.displayName}</strong><span>{sourceKindLabel(source.kind)} · {source.declaredLanguage ?? "Language not set"}</span></span><span aria-label="Parsed" className="rs8-ready">Ready</span></button>; })}</div>}
         </aside>
 
         <main className="rs8-reader">
           {(error || notice) ? <div aria-live="polite" className={`rs8-banner${error ? " is-error" : ""}`} role={error ? "alert" : "status"}>{error || notice}</div> : null}
           {databaseIssues.length > 0 ? <div className="rs8-banner is-error" role="alert">{databaseIssues.length} Research Database {databaseIssues.length === 1 ? "directory could" : "directories could"} not be opened. Other databases remain available.</div> : null}
-          {isLoadingDatabases ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening Research Databases</p></div> : !selectedDatabaseId ? <div className="rs8-empty"><span aria-hidden="true">DB</span><h2>Create your first Research Database</h2><p>Each database keeps its own sources, originals, permissions, and future search index. It does not belong to a Series.</p><button onClick={openCreateDialog} type="button">Create Research Database</button></div> : isLoadingDetail ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source</p></div> : detail ? <article className="rs8-document"><header><div className="rs8-document-mark"><span aria-hidden="true" /><em>{detail.source.kind === "markdown" ? "MD" : "TXT"}</em></div><div><p>{detail.source.originalFileName}</p><h2>{detail.source.displayName}</h2><span>{databaseDocument?.database.name} · Imported {formatImportedAt(detail.source.importedAt)} · {formatBytes(detail.source.sizeBytes)}</span></div></header><div className="rs8-preview-label"><strong>Original text</strong><span>Unchanged UTF-8 source</span></div><pre className="rs8-preview">{detail.originalText}</pre></article> : <div className="rs8-empty"><span aria-hidden="true">+</span><h2>Add a source to {databaseDocument?.database.name ?? "this database"}</h2><p>TXT and Markdown are available now. Word, text PDF, EPUB, HTML, and web addresses follow after location-aware parsing is connected.</p><button disabled={isUploading} onClick={() => fileInputRef.current?.click()} type="button">Choose file</button></div>}
+          {selectedDatabaseId ? <form className="rs10-searchbar" onSubmit={(event) => void searchDatabase(event)} role="search"><Search aria-hidden="true" size={17} /><label><span className="rs10-visually-hidden">Search selected Research Database</span><input aria-label="Search selected Research Database" disabled={isSearching || sourceIsDirty} maxLength={500} onChange={(event) => setSearchQuery(event.target.value)} placeholder={`Search ${databaseDocument?.database.name ?? "this database"} in any original language`} value={searchQuery} /></label>{searchQuery || searchResults !== null ? <button aria-label="Clear search" className="rs10-search-clear" onClick={() => { setSearchQuery(""); setSearchResults(null); }} title="Clear search" type="button"><X aria-hidden="true" size={15} /></button> : null}<button className="rs10-search-submit" disabled={isSearching || sourceIsDirty || !searchQuery.trim()} type="submit">{isSearching ? "Searching" : "Search"}</button></form> : null}
+          {indexState && indexState.status !== "ready" && sources.length > 0 ? <div className={`rs10-index-callout is-${indexState.status}`}><div><strong>{indexState.status === "damaged" ? "Search needs repair" : indexState.status === "stale" ? "Sources changed since the last index" : "Search will be built when needed"}</strong><span>{indexState.reason ?? "The original sources remain available."}</span></div>{indexState.status !== "missing" ? <button disabled={isRebuildingIndex || sourceIsDirty} onClick={() => void rebuildIndex()} type="button"><RefreshCw aria-hidden="true" size={14} />{isRebuildingIndex ? "Rebuilding" : "Rebuild"}</button> : null}</div> : null}
+          {searchResults !== null ? <section aria-label="Search results" className="rs10-search-results"><header><div><p>Selected database only</p><h2>{searchResults.length} result{searchResults.length === 1 ? "" : "s"} for “{searchQuery}”</h2></div><span>{databaseDocument?.database.name}</span></header>{searchResults.length === 0 ? <div className="rs10-no-results"><Search aria-hidden="true" size={22} /><strong>No matching passage</strong><p>Try the term in its original spelling or a shorter exact phrase.</p></div> : <ol>{searchResults.map((result) => <li key={`${result.sourceId}:${result.chunkId}`}><button onClick={() => openSearchResult(result)} type="button"><span className="rs10-location-ribbon"><BookOpenText aria-hidden="true" size={14} /><strong>{formatLocation(result.location)}</strong><em>{result.languageTag}</em></span><span className="rs10-result-source">{result.sourceDisplayName}<small>{sourceKindLabel(result.sourceKind)}</small></span><span className="rs10-result-text">{result.originalText}</span><span className="rs10-match-channels">{result.matchChannels.map((channel) => <small key={channel}>{matchChannelLabel(channel)}</small>)}</span></button></li>)}</ol>}</section> : isLoadingDatabases ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening Research Databases</p></div> : !selectedDatabaseId ? <div className="rs8-empty"><Database aria-hidden="true" size={23} /><h2>Create your first Research Database</h2><p>Each database keeps its own sources, originals, permissions, and search index. It does not belong to a Series.</p><button onClick={openCreateDialog} type="button">Create Research Database</button></div> : isLoadingDetail ? <div aria-live="polite" className="rs8-reader-loading"><span /><p>Opening source</p></div> : detail ? <article className="rs8-document"><header><div className="rs8-document-mark"><span aria-hidden="true" /><em>{sourceKindMark(detail.source.kind)}</em></div><div><p>{detail.source.originalFileName}</p><h2>{detail.source.displayName}</h2><span>{databaseDocument?.database.name} · Imported {formatImportedAt(detail.source.importedAt)} · {formatBytes(detail.source.sizeBytes)}</span></div></header>{detail.source.schemaVersion === 3 && detail.source.parseWarnings.length > 0 ? <div className="rs10-parse-warning"><strong>Imported with {detail.source.parseWarnings.length} warning{detail.source.parseWarnings.length === 1 ? "" : "s"}</strong><span>{detail.source.parseWarnings.join(" ")}</span></div> : null}<div className="rs8-preview-label"><strong>{"content" in detail ? "Parsed text" : "Original text"}</strong><span>{"content" in detail ? "Locations preserved from the original" : "Upgrade this source to add locations"}</span></div>{"originalText" in detail ? <pre className="rs8-preview">{detail.originalText}</pre> : <div className="rs10-text-blocks">{detail.content.blocks.map((block) => <ResearchTextBlock block={block} highlighted={block.id === highlightedBlockId} key={block.id} />)}</div>}</article> : <div className="rs8-empty"><FileText aria-hidden="true" size={23} /><h2>Add a source to {databaseDocument?.database.name ?? "this database"}</h2><p>Import text, Markdown, Word (.docx), text PDF, EPUB, HTML, XHTML, or a controlled web-page snapshot.</p><button disabled={isUploading || isImportingWeb} onClick={openFilePicker} type="button">Choose file</button></div>}
         </main>
 
         <aside aria-label="Source properties" className="rs8-inspector">
           <header><div><p>{databaseDocument?.database.name ?? "Selected source"}</p><h2>Properties</h2></div>{sourceIsDirty ? <span className="rs8-dirty">Unsaved changes</span> : detail ? <span className="rs8-status">Parsed</span> : null}</header>
-          {detail && sourceDraft ? <form onSubmit={(event) => void saveSourceProperties(event)}><label><span>Display name</span><input disabled={isSavingSource} maxLength={240} onChange={(event) => setSourceDraft({ ...sourceDraft, displayName: event.target.value })} required value={sourceDraft.displayName} /></label><label><span>Author</span><input disabled={isSavingSource} maxLength={240} onChange={(event) => setSourceDraft({ ...sourceDraft, author: event.target.value })} value={sourceDraft.author} /></label><label><span>Declared language</span><input disabled={isSavingSource} maxLength={64} onChange={(event) => setSourceDraft({ ...sourceDraft, declaredLanguage: event.target.value })} placeholder="zh-CN, ja-JP, en" value={sourceDraft.declaredLanguage} /></label><label><span>Tags</span><input disabled={isSavingSource} maxLength={1200} onChange={(event) => setSourceDraft({ ...sourceDraft, tags: event.target.value })} placeholder="history, folklore" value={sourceDraft.tags} /></label><fieldset><legend>AI context permission</legend><div className="rs8-permission"><label><input checked={sourceDraft.aiPermission === "never"} disabled={isSavingSource} name="research-ai-permission" onChange={() => setSourceDraft({ ...sourceDraft, aiPermission: "never" })} type="radio" /><span>Never send</span></label><label><input checked={sourceDraft.aiPermission === "allowed"} disabled={isSavingSource} name="research-ai-permission" onChange={() => setSourceDraft({ ...sourceDraft, aiPermission: "allowed" })} type="radio" /><span>Allow when selected</span></label></div></fieldset><label><span>Copyright / use notes</span><textarea disabled={isSavingSource} maxLength={8000} onChange={(event) => setSourceDraft({ ...sourceDraft, useNotes: event.target.value })} rows={4} value={sourceDraft.useNotes} /></label><div className="rs8-actions"><button className="rs8-discard" disabled={!sourceIsDirty || isSavingSource} onClick={discardSourceDraft} type="button">Discard changes</button><button className="rs8-save" disabled={!sourceIsDirty || isSavingSource || !sourceDraft.displayName.trim()} type="submit">{isSavingSource ? "Saving" : "Save properties"}</button></div><details className="rs8-facts"><summary>Import facts</summary><dl><div><dt>Database</dt><dd>{databaseDocument?.database.name}</dd></div><div><dt>Type</dt><dd>{detail.source.mediaType}</dd></div><div><dt>Original file</dt><dd>{detail.source.originalFileName}</dd></div><div><dt>Size</dt><dd>{formatBytes(detail.source.sizeBytes)}</dd></div><div><dt>Parser</dt><dd>{detail.source.parserName} v{detail.source.parserVersion}</dd></div><div><dt>SHA-256</dt><dd title={detail.source.contentHash}>{detail.source.contentHash}</dd></div></dl></details></form> : <div className="rs8-inspector-empty">{databaseDocument ? <><strong>{databaseDocument.database.name}</strong><p>{databaseDocument.database.description || "No database description."}</p><p>{databaseDocument.database.linkedSeriesIds.length} linked Series · {selectedDatabaseSummary?.sourceCount ?? 0} sources</p><button className="rs9-inline-command" onClick={openDatabaseDialog} type="button">Open database settings</button></> : <p>{selectedListDocument ? "Opening source properties." : "Create or select a Research Database."}</p>}</div>}
+          {detail && sourceDraft ? <form onSubmit={(event) => void saveSourceProperties(event)}><label><span>Display name</span><input disabled={isSavingSource} maxLength={240} onChange={(event) => setSourceDraft({ ...sourceDraft, displayName: event.target.value })} required value={sourceDraft.displayName} /></label><label><span>Author</span><input disabled={isSavingSource} maxLength={240} onChange={(event) => setSourceDraft({ ...sourceDraft, author: event.target.value })} value={sourceDraft.author} /></label><label><span>Declared language</span><input disabled={isSavingSource} maxLength={64} onChange={(event) => setSourceDraft({ ...sourceDraft, declaredLanguage: event.target.value })} placeholder="zh-CN, ja-JP, en" value={sourceDraft.declaredLanguage} /></label><label><span>Tags</span><input disabled={isSavingSource} maxLength={1200} onChange={(event) => setSourceDraft({ ...sourceDraft, tags: event.target.value })} placeholder="history, folklore" value={sourceDraft.tags} /></label><fieldset><legend>AI context permission</legend><div className="rs8-permission"><label><input checked={sourceDraft.aiPermission === "never"} disabled={isSavingSource} name="research-ai-permission" onChange={() => setSourceDraft({ ...sourceDraft, aiPermission: "never" })} type="radio" /><span>Never send</span></label><label><input checked={sourceDraft.aiPermission === "allowed"} disabled={isSavingSource} name="research-ai-permission" onChange={() => setSourceDraft({ ...sourceDraft, aiPermission: "allowed" })} type="radio" /><span>Allow when selected</span></label></div></fieldset><label><span>Copyright / use notes</span><textarea disabled={isSavingSource} maxLength={8000} onChange={(event) => setSourceDraft({ ...sourceDraft, useNotes: event.target.value })} rows={4} value={sourceDraft.useNotes} /></label><div className="rs8-actions"><button className="rs8-discard" disabled={!sourceIsDirty || isSavingSource} onClick={discardSourceDraft} type="button">Discard changes</button><button className="rs8-save" disabled={!sourceIsDirty || isSavingSource || !sourceDraft.displayName.trim()} type="submit">{isSavingSource ? "Saving" : "Save properties"}</button></div><details className="rs8-facts"><summary>Import facts</summary><dl><div><dt>Database</dt><dd>{databaseDocument?.database.name}</dd></div><div><dt>Type</dt><dd>{sourceKindLabel(detail.source.kind)} · {detail.source.mediaType}</dd></div><div><dt>Original file</dt><dd>{detail.source.originalFileName}</dd></div>{detail.source.schemaVersion === 3 && detail.source.origin.type === "web" ? <div><dt>Page URL</dt><dd title={detail.source.origin.finalUrl}>{detail.source.origin.finalUrl}</dd></div> : null}<div><dt>Size</dt><dd>{formatBytes(detail.source.sizeBytes)}</dd></div><div><dt>Parser</dt><dd>{detail.source.parserName} v{detail.source.parserVersion}</dd></div><div><dt>SHA-256</dt><dd title={detail.source.contentHash}>{detail.source.contentHash}</dd></div></dl></details></form> : <div className="rs8-inspector-empty">{databaseDocument ? <><strong>{databaseDocument.database.name}</strong><p>{databaseDocument.database.description || "No database description."}</p><p>{databaseDocument.database.linkedSeriesIds.length} linked Series · {selectedDatabaseSummary?.sourceCount ?? 0} sources</p><button className="rs9-inline-command" onClick={openDatabaseDialog} type="button">Open database settings</button></> : <p>{selectedListDocument ? "Opening source properties." : "Create or select a Research Database."}</p>}</div>}
         </aside>
       </div>
 
-      {createDialogOpen ? <div className="rs9-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !isCreatingDatabase) setCreateDialogOpen(false); }}><section aria-labelledby="create-research-database-title" aria-modal="true" className="rs9-dialog" role="dialog"><header><div><p>New isolated shelf</p><h2 id="create-research-database-title">Create Research Database</h2></div><button aria-label="Close" disabled={isCreatingDatabase} onClick={() => setCreateDialogOpen(false)} type="button">x</button></header><form onSubmit={(event) => void createDatabase(event)}>{dialogError ? <div className="rs9-dialog-error" role="alert">{dialogError}</div> : null}<label><span>Name</span><input maxLength={120} onChange={(event) => setCreateName(event.target.value)} ref={createNameRef} required value={createName} /></label><label><span>Description</span><textarea maxLength={4000} onChange={(event) => setCreateDescription(event.target.value)} rows={5} value={createDescription} /></label><p className="rs9-dialog-note">Sources and future indexes in this database remain separate from every other database.</p><footer><button className="rs8-discard" disabled={isCreatingDatabase} onClick={() => setCreateDialogOpen(false)} type="button">Cancel</button><button className="rs8-save" disabled={isCreatingDatabase || !createName.trim()} type="submit">{isCreatingDatabase ? "Creating" : "Create database"}</button></footer></form></section></div> : null}
+      {webDialogOpen ? <div className="rs9-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !isImportingWeb) setWebDialogOpen(false); }}><section aria-labelledby="import-research-web-title" aria-modal="true" className="rs9-dialog" role="dialog"><header><div><p>Controlled snapshot</p><h2 id="import-research-web-title">Add web page</h2></div><button aria-label="Close" disabled={isImportingWeb} onClick={() => setWebDialogOpen(false)} title="Close" type="button"><X aria-hidden="true" size={17} /></button></header><form onSubmit={(event) => void importWebSource(event)}>{dialogError ? <div className="rs9-dialog-error" role="alert">{dialogError}</div> : null}<label><span>Web address</span><input disabled={isImportingWeb} maxLength={4096} onChange={(event) => setWebUrl(event.target.value)} placeholder="https://example.com/reference" ref={webUrlRef} required type="url" value={webUrl} /></label><p className="rs9-dialog-note">Novel Studio follows a limited redirect chain, accepts only public HTML pages, removes active content, and stores a fixed local snapshot in this database.</p><footer><button className="rs8-discard" disabled={isImportingWeb} onClick={() => setWebDialogOpen(false)} type="button">Cancel</button><button className="rs8-save" disabled={isImportingWeb || !webUrl.trim()} type="submit">{isImportingWeb ? "Saving snapshot" : "Save snapshot"}</button></footer></form></section></div> : null}
 
-      {databaseDialogOpen && databaseDocument && databaseDraft ? <div className="rs9-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) closeDatabaseDialog(); }}><section aria-labelledby="research-database-settings-title" aria-modal="true" className="rs9-dialog rs9-database-dialog" role="dialog"><header><div><p>Isolated source shelf</p><h2 id="research-database-settings-title">Database settings</h2></div><button aria-label="Close" disabled={isSavingDatabase || isMigrating} onClick={closeDatabaseDialog} type="button">x</button></header><form onSubmit={(event) => void saveDatabase(event)}>{dialogError ? <div className="rs9-dialog-error" role="alert">{dialogError}</div> : null}<label><span>Name</span><input disabled={isSavingDatabase || isMigrating} maxLength={120} onChange={(event) => setDatabaseDraft({ ...databaseDraft, name: event.target.value })} required value={databaseDraft.name} /></label><label><span>Description</span><textarea disabled={isSavingDatabase || isMigrating} maxLength={4000} onChange={(event) => setDatabaseDraft({ ...databaseDraft, description: event.target.value })} rows={4} value={databaseDraft.description} /></label>{seriesId ? <label className="rs9-series-link"><input checked={databaseDraft.linkedToCurrentSeries} disabled={isSavingDatabase || isMigrating} onChange={(event) => setDatabaseDraft({ ...databaseDraft, linkedToCurrentSeries: event.target.checked })} type="checkbox" /><span><strong>Available to current Series</strong><small>The Series references this database. It never owns or copies it.</small></span></label> : <p className="rs9-dialog-note">Open a Series only when you need to link this reusable database to that novel.</p>}{currentLegacyGroup ? <section className="rs9-migration"><div><strong>Legacy Series sources</strong><p>{currentLegacyGroup.sourceCount} source{currentLegacyGroup.sourceCount === 1 ? "" : "s"} remain in the old Series-owned location.</p></div>{legacyAlreadyMigrated ? <span>Copied</span> : <button disabled={isMigrating || isSavingDatabase || databaseIsDirty || !databaseDocument.database.linkedSeriesIds.includes(seriesId!)} onClick={() => void migrateLegacySources()} type="button">{isMigrating ? "Copying" : "Copy into this database"}</button>}</section> : null}<footer><button className="rs8-discard" disabled={isSavingDatabase || isMigrating} onClick={databaseIsDirty ? discardDatabaseChanges : closeDatabaseDialog} type="button">{databaseIsDirty ? "Discard changes" : "Close"}</button><button className="rs8-save" disabled={!databaseIsDirty || isSavingDatabase || isMigrating || !databaseDraft.name.trim()} type="submit">{isSavingDatabase ? "Saving" : "Save database"}</button></footer></form></section></div> : null}
+      {createDialogOpen ? <div className="rs9-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !isCreatingDatabase) setCreateDialogOpen(false); }}><section aria-labelledby="create-research-database-title" aria-modal="true" className="rs9-dialog" role="dialog"><header><div><p>New isolated shelf</p><h2 id="create-research-database-title">Create Research Database</h2></div><button aria-label="Close" disabled={isCreatingDatabase} onClick={() => setCreateDialogOpen(false)} title="Close" type="button"><X aria-hidden="true" size={17} /></button></header><form onSubmit={(event) => void createDatabase(event)}>{dialogError ? <div className="rs9-dialog-error" role="alert">{dialogError}</div> : null}<label><span>Name</span><input maxLength={120} onChange={(event) => setCreateName(event.target.value)} ref={createNameRef} required value={createName} /></label><label><span>Description</span><textarea maxLength={4000} onChange={(event) => setCreateDescription(event.target.value)} rows={5} value={createDescription} /></label><p className="rs9-dialog-note">Sources and future indexes in this database remain separate from every other database.</p><footer><button className="rs8-discard" disabled={isCreatingDatabase} onClick={() => setCreateDialogOpen(false)} type="button">Cancel</button><button className="rs8-save" disabled={isCreatingDatabase || !createName.trim()} type="submit">{isCreatingDatabase ? "Creating" : "Create database"}</button></footer></form></section></div> : null}
+
+      {databaseDialogOpen && databaseDocument && databaseDraft ? <div className="rs9-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) closeDatabaseDialog(); }}><section aria-labelledby="research-database-settings-title" aria-modal="true" className="rs9-dialog rs9-database-dialog" role="dialog"><header><div><p>Isolated source shelf</p><h2 id="research-database-settings-title">Database settings</h2></div><button aria-label="Close" disabled={isSavingDatabase || isMigrating} onClick={closeDatabaseDialog} title="Close" type="button"><X aria-hidden="true" size={17} /></button></header><form onSubmit={(event) => void saveDatabase(event)}>{dialogError ? <div className="rs9-dialog-error" role="alert">{dialogError}</div> : null}<label><span>Name</span><input disabled={isSavingDatabase || isMigrating} maxLength={120} onChange={(event) => setDatabaseDraft({ ...databaseDraft, name: event.target.value })} required value={databaseDraft.name} /></label><label><span>Description</span><textarea disabled={isSavingDatabase || isMigrating} maxLength={4000} onChange={(event) => setDatabaseDraft({ ...databaseDraft, description: event.target.value })} rows={4} value={databaseDraft.description} /></label>{seriesId ? <label className="rs9-series-link"><input checked={databaseDraft.linkedToCurrentSeries} disabled={isSavingDatabase || isMigrating} onChange={(event) => setDatabaseDraft({ ...databaseDraft, linkedToCurrentSeries: event.target.checked })} type="checkbox" /><span><strong>Available to current Series</strong><small>The Series references this database. It never owns or copies it.</small></span></label> : <p className="rs9-dialog-note">Open a Series only when you need to link this reusable database to that novel.</p>}{currentLegacyGroup ? <section className="rs9-migration"><div><strong>Legacy Series sources</strong><p>{currentLegacyGroup.sourceCount} source{currentLegacyGroup.sourceCount === 1 ? "" : "s"} remain in the old Series-owned location.</p></div>{legacyAlreadyMigrated ? <span>Copied</span> : <button disabled={isMigrating || isSavingDatabase || databaseIsDirty || !databaseDocument.database.linkedSeriesIds.includes(seriesId!)} onClick={() => void migrateLegacySources()} type="button">{isMigrating ? "Copying" : "Copy into this database"}</button>}</section> : null}<footer><button className="rs8-discard" disabled={isSavingDatabase || isMigrating} onClick={databaseIsDirty ? discardDatabaseChanges : closeDatabaseDialog} type="button">{databaseIsDirty ? "Discard changes" : "Close"}</button><button className="rs8-save" disabled={!databaseIsDirty || isSavingDatabase || isMigrating || !databaseDraft.name.trim()} type="submit">{isSavingDatabase ? "Saving" : "Save database"}</button></footer></form></section></div> : null}
     </section>
   );
 }

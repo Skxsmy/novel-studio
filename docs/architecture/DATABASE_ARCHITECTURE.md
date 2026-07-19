@@ -138,6 +138,17 @@ Rules:
   and never opens a path that has not passed the existing library-root path
   boundary checks.
 
+NS-604 implements each Research Database index as
+`<database-root>/.studio/index.sqlite` with application identity `0x4E535258`,
+schema version/checksum, the owning Research Database ID, a Source revision and
+content-hash ledger, strict Section/Block/Chunk/language-span tables, and
+separate CJK trigram and Unicode-word FTS5 tables. Search opens exactly one
+selected database, applies Source kind, author, tag, language-span and model
+permission filters, and returns original Chunk text/hash/revision/location and
+the actual lexical match channel. Missing, stale, damaged, or foreign indexes
+are disposable and rebuild through a temporary validated database plus atomic
+replacement; no Research authority exists only in SQLite.
+
 ## 5. Authority And Projection Contract
 
 Every projected row must be traceable to an authority source:

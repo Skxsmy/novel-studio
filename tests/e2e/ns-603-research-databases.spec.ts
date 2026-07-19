@@ -29,31 +29,31 @@ test("creates and returns to isolated Research Databases, then links one to a Se
   await createDatabase("Harbor Archive", "Chinese harbor history and interviews.");
   const databaseSelect = workspace.getByLabel("Research Database", { exact: true });
   const harborDatabaseId = await databaseSelect.inputValue();
-  await workspace.getByLabel("Choose a TXT or Markdown Research source").setInputFiles({
+  await workspace.getByLabel("Choose a Research source file").setInputFiles({
     name: "harbor-source.txt",
     mimeType: "text/plain",
     buffer: Buffer.from("Alpha shelf only: 潮門の鐘は夜明け前に鳴る。", "utf8"),
   });
   await workspace.getByLabel("Display name").fill("Harbor source");
   await workspace.getByRole("button", { name: "Save properties" }).click();
-  await expect(workspace.locator(".rs8-preview")).toContainText("Alpha shelf only");
+  await expect(workspace.locator(".rs10-text-blocks")).toContainText("Alpha shelf only");
 
   await createDatabase("Language Archive", "Japanese and English terminology.");
   const languageDatabaseId = await databaseSelect.inputValue();
   expect(languageDatabaseId).not.toBe(harborDatabaseId);
-  await workspace.getByLabel("Choose a TXT or Markdown Research source").setInputFiles({
+  await workspace.getByLabel("Choose a Research source file").setInputFiles({
     name: "language-source.md",
     mimeType: "text/markdown",
     buffer: Buffer.from("# Beta shelf only\n\n月守（つきもり） = moon keeper", "utf8"),
   });
-  await expect(workspace.locator(".rs8-preview")).toContainText("Beta shelf only");
+  await expect(workspace.locator(".rs10-text-blocks")).toContainText("Beta shelf only");
   await expect(workspace.getByRole("button", { name: /Harbor source/u })).toHaveCount(0);
 
   await databaseSelect.selectOption(harborDatabaseId);
-  await expect(workspace.locator(".rs8-preview")).toContainText("Alpha shelf only");
+  await expect(workspace.locator(".rs10-text-blocks")).toContainText("Alpha shelf only");
   await expect(workspace.getByRole("button", { name: /language-source/u })).toHaveCount(0);
   await databaseSelect.selectOption(languageDatabaseId);
-  await expect(workspace.locator(".rs8-preview")).toContainText("Beta shelf only");
+  await expect(workspace.locator(".rs10-text-blocks")).toContainText("Beta shelf only");
 
   const createdSeries = await request.post("/api/v1/series", {
     data: { firstBookTitle: "Reference Volume", title: "Research Link Series" },
@@ -73,7 +73,7 @@ test("creates and returns to isolated Research Databases, then links one to a Se
   await page.reload();
   await navigation.getByRole("button", { exact: true, name: "Research" }).click();
   await expect(databaseSelect).toHaveValue(harborDatabaseId);
-  await expect(workspace.locator(".rs8-preview")).toContainText("Alpha shelf only");
+  await expect(workspace.locator(".rs10-text-blocks")).toContainText("Alpha shelf only");
   await workspace.getByRole("button", { exact: true, name: "Database settings" }).click();
   settings = workspace.getByRole("dialog", { name: "Database settings" });
   await expect(settings.getByRole("checkbox", { name: /Available to current Series/u })).toBeChecked();

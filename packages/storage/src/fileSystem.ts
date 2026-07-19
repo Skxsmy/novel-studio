@@ -31,12 +31,16 @@ export async function atomicWrite(filePath: string, value: string): Promise<void
 
 export async function writeFileDurably(
   filePath: string,
-  value: string,
+  value: string | Uint8Array,
   flag: "w" | "wx" = "w",
 ): Promise<void> {
   const handle = await open(filePath, flag);
   try {
-    await handle.writeFile(value, { encoding: "utf8" });
+    if (typeof value === "string") {
+      await handle.writeFile(value, { encoding: "utf8" });
+    } else {
+      await handle.writeFile(value);
+    }
     await handle.sync();
   } finally {
     await handle.close();

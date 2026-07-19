@@ -6,10 +6,10 @@ Authority: current operational state only
 ## Project Mainline
 
 - Active milestone: `M6 Reference Library And Retrieval`.
-- Active task: `NS-604 / M6.3 Reference Library Original-language Database`; A01-A14 are mapped before runtime edits and A01 documentation alignment is in progress.
+- Active task: `NS-604 / M6.3 Reference Library Original-language Database`; implementation and command/browser evidence A01-A13 pass, while A14 remains the author's separate connected-workflow visual decision.
 - Last reached mainline task: `NS-603 / M6.2 Library-scoped Research Database Authority And Isolation`; A01-A11 passed in committed evidence and the author separately accepted A12 on 2026-07-19.
-- Next mainline task: `NS-604 / M6.3 Reference Library Original-language Database`.
-- Next mainline action: implement SourceDocument version 3, parsed-content contracts, bounded format/web parsing, exact binary authority, and explicit version 2 migration before connecting the isolated Research index and UI.
+- Next mainline task: `NS-604 / M6.3 Reference Library Original-language Database`; it remains active until A14 is decided. The successor after closure is `NS-605 / M6.4 Explicit Multi-database And Cross-language Retrieval`.
+- Next mainline action: keep the temporary connected NS-604 preview available for the author's A14 acceptance or rejection; do not start NS-605 or call diagnostic automation a visual pass.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; NS-514 is paused with only A16 author visual acceptance open. No task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
 - Mainline state: GOV-002 is complete and does not consume, complete, or renumber an NS task. NS-602 author visual acceptance was supplied separately by the author.
@@ -34,6 +34,7 @@ Authority: current operational state only
 - NS-514 and NS-602 were split into separate task-scoped commits. NS-602 contains Research contracts/storage/API/UI/tests, the versioned SQLite kernel and atomic rebuild, database/product records, and isolated current end-to-end fixtures. The pre-existing `data/library/` remains outside task scope and must be preserved; the tracked binding reference remains unchanged.
 - NS-603 implementation commit `d518666` adds library-scoped ResearchDatabase v1, database-owned SourceDocument v2, isolated storage/API paths, explicit multi-Series links, legacy copy migration, and the connected multi-database UI. Full typecheck, 52 files/540 tests, production build, 178-file documentation check, two real-Chrome workflows, independent API/disk/logger probes, and diff check pass.
 - NS-603 evidence commit `d78ff45` records the final implementation ledger. The author separately accepted the connected multi-database page on 2026-07-19, closing A12 and authorizing NS-604 to begin.
+- NS-604 planning commit `33a8e0f` records ADR-0020 and A01-A14 before runtime edits. The current task worktree implements SourceDocument version 3, bounded TXT/Markdown/DOCX/PDF/EPUB/HTML/web parsing, exact binary/content authority, explicit v2 migration, one identity-bound index per Research Database, single-database original-language search, and the connected React/Vite workflow. Final check passes 59 files/579 tests, production build and 181 documents; three real-Chrome Research workflows and independent disk/network probes pass. A14 remains open.
 - The unpublished range contains 29 rewritten commits including the first GOV-001 commit; no remote history was rewritten.
 
 ## Current Product And Implementation Boundary

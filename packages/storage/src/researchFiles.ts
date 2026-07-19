@@ -4,14 +4,22 @@ import path from "node:path";
 import { z } from "zod";
 import {
   LegacyResearchSourceSchema,
+  MigrateResearchSourcesV2InputSchema,
   ResearchSourceDetailSchema,
+  ResearchSourceContentSchema,
   ResearchSourceDocumentSchema,
   ResearchSourceSchema,
+  ResearchSourceV2Schema,
+  ResearchSourceV3Schema,
   UpdateResearchSourceInputSchema,
   type LegacyResearchSource,
+  type MigrateResearchSourcesV2Input,
   type ResearchSource,
+  type ResearchSourceContent,
   type ResearchSourceDetail,
   type ResearchSourceDocument,
+  type ResearchSourceV2,
+  type ResearchSourceV3,
   type UpdateResearchSourceInput,
 } from "@novel-studio/contracts";
 import { StorageError } from "./errors.js";
@@ -23,12 +31,14 @@ import {
   readJsonAuthorityFile,
   serializeJsonAuthority,
 } from "./jsonAuthority.js";
+import { buildResearchSourceContent, prepareVersion2ResearchContent } from "./researchContent.js";
 
 export type ResearchFileTransactionOptions = FileTransactionOptions;
 
 const RESEARCH_DIR = "research";
 const SOURCES_DIR = "sources";
 const ORIGINALS_DIR = "originals";
+const CONTENTS_DIR = "contents";
 const MIGRATIONS_DIR = "migrations";
 
 export interface LegacyResearchSourceDocument {
@@ -243,6 +253,10 @@ function databaseOriginalsRoot(databaseRoot: string): string {
   return assertInside(databaseRoot, path.join(databaseRoot, ORIGINALS_DIR));
 }
 
+function databaseContentsRoot(databaseRoot: string): string {
+  return assertInside(databaseRoot, path.join(databaseRoot, CONTENTS_DIR));
+}
+
 function databaseMigrationsRoot(databaseRoot: string): string {
   return assertInside(databaseRoot, path.join(databaseRoot, MIGRATIONS_DIR));
 }
@@ -255,16 +269,36 @@ export function researchDatabaseOriginalPath(
   databaseRoot: string,
   source: Pick<ResearchSource, "id" | "kind">,
 ): string {
+  const extensionByKind: Record<ResearchSource["kind"], string> = {
+    txt: "txt",
+    markdown: "md",
+    docx: "docx",
+    pdf: "pdf",
+    epub: "epub",
+    html: "html",
+    "web-snapshot": "html",
+  };
   return assertInside(
     databaseRoot,
-    path.join(databaseOriginalsRoot(databaseRoot), `${source.id}.${source.kind === "markdown" ? "md" : "txt"}`),
+    path.join(databaseOriginalsRoot(databaseRoot), `${source.id}.${extensionByKind[source.kind]}`),
   );
+}
+
+export function researchDatabaseContentPath(databaseRoot: string, sourceId: string): string {
+  return assertInside(databaseRoot, path.join(databaseContentsRoot(databaseRoot), `${sourceId}.json`));
 }
 
 function legacyMigrationReceiptPath(databaseRoot: string, seriesId: string): string {
   return assertInside(
     databaseRoot,
     path.join(databaseMigrationsRoot(databaseRoot), `legacy-series-${seriesId}.json`),
+  );
+}
+
+function researchSourceV2RollbackPath(databaseRoot: string, sourceId: string, revision: string): string {
+  return assertInside(
+    databaseRoot,
+    path.join(databaseMigrationsRoot(databaseRoot), "source-v2", `${sourceId}.${revision}.json`),
   );
 }
 
@@ -336,25 +370,69 @@ export async function readResearchDatabaseSourceFile(
   if (originalPath !== canonicalOriginalPath) {
     throw new StorageError("Research source original path is not canonical", "INVALID_DATA", { sourceId });
   }
-  let originalText: string;
+  let originalBytes: Buffer;
   try {
-    originalText = await readFile(originalPath, "utf8");
+    originalBytes = await readFile(originalPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       throw new StorageError("Research source original file is missing", "INVALID_DATA", { sourceId });
     }
     throw error;
   }
-  const actualHash = createHash("sha256").update(originalText, "utf8").digest("hex");
+  const actualHash = createHash("sha256").update(originalBytes).digest("hex");
   if (
     actualHash !== document.source.contentHash
-    || Buffer.byteLength(originalText, "utf8") !== document.source.sizeBytes
+    || originalBytes.byteLength !== document.source.sizeBytes
   ) {
     throw new StorageError("Research source original file does not match its authority record", "INVALID_DATA", {
       sourceId,
     });
   }
-  return ResearchSourceDetailSchema.parse({ ...document, originalText });
+  if (document.source.schemaVersion === 2) {
+    let originalText: string;
+    try {
+      originalText = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(originalBytes);
+    } catch {
+      throw new StorageError("Version 2 Research source original is not valid UTF-8", "INVALID_DATA", { sourceId });
+    }
+    return ResearchSourceDetailSchema.parse({ ...document, originalText });
+  }
+
+  const contentPath = assertInside(databaseRoot, path.join(databaseRoot, document.source.contentRelativePath));
+  const canonicalContentPath = researchDatabaseContentPath(databaseRoot, sourceId);
+  if (contentPath !== canonicalContentPath) {
+    throw new StorageError("Research source content path is not canonical", "INVALID_DATA", { sourceId });
+  }
+  const contentDocument = await readJsonAuthorityFile(
+    databaseRoot,
+    contentPath,
+    (value) => ResearchSourceContentSchema.parse(value),
+    "Research parsed content authority",
+  );
+  if (
+    contentDocument.revision !== document.source.parsedContentHash
+    || contentDocument.data.researchDatabaseId !== researchDatabaseId
+    || contentDocument.data.sourceId !== sourceId
+    || contentDocument.data.originalContentHash !== document.source.contentHash
+    || contentDocument.data.parserName !== document.source.parserName
+    || contentDocument.data.parserVersion !== document.source.parserVersion
+  ) {
+    throw new StorageError("Research parsed content does not match its Source authority", "INVALID_DATA", { sourceId });
+  }
+  verifyResearchContentHashes(contentDocument.data);
+  return ResearchSourceDetailSchema.parse({ ...document, content: contentDocument.data });
+}
+
+function verifyResearchContentHashes(content: ResearchSourceContent): void {
+  for (const unit of [...content.blocks, ...content.chunks]) {
+    const actualHash = createHash("sha256").update(unit.text, "utf8").digest("hex");
+    if (actualHash !== unit.textHash) {
+      throw new StorageError("Research parsed text hash does not match content", "INVALID_DATA", {
+        sourceId: content.sourceId,
+        unitId: unit.id,
+      });
+    }
+  }
 }
 
 export async function createResearchDatabaseSourceFile(
@@ -363,7 +441,7 @@ export async function createResearchDatabaseSourceFile(
   originalText: string,
   transactionOptions: FileTransactionOptions = {},
 ): Promise<ResearchSourceDetail> {
-  const parsed = ResearchSourceSchema.parse(source);
+  const parsed = ResearchSourceV2Schema.parse(source);
   const actualHash = createHash("sha256").update(originalText, "utf8").digest("hex");
   const actualSize = Buffer.byteLength(originalText, "utf8");
   if (actualHash !== parsed.contentHash || actualSize !== parsed.sizeBytes) {
@@ -397,6 +475,67 @@ export async function createResearchDatabaseSourceFile(
   }, transactionOptions);
 }
 
+export async function createResearchDatabaseSourceV3File(
+  databaseRoot: string,
+  source: ResearchSourceV3,
+  originalBytes: Uint8Array,
+  content: ResearchSourceContent,
+  transactionOptions: FileTransactionOptions = {},
+): Promise<ResearchSourceDetail> {
+  const parsedSource = ResearchSourceV3Schema.parse(source);
+  const parsedContent = ResearchSourceContentSchema.parse(content);
+  verifyResearchContentHashes(parsedContent);
+  const actualHash = createHash("sha256").update(originalBytes).digest("hex");
+  if (actualHash !== parsedSource.contentHash || originalBytes.byteLength !== parsedSource.sizeBytes) {
+    throw new StorageError("Research source bytes do not match the import facts", "INVALID_DATA", {
+      sourceId: parsedSource.id,
+    });
+  }
+  const contentRaw = serializeJsonAuthority(parsedContent);
+  if (jsonAuthorityRevision(contentRaw) !== parsedSource.parsedContentHash) {
+    throw new StorageError("Research parsed content hash does not match the Source authority", "INVALID_DATA", {
+      sourceId: parsedSource.id,
+    });
+  }
+  return runSeriesFileTransaction(databaseRoot, async (commit) => {
+    const sourcePath = researchDatabaseSourcePath(databaseRoot, parsedSource.id);
+    const originalPath = researchDatabaseOriginalPath(databaseRoot, parsedSource);
+    const contentPath = researchDatabaseContentPath(databaseRoot, parsedSource.id);
+    if (await pathExists(sourcePath) || await pathExists(originalPath) || await pathExists(contentPath)) {
+      throw new StorageError("Research source already exists", "CONFLICT", { sourceId: parsedSource.id });
+    }
+    const duplicate = (await listResearchDatabaseSourceFiles(databaseRoot, parsedSource.researchDatabaseId))
+      .find((document) => document.source.contentHash === parsedSource.contentHash);
+    if (duplicate) {
+      throw new StorageError("This Research source content has already been imported into this database", "CONFLICT", {
+        contentHash: parsedSource.contentHash,
+        sourceId: duplicate.source.id,
+      });
+    }
+    const expectedOriginal = path.relative(databaseRoot, originalPath).split(path.sep).join("/");
+    const expectedContent = path.relative(databaseRoot, contentPath).split(path.sep).join("/");
+    if (
+      parsedSource.originalRelativePath !== expectedOriginal
+      || parsedSource.contentRelativePath !== expectedContent
+      || parsedContent.researchDatabaseId !== parsedSource.researchDatabaseId
+      || parsedContent.sourceId !== parsedSource.id
+      || parsedContent.originalContentHash !== parsedSource.contentHash
+      || parsedContent.parserName !== parsedSource.parserName
+      || parsedContent.parserVersion !== parsedSource.parserVersion
+    ) {
+      throw new StorageError("Research source paths or parsed content ownership are invalid", "INVALID_DATA", {
+        sourceId: parsedSource.id,
+      });
+    }
+    await commit([
+      { targetPath: originalPath, content: originalBytes },
+      { targetPath: contentPath, content: contentRaw },
+      { targetPath: sourcePath, content: serializeJsonAuthority(parsedSource) },
+    ]);
+    return readResearchDatabaseSourceFile(databaseRoot, parsedSource.researchDatabaseId, parsedSource.id);
+  }, transactionOptions);
+}
+
 export async function updateResearchDatabaseSourceFile(
   databaseRoot: string,
   researchDatabaseId: string,
@@ -422,11 +561,9 @@ export async function updateResearchDatabaseSourceFile(
     const raw = serializeJsonAuthority(updated);
     await commit([{ targetPath: researchDatabaseSourcePath(databaseRoot, sourceId), content: raw }]);
     const verified = parseJsonAuthorityText(raw, (value) => ResearchSourceSchema.parse(value));
-    return ResearchSourceDetailSchema.parse({
-      source: verified,
-      revision: jsonAuthorityRevision(raw),
-      originalText: current.originalText,
-    });
+    return ResearchSourceDetailSchema.parse("originalText" in current
+      ? { source: verified, revision: jsonAuthorityRevision(raw), originalText: current.originalText }
+      : { source: verified, revision: jsonAuthorityRevision(raw), content: current.content });
   });
 }
 
@@ -470,7 +607,7 @@ export async function migrateLegacyResearchSourceFiles(
     const byHash = new Map(existing.map((document) => [document.source.contentHash, document.source.id]));
     const imported: Array<z.infer<typeof LegacyMigrationReceiptSchema>["imported"][number]> = [];
     const skippedDuplicates: Array<z.infer<typeof LegacyMigrationReceiptSchema>["skippedDuplicates"][number]> = [];
-    const createdSources: Array<{ source: ResearchSource; originalText: string }> = [];
+    const createdSources: Array<{ source: ResearchSourceV2; originalText: string }> = [];
     const now = new Date().toISOString();
 
     for (const legacy of legacySources) {
@@ -492,7 +629,7 @@ export async function migrateLegacyResearchSourceFiles(
       }
       const sourceId = randomUUID();
       const originalPath = researchDatabaseOriginalPath(databaseRoot, { id: sourceId, kind: legacy.source.kind });
-      const source = ResearchSourceSchema.parse({
+      const source = ResearchSourceV2Schema.parse({
         schemaVersion: 2,
         id: sourceId,
         researchDatabaseId,
@@ -547,7 +684,9 @@ export async function migrateLegacyResearchSourceFiles(
 
     for (const { source, originalText } of createdSources) {
       const verified = await readResearchDatabaseSourceFile(databaseRoot, researchDatabaseId, source.id);
-      if (verified.originalText !== originalText || verified.source.contentHash !== source.contentHash) {
+      if (!("originalText" in verified)
+        || verified.originalText !== originalText
+        || verified.source.contentHash !== source.contentHash) {
         throw new StorageError("Migrated Research source failed read-back verification", "INVALID_DATA", {
           sourceId: source.id,
         });
@@ -556,6 +695,124 @@ export async function migrateLegacyResearchSourceFiles(
     return {
       importedSourceIds: imported.map((item) => item.sourceId),
       skippedDuplicateSourceIds: skippedDuplicates.map((item) => item.legacySourceId),
+    };
+  }, transactionOptions);
+}
+
+export async function migrateResearchDatabaseSourcesV2(
+  databaseRoot: string,
+  researchDatabaseId: string,
+  rawInput: MigrateResearchSourcesV2Input,
+  transactionOptions: FileTransactionOptions = {},
+): Promise<{ migratedSourceIds: string[]; skippedSourceIds: string[] }> {
+  const input = MigrateResearchSourcesV2InputSchema.parse(rawInput);
+  return runSeriesFileTransaction(databaseRoot, async (commit) => {
+    const migrations: Array<{
+      sourceId: string;
+      sourceRaw: string;
+      source: ResearchSourceV3;
+      contentRaw: string;
+    }> = [];
+    const skippedSourceIds: string[] = [];
+    const now = new Date().toISOString();
+
+    for (const requested of input.sources) {
+      const current = await readResearchDatabaseSourceFile(databaseRoot, researchDatabaseId, requested.sourceId);
+      if (current.revision !== requested.baseRevision) {
+        throw new StorageError("Research source has changed since migration was requested", "CONFLICT", {
+          actualRevision: current.revision,
+          expectedRevision: requested.baseRevision,
+          sourceId: requested.sourceId,
+        });
+      }
+      if (current.source.schemaVersion === 3) {
+        skippedSourceIds.push(current.source.id);
+        continue;
+      }
+      if (!("originalText" in current)) {
+        throw new StorageError("Version 2 Research source detail is invalid", "INVALID_DATA", {
+          sourceId: requested.sourceId,
+        });
+      }
+      const sourcePath = researchDatabaseSourcePath(databaseRoot, current.source.id);
+      const sourceRaw = await readFile(sourcePath, "utf8");
+      if (jsonAuthorityRevision(sourceRaw) !== current.revision) {
+        throw new StorageError("Version 2 Research source changed during migration", "CONFLICT", {
+          sourceId: current.source.id,
+        });
+      }
+      ResearchSourceV2Schema.parse(parseJsonAuthorityText(sourceRaw, (value) => ResearchSourceV2Schema.parse(value)));
+      const prepared = prepareVersion2ResearchContent(current.originalText, current.source.kind);
+      const content = buildResearchSourceContent({
+        researchDatabaseId,
+        sourceId: current.source.id,
+        originalContentHash: current.source.contentHash,
+        declaredLanguage: current.source.declaredLanguage,
+        prepared,
+      });
+      const contentRaw = serializeJsonAuthority(content);
+      const contentPath = researchDatabaseContentPath(databaseRoot, current.source.id);
+      const source = ResearchSourceV3Schema.parse({
+        ...current.source,
+        schemaVersion: 3,
+        contentRelativePath: path.relative(databaseRoot, contentPath).split(path.sep).join("/"),
+        parsedContentHash: jsonAuthorityRevision(contentRaw),
+        parserName: prepared.parserName,
+        parserVersion: prepared.parserVersion,
+        parseWarnings: prepared.warnings,
+        origin: { type: "file" },
+        updatedAt: now,
+        migratedFromVersion2Revision: current.revision,
+      });
+      const rollbackPath = researchSourceV2RollbackPath(databaseRoot, current.source.id, current.revision);
+      if (await pathExists(rollbackPath) || await pathExists(contentPath)) {
+        throw new StorageError("Research source version 2 migration artifacts already exist", "CONFLICT", {
+          sourceId: current.source.id,
+        });
+      }
+      migrations.push({ sourceId: current.source.id, sourceRaw, source, contentRaw });
+    }
+
+    await commit(migrations.flatMap((migration) => [
+      {
+        targetPath: researchSourceV2RollbackPath(
+          databaseRoot,
+          migration.sourceId,
+          migration.source.migratedFromVersion2Revision!,
+        ),
+        content: migration.sourceRaw,
+      },
+      { targetPath: researchDatabaseContentPath(databaseRoot, migration.sourceId), content: migration.contentRaw },
+      {
+        targetPath: researchDatabaseSourcePath(databaseRoot, migration.sourceId),
+        content: serializeJsonAuthority(migration.source),
+      },
+    ]));
+
+    for (const migration of migrations) {
+      const verified = await readResearchDatabaseSourceFile(databaseRoot, researchDatabaseId, migration.sourceId);
+      if (verified.source.schemaVersion !== 3 || !("content" in verified)) {
+        throw new StorageError("Migrated Research source failed read-back verification", "INVALID_DATA", {
+          sourceId: migration.sourceId,
+        });
+      }
+      const rollbackRaw = await readFile(
+        researchSourceV2RollbackPath(
+          databaseRoot,
+          migration.sourceId,
+          migration.source.migratedFromVersion2Revision!,
+        ),
+        "utf8",
+      );
+      if (rollbackRaw !== migration.sourceRaw) {
+        throw new StorageError("Research source version 2 rollback bytes changed", "INVALID_DATA", {
+          sourceId: migration.sourceId,
+        });
+      }
+    }
+    return {
+      migratedSourceIds: migrations.map((migration) => migration.sourceId),
+      skippedSourceIds,
     };
   }, transactionOptions);
 }

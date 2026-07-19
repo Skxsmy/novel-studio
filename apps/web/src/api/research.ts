@@ -1,12 +1,18 @@
 import type {
   CreateResearchDatabaseInput,
   ImportResearchSourceInput,
+  ImportResearchWebSourceInput,
   LegacyResearchSourceGroup,
+  MigrateResearchSourcesV2Input,
   ResearchDatabaseDocument,
   ResearchDatabaseListResult,
+  ResearchIndexState,
+  ResearchKeywordSearchInput,
+  ResearchKeywordSearchResponse,
   ResearchLegacyMigrationResult,
   ResearchSourceDetail,
   ResearchSourceDocument,
+  ResearchSourceV2MigrationResult,
   UpdateResearchDatabaseInput,
   UpdateResearchSourceInput,
 } from "@novel-studio/contracts";
@@ -53,11 +59,37 @@ export function createResearchApi(client: ApiClient) {
         method: "POST",
       });
     },
+    importWebSource(databaseId: string, input: ImportResearchWebSourceInput) {
+      return client.requestJson<ResearchSourceDetail>(`/research/databases/${databaseId}/sources/web`, {
+        body: input,
+        method: "POST",
+      });
+    },
     updateSource(databaseId: string, sourceId: string, input: UpdateResearchSourceInput) {
       return client.requestJson<ResearchSourceDetail>(`/research/databases/${databaseId}/sources/${sourceId}`, {
         body: input,
         method: "PUT",
       });
+    },
+    getIndexState(databaseId: string) {
+      return client.requestJson<ResearchIndexState>(`/research/databases/${databaseId}/index`);
+    },
+    rebuildIndex(databaseId: string) {
+      return client.requestJson<ResearchIndexState>(`/research/databases/${databaseId}/index/rebuild`, {
+        method: "POST",
+      });
+    },
+    search(databaseId: string, input: ResearchKeywordSearchInput) {
+      return client.requestJson<ResearchKeywordSearchResponse>(`/research/databases/${databaseId}/search`, {
+        body: input,
+        method: "POST",
+      });
+    },
+    migrateSourcesV2(databaseId: string, input: MigrateResearchSourcesV2Input) {
+      return client.requestJson<ResearchSourceV2MigrationResult>(
+        `/research/databases/${databaseId}/migrations/source-v3`,
+        { body: input, method: "POST" },
+      );
     },
   };
 }
@@ -65,12 +97,18 @@ export function createResearchApi(client: ApiClient) {
 export type {
   CreateResearchDatabaseInput,
   ImportResearchSourceInput,
+  ImportResearchWebSourceInput,
   LegacyResearchSourceGroup,
+  MigrateResearchSourcesV2Input,
   ResearchDatabaseDocument,
   ResearchDatabaseListResult,
+  ResearchIndexState,
+  ResearchKeywordSearchInput,
+  ResearchKeywordSearchResponse,
   ResearchLegacyMigrationResult,
   ResearchSourceDetail,
   ResearchSourceDocument,
+  ResearchSourceV2MigrationResult,
   UpdateResearchDatabaseInput,
   UpdateResearchSourceInput,
 };

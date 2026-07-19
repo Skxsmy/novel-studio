@@ -54,7 +54,8 @@ that hierarchy and remain owned only by their selected Research Database.
    is committed. The snapshot is never refreshed during search.
 8. ZIP-based parsers reject absolute paths, parent traversal, symbolic links,
    excessive entries, excessive expanded bytes, and excessive compression
-   ratios before content extraction. DOCX external relationships are rejected.
+   ratios before content extraction. DOCX external file and package relationships
+   are rejected; ordinary hyperlinks remain readable text and are never fetched.
    EPUB spine items must resolve inside the validated archive.
 
 ## Dependency Decision
@@ -65,6 +66,8 @@ that hierarchy and remain owned only by their selected Research Database.
   inspection and extraction.
 - `parse5` 8.0.1, MIT, parses and serializes HTML/XHTML into an explicit tree so
   active content can be removed without executing it.
+- `lucide-react` 1.25.0, ISC, supplies familiar accessible interface icons for
+  source acquisition, database search, index repair, and dialog controls.
 
 No parser may access an external file or network resource. The controlled web
 acquisition boundary is the only NS-604 network path.

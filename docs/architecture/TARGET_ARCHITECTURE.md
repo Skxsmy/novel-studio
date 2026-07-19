@@ -70,7 +70,7 @@ packages/
 - The exact selected Provider connection and model declare whether reasoning is unsupported, switch-controlled, effort-controlled with an exact allowed set, or token-budget-controlled. Model Profile authority stores only the normalized last valid preference for that exact model. General Chat and Agent stream typed reasoning above typed answer content, persist the resolved call parameters, and record author cancellation as `cancelled`; no adapter may rewrap reasoning as answer text or invent unsupported options.
 - Workshop export is a derived read path. Reasoning, prompt audit, and attachment-body inclusion are explicit independent choices; the default is readable session history without hidden/audit content.
 - Embedding model profiles are library-global JSON settings under `.studio/embedding-profiles/`. They are separate from generation `ModelProfile` records and store Provider, endpoint, model, dimensions, batch limits, profile-level concurrency, normalization, license, and credential reference. They do not contain vectors or source text.
-- Research Databases are library-level directories under `research-databases/<database-id>/`. Each directory owns `database.json`, SourceDocument authority, managed originals, parser output, transaction journals, and its own rebuildable index. A database may link to several Series, but no Series owns or stores the database. Database selection and Source management work without an active Series.
+- Research Databases are library-level directories under `research-databases/<database-id>/`. Each directory owns `database.json`, SourceDocument version 3 authority, exact managed originals, versioned parsed content, transaction journals, and its own rebuildable identity-bound index. A database may link to several Series, but no Series owns or stores the database. Database selection, import, original-language search, and Source management work without an active Series.
 - Proposal、Evidence、调用审计和版本元数据：`.studio` 下可导出的结构化文件。
 - JSON authority 是 Project/File Service 的内部职责；API 层应在可行处继续提供当前前端所需的兼容投影，例如场景 `content`。
 
@@ -83,7 +83,7 @@ packages/
 
 删除全部可重建数据后，应用仍能打开和编辑作品，并可重新索引。
 
-M6 的详细数据库目标见 `docs/architecture/DATABASE_ARCHITECTURE.md`、ADR-0018 和 ADR-0019。每个 Series 保留一个派生 `index.sqlite` 作为小说投影；每个作品库级 Research Database 另有独立权威目录和独立可重建索引，数据库之间不共享来源、行、权限或生命周期状态。NS-602 已交付 Series 索引内核和旧的 Series-owned TXT/Markdown 来源路径；NS-603 迁移到多个隔离 Research Database，NS-604 加入完整原语言格式与关键词索引，NS-605 加入显式多库查询和跨语言检索。向量仍由可替换适配器管理，任何 SQLite 正文都不是唯一权威。
+M6 的详细数据库目标见 `docs/architecture/DATABASE_ARCHITECTURE.md`、ADR-0018、ADR-0019 和 ADR-0020。每个 Series 保留一个派生 `index.sqlite` 作为小说投影；每个作品库级 Research Database 另有独立权威目录和独立可重建索引，数据库之间不共享来源、行、权限或生命周期状态。NS-602 已交付 Series 索引内核和旧的 Series-owned TXT/Markdown 来源路径；NS-603 迁移到多个隔离 Research Database；NS-604 已加入 SourceDocument version 3、完整原语言格式、受控网页快照与单库关键词索引；NS-605 加入显式多库查询和无共享词项的跨语言检索。向量仍由可替换适配器管理，任何 SQLite 正文都不是唯一权威。
 
 小说检索投影必须保留段落、句子、对白、叙述、POV、故事时间、情节线、语言片段和原文偏移，不能把 Scene 仅作为无结构长字符串。统一 Search Service 的物理索引按 manuscript/reference/Codex/Workshop 领域和 CJK/词项分析方式分开，先在各通道内排序再确定性融合。中文查询跨语言召回日文/英文原文时，优先使用经过中/日/英 fixture 验证的同空间多语言 Embedding；作者确认别名、确定性转写和显式的版本化查询翻译只扩展召回。任何译文或语义命中都必须保留 BCP 47 语言、原文 hash/offset/SourceLocation 和命中通道，不得替代 Evidence。
 

@@ -117,7 +117,7 @@ import {
   CreateResearchDatabaseInputSchema,
   ResearchDatabaseSchema,
   ResearchLegacyMigrationResultSchema,
-  ResearchSourceSchema,
+  ResearchSourceV3Schema,
   RestoreSceneSectionInputSchema,
   type AgentRole,
   SceneBlockDocumentResponseSchema,
@@ -274,6 +274,12 @@ import {
   type ResearchSourceKind,
   type ResearchSourceMediaType,
   type ResearchSourceProperties,
+  type ResearchSourceV3,
+  type MigrateResearchSourcesV2Input,
+  type ResearchIndexState,
+  type ResearchKeywordSearchInput,
+  type ResearchKeywordSearchResponse,
+  type ResearchSourceV2MigrationResult,
   type CreateResearchDatabaseInput,
   type LegacyResearchSourceGroup,
   type ResearchDatabaseDocument,
@@ -385,13 +391,16 @@ import {
 } from "./proposalFiles.js";
 import {
   createResearchDatabaseSourceFile,
+  createResearchDatabaseSourceV3File,
   hasLegacyResearchMigrationReceipt,
   listLegacyResearchSourceFiles,
   listResearchDatabaseSourceFiles,
   migrateLegacyResearchSourceFiles,
+  migrateResearchDatabaseSourcesV2,
   readLegacyResearchSourceFile,
   readResearchDatabaseSourceFile,
   researchDatabaseOriginalPath,
+  researchDatabaseContentPath,
   updateResearchDatabaseSourceFile,
   type ResearchFileTransactionOptions,
 } from "./researchFiles.js";
@@ -403,6 +412,17 @@ import {
   updateResearchDatabaseFile,
   type ResearchDatabaseTransactionOptions,
 } from "./researchDatabases.js";
+import {
+  buildResearchSourceContent,
+  type PreparedResearchContent,
+} from "./researchContent.js";
+import {
+  inspectResearchIndex,
+  rebuildResearchIndex,
+  researchIndexDatabasePath,
+  searchResearchIndex,
+  type ResearchIndexBuildOptions,
+} from "./researchIndex.js";
 
 export {
   INDEX_APPLICATION_ID,
@@ -420,6 +440,17 @@ export {
   type IndexRebuildHooks,
   type IndexRebuildOptions,
 } from "./indexDatabase.js";
+export {
+  RESEARCH_INDEX_APPLICATION_ID,
+  RESEARCH_INDEX_SCHEMA_CHECKSUM,
+  RESEARCH_INDEX_SCHEMA_VERSION,
+  inspectResearchIndex,
+  rebuildResearchIndex,
+  researchIndexDatabasePath,
+  searchResearchIndex,
+  type ResearchIndexBuildHooks,
+  type ResearchIndexBuildOptions,
+} from "./researchIndex.js";
 import {
   createWorkshopAgentRunFile,
   createWorkshopAttachmentFile,
@@ -1548,10 +1579,12 @@ export interface PreparedResearchSourceImport {
   kind: ResearchSourceKind;
   mediaType: ResearchSourceMediaType;
   originalFileName: string;
-  originalText: string;
+  originalBytes: Uint8Array;
   sizeBytes: number;
   contentHash: string;
   properties: ResearchSourceProperties;
+  origin: ResearchSourceV3["origin"];
+  content: PreparedResearchContent;
 }
 
 const workshopSessionMutationTails = new Map<string, Promise<void>>();
@@ -1760,8 +1793,17 @@ export class ProjectRepository {
     const id = randomUUID();
     const now = new Date().toISOString();
     const originalPath = researchDatabaseOriginalPath(databaseRoot, { id, kind: input.kind });
-    const source = ResearchSourceSchema.parse({
-      schemaVersion: 2,
+    const contentPath = researchDatabaseContentPath(databaseRoot, id);
+    const content = buildResearchSourceContent({
+      researchDatabaseId,
+      sourceId: id,
+      originalContentHash: input.contentHash,
+      declaredLanguage: input.properties.declaredLanguage,
+      prepared: input.content,
+    });
+    const parsedContentHash = jsonAuthorityRevision(serializeJsonAuthority(content));
+    const source = ResearchSourceV3Schema.parse({
+      schemaVersion: 3,
       id,
       researchDatabaseId,
       kind: input.kind,
@@ -1770,14 +1812,26 @@ export class ProjectRepository {
       sizeBytes: input.sizeBytes,
       contentHash: input.contentHash,
       originalRelativePath: path.relative(databaseRoot, originalPath).split(path.sep).join("/"),
+      contentRelativePath: path.relative(databaseRoot, contentPath).split(path.sep).join("/"),
+      parsedContentHash,
       parseStatus: "parsed",
-      parserName: "plain-text",
-      parserVersion: 1,
+      parserName: input.content.parserName,
+      parserVersion: input.content.parserVersion,
+      parseWarnings: input.content.warnings,
+      origin: input.origin,
       importedAt: now,
       updatedAt: now,
       ...input.properties,
     });
-    return createResearchDatabaseSourceFile(databaseRoot, source, input.originalText, transactionOptions);
+    const detail = await createResearchDatabaseSourceV3File(
+      databaseRoot,
+      source,
+      input.originalBytes,
+      content,
+      transactionOptions,
+    );
+    await this.rebuildResearchDatabaseIndex(researchDatabaseId).catch(() => undefined);
+    return detail;
   }
 
   async updateResearchSource(
@@ -1786,12 +1840,76 @@ export class ProjectRepository {
     input: UpdateResearchSourceInput,
   ): Promise<ResearchSourceDetail> {
     await this.getResearchDatabase(researchDatabaseId);
-    return updateResearchDatabaseSourceFile(
+    const detail = await updateResearchDatabaseSourceFile(
       researchDatabaseRoot(this.libraryRoot, researchDatabaseId),
       researchDatabaseId,
       sourceId,
       input,
     );
+    await this.rebuildResearchDatabaseIndex(researchDatabaseId).catch(() => undefined);
+    return detail;
+  }
+
+  async getResearchIndexState(researchDatabaseId: string): Promise<ResearchIndexState> {
+    await this.getResearchDatabase(researchDatabaseId);
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
+    const sources = await this.readResearchSourceDetails(researchDatabaseId);
+    return inspectResearchIndex(databaseRoot, researchDatabaseId, sources);
+  }
+
+  async rebuildResearchDatabaseIndex(
+    researchDatabaseId: string,
+    options: ResearchIndexBuildOptions = {},
+  ): Promise<ResearchIndexState> {
+    await this.getResearchDatabase(researchDatabaseId);
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
+    const sources = await this.readResearchSourceDetails(researchDatabaseId);
+    return rebuildResearchIndex(databaseRoot, researchDatabaseId, sources, options);
+  }
+
+  async searchResearchSources(
+    researchDatabaseId: string,
+    input: ResearchKeywordSearchInput,
+  ): Promise<ResearchKeywordSearchResponse> {
+    await this.getResearchDatabase(researchDatabaseId);
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
+    const sources = await this.readResearchSourceDetails(researchDatabaseId);
+    const state = await inspectResearchIndex(databaseRoot, researchDatabaseId, sources);
+    if (state.status !== "ready") {
+      await rebuildResearchIndex(databaseRoot, researchDatabaseId, sources);
+    }
+    return searchResearchIndex(databaseRoot, researchDatabaseId, input);
+  }
+
+  async migrateResearchSourcesV2(
+    researchDatabaseId: string,
+    input: MigrateResearchSourcesV2Input,
+    transactionOptions: ResearchFileTransactionOptions = {},
+  ): Promise<ResearchSourceV2MigrationResult> {
+    await this.getResearchDatabase(researchDatabaseId);
+    const databaseRoot = researchDatabaseRoot(this.libraryRoot, researchDatabaseId);
+    const migration = await migrateResearchDatabaseSourcesV2(
+      databaseRoot,
+      researchDatabaseId,
+      input,
+      transactionOptions,
+    );
+    let indexState: ResearchIndexState;
+    try {
+      indexState = await this.rebuildResearchDatabaseIndex(researchDatabaseId);
+    } catch {
+      indexState = await this.getResearchIndexState(researchDatabaseId);
+    }
+    return {
+      researchDatabaseId,
+      ...migration,
+      indexState,
+    };
+  }
+
+  private async readResearchSourceDetails(researchDatabaseId: string): Promise<ResearchSourceDetail[]> {
+    const documents = await this.listResearchSources(researchDatabaseId);
+    return Promise.all(documents.map((document) => this.getResearchSource(researchDatabaseId, document.source.id)));
   }
 
   async listLegacyResearchSourceGroups(): Promise<LegacyResearchSourceGroup[]> {

@@ -4,59 +4,43 @@ import type { FastifyInstance } from "fastify";
 import {
   CreateResearchDatabaseInputSchema,
   ImportResearchSourceInputSchema,
+  ImportResearchWebSourceInputSchema,
   LegacyResearchSourceGroupSchema,
+  MigrateResearchSourcesV2InputSchema,
   ResearchDatabaseDocumentSchema,
   ResearchDatabaseListResultSchema,
+  ResearchIndexStateSchema,
+  ResearchKeywordSearchInputSchema,
+  ResearchKeywordSearchResponseSchema,
   ResearchLegacyMigrationResultSchema,
   ResearchSourceDetailSchema,
   ResearchSourceDocumentSchema,
   ResearchSourcePropertiesSchema,
+  ResearchSourceV2MigrationResultSchema,
   UpdateResearchDatabaseInputSchema,
   UpdateResearchSourceInputSchema,
-  type ResearchSourceKind,
-  type ResearchSourceMediaType,
 } from "@novel-studio/contracts";
-import { ProjectRepository, StorageError } from "@novel-studio/storage";
+import { ProjectRepository } from "@novel-studio/storage";
+import { parseResearchFile, parseResearchWebSnapshot } from "../researchParsers.js";
+import { acquireResearchWebPage } from "../researchWebImport.js";
+import type { AcquiredResearchWebPage } from "../researchWebImport.js";
 
-const RESEARCH_UPLOAD_BODY_LIMIT = 8 * 1024 * 1024;
-
-function classifySource(fileName: string, mediaType: ResearchSourceMediaType): ResearchSourceKind {
-  const extension = path.extname(fileName).toLocaleLowerCase("en-US");
-  if (extension === ".txt" && mediaType === "text/plain") return "txt";
-  if (extension === ".md" && mediaType === "text/markdown") return "markdown";
-  throw new StorageError("Research source extension and media type do not match a supported format", "INVALID_DATA", {
-    extension,
-    mediaType,
-  });
-}
-function decodeVerifiedUtf8(contentBase64: string, declaredSize: number): { bytes: Buffer; text: string } {
-  const bytes = Buffer.from(contentBase64, "base64");
-  if (bytes.toString("base64") !== contentBase64 || bytes.byteLength !== declaredSize) {
-    throw new StorageError("Research source base64 or declared byte count is invalid", "INVALID_DATA", {
-      declaredSize,
-      actualSize: bytes.byteLength,
-    });
-  }
-  let text: string;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-  } catch {
-    throw new StorageError("Research source must contain valid UTF-8 text", "INVALID_DATA");
-  }
-  if (!text.trim()) {
-    throw new StorageError("Research source is empty", "INVALID_DATA");
-  }
-  if (!Buffer.from(text, "utf8").equals(bytes)) {
-    throw new StorageError("Research source UTF-8 bytes cannot be preserved exactly", "INVALID_DATA");
-  }
-  return { bytes, text };
-}
+const RESEARCH_UPLOAD_BODY_LIMIT = 36 * 1024 * 1024;
 
 function defaultDisplayName(fileName: string): string {
   return path.basename(fileName, path.extname(fileName)).trim() || fileName;
 }
 
-export function registerResearchRoutes(app: FastifyInstance, repository: ProjectRepository): void {
+export interface ResearchRouteOptions {
+  acquireWebPage?: (url: string) => Promise<AcquiredResearchWebPage>;
+}
+
+export function registerResearchRoutes(
+  app: FastifyInstance,
+  repository: ProjectRepository,
+  options: ResearchRouteOptions = {},
+): void {
+  const acquireWebPage = options.acquireWebPage ?? acquireResearchWebPage;
   app.get(
     "/api/v1/research/databases",
     async () => ResearchDatabaseListResultSchema.parse(await repository.listResearchDatabases()),
@@ -105,6 +89,45 @@ export function registerResearchRoutes(app: FastifyInstance, repository: Project
     ),
   );
 
+  app.post<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/sources/web",
+    async (request, reply) => {
+      const input = ImportResearchWebSourceInputSchema.parse(request.body);
+      const acquired = await acquireWebPage(input.url);
+      const parsed = parseResearchWebSnapshot(acquired.bytes, acquired.origin.finalUrl);
+      const snapshot = parsed.sanitizedSnapshot;
+      if (!snapshot) throw new Error("Sanitized web snapshot was not produced");
+      const properties = ResearchSourcePropertiesSchema.parse({
+        displayName: (input.displayName ?? parsed.title) || new URL(acquired.origin.finalUrl).hostname,
+        author: input.author,
+        declaredLanguage: input.declaredLanguage,
+        tags: input.tags,
+        aiPermission: input.aiPermission,
+        useNotes: input.useNotes,
+      });
+      const hostname = new URL(acquired.origin.finalUrl).hostname.replace(/[^A-Za-z0-9.-]/gu, "-").slice(0, 180);
+      const source = await repository.importResearchSource(request.params.databaseId, {
+        kind: "web-snapshot",
+        mediaType: "text/html",
+        originalFileName: `${hostname || "web-snapshot"}.html`,
+        originalBytes: snapshot,
+        sizeBytes: snapshot.byteLength,
+        contentHash: createHash("sha256").update(snapshot).digest("hex"),
+        properties,
+        origin: acquired.origin,
+        content: {
+          title: parsed.title,
+          parserName: parsed.parserName,
+          parserVersion: parsed.parserVersion,
+          warnings: parsed.warnings,
+          sections: parsed.sections,
+          blocks: parsed.blocks,
+        },
+      });
+      return reply.status(201).send(ResearchSourceDetailSchema.parse(source));
+    },
+  );
+
   app.get<{ Params: { databaseId: string; sourceId: string } }>(
     "/api/v1/research/databases/:databaseId/sources/:sourceId",
     async (request) => ResearchSourceDetailSchema.parse(
@@ -117,10 +140,14 @@ export function registerResearchRoutes(app: FastifyInstance, repository: Project
     { bodyLimit: RESEARCH_UPLOAD_BODY_LIMIT },
     async (request, reply) => {
       const input = ImportResearchSourceInputSchema.parse(request.body);
-      const kind = classifySource(input.fileName, input.mediaType);
-      const { bytes, text } = decodeVerifiedUtf8(input.contentBase64, input.sizeBytes);
+      const imported = await parseResearchFile({
+        contentBase64: input.contentBase64,
+        fileName: input.fileName,
+        mediaType: input.mediaType,
+        sizeBytes: input.sizeBytes,
+      });
       const properties = ResearchSourcePropertiesSchema.parse({
-        displayName: input.displayName ?? defaultDisplayName(input.fileName),
+        displayName: (input.displayName ?? imported.parsed.title) || defaultDisplayName(input.fileName),
         author: input.author,
         declaredLanguage: input.declaredLanguage,
         tags: input.tags,
@@ -128,13 +155,22 @@ export function registerResearchRoutes(app: FastifyInstance, repository: Project
         useNotes: input.useNotes,
       });
       const source = await repository.importResearchSource(request.params.databaseId, {
-        kind,
+        kind: imported.parsed.kind,
         mediaType: input.mediaType,
         originalFileName: input.fileName,
-        originalText: text,
-        sizeBytes: bytes.byteLength,
-        contentHash: createHash("sha256").update(bytes).digest("hex"),
+        originalBytes: imported.bytes,
+        sizeBytes: imported.bytes.byteLength,
+        contentHash: imported.contentHash,
         properties,
+        origin: { type: "file" },
+        content: {
+          title: imported.parsed.title,
+          parserName: imported.parsed.parserName,
+          parserVersion: imported.parsed.parserVersion,
+          warnings: imported.parsed.warnings,
+          sections: imported.parsed.sections,
+          blocks: imported.parsed.blocks,
+        },
       });
       return reply.status(201).send(ResearchSourceDetailSchema.parse(source));
     },
@@ -147,6 +183,40 @@ export function registerResearchRoutes(app: FastifyInstance, repository: Project
         request.params.databaseId,
         request.params.sourceId,
         UpdateResearchSourceInputSchema.parse(request.body),
+      ),
+    ),
+  );
+
+  app.get<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/index",
+    async (request) => ResearchIndexStateSchema.parse(
+      await repository.getResearchIndexState(request.params.databaseId),
+    ),
+  );
+
+  app.post<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/index/rebuild",
+    async (request) => ResearchIndexStateSchema.parse(
+      await repository.rebuildResearchDatabaseIndex(request.params.databaseId),
+    ),
+  );
+
+  app.post<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/search",
+    async (request) => ResearchKeywordSearchResponseSchema.parse(
+      await repository.searchResearchSources(
+        request.params.databaseId,
+        ResearchKeywordSearchInputSchema.parse(request.body),
+      ),
+    ),
+  );
+
+  app.post<{ Params: { databaseId: string } }>(
+    "/api/v1/research/databases/:databaseId/migrations/source-v3",
+    async (request) => ResearchSourceV2MigrationResultSchema.parse(
+      await repository.migrateResearchSourcesV2(
+        request.params.databaseId,
+        MigrateResearchSourcesV2InputSchema.parse(request.body),
       ),
     ),
   );

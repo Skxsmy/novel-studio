@@ -36,7 +36,7 @@ afterEach(async () => {
 });
 
 describe("NS-603 Research source routes", () => {
-  it("imports only verified UTF-8 TXT and Markdown source bytes", async () => {
+  it("imports verified TXT and Markdown bytes into versioned parsed content", async () => {
     const { app, database, libraryRoot } = await fixture();
     const sourceUrl = `/api/v1/research/databases/${database.database.id}/sources`;
     const txt = "潮汐祭的采访记录。\nA witness used the older English name.";
@@ -47,7 +47,7 @@ describe("NS-603 Research source routes", () => {
     });
     expect(txtResponse.statusCode).toBe(201);
     const txtSource = txtResponse.json();
-    expect(txtSource.originalText).toBe(txt);
+    expect(txtSource.content.chunks[0].text).toBe(txt);
     expect(txtSource.source).toMatchObject({
       kind: "txt",
       originalFileName: "interview.txt",
@@ -73,7 +73,10 @@ describe("NS-603 Research source routes", () => {
       method: "GET",
       url: `${sourceUrl}/${mdResponse.json().source.id}`,
     });
-    expect(detail.json().originalText).toBe(markdown);
+    expect(detail.json().content.blocks.map((block: { text: string }) => block.text)).toEqual([
+      "用語",
+      "月守（つきもり）は英語で Moon Keeper。",
+    ]);
 
     const sourceRoot = path.join(libraryRoot, "research-databases", database.database.id);
     expect(await readdir(path.join(sourceRoot, "sources"))).toHaveLength(2);
@@ -86,9 +89,9 @@ describe("NS-603 Research source routes", () => {
     const { app, database } = await fixture();
     const url = `/api/v1/research/databases/${database.database.id}/sources`;
     const cases = [
-      { ...upload("wrong.md", "text/plain", "content") },
+      { ...upload("wrong.pdf", "text/plain", "content") },
       { ...upload("empty.txt", "text/plain", "   \n") },
-      { fileName: "invalid.txt", mediaType: "text/plain", sizeBytes: 1, contentBase64: "/w==" },
+      { fileName: "invalid.txt", mediaType: "text/plain", sizeBytes: 6, contentBase64: Buffer.from([0, 1, 2, 3, 0, 4]).toString("base64") },
       { fileName: "size.txt", mediaType: "text/plain", sizeBytes: 99, contentBase64: "YQ==" },
       { fileName: "../escape.txt", mediaType: "text/plain", sizeBytes: 1, contentBase64: "YQ==" },
       { fileName: "large.txt", mediaType: "text/plain", sizeBytes: MAX_RESEARCH_SOURCE_BYTES + 1, contentBase64: "YQ==" },

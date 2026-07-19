@@ -8,7 +8,7 @@ import type {
   ResearchSourceDocument,
 } from "@novel-studio/contracts";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api } from "../../api";
 import { ReferenceResearchWorkspace } from "./ResearchDatabaseWorkspace";
 
@@ -18,6 +18,7 @@ const databaseBId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const txtId = "22222222-2222-4222-8222-222222222222";
 const mdId = "33333333-3333-4333-8333-333333333333";
 const importedAt = "2026-07-19T02:00:00.000Z";
+type ResearchSourceDetailV2 = Extract<ResearchSourceDetail, { originalText: string }>;
 
 function databaseDocument(
   id = databaseAId,
@@ -45,10 +46,10 @@ function databaseSummary(document: ResearchDatabaseDocument, sourceCount = 0): R
 function detail(
   id = txtId,
   databaseId = databaseAId,
-  overrides: Partial<ResearchSourceDetail["source"]> = {},
-): ResearchSourceDetail {
+  overrides: Partial<ResearchSourceDetailV2["source"]> = {},
+): ResearchSourceDetailV2 {
   const kind = overrides.kind ?? "txt";
-  const source: ResearchSourceDetail["source"] = {
+  const source: ResearchSourceDetailV2["source"] = {
     schemaVersion: 2,
     id,
     researchDatabaseId: databaseId,
@@ -81,6 +82,16 @@ function detail(
 function listed(sourceDetail: ResearchSourceDetail): ResearchSourceDocument {
   return { source: sourceDetail.source, revision: sourceDetail.revision };
 }
+
+beforeEach(() => {
+  vi.spyOn(api.research, "getIndexState").mockImplementation(async (researchDatabaseId) => ({
+    researchDatabaseId,
+    status: "ready",
+    indexedSourceCount: 0,
+    indexedChunkCount: 0,
+    reason: null,
+  }));
+});
 
 afterEach(() => {
   cleanup();
@@ -267,7 +278,7 @@ describe("NS-603 Research Database workspace", () => {
     root.hidden = false;
     await waitFor(() => expect(within(root).getByText("This source shelf is empty")).toBeTruthy());
     const file = new File([markdown.originalText], "terms.md", { type: "text/markdown" });
-    fireEvent.change(within(root).getByLabelText("Choose a TXT or Markdown Research source"), { target: { files: [file] } });
+    fireEvent.change(within(root).getByLabelText("Choose a Research source file"), { target: { files: [file] } });
 
     await waitFor(() => expect(importSource).toHaveBeenCalledTimes(1));
     expect(importSource.mock.calls[0]?.[0]).toBe(databaseAId);
@@ -434,13 +445,13 @@ describe("NS-603 Research Database workspace", () => {
     root.hidden = false;
     await waitFor(() => expect(within(root).getByText("This source shelf is empty")).toBeTruthy());
 
-    fireEvent.change(within(root).getByLabelText("Choose a TXT or Markdown Research source"), {
-      target: { files: [new File(["binary"], "archive.pdf", { type: "application/pdf" })] },
+    fireEvent.change(within(root).getByLabelText("Choose a Research source file"), {
+      target: { files: [new File(["binary"], "archive.doc", { type: "application/msword" })] },
     });
-    expect(within(root).getByRole("alert").textContent).toContain("Choose a UTF-8 TXT or Markdown file");
+    expect(within(root).getByRole("alert").textContent).toContain("Word (.docx)");
     expect(importSource).not.toHaveBeenCalled();
 
-    fireEvent.change(within(root).getByLabelText("Choose a TXT or Markdown Research source"), {
+    fireEvent.change(within(root).getByLabelText("Choose a Research source file"), {
       target: { files: [new File(["same source"], "duplicate.txt", { type: "text/plain" })] },
     });
     await waitFor(() => expect(importSource).toHaveBeenCalledTimes(1));

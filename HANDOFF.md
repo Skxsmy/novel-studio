@@ -6,7 +6,7 @@ Purpose: resume incomplete work only
 ## Resume Point
 
 - Active support task: none; `GOV-002 Database Implementation Review And Hardening` is complete on the existing `codex/ns-514-overview` worktree.
-- Active product task: `NS-604 / M6.3 Reference Library Original-language Database`; A01-A14 are mapped before runtime edits and implementation starts with version 3 contracts and bounded parsers.
+- Active product task: `NS-604 / M6.3 Reference Library Original-language Database`; SourceDocument version 3, bounded format/web imports, isolated original-language search and connected UI are implemented, and A01-A13 pass. Resume at the author's separate A14 visual acceptance or rejection.
 - NS-603 is complete. A01-A11 passed in committed evidence and the author separately accepted the connected multi-database Research page as A12 on 2026-07-19.
 - NS-602 is complete. The author explicitly accepted the overall connected Research layout on 2026-07-19, then required Word, PDF, web-link inputs and multiple isolated Research Databases that are not owned by a Series.
 - NS-514 is paused with P0-P6 and automated A15 passed; only explicit author visual acceptance A16 remains open.
@@ -34,6 +34,9 @@ Purpose: resume incomplete work only
 - Full workspace typecheck, production build, 505 tests, 130 Storage tests, 15 focused Web tests, docs check, and the focused real-Chrome Research workflow pass. Current E2E files now isolate their temporary library; the aggregate run is 5 passed and one historical Chinese-shell test failed.
 - Implemented NS-603 library-scoped ResearchDatabase v1 and database-owned SourceDocument v2 authority, isolated roots and scoped routes, multi-Series links, explicit legacy discovery/copy receipts, and the connected database selector/settings workflow.
 - Added no-Series creation, two-database isolation, same-hash cross-database import, stale/damaged/injected-failure, link/unlink, exact legacy bytes, dirty/conflict, refresh restoration, compact layout, and logger-body omission evidence. Real browser work found and fixed selection erasure, cross-database stale Source requests, and an empty-reader scrollbar.
+- Implemented NS-604 SourceDocument version 3 with exact binary originals, versioned Section/Block/Chunk/SourceLocation and language spans, explicit version 2 migration/rollback, bounded TXT/Markdown/DOCX/text-PDF/EPUB/HTML parsing, and one controlled sanitized web snapshot per submitted public address.
+- Added one identity-bound rebuildable SQLite/FTS5 index per Research Database, single-database CJK/word/literal search, span-aware language filtering and result labels, local-versus-model permission enforcement, atomic rebuild/recovery, structured result-to-reader navigation, and honest unsupported lifecycle scope.
+- Full typecheck, 59 files/579 tests, production build, 181-document check, three real-Chrome Research workflows, and independent disk/network probes pass. Chrome testing found and fixed valid UTF-8 Japanese misdecoding and Japanese Kanji-with-kana context mislabeling. The connected preview uses a temporary library and A14 remains pending.
 
 - Replaced the production reference runtime's fixture-only Project Library handler with a connected handler that uses `useProjectSession.createSeries` and `openSeries`.
 - Preserved the accepted appbar, Project Library menu, New Series dialog, focus behavior, Escape/backdrop dismissal, loading state, and real error path.
@@ -51,9 +54,8 @@ Purpose: resume incomplete work only
 
 ## Still Required
 
-- Obtain the author's explicit NS-603-A12 visual decision after implementation commit `d518666`. A01-A11 pass; do not relabel diagnostic browser inspection as A12.
-- Resolve the implementation-time analyzer, multilingual profile, vector engine, and resource-budget choices before the corresponding NS-604/605 runtime slices.
-- Obtain the author's explicit visual decision for NS-603-A12 after the connected multi-database page is implemented; diagnostic screenshots cannot satisfy it.
+- Obtain the author's explicit NS-604-A14 visual decision on the connected original-language Research workflow; diagnostic screenshots and real-Chrome automation cannot satisfy it.
+- Resolve the multilingual profile, vector engine, fusion, and resource-budget choices before NS-605 implements explicit multi-database and no-shared-term cross-language retrieval.
 - Obtain explicit author visual acceptance for A16. Diagnostic screenshots and the browser function pass do not satisfy that gate.
 - Keep future database review fixes in their support-task commit; do not rewrite the separate NS-514, NS-601, or NS-602 task history.
 

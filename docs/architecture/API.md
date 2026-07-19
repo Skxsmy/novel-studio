@@ -147,7 +147,12 @@ Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复�
 - `GET /research/databases/:databaseId/sources`
 - `GET /research/databases/:databaseId/sources/:sourceId`
 - `POST /research/databases/:databaseId/sources`
+- `POST /research/databases/:databaseId/sources/web`
 - `PUT /research/databases/:databaseId/sources/:sourceId`
+- `GET /research/databases/:databaseId/index`
+- `POST /research/databases/:databaseId/index/rebuild`
+- `POST /research/databases/:databaseId/search`
+- `POST /research/databases/:databaseId/migrations/source-v3`
 
 Research Database 是 library 范围、互相隔离的作者权威对象，不由 Series
 拥有。数据库属性更新使用 `baseRevision`；`linkedSeriesIds` 只建立可复用
@@ -155,19 +160,20 @@ Research Database 是 library 范围、互相隔离的作者权威对象，不�
 命令复制到已经链接该 Series 的目标数据库；旧权威在复制成功后仍保留。
 旧 `/series/:seriesId/research/sources` 路由已退役，不再提供隐式兼容写入。
 
-来源列表返回目标数据库内按导入时间排序的 SourceDocument v2 与 revision；
-详情额外返回受管理原文。导入请求使用 JSON `fileName`、`mediaType`、
+来源列表返回目标数据库内按导入时间排序的 SourceDocument version 2 或 version 3 与 revision；
+version 3 详情额外返回版本化 Section、Block、Chunk、SourceLocation 和语言片段。导入请求使用 JSON `fileName`、`mediaType`、
 `sizeBytes` 和规范 `contentBase64`，可同时提供显示名称、作者、声明语言、
-标签、人工智能权限和版权/使用备注。当前实现只接受扩展名与媒体类型一致、
-大小不超过 5 MiB、严格 UTF-8、非空且字节数可复核的 `.txt` 和 `.md`；
-服务端自己计算 SHA-256，不信任客户端哈希。成功返回 `201` 和建立后的
-详情。Word、文本 PDF、EPUB、HTML 和用户明确提交的网页地址需要先完成
-位置保真解析与受控抓取边界，当前接口不把它们伪装成可用格式。
+标签、人工智能权限和版权/使用备注。当前文件接口接受大小不超过 25 MiB、
+扩展名与媒体类型一致的 TXT、Markdown、DOCX、文本型 PDF、EPUB、HTML/XHTML；
+服务端复核字节数、检测伪装/损坏输入并自己计算 SHA-256，不信任客户端哈希。
+网页接口只接受作者明确提交的公开 `http`/`https` 地址，执行一次受控获取并
+把清洗后的 HTML 快照作为 `web-snapshot` 原件。两种成功路径均返回 `201` 和
+建立后的 version 3 详情。
 
 来源属性更新要求 `baseRevision`，只可修改显示名称、作者、声明语言、标签、
 人工智能权限和使用备注。冲突返回 `409` 并保留现有权威文件；原始文件名、
 媒体类型、字节数、哈希、导入时间、解析器和原文位置不可由该接口修改。
-当前不注册删除、归档、重新解析或搜索路由，客户端不得把这些命令显示为
+当前不注册删除、归档、重新解析、网页重新抓取或多数据库搜索路由，客户端不得把这些命令显示为
 可用。
 
 ## Workshop Agent Tools

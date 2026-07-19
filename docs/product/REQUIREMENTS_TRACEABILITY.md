@@ -118,7 +118,7 @@
 
 M6 语义检索必须复用产品与目标架构定义的共享 `EmbeddingModelProfile`、按用途路由和 profile 级并发基础设施，不得创建资料库私有的第二套 Embedding 配置或静默云端回退。
 
-`NS-601 / M6.0` 先完成数据库架构规划。`NS-602` 随后交付 Series 派生索引内核和第一条 TXT/Markdown Research 来源页面。作者在 NS-602 视觉通过后明确改变 Research 所有权边界，因此 ADR-0019 和 `NS-603` 先把 Research 改为作品库级多个隔离知识库，并建立显式多 Series 关联和旧来源迁移；`NS-604` 在该边界上加入 DOCX、文本 PDF、EPUB、HTML、受控网页地址、SourceLocation/Chunk 和原文关键词索引；`NS-605` 加入明确多选知识库查询、多语言向量和跨语言检索；Series 小说文字与叙事投影的剩余规范化工作由后续 M6 任务独立验收。任务顺序变化不改变 JSON 权威、原文 Evidence 或 Series 派生索引仍可重建的原则。
+`NS-601 / M6.0` 先完成数据库架构规划。`NS-602` 随后交付 Series 派生索引内核和第一条 TXT/Markdown Research 来源页面。作者在 NS-602 视觉通过后明确改变 Research 所有权边界，因此 ADR-0019 和 `NS-603` 先把 Research 改为作品库级多个隔离知识库，并建立显式多 Series 关联和旧来源迁移。`NS-604` 已实现 SourceDocument version 3、DOCX、文本 PDF、EPUB、HTML、受控网页地址、SourceLocation/Chunk、语言片段和单个当前知识库的原文关键词索引；自动化与真实浏览器证据已经通过，最终作者视觉决定仍是独立验收门。`NS-605` 加入明确多选知识库查询、多语言向量和无共享词项的跨语言检索；Series 小说文字与叙事投影的剩余规范化工作由后续 M6 任务独立验收。任务顺序变化不改变 JSON 权威、原文 Evidence 或 Series 派生索引仍可重建的原则。
 
 NS-601 验收 ID：`NS-601-A01` 至 `NS-601-A10`，详见 `docs/tasks/NS-601.md`、`docs/testing/NS-601_ACCEPTANCE.md`、`docs/architecture/DATABASE_ARCHITECTURE.md` 和 ADR-0018。NS-603 起的 Research Database 所有权修订由 ADR-0019 控制。
 

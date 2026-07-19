@@ -14,13 +14,14 @@ async function createRepository(): Promise<ProjectRepository> {
 }
 
 function preparedImport(originalText = "海辺の町についての資料。\nEnglish note."): PreparedResearchSourceImport {
+  const originalBytes = Buffer.from(originalText, "utf8");
   return {
     kind: "markdown",
     mediaType: "text/markdown",
     originalFileName: "source-notes.md",
-    originalText,
-    sizeBytes: Buffer.byteLength(originalText, "utf8"),
-    contentHash: createHash("sha256").update(originalText, "utf8").digest("hex"),
+    originalBytes,
+    sizeBytes: originalBytes.byteLength,
+    contentHash: createHash("sha256").update(originalBytes).digest("hex"),
     properties: {
       displayName: "Source notes",
       author: "A. Researcher",
@@ -28,6 +29,27 @@ function preparedImport(originalText = "海辺の町についての資料。\nEn
       tags: ["coast"],
       aiPermission: "never",
       useNotes: "Private reference",
+    },
+    origin: { type: "file" },
+    content: {
+      title: "Source notes",
+      parserName: "test-markdown",
+      parserVersion: 1,
+      warnings: [],
+      sections: [],
+      blocks: [{
+        order: 0,
+        sectionOrder: null,
+        kind: "paragraph",
+        text: originalText,
+        location: {
+          kind: "text",
+          startLine: 1,
+          endLine: originalText.split("\n").length,
+          startOffset: 0,
+          endOffset: originalText.length,
+        },
+      }],
     },
   };
 }
@@ -52,10 +74,10 @@ describe("NS-603 Research source authority files", () => {
     expect(await readdir(path.join(databaseRoot, "originals"))).toEqual([]);
 
     const created = await store.importResearchSource(database.database.id, preparedImport());
-    expect(created.originalText).toContain("海辺の町");
+    expect("content" in created && created.content.chunks[0]?.text).toContain("海辺の町");
     expect(created.source.aiPermission).toBe("never");
-    expect(await readFile(path.join(databaseRoot, created.source.originalRelativePath), "utf8"))
-      .toBe(preparedImport().originalText);
+    expect(await readFile(path.join(databaseRoot, created.source.originalRelativePath)))
+      .toEqual(Buffer.from(preparedImport().originalBytes));
   });
 
   it("rejects duplicate content inside one database but accepts the same content in another", async () => {
@@ -96,7 +118,7 @@ describe("NS-603 Research source authority files", () => {
     const created = await store.importResearchSource(database.database.id, preparedImport());
     const databaseRoot = path.join(store.libraryRoot, "research-databases", database.database.id);
     const redirectedRelativePath = "originals/redirected.md";
-    await writeFile(path.join(databaseRoot, redirectedRelativePath), created.originalText, "utf8");
+    await writeFile(path.join(databaseRoot, redirectedRelativePath), Buffer.from(preparedImport().originalBytes));
     const authorityPath = path.join(databaseRoot, "sources", `${created.source.id}.json`);
     const authority = JSON.parse(await readFile(authorityPath, "utf8")) as Record<string, unknown>;
     authority.originalRelativePath = redirectedRelativePath;
@@ -171,7 +193,7 @@ describe("NS-603 Research source authority files", () => {
     expect(updated.source).toMatchObject(originalFacts);
     expect(updated.source.displayName).toBe("Japanese coastal source");
     expect(updated.source.tags).toEqual(["coast", "folklore"]);
-    expect(updated.originalText).toBe(created.originalText);
+    expect("content" in updated && "content" in created && updated.content).toEqual(created.content);
     await expect(restarted.updateResearchSource(database.database.id, created.source.id, {
       baseRevision: created.revision,
       displayName: "Stale overwrite",
