@@ -1,8 +1,12 @@
 # NS-609 Acceptance Record
 
-Status: in_progress
+Status: paused
 Task: `docs/tasks/NS-609.md`
 Decision: ADR-0024 fixes database-owned evidence-bound Notes and Proposal-gated Codex field mapping
+
+Author correction: ADR-0026 records that NS-609 was never requested. All rows
+below are historical implementation evidence, not proof of product approval.
+The feature is frozen pending an explicit retain-or-remove decision.
 
 Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Scene`.
 
@@ -21,12 +25,17 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 | NS-609-A09 | passed | `apps/server/test/proposal-routes.test.ts` adversarial HTTP matrix and public-output scan | cross-database Note, foreign-Series Codex target, cross-Series Proposal read/accept, and archived originating Note fail closed; both Codex authorities remain unchanged and public errors omit Source body, original/private paths, encoded content, and credential text |
 | NS-609-A10 | passed | focused Web tests plus identified temporary-library server and real in-app browser | desktop and 390-by-844 workflows capture current multilingual evidence, create and accept Canon and Codex Research Proposals, retain the decided Review outcome, open the exact Codex Entry/tab, and return to the exact database/Note without horizontal page overflow or dead controls |
 | NS-609-A11 | passed | focused checks, final `npm.cmd run check`, docs/link check, diff/status/fingerprint inspection, and exact commits | 197-document check, every workspace typecheck, 85 test files/714 tests, production Server/Web builds, diff safety, stopped local server, clean tracked post-`847c36e` worktree, and protected real-library fingerprint all pass |
-| NS-609-A12 | manual_pending | explicit author decision | author accepts or rejects the final connected workflow; automation cannot pass this row |
+| NS-609-A12 | blocked | ADR-0026 author scope correction | acceptance is withdrawn because the feature was not requested; do not ask for visual acceptance unless the author first chooses to retain or redesign it |
 
 Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 `blocked`, `not_applicable`.
 
 ## Pre-implementation Record
+
+- Scope correction on 2026-07-20: the author stated that Research Note had never
+  been requested. The agent had incorrectly converted speculative product text
+  and external references into mainline scope. ADR-0026 freezes the resulting
+  implementation; no row in this record may be cited as author approval.
 
 - At task opening, the contracts contained `research-note` and
   `create-research-note` Proposal enum values without a Research Note schema,

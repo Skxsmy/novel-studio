@@ -165,6 +165,11 @@ Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复�
 - `POST /research/databases/:databaseId/index/rebuild`
 - `POST /research/databases/:databaseId/search`
 - `POST /research/databases/:databaseId/migrations/source-v3`
+
+以下 `/notes` 路由是未经作者要求的 NS-609 现存实现。ADR-0026 已冻结这些
+路由；记录它们是为了兼容和数据安全，不代表批准的 Research Database API 范围，
+NS-610 不得扩展这些命令。
+
 - `GET /research/databases/:databaseId/notes`
 - `POST /research/databases/:databaseId/notes`
 - `GET /research/databases/:databaseId/notes/:noteId`
@@ -173,8 +178,6 @@ Progression 和角色所知均为权威 JSON 文件，更新、归档和恢复�
 - `DELETE /research/databases/:databaseId/notes/:noteId/evidence/:evidenceId`
 - `POST /research/databases/:databaseId/notes/:noteId/archive`
 - `POST /research/databases/:databaseId/notes/:noteId/restore`
-- `GET /research/databases/:databaseId/notes/:noteId/deletion-blockers`
-- `DELETE /research/databases/:databaseId/notes/:noteId`
 - `POST /research/databases/:databaseId/notes/:noteId/promotions`
 
 Research Database 是 library 范围、互相隔离的作者权威对象，不由 Series
@@ -183,19 +186,10 @@ Research Database 是 library 范围、互相隔离的作者权威对象，不�
 命令复制到已经链接该 Series 的目标数据库；旧权威在复制成功后仍保留。
 旧 `/series/:seriesId/research/sources` 路由已退役，不再提供隐式兼容写入。
 
-Research Note 路由属于一个明确的 Research Database，不要求打开 Series。创建
-Note 或追加 Evidence 的请求只提交当前 Source、content revision、Block 和 Chunk
-身份；服务端必须从同库权威复核并填充原语言引用、hash、语言和 SourceLocation，
-拒绝客户端自报正文、私有路径和跨库引用。列表返回有界摘要；详情解析每条证据的
-当前、Source revision 已变化但段落仍可定位、段落已变化、来源缺失、不可读或
-归属不匹配状态。`aiPermission: never` 单独报告模型使用禁止，不阻止作者本地读取。
-Archive/restore 和所有写入要求 `baseRevision`；归档 Note 只读。
-
-`.../promotions` 还要求一个活动 Series、明确 meaning、现有或新 Codex target 和
-作者可编辑的候选文字。现实参考及仅供灵感目标为 Codex Research，世界规则目标为
-Canon Description。响应只创建一个 pending Proposal；不调用 Provider，也不提前
-写 Codex。接受路径重新校验 Note、Evidence 和目标 revision/absence，再在 Series
-事务中写 Codex、不可变快照与 Proposal 决定。
+冻结的 Research Note 路由继续执行同库证据复核、私有路径隐藏、`baseRevision`
+检查和归档只读等现有安全规则。冻结的 `.../promotions` 路由继续在接受前复核
+Note、Evidence 和目标 revision/absence。上述内容只描述兼容行为；作者没有要求或
+接受这些功能，是否保留、重做或移除由后续明确决定。
 
 来源列表按 `status=active|archived|all` 返回目标数据库内的 SourceDocument version 2、version 3 或 version 4 与 revision；默认只返回活动来源。
 version 2 详情保留旧的原文响应；version 3/version 4 详情、导入响应和属性更新响应只返回
@@ -214,7 +208,7 @@ SourceLocation 与语言片段。导入请求使用 JSON `fileName`、`mediaType
 来源属性更新要求 `baseRevision`，只可修改显示名称、作者、声明语言、标签、
 人工智能权限和使用备注。冲突返回 `409` 并保留现有权威文件；原始文件名、
 媒体类型、字节数、哈希、导入时间、解析器和原文位置不可由该接口修改。
-ADR-0025 的数据库、Source 和 Research Note 生命周期端点全部要求 `baseRevision`。
+ADR-0025 的数据库和 Source 生命周期端点全部要求 `baseRevision`。
 数据库和 Source 提供 `/archive`、`/restore`、`/deletion-blockers` 与 `DELETE`；
 Source 还提供 `/replace/file`、`/refresh-web` 与 `/reparse`。文件替换请求复用有界
 导入字节字段但不接受管理路径；网页刷新只复用当前 Source 中已经验证的 requested
@@ -472,12 +466,11 @@ NS-407 已允许两类调用：
 
 ### Proposal 边界
 
-当前 Proposal/Review 应用流程支持已连接的 Scene 目标；NS-609 的目标扩展是
-Research Note 来源到 Codex Entry 或 Codex Research 目标。正文候选仍可在写作页
-内联确认；其它 AI 或 Research 输出如需影响设定、摘要、人物状态、故事进展或
-角色所知，必须进入 Proposal 或候选事实收件箱。应用 Proposal 前必须比较每个
-目标 revision；创建目标必须验证预分配 ID 仍不存在。目标、Research Note 或
-Source Evidence 已变化时返回冲突，不能静默合并。
+当前 Proposal/Review 应用流程支持已连接的 Scene 目标。NS-609 还实现了 Research
+Note 到 Codex 的目标扩展，但该扩展未经作者要求并已由 ADR-0026 冻结；这里仅记录
+现存兼容路径。其它人工智能或 Research 输出如需影响设定、摘要、人物状态、故事
+进展或角色所知，必须进入另行批准的 Proposal 或候选事实收件箱。应用任何已批准
+Proposal 前必须比较每个目标 revision，不能静默合并冲突。
 
 ## 后续长任务
 

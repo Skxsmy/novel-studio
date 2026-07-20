@@ -8,13 +8,15 @@ Date: 2026-07-20
 ADR-0019 makes each Research Database an isolated library-scoped authority
 root. ADR-0020 makes imported originals immutable and permits parsed content to
 change only through an explicit parser migration or author-confirmed re-import.
-ADR-0024 adds database-owned Research Notes whose captured evidence must not be
-silently rewritten when a Source changes.
+NS-609 left database-owned Research Note and Proposal files in the current
+checkout. ADR-0026 records that this was an unrequested agent expansion and
+freezes it. NS-610 may read those files only to avoid corrupting existing data
+when a Source changes or is deleted.
 
-The current runtime can edit database and Source properties and can archive a
-Research Note, but it cannot archive or permanently delete a database, archive
+The current runtime can edit database and Source properties, but it cannot
+archive or permanently delete a database, archive
 or permanently delete a Source, replace a Source without overwriting history,
-reparse its current original, or permanently delete an archived Note after
+reparse its current original, or safely clean up those authority roots after
 checking external references. UI controls for those operations would therefore
 be false capabilities until this lifecycle boundary is implemented.
 
@@ -27,7 +29,7 @@ be false capabilities until this lifecycle boundary is implemented.
    revision-checked lifecycle command upgrades version 1 and writes an exact
    rollback artifact in the same database transaction.
 2. Archiving is reversible and does not archive or rewrite contained Sources or
-   Notes. An archived database remains locally readable from the Research
+   frozen compatibility files. An archived database remains locally readable from the Research
    workspace, but it is read-only, excluded from ordinary and model retrieval,
    cannot be newly activated in Workshop, and cannot be selected by an existing
    model call.
@@ -36,7 +38,8 @@ be false capabilities until this lifecycle boundary is implemented.
    session authority also blocks conservatively because a hidden reference
    cannot be disproved.
 4. Permanent delete requires an archived database, its current revision, and an
-   exact author-entered database name. Pending Research Note Proposals and
+   exact author-entered database name. Pending Proposals created by the frozen
+   NS-609 implementation and
    unreadable Proposal authority also block. Deletion removes that database's
    Sources, originals, parsed content, Notes, aliases, indexes, and migration or
    version artifacts as one isolated root. Series links do not own the database
@@ -55,8 +58,9 @@ be false capabilities until this lifecycle boundary is implemented.
    must first use the existing explicit version 3 migration.
 7. Archiving a Source is reversible. An archived Source and its current original
    remain locally readable, but properties are read-only, it is excluded from
-   lexical and vector indexes, it is never returned by model tools, and Note
-   freshness reports `source-archived` without changing the captured quote.
+   lexical and vector indexes and is never returned by model tools. Existing
+   frozen NS-609 evidence reads report `source-archived` without changing the
+   captured quote; this is compatibility behavior, not new Note scope.
 8. Replacing a Source is an explicit author action against the current revision.
    It preserves the stable Source ID and author-managed properties, writes a new
    immutable original and parsed-content file under a new content version, and
@@ -70,34 +74,23 @@ be false capabilities until this lifecycle boundary is implemented.
    URL through the same controlled web policy and stores a new immutable
    original version.
 10. Permanent Source delete requires the Source to be archived, its current
-    revision, and its exact display name. Any healthy or damaged Research Note
-    authority that may cite the Source blocks deletion. After Notes are removed,
-    the command atomically removes current and retained Source authority,
-    original, and content files, then rebuilds disposable indexes. Historical
-    model-tool audit metadata is retained, but its deleted original passage can
-    no longer be opened; the confirmation UI states that consequence.
-
-### Research Note Delete
-
-11. Permanent Research Note delete requires an archived Note, its current
-    revision, and its exact title. A pending Proposal sourced from that Note, or
-    unreadable Proposal authority in any Series, blocks deletion. Accepted,
-    edited, rejected, stale, or superseded Proposals do not block because their
-    immutable Proposal evidence preserves the historical candidate and quote
-    snapshot; after deletion their source availability is reported honestly.
-12. Source deletion remains blocked by every Note that cites it, including an
-    archived Note. The author therefore resolves deletion in dependency order:
-    decide pending Proposals, archive and delete dependent Notes, then archive
-    and delete the Source. Database deletion can remove its complete contained
-    graph only after external Workshop and pending-Proposal blockers are clear.
+    revision, and its exact display name. A pending Proposal whose immutable
+    Research evidence cites the Source, or unreadable Series authority that may
+    hide such a Proposal, blocks deletion. Existing Research Notes retain their
+    captured quote snapshots and become honestly `source-missing`; they are a
+    visible consequence, not a blocker or a new lifecycle feature. The command
+    atomically removes current and retained Source authority, original, and
+    content files, then rebuilds disposable indexes. Historical model-tool audit
+    metadata is retained, but its deleted original passage can no longer be
+    opened; the confirmation UI states that consequence.
 
 ### Isolation And Concurrency
 
-13. Every command verifies database ownership, current revision, exact
+11. Every command verifies database ownership, current revision, exact
     confirmation text, lifecycle precondition, and references immediately before
     mutation under the existing process-local coordinator. Cross-database IDs
     fail closed. No lifecycle command is exposed as a model tool.
-14. Derived lexical and vector indexes are rebuilt or marked unavailable only
+12. Derived lexical and vector indexes are rebuilt or marked unavailable only
     after authority commit. Index failure never rolls authority back or revives
     deleted content. Existing cross-process locking and backup gaps remain
     separate tasks and are not implied complete by this decision.
@@ -108,10 +101,11 @@ be false capabilities until this lifecycle boundary is implemented.
   sink or silent recursive deletion.
 - A replacement keeps one stable Source identity while every original version
   remains immutable and auditable.
-- Existing Notes keep their exact captured evidence and become stale instead of
-  being rewritten after archive, replacement, reparse, or deletion.
-- Pending work blocks destructive cleanup; decided historical work remains
-  readable from its own immutable evidence.
+- Existing frozen NS-609 files keep their exact captured evidence and become
+  stale instead of being rewritten after archive, replacement, reparse, or
+  deletion.
+- Pending work blocks destructive cleanup; existing frozen quote snapshots
+  remain readable from their own immutable evidence.
 - Database and Source schema changes require compatibility reads, explicit
   upgrade artifacts, rollback verification, and damage tests.
 
@@ -135,9 +129,9 @@ be false capabilities until this lifecycle boundary is implemented.
   recovery, stale revisions, duplicate IDs, damaged authority, and rollback.
 - Prove archived databases and Sources are locally readable but absent from
   search, Workshop activation, model tools, and new writes.
-- Prove replacement and reparse preserve old originals and Note quotes while
-  changing freshness and current retrieval only after commit.
-- Prove Note, Source, and database blocker reports cover external references,
+- Prove replacement and reparse preserve old originals and any existing frozen
+  quote snapshots while changing current retrieval only after commit.
+- Prove Source and database blocker reports cover external references,
   fail closed on unreadable authority, and expose no private body, path, or
   credential.
 - Prove permanent delete requires exact confirmation, never crosses database

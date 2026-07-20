@@ -76,7 +76,7 @@ NS-602 的第一条实现切片只接受不超过 5 MiB 的 UTF-8 `.txt` 和 `.m
 
 ADR-0025 的 SourceDocument version 4 在 version 3 上增加活动或归档状态以及递增的内容版本。归档来源仍可由作者本地阅读，但只读并从词法索引、向量索引、联合检索、Workshop 激活结果和模型工具中排除。替换来源保留稳定 Source ID 和作者属性，把新原件与解析内容写入新的不可变版本路径，并保留旧 Source JSON、原件和解析内容；重新解析只读取当前原件并写入新的解析内容版本，不访问网络或改写原件。网页快照刷新是作者明确触发的受控替换，不是后台监控。
 
-Research Database version 2 提供活动或归档状态。归档数据库不级联改写其中的 Source 或 Research Note，但整个数据库只读并从检索与 Workshop 激活中排除。任何 Workshop 会话仍记录该数据库时，归档和永久删除都必须被阻止。数据库永久删除要求归档状态、当前 revision、完整输入数据库名称，并在服务器再次检查 Workshop、待确认 Proposal 和不可读权威；成功后只删除该数据库的独立根，不影响其它数据库。
+Research Database version 2 提供活动或归档状态。归档数据库不级联改写其中的 Source 或任何已有冻结兼容数据，但整个数据库只读并从检索与 Workshop 激活中排除。任何 Workshop 会话仍记录该数据库时，归档和永久删除都必须被阻止。数据库永久删除要求归档状态、当前 revision、完整输入数据库名称，并在服务器再次检查 Workshop、待确认 Proposal 和不可读权威；成功后只删除该数据库的独立根，不影响其它数据库。
 
 ## 3. 支持格式
 
@@ -188,15 +188,13 @@ Research Database version 2 提供活动或归档状态。归档数据库不级�
 
 分析输出包含：结论、证据、适用范围、不确定项和模型信息。不得自动把参考作品的具体措辞加入生成 Prompt。
 
-## 7. Research Note 与 Canon
+## 7. 冻结的未经要求 Research Note 实现
 
-- 原文资料属于 Source。
-- 从资料提炼出的内容属于当前 Research Database 内的 Research Note，不属于任何 Series。Research Note 可以在没有打开 Series 时创建和管理，也不会因为知识库关联多个 Series 而复制或移动。
-- 首个 Research Note schema 是证据绑定的笔记：创建时至少包含当前知识库内一段由服务端复核的 Source 原文证据。笔记正文与原文证据分开保存；作者或人工智能生成的总结不能冒充原文。
-- Research Note 默认不是故事事实。归档后的笔记只读，恢复后才能继续编辑。永久删除要求归档状态、当前 revision 和完整输入笔记标题；任何以该笔记为来源的待确认 Proposal 或无法排除引用的不可读 Series 权威都会阻止删除。已经决定的 Proposal 保留自己的不可变候选与证据快照，删除笔记后只把来源可用性诚实显示为不可用。
-- “转入 Codex”要求打开一个 Series，并产生一个新的 Series Proposal；知识库不需要归属或关联该 Series。作者必须选择现实参考、世界规则或仅供灵感，并选择现有 Codex Entry 或在现有类别中创建一个命名的新 Entry。
-- 现实参考和仅供灵感写入 Codex Research；世界规则写入 Canon Description。候选文字可在创建 Proposal 前独立编辑，不改写 Research Note；Review 接受前 Codex 不发生变化。
-- 来源更新后，已有 Research Note 不自动改写；系统保留捕获时的原语言证据并提示当前、来源已归档、来源 revision 已变化但原段仍可定位、段落已变化、来源缺失、权威不可读或归属不匹配。`never` 只禁止资料进入人工智能上下文，不禁止作者本地阅读、记笔记或执行不调用 Provider 的 Proposal 流程。任何活动或归档 Research Note 仍引用某个来源时，该来源不能永久删除；作者必须先处理待确认 Proposal，再归档并删除相关笔记，最后删除来源。
+- 作者没有要求 Research Note 或 Research Note-to-Codex 功能。NS-609 是 agent 从推测性文档和外部产品比较自行扩展的实现；ADR-0026 已冻结它，不能把通过测试解释为产品批准。
+- 现有代码和已有数据暂时保留，避免在没有作者决定时造成破坏性删除。其数据库归属、证据快照、归档状态和 Proposal 行为仅描述当前兼容边界，不是本规格要求继续交付的能力。
+- NS-610 只实现 Research Database 和 Source 生命周期。它可以只读检查冻结的 Note 或 Proposal 引用，以防 Source 或数据库删除破坏现有数据，但不得增加 Note 创建、编辑、提升或删除行为。
+- 永久删除 Source 时，已有冻结 Note 的引用快照可保留并显示来源缺失；引用该 Source 的待确认 Proposal 或无法排除该引用的不可读 Series 权威会阻止删除。这是现有数据安全规则，不把 Research Note 纳入数据库路线图。
+- Research Note 的保留、重新设计或移除必须等待作者另行明确决定。
 
 ## 8. 外部研究报告
 
@@ -216,7 +214,7 @@ Research Database version 2 提供活动或归档状态。归档数据库不级�
 2. 文本型 PDF 结果带页码；扫描 PDF 明确提示需 OCR。
 3. 禁止 AI 的资料可关键词搜索，但不会进入本地或云模型上下文。
 4. 资料进入 Embedding 或模型调用前必须经过作者选择和资料权限检查；`never` 资料在发送前被阻止。
-5. 删除索引后可从 Source 重新解析/索引，不丢失 Research Note。
+5. 删除索引后可从 Source 重新解析和重建，不丢失 Source 权威；现有冻结 NS-609 文件不得被索引重建意外改写或删除。
 6. 恶意 EPUB 路径、HTML 脚本和 DOCX 外部文件引用被拒绝或隔离。
 7. 使用中文查询可通过已验证的多语言 Embedding 召回不含共享词项但语义相关的日文和英文 Chunk；结果展示原文、原文位置、语言和语义命中方式。
 8. 未配置或未通过验证的跨语言 profile 时，同一查询只返回可证明的关键词/别名/转写结果，并明确提示跨语言语义检索未启用，不伪造空结果结论或静默调用云模型。

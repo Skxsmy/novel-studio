@@ -112,13 +112,13 @@
 
 ## M6 资料分析库
 
-覆盖：作品库级多个隔离 Research Database；TXT、Markdown、DOCX、文本 PDF、EPUB、HTML 和作者明确提交地址后的受控网页快照；SourceLocation、FTS5、可选 Embedding、Research Note 和权限。
+覆盖：作品库级多个隔离 Research Database；TXT、Markdown、DOCX、文本 PDF、EPUB、HTML 和作者明确提交地址后的受控网页快照；SourceLocation、FTS5、可选 Embedding、来源权限，以及 Workshop 人工智能主动检索。Research Note 不属于作者要求的 M6 范围；现存 NS-609 实现按 ADR-0026 冻结。
 
 完成标准：多个知识库在目录、来源、索引、权限、损坏和生命周期上互相隔离；同一知识库可显式关联多个 Series；默认单库检索，明确多选才联合返回带库标识的结果；六种文件 fixture 与受控网页地址 fixture 解析；中/日/英及混合语言原文检索；中文查询对无共享词项的日文和英文资料进行可验证的跨语言召回；结果公开关键词、别名、转写、查询翻译或语义命中方式并回指原文；扫描 PDF 诚实失败；危险文件和危险网页目标隔离；资料不能越权进入模型。
 
 M6 语义检索必须复用产品与目标架构定义的共享 `EmbeddingModelProfile`、按用途路由和 profile 级并发基础设施，不得创建资料库私有的第二套 Embedding 配置或静默云端回退。
 
-`NS-601 / M6.0` 先完成数据库架构规划。`NS-602` 随后交付 Series 派生索引内核和第一条 TXT/Markdown Research 来源页面。作者在 NS-602 视觉通过后明确改变 Research 所有权边界，因此 ADR-0019 和 `NS-603` 先把 Research 改为作品库级多个隔离知识库，并建立显式多 Series 关联和旧来源迁移。`NS-604` 已提交 SourceDocument version 3、DOCX、文本 PDF、EPUB、HTML、受控网页地址、SourceLocation/Chunk、语言片段、大文件有界读取和单个当前知识库的原文关键词索引自动化证据；其独立作者视觉决定仍保持打开。`NS-605` 已提交明确多选知识库查询、数据库内持久别名/转写、多语言能力验证、独立可重建向量、确定性融合和无共享词项的跨语言检索工程证据，独立作者视觉决定仍保持打开。作者明确要求开发不要停在这些视觉门，因此 `NS-606` 已按 ADR-0021 完成三个严格模型只读检索工具、固定服务器预算、原文引用校验、取消和脱敏持久审计；`NS-607` 已提交 Workshop 会话激活、模型原生检索循环、原文引用、全部 Research/Codex 工具的生产策略和行为评测框架，其独立作者验收仍保持打开；`NS-608` 已完成保存的真实凭据和 `deepseek-v4-pro` 多会话多轮作者工作流、对抗、恢复、性能及最终数据库审查的自动化证据，作者验收仍保持打开。`NS-609` 已完成 ADR-0024 的数据库拥有证据绑定 Research Note、Proposal 和 Review 应用自动化边界，作者验收仍保持打开。当前活动任务 `NS-610` 按 ADR-0025 实现数据库、Source 和 Research Note 的引用感知归档、恢复、版本保留替换、重新解析与永久删除。任务顺序变化不改变 JSON 权威、原文 Evidence 或派生索引仍可重建的原则，任何一个任务的状态都不能代表这些后续任务已经实现。
+`NS-601 / M6.0` 先完成数据库架构规划。`NS-602` 随后交付 Series 派生索引内核和第一条 TXT/Markdown Research 来源页面。作者在 NS-602 视觉通过后明确改变 Research 所有权边界，因此 ADR-0019 和 `NS-603` 先把 Research 改为作品库级多个隔离知识库，并建立显式多 Series 关联和旧来源迁移。`NS-604` 已提交 SourceDocument version 3、DOCX、文本 PDF、EPUB、HTML、受控网页地址、SourceLocation/Chunk、语言片段、大文件有界读取和单个当前知识库的原文关键词索引自动化证据；其独立作者视觉决定仍保持打开。`NS-605` 已提交明确多选知识库查询、数据库内持久别名/转写、多语言能力验证、独立可重建向量、确定性融合和无共享词项的跨语言检索工程证据，独立作者视觉决定仍保持打开。作者明确要求开发不要停在这些视觉门，因此 `NS-606` 已按 ADR-0021 完成三个严格模型只读检索工具、固定服务器预算、原文引用校验、取消和脱敏持久审计；`NS-607` 已提交 Workshop 会话激活、模型原生检索循环、原文引用、全部 Research/Codex 工具的生产策略和行为评测框架，其独立作者验收仍保持打开；`NS-608` 已完成保存的真实凭据和 `deepseek-v4-pro` 多会话多轮作者工作流、对抗、恢复、性能及最终数据库审查的自动化证据，作者验收仍保持打开。`NS-609` 是未经作者要求由 agent 自行扩展的 Research Note、Proposal 和 Codex promotion 实现；ADR-0026 已冻结该功能，A01-A11 只能证明代码路径而不能证明产品批准。当前活动任务 `NS-610` 只按 ADR-0025 与 ADR-0026 实现 Research Database 和 Source 的归档、恢复、版本保留替换、重新解析与永久删除。任务顺序变化不改变 JSON 权威、原文 Evidence 或派生索引仍可重建的原则，任何一个任务的状态都不能代表这些后续任务已经实现。
 
 NS-601 验收 ID：`NS-601-A01` 至 `NS-601-A10`，详见 `docs/tasks/NS-601.md`、`docs/testing/NS-601_ACCEPTANCE.md`、`docs/architecture/DATABASE_ARCHITECTURE.md` 和 ADR-0018。NS-603 起的 Research Database 所有权修订由 ADR-0019 控制。
 

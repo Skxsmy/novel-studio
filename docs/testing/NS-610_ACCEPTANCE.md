@@ -3,6 +3,7 @@
 Status: in_progress
 Task: `docs/tasks/NS-610.md`
 Decision: `docs/adr/0025-research-lifecycle-and-versioned-source-replacement.md`
+Scope correction: `docs/adr/0026-freeze-unrequested-research-note-expansion.md`
 
 Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Scene`.
 
@@ -10,11 +11,11 @@ Canonical author-facing hierarchy: `Series → Volume → Chapter → Act → Sc
 
 | Acceptance ID | Status | Verification | Required evidence |
 | --- | --- | --- | --- |
-| NS-610-A01 | passed | authoritative records and `npm.cmd run docs:check` | ADR-0025 and product, data, API, security, UX, traceability, task, and acceptance records agree before runtime edits; documentation check passed for 200 Markdown files and the scoped contradiction scan found no live claim that lifecycle routes must remain absent |
+| NS-610-A01 | passed | authoritative records and `npm.cmd run docs:check` | after the author identified that NS-609 was unrequested, ADR-0026 and every active product, data, API, security, UX, traceability, task, and acceptance record now identify it as frozen compatibility rather than approved scope; documentation check passes 201 Markdown files before runtime work resumes |
 | NS-610-A02 | passed | `packages/contracts/test/research-lifecycle.test.ts`, full Contracts suite/build, and affected workspace typechecks | Database version 1/version 2 and Source version 2/version 3/version 4 compatibility, lifecycle consistency, bounded replacement/confirmation inputs, blocker consistency, and archived-Source freshness pass 5 focused files/20 tests and the full 12-file/79-test Contracts suite; Contracts build plus Storage, Server, and Web typechecks pass |
 | NS-610-A03 | planned | Storage database lifecycle tests | archive, restore, blocker, quarantine delete, restart cleanup, and rollback evidence |
 | NS-610-A04 | planned | Storage Source lifecycle tests | immutable file/web replacement versions, reparse, archive/restore, parser-family, Note freshness, and rollback evidence |
-| NS-610-A05 | planned | Storage Note/Source blocker matrix and Proposal regressions | exact-confirmed deletion and every live/unreadable reference outcome |
+| NS-610-A05 | planned | Storage Source blocker matrix and Proposal regressions | exact-confirmed deletion, Note snapshot consequence, and every pending/unreadable external-reference outcome |
 | NS-610-A06 | planned | index, retrieval, gateway, Workshop, and restart tests | active-only projection/tool behavior and restore/current-version reconciliation |
 | NS-610-A07 | planned | Server lifecycle route tests | complete connected route and classified bounded response evidence |
 | NS-610-A08 | planned | Web NS-610 and affected shell tests | connected states, actions, drafts, selection, retry, blockers, and responsive behavior |
@@ -29,10 +30,15 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 
 ## Pre-implementation Record
 
+- Author correction on 2026-07-20: Research Note and Research Note-to-Codex were
+  never requested. NS-609 is a frozen agent-created expansion under ADR-0026.
+  NS-610 contains only Database and Source lifecycle; read-only Note/Proposal
+  fixtures may prove that existing authority is not corrupted.
+
 - At task opening, Research Database authority is version 1 and Source authority
-  is version 3. Neither has lifecycle state. Only Research Note archive/restore
-  exists; database and Source deletion-blocker/lifecycle contracts are partial
-  scaffolding and are not implementation evidence.
+  is version 3. Neither has lifecycle state; database and Source deletion-
+  blocker/lifecycle contracts are partial scaffolding and are not implementation
+  evidence. Research Note remains outside the NS-610 feature scope.
 - Existing Source property updates rebuild indexes, but there is no retained
   version, replacement, reparse, archive, restore, or permanent-delete command.
 - The author's saved model credential remains present and unchanged. NS-610
@@ -47,6 +53,8 @@ Allowed status values: `planned`, `in_progress`, `passed`, `manual_pending`,
 | 2026-07-20 | clean tracked post-`c3c87ac` worktree | current contracts, storage, routes, Research UI, Proposal/audit references, architecture, and predecessor evidence inventory | Confirmed the missing lifecycle commands, identified existing Workshop database blocker scaffolding, mapped versioned authority and reference boundaries, and opened NS-610 without treating scaffolding as implemented behavior |
 | 2026-07-20 | NS-610 planning worktree before runtime edits | `npm.cmd run docs:check`; `git diff --check`; scoped lifecycle contradiction scan | Passed 200 Markdown files and diff safety. ADR-0025 fixes database v2, Source v4 immutable replacement/reparse history, archive/read-only retrieval exclusion, deletion dependency order, external blocker handling, and exact-confirmed cleanup; A01 passed before runtime edits. |
 | 2026-07-20 | post-`d35462e` A02 worktree | focused lifecycle and affected Contracts tests; full Contracts suite/build; Storage, Server, and Web typechecks; `git diff --check` | Passed 5 focused files/20 tests, full Contracts 12 files/79 tests, Contracts build, all affected workspace typechecks, and diff safety. Malformed lifecycle pairs, invalid versions, unsafe replacement envelopes, inconsistent blocker booleans, and oversized/empty confirmations are rejected. |
+| 2026-07-20 | post-`1921881` scope-correction worktree | author correction inventory across status, task, product, architecture, API, contracts, and acceptance records | Confirmed that Research Note and Research Note-to-Codex were never requested. Froze NS-609 under ADR-0026, removed Note lifecycle from NS-610, and paused implementation until the corrected documentation check and a separate documentation commit pass. |
+| 2026-07-20 | ADR-0026 documentation-correction worktree | `npm.cmd run docs:check`; `git diff --check`; scoped active-claim scan | Passed 201 Markdown files and diff safety. Active product and architecture records now limit NS-610 to Research Database and Source lifecycle; Research Note references are explicitly frozen historical or read-only compatibility boundaries pending an author retain, redesign, or remove decision. |
 
 ## Repository Safety
 

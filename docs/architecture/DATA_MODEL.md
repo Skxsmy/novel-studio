@@ -138,13 +138,11 @@ SourceLocation 和混合语言片段位于版本化 content JSON。version 2 只
 迁移输入，迁移保留原件和精确回滚 JSON。Series 关联是知识库属性，不改变
 Source 路径或所有权。
 
-Research Note version 1 位于
-`research-databases/<database-id>/notes/<note-id>.json`，由一个 Research
-Database 拥有并至少绑定一条同库 Source 证据。笔记保存稳定 ID、标题、正文、
-标签、归档状态、时间戳和 revision；每条证据保存 Source content revision/hash、
-Block/Chunk 身份、Chunk/hash、原语言引用快照与 hash、语言、SourceLocation 和
-捕获时间。证据新鲜度在读取时从当前 Source 权威派生，不写回或改写笔记正文。
-归档笔记只读；永久删除在能够检查 Proposal 和快照引用前不可用。
+未经作者要求的 NS-609 实现已经写入 Research Note version 1，位置为
+`research-databases/<database-id>/notes/<note-id>.json`。ADR-0026 将它冻结并排除
+在批准的目标数据模型之外；这里记录稳定 ID、同库 Source 证据、原语言引用快照、
+归档状态和 revision，只为保证现有文件仍可安全读取且不会被 NS-610 意外改写或
+删除。是否保留、迁移或移除该 schema 必须等待作者另行决定。
 
 ADR-0025 将 Research Database authority 扩展为 version 2，增加
 `status: active | archived` 和与状态一致的 `archivedAt`。version 1
@@ -158,9 +156,10 @@ content 路径；重新解析复用当前原件并只写新的 content 版本。
 Source JSON 与其不可变路径，不成为第二个当前 Source。永久删除在引用检查后删除
 该 Source 的当前和历史 authority/original/content 文件；索引仍可重建。
 
-Research Note permanent delete 不改变 schema version 1。命令只允许删除已经归档、
-revision 与标题确认都匹配且没有待确认 Proposal 引用的 Note 文件。已经决定的
-Proposal 依靠自身不可变证据继续作为历史权威。
+ADR-0025 不为冻结的 Research Note schema version 1 增加任何命令。Source 被明确
+永久删除后，现有 Note 文件仍保留自己的原文引用快照，读取时派生为
+`source-missing`；待确认 Proposal 引用或不可读的可能引用会在 Source 删除前阻止
+操作。这是兼容安全检查，不是 Research Note 产品范围。
 
 NS-602 起，每个 Series 的 `.studio/index.sqlite` 通过统一 `IndexDatabase` 边界打开。新数据库使用固定 `application_id = 0x4E534958`、`user_version = 1`、校验过的迁移账本、严格类型普通表、固定 WAL/连接策略和每个 Series 一个串行写入/重建队列。当前旧 `application_id=0` 且 `user_version=0` 的数据库被分类为 `legacy-v0` 派生索引，不被误认为权威或已迁移数据。
 
@@ -484,10 +483,7 @@ Preset 只保存默认角色、模板版本、模型配置和输入项，不保�
 
 `Proposal` 是候选变更权威记录。AI 输出如需影响正文、设定、摘要、进展或角色所知，必须进入 Proposal/Review 流程或受限的作者明确确认命令。每个 patch 必须记录目标类型、目标 ID、基础 revision、字段路径、差异和证据；目标已变化时不得直接应用。
 
-Research Note 到 Codex 的 Proposal 属于目标 Series，并引用数据库拥有的 Note
-revision 与全部 Source Evidence。现实参考和仅供灵感使用 `codex-research`
-目标 revision；世界规则使用 `codex-entry` 的 Canon Description revision。新
-Codex Entry 使用预分配 ID 和明确的 `targetAbsent` 基线，不伪造 revision。
-接受时只把 Codex 目标、不可变快照和 Proposal 决定写入同一个 Series-root
-事务；Research Note 与 Source 是只读依赖，不声称跨 Research Database 与 Series
-根目录的原子写入。
+冻结的 NS-609 Proposal 文件可能引用数据库内的 Note revision 与 Source Evidence。
+该结构未经作者要求，不属于批准的目标数据模型；现有读取和接受路径继续执行原有
+revision、目标缺失基线和 Series-root 事务检查，只为避免损坏已经存在的数据。任何
+新增、迁移或删除行为必须等待作者决定。

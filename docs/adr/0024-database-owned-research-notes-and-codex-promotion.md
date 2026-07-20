@@ -1,7 +1,12 @@
 # ADR-0024: Database-owned Research Notes And Codex Promotion
 
-Status: Accepted
+Status: Superseded by ADR-0026 for product approval status
 Date: 2026-07-20
+
+This document describes the implemented NS-609 architecture. ADR-0026 records
+the author's correction that this feature was never requested, freezes further
+work, and prevents this historical implementation record from being treated as
+an approved product requirement.
 
 ## Context
 

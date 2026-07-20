@@ -208,13 +208,13 @@ Codex 写工具，工具形状的普通文字不得被当作调用执行。
 - `relation-update`。
 - `plot-thread-update`。
 - `beat-update`。
-- `research-note`。
+- `research-note`：仅为冻结 NS-609 实现保留的兼容类型，不属于已批准产品范围。
 - `continuity-issue`：只报告，不直接修改。
 
-Research Note 提升使用 `research-note` Proposal 来源，但目标仍是一个明确的
-Codex 字段：现实参考和仅供灵感目标为 Codex Research，世界规则目标为 Canon
-Description。它必须由作者在 Research 工作区明确发起，不调用 Provider；Research
-Note 和全部 Source Evidence 在创建和接受时重新校验，Review 接受前不写 Codex。
+现有 NS-609 实现使用 `research-note` Proposal 来源并指向明确的 Codex 字段。
+作者没有要求或接受该功能，ADR-0026 已冻结它；此处只记录现存数据的校验与安全
+边界，不能作为继续增加 Research Note 或提升行为的依据。是否保留、重新设计或
+移除必须等待作者单独决定。
 
 ### 5.2 必需字段
 
