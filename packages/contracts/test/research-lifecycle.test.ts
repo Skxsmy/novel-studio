@@ -10,8 +10,6 @@ import {
   ResearchSourceSchema,
 } from "../src/research.js";
 import {
-  DeleteResearchNoteInputSchema,
-  ResearchNoteDeletionBlockersSchema,
   ResearchNoteEvidenceFreshnessSchema,
   ResearchNoteFreshnessCountsSchema,
 } from "../src/researchNotes.js";
@@ -109,10 +107,6 @@ describe("NS-610 Research lifecycle contracts", () => {
       baseRevision: revision,
       confirmationName: "",
     }).success).toBe(false);
-    expect(DeleteResearchNoteInputSchema.safeParse({
-      baseRevision: revision,
-      confirmationTitle: "x".repeat(201),
-    }).success).toBe(false);
     expect(ReplaceResearchSourceInputSchema.parse({
       baseRevision: revision,
       fileName: "replacement.txt",
@@ -149,15 +143,9 @@ describe("NS-610 Research lifecycle contracts", () => {
       sourceId,
       blocked: false,
       noteReferences: [{ noteId, noteTitle: "Note", noteStatus: "active" }],
-      unreadableNoteCount: 0,
-    }).success).toBe(false);
-    expect(ResearchNoteDeletionBlockersSchema.safeParse({
-      researchDatabaseId: databaseId,
-      noteId,
-      blocked: true,
       pendingProposalReferences: [],
       unreadableSeries: [],
-    }).success).toBe(false);
+    }).success).toBe(true);
   });
 
   it("represents archived Source freshness separately from permission", () => {

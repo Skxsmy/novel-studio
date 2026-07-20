@@ -648,9 +648,14 @@ export const ResearchSourceDeletionBlockersSchema = z.object({
   sourceId: z.string().uuid(),
   blocked: z.boolean(),
   noteReferences: z.array(ResearchSourceNoteReferenceSchema).max(10_000),
-  unreadableNoteCount: z.number().int().nonnegative(),
+  pendingProposalReferences: z.array(ResearchPendingProposalReferenceSchema).max(10_000),
+  unreadableSeries: z.array(z.object({
+    seriesId: z.string().uuid(),
+    seriesTitle: z.string().trim().min(1).max(200),
+    diagnosticCount: z.number().int().positive(),
+  }).strict()).max(10_000),
 }).strict().superRefine((result, context) => {
-  const expected = result.noteReferences.length > 0 || result.unreadableNoteCount > 0;
+  const expected = result.pendingProposalReferences.length > 0 || result.unreadableSeries.length > 0;
   if (result.blocked !== expected) {
     context.addIssue({ code: "custom", path: ["blocked"], message: "Research Source blocker state is inconsistent" });
   }
