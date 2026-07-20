@@ -10,7 +10,8 @@ Authority: current operational state only
 - Last reached mainline task: `NS-609 / M6.8 Evidence-bound Research Notes And Canon Promotion`; the agent added it without an author request. Its A01-A11 automation is historical implementation evidence only, and all further work is frozen pending an explicit retain-or-remove decision.
 - Next mainline task: `NS-610 / M6.9 Research Database And Source Lifecycle`, which returns to the author's requested database work.
 - Following mainline task: to be scoped after NS-610 from the remaining database audit gaps. Backup, job/lock, query-translation, Embedding Settings, OCR, and `.doc` recommendations remain separate work and are not packed into NS-610.
-- Next mainline action: commit the ADR-0026 scope correction, then implement and prove NS-610 A03 database archive, restore, external blockers, exact-confirmed quarantine deletion, and restart cleanup. A01-A02 are passed.
+- Delivery boundary: NS-610 A01-A02 are delivered and committed through `5de9139`; no A03-A13 Storage, Server, Web, browser, or author-acceptance implementation has started. `HANDOFF.md` is the exact resume record.
+- Next mainline action: resume at NS-610 A03 only and implement Research Database archive, restore, external blockers, exact-confirmed quarantine deletion, and restart cleanup in a generated temporary library before starting Source lifecycle.
 - Deferred earlier mainline tasks: `NS-511-NS-513` remain unfinished by explicit user direction; NS-514 is paused with only A16 author visual acceptance open. No task is skipped, renumbered, or implied complete.
 - Open earlier gates: NS-503/M5.3, NS-504/M5.4, and NS-505/M5.5 retain explicit user visual-acceptance work; their command/function evidence is not a visual pass.
 - Mainline state: GOV-002 is complete and does not consume, complete, or renumber an NS task. NS-602 author visual acceptance was supplied separately by the author.
